@@ -125,9 +125,9 @@ func (p *Planner) GatewayEvalFor(sql string, stmt ast.Stmt, conn *server.Conn, p
 //     and holding no reserved backend, whose loss the next statement must
 //     surface;
 //   - every column analyzes against the builtin catalog with the client's
-//     parameter declarations, prepares in the evaluator, calls only
-//     immutable functions, and has a type whose text and binary I/O is
-//     ported, as does every parameter;
+//     parameter declarations, prepares in the evaluator, calls no function
+//     (callFree), and has a type whose text and binary I/O is ported, as
+//     does every parameter;
 //   - an unknown-type column (a bare string literal) is declined: PostgreSQL
 //     resolves it to text through textin, which is not ported.
 //
@@ -199,7 +199,7 @@ func (p *Planner) gatewayEval(sql string, ss *ast.SelectStmt, conn *server.Conn,
 	columns := make([]engine.EvalColumn, 0, len(targets))
 	for _, t := range targets {
 		typ := analyze.ExprType(t.tree)
-		if typ == pgoid.UNKNOWNOID || !ioPorted(typ) || !immutable(t.tree) {
+		if typ == pgoid.UNKNOWNOID || !ioPorted(typ) || !callFree(t.tree) {
 			return nil
 		}
 		state, err := exec.Prepare(t.tree)
@@ -240,38 +240,26 @@ func registered(proc pgoid.Oid) bool {
 	return pr != nil && fmgr.IsBuiltinRegistered(pr.Src)
 }
 
-// immutable reports whether every function an analyzed expression calls is
-// immutable, so the gateway's answer is the one any backend would give. A
-// stable or volatile builtin (now(), random(), current_setting()) must run on
-// a backend even once it is ported.
-func immutable(tree ast.Node) bool {
+// callFree reports whether an analyzed expression calls no function: no
+// FuncExpr or OpExpr (a cast through a cast function, 1::int8, is one), no
+// DISTINCT FROM, NULLIF or IN/ANY comparison, and no CoerceViaIO (1::text).
+// PostgreSQL checks EXECUTE on every one of these for the session's role, in
+// ExecInitFunc and again when the planner folds a constant argument, so a
+// REVOKE on the builtin changes the answer. A literal, a parameter, a
+// literal's parse-time coercion ('5'::int4), boolean logic, CASE, COALESCE
+// and the NULL and boolean tests are never privilege-checked. The gateway
+// has no view of pg_proc ACLs or role membership, so it admits exactly the
+// unchecked set; a call routes until admission can consult the catalog.
+func callFree(tree ast.Node) bool {
 	ok := true
-	check := func(funcid pgoid.Oid) bool {
-		proc := pgcatalog.ProcByOid(funcid)
-		if proc == nil || proc.Volatile != pgcatalog.VolatilityImmutable {
-			ok = false
-		}
-		return ok
-	}
 	analyze.Walk(tree, func(n ast.Node) bool {
-		switch e := n.(type) {
-		case *ast.FuncExpr:
-			return check(e.Funcid)
-		case *ast.OpExpr:
-			return check(e.Opfuncid)
-		case *ast.DistinctExpr:
-			return check(e.Opfuncid)
-		case *ast.NullIfExpr:
-			return check(e.Opfuncid)
-		case *ast.ScalarArrayOpExpr:
-			return check(e.Opfuncid)
-		case *ast.CoerceViaIO:
-			// The cast runs the source type's output and the result type's
-			// input function.
-			return check(pgcatalog.TypeByOid(analyze.ExprType(e.Arg)).Output) &&
-				check(pgcatalog.TypeByOid(e.Resulttype).Input)
+		switch n.(type) {
+		case *ast.Const, *ast.Param, *ast.RelabelType, *ast.BoolExpr, *ast.BooleanTest, *ast.NullTest,
+			*ast.CaseExpr, *ast.CaseWhen, *ast.CaseTestExpr, *ast.CoalesceExpr:
+			return true
 		}
-		return true
+		ok = false
+		return false
 	})
 	return ok
 }

@@ -53,11 +53,11 @@ func TestGatewayEval_SimpleProtocolNeverReachesBackend(t *testing.T) {
 
 	for range 2 {
 		var results []*sqltypes.Result
-		res, err := exec.StreamExecute(ctx, conn, nil, "SELECT 1 + 2 AS three", parseOne(t, "SELECT 1 + 2 AS three"), collect(&results))
+		res, err := exec.StreamExecute(ctx, conn, nil, "SELECT 3 AS three", parseOne(t, "SELECT 3 AS three"), collect(&results))
 		require.NoError(t, err)
 		assert.Equal(t, engine.PlanTypeGatewayEval, res.PlanType)
 		assert.False(t, res.CacheHit, "a constant SELECT is never cached")
-		assert.Equal(t, "SELECT $1 + $2 AS three", res.NormalizedSQL, "the shape is still fingerprinted for logs and metrics")
+		assert.Equal(t, "SELECT $1 AS three", res.NormalizedSQL, "the shape is still fingerprinted for logs and metrics")
 		assert.NotEmpty(t, res.Fingerprint)
 		require.Len(t, results, 1)
 		require.Len(t, results[0].Rows, 1)
@@ -69,7 +69,7 @@ func TestGatewayEval_SimpleProtocolNeverReachesBackend(t *testing.T) {
 }
 
 // A literal-dependent decline must not poison the normalized cache: the
-// Route for `SELECT 1 + true` would otherwise be served to `SELECT 1 + 2`.
+// Route for `SELECT 'abc'::int4` would otherwise be served to `SELECT '5'::int4`.
 func TestGatewayEval_DeclinedSelectIsNotCached(t *testing.T) {
 	mock := &mockExec{}
 	exec := newTestExecutor(mock)
@@ -77,14 +77,14 @@ func TestGatewayEval_DeclinedSelectIsNotCached(t *testing.T) {
 	ctx := context.Background()
 	conn := testConn()
 
-	res, err := exec.StreamExecute(ctx, conn, nil, "SELECT 1 + true", parseOne(t, "SELECT 1 + true"), noopCallback)
+	res, err := exec.StreamExecute(ctx, conn, nil, "SELECT 'abc'::int4", parseOne(t, "SELECT 'abc'::int4"), noopCallback)
 	require.NoError(t, err)
 	assert.Equal(t, engine.PlanTypeRoute, res.PlanType)
 	assert.Equal(t, int32(1), mock.streamExecuteCalls.Load())
-	assert.Equal(t, "SELECT 1 + true", mock.lastStreamExecuteSQL.Load(), "the literal SQL is sent, not a reconstruction")
+	assert.Equal(t, "SELECT 'abc'::int4", mock.lastStreamExecuteSQL.Load(), "the literal SQL is sent, not a reconstruction")
 	time.Sleep(20 * time.Millisecond)
 
-	res, err = exec.StreamExecute(ctx, conn, nil, "SELECT 1 + 2", parseOne(t, "SELECT 1 + 2"), noopCallback)
+	res, err = exec.StreamExecute(ctx, conn, nil, "SELECT '5'::int4", parseOne(t, "SELECT '5'::int4"), noopCallback)
 	require.NoError(t, err)
 	assert.Equal(t, engine.PlanTypeGatewayEval, res.PlanType)
 	assert.False(t, res.CacheHit)
@@ -121,16 +121,19 @@ func TestGatewayEval_InTransactionRoutesAndCaches(t *testing.T) {
 	assert.Equal(t, int32(2), mock.streamExecuteCalls.Load())
 }
 
-func TestGatewayEval_EvaluationErrorIsReturned(t *testing.T) {
+// A call is PostgreSQL's to privilege-check, so it goes to the backend even
+// when the engine could evaluate it; its error is then PostgreSQL's too.
+func TestGatewayEval_CallRoutes(t *testing.T) {
 	mock := &mockExec{}
 	exec := newTestExecutor(mock)
 	defer exec.planCache.Close()
 
-	_, err := exec.StreamExecute(context.Background(), testConn(), nil, "SELECT 1 / 0", parseOne(t, "SELECT 1 / 0"), noopCallback)
-	require.Error(t, err)
-	assert.Equal(t, mterrors.PgSSDivisionByZero, mterrors.ExtractSQLSTATE(err))
-	assert.False(t, mterrors.IsGatewayRejection(err), "a PostgreSQL error, not a gateway policy rejection")
-	assert.Zero(t, mock.streamExecuteCalls.Load())
+	for _, sql := range []string{"SELECT 1 / 0", "SELECT 1 + 2", "SELECT abs(-1)", "SELECT 1::int8", "SELECT 1::text"} {
+		res, err := exec.StreamExecute(context.Background(), testConn(), nil, sql, parseOne(t, sql), noopCallback)
+		require.NoError(t, err, sql)
+		assert.Equal(t, engine.PlanTypeRoute, res.PlanType, sql)
+	}
+	assert.Equal(t, int32(5), mock.streamExecuteCalls.Load())
 }
 
 func boundPortal(t *testing.T, sql string, paramTypes []uint32, params [][]byte, resultFormats []int16) *preparedstatement.PortalInfo {
@@ -147,7 +150,7 @@ func TestGatewayEval_PortalNeverReachesBackend(t *testing.T) {
 	ctx := context.Background()
 	conn := testConn()
 
-	pi := boundPortal(t, "SELECT $1 + $2 AS sum", []uint32{uint32(pgoid.INT4OID), 0}, [][]byte{[]byte("3"), []byte("4")}, nil)
+	pi := boundPortal(t, "SELECT $1 AS seven, $2 AND true", []uint32{uint32(pgoid.INT4OID), 0}, [][]byte{[]byte("7"), []byte("t")}, nil)
 	var results []*sqltypes.Result
 	res, err := exec.PortalStreamExecute(ctx, conn, nil, pi, 0, false, collect(&results))
 	require.NoError(t, err)
@@ -169,7 +172,7 @@ func TestGatewayEval_Describe(t *testing.T) {
 	conn := testConn()
 
 	t.Run("statement", func(t *testing.T) {
-		psi, err := preparedstatement.NewPreparedStatementInfo(protoutil.NewPreparedStatement("s", "SELECT $1::int4 + $2", []uint32{0, 0}))
+		psi, err := preparedstatement.NewPreparedStatementInfo(protoutil.NewPreparedStatement("s", "SELECT COALESCE($1::int4, $2)", []uint32{0, 0}))
 		require.NoError(t, err)
 		desc, err := exec.Describe(ctx, conn, nil, nil, psi)
 		require.NoError(t, err)
@@ -177,13 +180,13 @@ func TestGatewayEval_Describe(t *testing.T) {
 		require.Len(t, desc.Parameters, 2)
 		assert.Equal(t, uint32(pgoid.INT4OID), desc.Parameters[1].DataTypeOid, "deduced")
 		require.Len(t, desc.Fields, 1)
-		assert.Equal(t, "?column?", desc.Fields[0].Name)
+		assert.Equal(t, "coalesce", desc.Fields[0].Name)
 		assert.Equal(t, uint32(pgoid.INT4OID), desc.Fields[0].DataTypeOid)
 		assert.Equal(t, int32(0), desc.Fields[0].Format)
 	})
 
 	t.Run("portal reports its result format", func(t *testing.T) {
-		pi := boundPortal(t, "SELECT $1::int4 + $2", []uint32{0, 0}, [][]byte{[]byte("3"), []byte("4")}, []int16{1})
+		pi := boundPortal(t, "SELECT COALESCE($1::int4, $2)", []uint32{0, 0}, [][]byte{[]byte("3"), []byte("4")}, []int16{1})
 		desc, err := exec.Describe(ctx, conn, nil, pi, nil)
 		require.NoError(t, err)
 		require.NotNil(t, desc)

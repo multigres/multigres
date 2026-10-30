@@ -86,13 +86,11 @@ func TestPlan_GatewayEvalAdmission(t *testing.T) {
 		reason string
 	}{
 		{name: "constant", sql: "SELECT 1", local: true},
-		{name: "arithmetic and aliases", sql: "SELECT 1 + 2 AS three, abs(-3), true AND false", local: true},
-		{name: "cast via io", sql: "SELECT 1::int8::int2, CAST(2 AS bigint)", local: true},
-		{name: "conditionals", sql: "SELECT CASE WHEN 1 > 2 THEN 1 ELSE 2 END, COALESCE(NULL::int4, 1), NULLIF(1, 2)", local: true},
-		{name: "null tests", sql: "SELECT 1 IS NULL, true IS NOT TRUE, 1 IS DISTINCT FROM 2", local: true},
+		{name: "literals and aliases", sql: "SELECT 1 AS one, true AND false, -5", local: true},
+		{name: "literal coercion", sql: "SELECT '5'::int4, CAST('2' AS bigint), 1::int4, true::bool", local: true},
+		{name: "conditionals", sql: "SELECT CASE WHEN true THEN 1 ELSE 2 END, COALESCE(NULL::int4, 1)", local: true},
+		{name: "null tests", sql: "SELECT 1 IS NULL, true IS NOT TRUE", local: true},
 		{name: "typed null", sql: "SELECT NULL::int4", local: true},
-		{name: "evaluation error stays local", sql: "SELECT 1 / 0", local: true},
-		{name: "overflow stays local", sql: "SELECT 2147483647 + 1", local: true},
 		{name: "quoted and folded aliases", sql: `SELECT 1 AS "Mixed Case", 2 AS Folded, 3 AS "?column?"`, local: true},
 		{name: "widest allowed target list", sql: "SELECT " + strings.TrimSuffix(strings.Repeat("1,", maxTupleAttributeNumber), ","), local: true},
 
@@ -102,10 +100,19 @@ func TestPlan_GatewayEvalAdmission(t *testing.T) {
 		{name: "qualified star without FROM", sql: "SELECT t.*", reason: "needs a relation"},
 		{name: "unknown-type literal", sql: "SELECT 'x'", reason: "textin is not ported"},
 		{name: "bare NULL", sql: "SELECT NULL", reason: "resolves to text"},
-		{name: "stable function", sql: "SELECT now()", reason: "not immutable"},
-		{name: "volatile function", sql: "SELECT random()", reason: "not immutable"},
-		{name: "backend identity", sql: "SELECT pg_backend_pid()", reason: "not immutable: the readiness probes rely on this"},
-		{name: "unported immutable function", sql: "SELECT pi()", reason: "not ported"},
+		// PostgreSQL checks EXECUTE on every call for the session's role; the
+		// gateway cannot, so no call is admitted (see callFree).
+		{name: "operator", sql: "SELECT 1 + 2", reason: "EXECUTE on int4pl is checked"},
+		{name: "comparison", sql: "SELECT 1 = 1", reason: "EXECUTE on int4eq is checked"},
+		{name: "immutable function", sql: "SELECT abs(-3)", reason: "EXECUTE on abs is checked"},
+		{name: "cast function", sql: "SELECT 1::int8", reason: "EXECUTE on int8(int4) is checked"},
+		{name: "io cast of a constant", sql: "SELECT 1::text", reason: "folded through int4out, whose EXECUTE is checked"},
+		{name: "distinct and nullif", sql: "SELECT 1 IS DISTINCT FROM 2, NULLIF(1, 2)", reason: "operator calls"},
+		{name: "call inside a conditional", sql: "SELECT CASE WHEN 1 > 2 THEN 1 ELSE 2 END", reason: "operator call"},
+		{name: "stable function", sql: "SELECT now()", reason: "a call"},
+		{name: "volatile function", sql: "SELECT random()", reason: "a call"},
+		{name: "backend identity", sql: "SELECT pg_backend_pid()", reason: "a call: the readiness probes rely on this"},
+		{name: "unported function", sql: "SELECT pi()", reason: "a call, and not ported"},
 		{name: "analysis error", sql: "SELECT 1 + true", reason: "the backend reports errors"},
 		{name: "unknown function", sql: "SELECT nosuch(1)", reason: "could be a user function"},
 		{name: "array", sql: "SELECT ARRAY[1, 2]", reason: "arrays are not evaluable yet"},
@@ -206,16 +213,16 @@ func TestPlan_GatewayEvalParameters(t *testing.T) {
 		declared   []uint32
 		wantParams []pgoid.Oid // nil: routed
 	}{
-		{name: "declared", sql: "SELECT $1 + 1", declared: []uint32{int8}, wantParams: []pgoid.Oid{pgoid.INT8OID}},
-		{name: "deduced", sql: "SELECT $1 + 1", declared: []uint32{0}, wantParams: []pgoid.Oid{pgoid.INT4OID}},
-		{name: "undeclared", sql: "SELECT $1 + 1", declared: nil, wantParams: []pgoid.Oid{pgoid.INT4OID}},
-		{name: "deduced through a cast", sql: "SELECT $1::int4 + $2", declared: []uint32{0, 0}, wantParams: []pgoid.Oid{pgoid.INT4OID, pgoid.INT4OID}},
+		{name: "declared", sql: "SELECT $1", declared: []uint32{int8}, wantParams: []pgoid.Oid{pgoid.INT8OID}},
+		{name: "deduced", sql: "SELECT $1 AND true", declared: []uint32{0}, wantParams: []pgoid.Oid{pgoid.BOOLOID}},
+		{name: "undeclared", sql: "SELECT $1 AND true", declared: nil, wantParams: []pgoid.Oid{pgoid.BOOLOID}},
+		{name: "deduced through a cast", sql: "SELECT $1::int4, COALESCE($1, $2)", declared: []uint32{0, 0}, wantParams: []pgoid.Oid{pgoid.INT4OID, pgoid.INT4OID}},
 		{name: "unreferenced declared parameter", sql: "SELECT 1", declared: []uint32{int4}, wantParams: []pgoid.Oid{pgoid.INT4OID}},
 		{name: "undetermined type", sql: "SELECT $1", declared: []uint32{0}},
 		{name: "undetermined unreferenced", sql: "SELECT 1", declared: []uint32{0}},
 		{name: "unported parameter type", sql: "SELECT $1 IS NULL", declared: []uint32{text}},
 		{name: "unported deduced type", sql: "SELECT $1::text IS NULL", declared: []uint32{0}},
-		{name: "inconsistent deduction", sql: "SELECT $1 + 1, $1 AND true", declared: []uint32{0}},
+		{name: "inconsistent deduction", sql: "SELECT $1::int4, $1 AND true", declared: []uint32{0}},
 		{name: "declared type the catalog lacks", sql: "SELECT $1 IS NULL", declared: []uint32{99999}},
 		{name: "unreferenced type the catalog lacks", sql: "SELECT 1", declared: []uint32{99999}},
 	}
@@ -248,7 +255,7 @@ func TestGatewayEvalFor(t *testing.T) {
 	p := newEvalPlanner()
 	conn := server.NewTestConn(&bytes.Buffer{}).Conn
 
-	ge := p.GatewayEvalFor("SELECT $1::int4 + 1 AS n", parseOne(t, "SELECT $1::int4 + 1 AS n"), conn, []uint32{0})
+	ge := p.GatewayEvalFor("SELECT $1::int4 AS n", parseOne(t, "SELECT $1::int4 AS n"), conn, []uint32{0})
 	require.NotNil(t, ge)
 	desc, err := ge.Description(nil)
 	require.NoError(t, err)
@@ -277,10 +284,11 @@ func TestPrimitiveName_GatewayEval(t *testing.T) {
 }
 
 // A CoerceViaIO cast runs two I/O functions that never appear as calls in
-// the tree; int/bool I/O is immutable, so the cast is admitted. (No such
-// cast exists between the ported types, so the node is built by hand.)
-func TestImmutable_CoerceViaIO(t *testing.T) {
+// the tree, and PostgreSQL privilege-checks them when it folds a constant
+// argument, so the cast is declined like any call. (No such cast exists
+// between the ported types, so the node is built by hand.)
+func TestCallFree_CoerceViaIO(t *testing.T) {
 	arg := ast.NewConst(pgoid.INT4OID, datum.Int32GetDatum(1), false)
-	assert.True(t, immutable(ast.NewCoerceViaIO(arg, pgoid.INT8OID, ast.COERCE_EXPLICIT_CAST)))
-	assert.True(t, immutable(arg))
+	assert.False(t, callFree(ast.NewCoerceViaIO(arg, pgoid.INT8OID, ast.COERCE_EXPLICIT_CAST)))
+	assert.True(t, callFree(arg))
 }

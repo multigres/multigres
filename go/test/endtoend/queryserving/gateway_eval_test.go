@@ -99,7 +99,7 @@ func TestGatewayEval(t *testing.T) {
 
 	t.Run("simple protocol", func(t *testing.T) {
 		before := gatewayEvalEntries("simple")
-		results, err := conn.Query(ctx, "SELECT 1 + 2 AS three, true, 7 / 2, -5::int8, NULL::int4, abs(-4)")
+		results, err := conn.Query(ctx, "SELECT 1 AS one, true, '-5'::int8, NULL::int4, CASE WHEN false THEN 1 ELSE 2 END, COALESCE(NULL::int4, 3)")
 		require.NoError(t, err)
 
 		var fields *sqltypes.Result
@@ -114,9 +114,9 @@ func TestGatewayEval(t *testing.T) {
 		for i, f := range fields.Fields {
 			names[i], oids[i] = f.Name, f.DataTypeOid
 		}
-		assert.Equal(t, []string{"three", "?column?", "?column?", "?column?", "int4", "abs"}, names)
-		assert.Equal(t, []uint32{23, 16, 23, 20, 23, 23}, oids)
-		assert.Equal(t, [][]byte{[]byte("3"), []byte("t"), []byte("3"), []byte("-5"), nil, []byte("4")}, rowValues(results))
+		assert.Equal(t, []string{"one", "?column?", "int8", "int4", "case", "coalesce"}, names)
+		assert.Equal(t, []uint32{23, 16, 20, 23, 23, 23}, oids)
+		assert.Equal(t, [][]byte{[]byte("1"), []byte("t"), []byte("-5"), nil, []byte("2"), []byte("3")}, rowValues(results))
 		for _, r := range results {
 			if r.CommandTag != "" {
 				assert.Equal(t, "SELECT 1", r.CommandTag)
@@ -125,31 +125,38 @@ func TestGatewayEval(t *testing.T) {
 		waitForGatewayEvalEntry(t, "simple", before)
 	})
 
-	t.Run("evaluation errors are PostgreSQL's", func(t *testing.T) {
-		_, err := conn.Query(ctx, "SELECT 1 / 0")
+	// A function or operator call is PostgreSQL's to privilege-check, so it
+	// goes to the backend even when the engine could evaluate it, and its
+	// result or error is PostgreSQL's.
+	t.Run("calls route", func(t *testing.T) {
+		before := gatewayEvalEntries("simple")
+		results, err := conn.Query(ctx, "SELECT 1 + 2, abs(-4), 1::int8, 1::text")
+		require.NoError(t, err)
+		assert.Equal(t, [][]byte{[]byte("3"), []byte("4"), []byte("1"), []byte("1")}, rowValues(results))
+		_, err = conn.Query(ctx, "SELECT 1 / 0")
 		pgError(t, err, mterrors.PgSSDivisionByZero, "division by zero")
-
 		_, err = conn.Query(ctx, "SELECT 2147483647 + 1")
 		pgError(t, err, mterrors.PgSSNumericValueOutOfRange, "integer out of range")
+		assert.Equal(t, before, gatewayEvalEntries("simple"), "every call was routed")
 
 		// The session is intact afterwards.
-		results, err := conn.Query(ctx, "SELECT 2")
+		results, err = conn.Query(ctx, "SELECT 2")
 		require.NoError(t, err)
 		assert.Equal(t, [][]byte{[]byte("2")}, rowValues(results))
 	})
 
 	t.Run("extended protocol", func(t *testing.T) {
 		before := gatewayEvalEntries("extended")
-		const sql = "SELECT $1::int4 + $2 AS sum, $2 > 3"
+		const sql = "SELECT $1::int4 AS n, $2 AND true"
 		require.NoError(t, conn.Parse(ctx, "ge", sql, []uint32{0, 0}))
 
 		desc, err := conn.DescribePrepared(ctx, "ge")
 		require.NoError(t, err)
 		require.Len(t, desc.Parameters, 2)
 		assert.Equal(t, uint32(23), desc.Parameters[0].DataTypeOid)
-		assert.Equal(t, uint32(23), desc.Parameters[1].DataTypeOid, "deduced from the operator")
+		assert.Equal(t, uint32(16), desc.Parameters[1].DataTypeOid, "deduced from the AND")
 		require.Len(t, desc.Fields, 2)
-		assert.Equal(t, "sum", desc.Fields[0].Name)
+		assert.Equal(t, "n", desc.Fields[0].Name)
 		assert.Equal(t, uint32(23), desc.Fields[0].DataTypeOid)
 		assert.Equal(t, "?column?", desc.Fields[1].Name)
 		assert.Equal(t, uint32(16), desc.Fields[1].DataTypeOid)
@@ -161,29 +168,29 @@ func TestGatewayEval(t *testing.T) {
 		}
 
 		// Text parameters and results.
-		_, err = conn.BindAndExecute(ctx, "", "ge", [][]byte{[]byte("3"), []byte("4")}, []int16{0}, []int16{0}, 0, collect)
+		_, err = conn.BindAndExecute(ctx, "", "ge", [][]byte{[]byte("3"), []byte("t")}, []int16{0}, []int16{0}, 0, collect)
 		require.NoError(t, err)
-		assert.Equal(t, [][]byte{[]byte("7"), []byte("t")}, rowValues(results))
+		assert.Equal(t, [][]byte{[]byte("3"), []byte("t")}, rowValues(results))
 
 		// Binary parameters and results, with the Describe('P') reporting the
 		// binary format codes.
 		results = nil
-		desc, err = conn.BindAndDescribe(ctx, "ge", [][]byte{{0, 0, 0, 3}, {0, 0, 0, 4}}, []int16{1}, []int16{1})
+		desc, err = conn.BindAndDescribe(ctx, "ge", [][]byte{{0, 0, 0, 3}, {1}}, []int16{1}, []int16{1})
 		require.NoError(t, err)
 		require.Len(t, desc.Fields, 2)
 		assert.Equal(t, int32(1), desc.Fields[0].Format)
-		_, err = conn.BindAndExecute(ctx, "", "ge", [][]byte{{0, 0, 0, 3}, {0, 0, 0, 4}}, []int16{1}, []int16{1}, 0, collect)
+		_, err = conn.BindAndExecute(ctx, "", "ge", [][]byte{{0, 0, 0, 3}, {1}}, []int16{1}, []int16{1}, 0, collect)
 		require.NoError(t, err)
-		assert.Equal(t, [][]byte{{0, 0, 0, 7}, {1}}, rowValues(results))
+		assert.Equal(t, [][]byte{{0, 0, 0, 3}, {1}}, rowValues(results))
 
 		// A NULL parameter.
 		results = nil
-		_, err = conn.BindAndExecute(ctx, "", "ge", [][]byte{[]byte("3"), nil}, []int16{0}, []int16{0}, 0, collect)
+		_, err = conn.BindAndExecute(ctx, "", "ge", [][]byte{nil, nil}, []int16{0}, []int16{0}, 0, collect)
 		require.NoError(t, err)
 		assert.Equal(t, [][]byte{nil, nil}, rowValues(results))
 
 		// Bind-time errors are PostgreSQL's.
-		_, err = conn.BindAndExecute(ctx, "", "ge", [][]byte{[]byte("abc"), []byte("4")}, []int16{0}, []int16{0}, 0, collect)
+		_, err = conn.BindAndExecute(ctx, "", "ge", [][]byte{[]byte("abc"), []byte("t")}, []int16{0}, []int16{0}, 0, collect)
 		pgError(t, err, mterrors.PgSSInvalidTextRepresentation, `invalid input syntax for type integer: "abc"`)
 		_, err = conn.BindAndExecute(ctx, "", "ge", [][]byte{[]byte("3")}, []int16{0}, []int16{0}, 0, collect)
 		pgError(t, err, mterrors.PgSSProtocolViolation, "bind message supplies 1 parameters")
@@ -200,18 +207,19 @@ func TestGatewayEval(t *testing.T) {
 		require.NoError(t, err)
 		defer pgxConn.Close(ctx)
 
-		var sum int32
+		var n int32
 		var yes bool
-		require.NoError(t, pgxConn.QueryRow(ctx, "select $1::int4 + $2, $2 > 3", 3, 4).Scan(&sum, &yes))
-		assert.Equal(t, int32(7), sum)
+		require.NoError(t, pgxConn.QueryRow(ctx, "select $1::int4, $2 and true", 3, true).Scan(&n, &yes))
+		assert.Equal(t, int32(3), n)
 		assert.True(t, yes)
 
 		var big int64
-		require.NoError(t, pgxConn.QueryRow(ctx, "select 2147483648 * $1", int64(2)).Scan(&big))
+		require.NoError(t, pgxConn.QueryRow(ctx, "select $1::int8", int64(4294967296)).Scan(&big))
 		assert.Equal(t, int64(4294967296), big)
 
+		// A call is routed; the error is the backend's.
 		var pgErr *pgconn.PgError
-		err = pgxConn.QueryRow(ctx, "select $1::int4 / $2", 1, 0).Scan(&sum)
+		err = pgxConn.QueryRow(ctx, "select $1::int4 / $2", 1, 0).Scan(&n)
 		require.True(t, errors.As(err, &pgErr), "%v", err)
 		assert.Equal(t, mterrors.PgSSDivisionByZero, pgErr.Code)
 	})
@@ -239,7 +247,7 @@ func TestGatewayEval(t *testing.T) {
 		_, err := conn.Query(ctx, "SELECT pg_advisory_lock(7143)")
 		require.NoError(t, err)
 		before := gatewayEvalEntries("simple")
-		results, err := conn.Query(ctx, "SELECT 1 + 1")
+		results, err := conn.Query(ctx, "SELECT 2")
 		require.NoError(t, err)
 		assert.Equal(t, [][]byte{[]byte("2")}, rowValues(results))
 		_, err = conn.Query(ctx, "SELECT pg_advisory_unlock(7143)")
@@ -247,7 +255,7 @@ func TestGatewayEval(t *testing.T) {
 		assert.Equal(t, before, gatewayEvalEntries("simple"), "routed while the lock was held")
 
 		before = gatewayEvalEntries("simple")
-		_, err = conn.Query(ctx, "SELECT 1 + 1")
+		_, err = conn.Query(ctx, "SELECT 2")
 		require.NoError(t, err)
 		waitForGatewayEvalEntry(t, "simple", before)
 	})
@@ -257,7 +265,7 @@ func TestGatewayEval(t *testing.T) {
 	// still run on the backend inside one (where the gateway's lazy Parse has
 	// never sent it), and come back to the gateway afterwards.
 	t.Run("prepared statement across a transaction boundary", func(t *testing.T) {
-		require.NoError(t, conn.Parse(ctx, "span", "SELECT $1::int4 + 1", nil))
+		require.NoError(t, conn.Parse(ctx, "span", "SELECT $1::int4", nil))
 		desc, err := conn.DescribePrepared(ctx, "span")
 		require.NoError(t, err)
 		require.Len(t, desc.Fields, 1)
@@ -276,13 +284,13 @@ func TestGatewayEval(t *testing.T) {
 		}
 
 		before := gatewayEvalEntries("extended")
-		assert.Equal(t, [][]byte{[]byte("2")}, execute(t, "1"))
+		assert.Equal(t, [][]byte{[]byte("1")}, execute(t, "1"))
 		waitForGatewayEvalEntry(t, "extended", before)
 
 		_, err = conn.Query(ctx, "BEGIN")
 		require.NoError(t, err)
 		routedBefore := gatewayEvalEntries("extended")
-		assert.Equal(t, [][]byte{[]byte("3")}, execute(t, "2"))
+		assert.Equal(t, [][]byte{[]byte("2")}, execute(t, "2"))
 		_, err = conn.Query(ctx, "SELECT 1 / 0")
 		pgError(t, err, mterrors.PgSSDivisionByZero, "division by zero")
 		_, err = conn.BindAndExecute(ctx, "", "span", [][]byte{[]byte("3")}, []int16{0}, []int16{0}, 0, collect)
@@ -292,7 +300,7 @@ func TestGatewayEval(t *testing.T) {
 		assert.Equal(t, routedBefore, gatewayEvalEntries("extended"), "inside the block the statement was routed")
 
 		before = gatewayEvalEntries("extended")
-		assert.Equal(t, [][]byte{[]byte("5")}, execute(t, "4"))
+		assert.Equal(t, [][]byte{[]byte("4")}, execute(t, "4"))
 		waitForGatewayEvalEntry(t, "extended", before)
 	})
 
@@ -333,7 +341,7 @@ func TestGatewayEval(t *testing.T) {
 		_, err := conn.Query(ctx, "SET client_encoding = 'LATIN1'")
 		require.NoError(t, err)
 		before := gatewayEvalEntries("simple")
-		results, err := conn.Query(ctx, "SELECT 1 + 1")
+		results, err := conn.Query(ctx, "SELECT 2")
 		require.NoError(t, err)
 		assert.Equal(t, [][]byte{[]byte("2")}, rowValues(results))
 		_, err = conn.Query(ctx, "RESET client_encoding")
@@ -341,13 +349,13 @@ func TestGatewayEval(t *testing.T) {
 		assert.Equal(t, before, gatewayEvalEntries("simple"), "routed while client_encoding was LATIN1")
 
 		before = gatewayEvalEntries("simple")
-		_, err = conn.Query(ctx, "SELECT 1 + 1")
+		_, err = conn.Query(ctx, "SELECT 2")
 		require.NoError(t, err)
 		waitForGatewayEvalEntry(t, "simple", before)
 	})
 
 	t.Run("declined statements route", func(t *testing.T) {
-		for _, sql := range []string{"SELECT 'x'", "SELECT now() > '2000-01-01'", "SELECT ARRAY[1, 2]", "SELECT GREATEST(1, 2)"} {
+		for _, sql := range []string{"SELECT 'x'", "SELECT now() > '2000-01-01'", "SELECT ARRAY[1, 2]", "SELECT GREATEST(1, 2)", "SELECT 1 IS DISTINCT FROM 2", "SELECT NULLIF(1, 2)"} {
 			_, err := conn.Query(ctx, sql)
 			assert.NoError(t, err, sql)
 		}

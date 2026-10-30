@@ -36,11 +36,11 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
-// GatewayEval answers a SELECT whose target list is nothing but constant
-// expressions (`SELECT 1`, `SELECT $1::int4 + 2`) in the gateway, with the
-// PostgreSQL engine port in go/common/pgeval, so the query never reaches a
-// backend. The planner admits a statement only when every column analyzes,
-// prepares and is immutable; anything else is routed as before (see
+// GatewayEval answers a SELECT whose target list is nothing but constants
+// (`SELECT 1`, `SELECT $1::int4`, `SELECT '5'::int8`) in the gateway, with
+// the PostgreSQL engine port in go/common/pgeval, so the query never reaches
+// a backend. The planner admits a statement only when every column analyzes,
+// prepares and calls no function; anything else is routed as before (see
 // planner.IsTargetListOnlySelect and the admission in planner/gateway_eval.go).
 //
 // The primitive holds prepared expression state, which is not safe for
@@ -54,10 +54,11 @@ import (
 //     checkout does not learn it here; the error surfaces on the first routed
 //     statement. A driver's `SELECT 1` validation query now validates the
 //     gateway, not the backend.
-//   - Name resolution. Functions, operators and types resolve against the
-//     compiled-in pg_catalog. PostgreSQL searches pg_catalog first unless
-//     search_path lists it explicitly after a user schema; only such a
-//     session can shadow a builtin, and the shadow is not seen here.
+//   - Name resolution. Type names resolve against the compiled-in
+//     pg_catalog (no function or operator is admitted). PostgreSQL searches
+//     pg_catalog first unless search_path lists it explicitly after a user
+//     schema; only such a session can shadow a builtin type, and the shadow
+//     is not seen here.
 //   - Portal lifecycle. Every Execute of the portal returns the row again,
 //     where PostgreSQL reports an exhausted portal with zero rows, and
 //     maxRows is ignored (one row, never PortalSuspended).
@@ -78,9 +79,13 @@ import (
 // Unchanged: a transaction block or a reserved backend (advisory lock, temp
 // table) routes (the planner declines), so aborted state, snapshots, and
 // `SELECT 1` as the probe that discovers a lost reserved backend behave as
-// before. The extended protocol's implicit transaction between two Sync
-// messages was never modelled by the gateway; each Execute autocommits
-// whether routed or evaluated here.
+// before. Privileges: PostgreSQL checks EXECUTE on function and operator
+// calls, including cast functions and the I/O functions of a folded I/O
+// cast, and on nothing else a constant target list can contain; no call is
+// admitted (planner.callFree), so a REVOKE changes the answer of no
+// statement served here. The extended protocol's implicit transaction
+// between two Sync messages was never modelled by the gateway; each Execute
+// autocommits whether routed or evaluated here.
 type GatewayEval struct {
 	sql        string
 	columns    []EvalColumn
