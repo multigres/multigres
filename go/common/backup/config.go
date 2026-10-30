@@ -202,6 +202,10 @@ func (c *Config) PgBackRestConfig(index int, generation int64, stanzaName string
 			// Use web-id for IRSA, since pgBackRest's "auto" only checks EC2 metadata.
 			if os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" && os.Getenv("AWS_ROLE_ARN") != "" {
 				config[prefix+"s3-key-type"] = "web-id"
+				// pgBackRest's default STS host, sts.amazonaws.com, has no IPv6
+				// address, so an IPv6-only pod could never get credentials. The
+				// regional dual-stack endpoint answers over either family.
+				config[prefix+"s3-sts-host"] = "sts." + loc.S3.Region + ".api.aws"
 			} else {
 				// Fall back to auto for EC2 instance metadata
 				config[prefix+"s3-key-type"] = "auto"
@@ -209,8 +213,9 @@ func (c *Config) PgBackRestConfig(index int, generation int64, stanzaName string
 		}
 
 		if loc.S3.Endpoint == "" {
-			// AWS S3 - generate standard endpoint
-			config[prefix+"s3-endpoint"] = "s3." + loc.S3.Region + ".amazonaws.com"
+			// Dual-stack, because the plain s3.<region> endpoint has no IPv6
+			// address and pods on IPv6-only networks need to reach the bucket.
+			config[prefix+"s3-endpoint"] = "s3.dualstack." + loc.S3.Region + ".amazonaws.com"
 			// Use virtual-hosted style (AWS default)
 			config[prefix+"s3-uri-style"] = "host"
 			// TLS verification defaults to 'y', no need to set explicitly
