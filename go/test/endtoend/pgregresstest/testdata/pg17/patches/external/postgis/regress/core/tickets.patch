@@ -1,34 +1,11 @@
-# Known divergence: error/notice cursor offset only ("at character N"). NOT a
-# multigres bug. multigateway rewrites the submitted query text before
-# forwarding it to PostgreSQL (parse + deparse), which shifts the byte offset
-# PostgreSQL records for an error/notice cursor. The message text, ordering, and
-# every result row are byte-identical to stock PostgreSQL; only the trailing
-# "at character N" position differs. This patch records that offset shift so the
-# test is verified against multigres's deparsed-query cursor positions.
-# Additionally, a test helper runs a dynamic EXECUTE the gateway cannot vet, so
-# its CREATE is rejected and its dependent calls report "does not exist" -- a
-# small honest residual alongside the cursor-offset shifts.
+# Known divergence: a test helper runs a dynamic EXECUTE and a SET/RESET inside
+# a PL/pgSQL body, which the gateway rejects because it cannot vet the session
+# state they change, so the helper's CREATE fails and its dependent CALLs report
+# "does not exist". Message text, ordering and every result row are otherwise
+# byte-identical to stock PostgreSQL: the statements whose error cursors used to
+# shift are now forwarded as written, so their "at character N" matches.
 --- a
 +++ b
-@@ -166,12 +166,12 @@
- #1305.1|POINT(10 10)
- #1305.2|t
- #1305.3|t
--ERROR: MultiPolygon cannot contain MultiPoint element at character 8
--ERROR: MultiLineString cannot contain MultiPoint element at character 8
--ERROR: MultiPoint cannot contain MultiPoint element at character 8
--ERROR: CompoundCurve cannot contain MultiPoint element at character 8
--ERROR: MultiCurve cannot contain MultiPoint element at character 8
--ERROR: MultiSurface cannot contain MultiPoint element at character 8
-+ERROR: MultiPolygon cannot contain MultiPoint element at character 13
-+ERROR: MultiLineString cannot contain MultiPoint element at character 13
-+ERROR: MultiPoint cannot contain MultiPoint element at character 13
-+ERROR: CompoundCurve cannot contain MultiPoint element at character 13
-+ERROR: MultiCurve cannot contain MultiPoint element at character 13
-+ERROR: MultiSurface cannot contain MultiPoint element at character 13
- #1453.1|t
- #1453.2|f
- #1454|t
 @@ -326,6 +326,7 @@
  #4011|ST_MultiLineString|MULTILINESTRING EMPTY|t|t
  #4011|ST_GeometryCollection|MULTILINESTRING((0 0,0 0))|f|f
