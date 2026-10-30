@@ -138,6 +138,32 @@ service MultiadminService {
     option (google.api.http) = {get: "/api/v1/databases/{name}"};
   }
 
+  // ListDesiredTableGroups returns the tablegroups a provisioner should have
+  // provisioned for a database: every non-default tablegroup recorded in the
+  // sharding catalog that is creating or active, with its shard layout. A
+  // tablegroup being dropped is omitted, which is how a provisioner learns to
+  // remove it. The list is read from the catalog primary, so it reflects
+  // committed CREATE TABLEGROUP intent, not what is currently provisioned.
+  //
+  // Errors and recovery:
+  // InvalidArgument (3) means the database name is missing. NotFound (5) means topology has no
+  // primary pooler for the database's catalog shard yet. Every downstream failure becomes
+  // Unavailable (14). A provisioner must treat any error as "unknown", never as an empty list: it
+  // adds nothing and removes nothing until a read succeeds.
+  rpc ListDesiredTableGroups(ListDesiredTableGroupsRequest) returns (ListDesiredTableGroupsResponse) {
+    option (openapi.v3.operation) = {
+      summary: "List desired tablegroups"
+      tags: "databases"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {get: "/api/v1/databases/{database}/tablegroups"};
+  }
+
   // GetCellNames retrieves all cell names in the cluster
   //
   // Errors and recovery:
@@ -796,6 +822,17 @@ message GetDatabaseRequest {
 message GetDatabaseResponse {
   // Database metadata.
   clustermetadata.Database database = 1;
+}
+
+// ListDesiredTableGroupsRequest names the database whose tablegroups to list.
+message ListDesiredTableGroupsRequest {
+  // database is the database name (required).
+  string database = 1;
+}
+
+// ListDesiredTableGroupsResponse lists the catalog's tablegroups for the database.
+message ListDesiredTableGroupsResponse {
+  repeated multipoolermanagerdata.TableGroup table_groups = 1;
 }
 
 // GetCellNamesRequest requests all cell names

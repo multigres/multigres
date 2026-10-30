@@ -1044,6 +1044,19 @@ export class Multipooler extends Message<Multipooler> {
    */
   leadershipMode = LeadershipMode.UNSPECIFIED;
 
+  /**
+   * tablegroup_id is the catalog identity (multigres.tablegroup.tablegroup_id)
+   * of the tablegroup this pooler serves, when the provisioner knows it. Zero
+   * when unknown, which is always the case for the default tablegroup and for
+   * tablegroups configured outside the catalog. The tablegroup creation loop
+   * only counts a pooler toward a tablegroup's readiness when this matches, so
+   * poolers left over from a dropped tablegroup of the same name never count
+   * toward a new one.
+   *
+   * @generated from field: int64 tablegroup_id = 15;
+   */
+  tablegroupId = protoInt64.zero;
+
   constructor(data?: PartialMessage<Multipooler>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1064,6 +1077,7 @@ export class Multipooler extends Message<Multipooler> {
     { no: 12, name: "lifecycle_status", kind: "message", T: PoolerLifecycle },
     { no: 13, name: "routing_state", kind: "message", T: RoutingState },
     { no: 14, name: "leadership_mode", kind: "enum", T: proto3.getEnumType(LeadershipMode) },
+    { no: 15, name: "tablegroup_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Multipooler {

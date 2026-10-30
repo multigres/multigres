@@ -54,6 +54,9 @@ const (
 	// MultiadminServiceGetDatabaseProcedure is the fully-qualified name of the MultiadminService's
 	// GetDatabase RPC.
 	MultiadminServiceGetDatabaseProcedure = "/multiadmin.MultiadminService/GetDatabase"
+	// MultiadminServiceListDesiredTableGroupsProcedure is the fully-qualified name of the
+	// MultiadminService's ListDesiredTableGroups RPC.
+	MultiadminServiceListDesiredTableGroupsProcedure = "/multiadmin.MultiadminService/ListDesiredTableGroups"
 	// MultiadminServiceGetCellNamesProcedure is the fully-qualified name of the MultiadminService's
 	// GetCellNames RPC.
 	MultiadminServiceGetCellNamesProcedure = "/multiadmin.MultiadminService/GetCellNames"
@@ -150,6 +153,19 @@ type MultiadminServiceClient interface {
 	// database; other topology failures become Internal (13). This read can be retried with bounded
 	// backoff after a transient dependency failure.
 	GetDatabase(context.Context, *connect.Request[multiadmin.GetDatabaseRequest]) (*connect.Response[multiadmin.GetDatabaseResponse], error)
+	// ListDesiredTableGroups returns the tablegroups a provisioner should have
+	// provisioned for a database: every non-default tablegroup recorded in the
+	// sharding catalog that is creating or active, with its shard layout. A
+	// tablegroup being dropped is omitted, which is how a provisioner learns to
+	// remove it. The list is read from the catalog primary, so it reflects
+	// committed CREATE TABLEGROUP intent, not what is currently provisioned.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the database name is missing. NotFound (5) means topology has no
+	// primary pooler for the database's catalog shard yet. Every downstream failure becomes
+	// Unavailable (14). A provisioner must treat any error as "unknown", never as an empty list: it
+	// adds nothing and removes nothing until a read succeeds.
+	ListDesiredTableGroups(context.Context, *connect.Request[multiadmin.ListDesiredTableGroupsRequest]) (*connect.Response[multiadmin.ListDesiredTableGroupsResponse], error)
 	// GetCellNames retrieves all cell names in the cluster
 	//
 	// Errors and recovery:
@@ -350,6 +366,12 @@ func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(multiadminServiceMethods.ByName("GetDatabase")),
 			connect.WithClientOptions(opts...),
 		),
+		listDesiredTableGroups: connect.NewClient[multiadmin.ListDesiredTableGroupsRequest, multiadmin.ListDesiredTableGroupsResponse](
+			httpClient,
+			baseURL+MultiadminServiceListDesiredTableGroupsProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("ListDesiredTableGroups")),
+			connect.WithClientOptions(opts...),
+		),
 		getCellNames: connect.NewClient[multiadmin.GetCellNamesRequest, multiadmin.GetCellNamesResponse](
 			httpClient,
 			baseURL+MultiadminServiceGetCellNamesProcedure,
@@ -513,6 +535,7 @@ func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 type multiadminServiceClient struct {
 	getCell                    *connect.Client[multiadmin.GetCellRequest, multiadmin.GetCellResponse]
 	getDatabase                *connect.Client[multiadmin.GetDatabaseRequest, multiadmin.GetDatabaseResponse]
+	listDesiredTableGroups     *connect.Client[multiadmin.ListDesiredTableGroupsRequest, multiadmin.ListDesiredTableGroupsResponse]
 	getCellNames               *connect.Client[multiadmin.GetCellNamesRequest, multiadmin.GetCellNamesResponse]
 	getDatabaseNames           *connect.Client[multiadmin.GetDatabaseNamesRequest, multiadmin.GetDatabaseNamesResponse]
 	getGateways                *connect.Client[multiadmin.GetGatewaysRequest, multiadmin.GetGatewaysResponse]
@@ -549,6 +572,11 @@ func (c *multiadminServiceClient) GetCell(ctx context.Context, req *connect.Requ
 // GetDatabase calls multiadmin.MultiadminService.GetDatabase.
 func (c *multiadminServiceClient) GetDatabase(ctx context.Context, req *connect.Request[multiadmin.GetDatabaseRequest]) (*connect.Response[multiadmin.GetDatabaseResponse], error) {
 	return c.getDatabase.CallUnary(ctx, req)
+}
+
+// ListDesiredTableGroups calls multiadmin.MultiadminService.ListDesiredTableGroups.
+func (c *multiadminServiceClient) ListDesiredTableGroups(ctx context.Context, req *connect.Request[multiadmin.ListDesiredTableGroupsRequest]) (*connect.Response[multiadmin.ListDesiredTableGroupsResponse], error) {
+	return c.listDesiredTableGroups.CallUnary(ctx, req)
 }
 
 // GetCellNames calls multiadmin.MultiadminService.GetCellNames.
@@ -697,6 +725,19 @@ type MultiadminServiceHandler interface {
 	// database; other topology failures become Internal (13). This read can be retried with bounded
 	// backoff after a transient dependency failure.
 	GetDatabase(context.Context, *connect.Request[multiadmin.GetDatabaseRequest]) (*connect.Response[multiadmin.GetDatabaseResponse], error)
+	// ListDesiredTableGroups returns the tablegroups a provisioner should have
+	// provisioned for a database: every non-default tablegroup recorded in the
+	// sharding catalog that is creating or active, with its shard layout. A
+	// tablegroup being dropped is omitted, which is how a provisioner learns to
+	// remove it. The list is read from the catalog primary, so it reflects
+	// committed CREATE TABLEGROUP intent, not what is currently provisioned.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the database name is missing. NotFound (5) means topology has no
+	// primary pooler for the database's catalog shard yet. Every downstream failure becomes
+	// Unavailable (14). A provisioner must treat any error as "unknown", never as an empty list: it
+	// adds nothing and removes nothing until a read succeeds.
+	ListDesiredTableGroups(context.Context, *connect.Request[multiadmin.ListDesiredTableGroupsRequest]) (*connect.Response[multiadmin.ListDesiredTableGroupsResponse], error)
 	// GetCellNames retrieves all cell names in the cluster
 	//
 	// Errors and recovery:
@@ -893,6 +934,12 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 		connect.WithSchema(multiadminServiceMethods.ByName("GetDatabase")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multiadminServiceListDesiredTableGroupsHandler := connect.NewUnaryHandler(
+		MultiadminServiceListDesiredTableGroupsProcedure,
+		svc.ListDesiredTableGroups,
+		connect.WithSchema(multiadminServiceMethods.ByName("ListDesiredTableGroups")),
+		connect.WithHandlerOptions(opts...),
+	)
 	multiadminServiceGetCellNamesHandler := connect.NewUnaryHandler(
 		MultiadminServiceGetCellNamesProcedure,
 		svc.GetCellNames,
@@ -1055,6 +1102,8 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 			multiadminServiceGetCellHandler.ServeHTTP(w, r)
 		case MultiadminServiceGetDatabaseProcedure:
 			multiadminServiceGetDatabaseHandler.ServeHTTP(w, r)
+		case MultiadminServiceListDesiredTableGroupsProcedure:
+			multiadminServiceListDesiredTableGroupsHandler.ServeHTTP(w, r)
 		case MultiadminServiceGetCellNamesProcedure:
 			multiadminServiceGetCellNamesHandler.ServeHTTP(w, r)
 		case MultiadminServiceGetDatabaseNamesProcedure:
@@ -1122,6 +1171,10 @@ func (UnimplementedMultiadminServiceHandler) GetCell(context.Context, *connect.R
 
 func (UnimplementedMultiadminServiceHandler) GetDatabase(context.Context, *connect.Request[multiadmin.GetDatabaseRequest]) (*connect.Response[multiadmin.GetDatabaseResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.GetDatabase is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) ListDesiredTableGroups(context.Context, *connect.Request[multiadmin.ListDesiredTableGroupsRequest]) (*connect.Response[multiadmin.ListDesiredTableGroupsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.ListDesiredTableGroups is not implemented"))
 }
 
 func (UnimplementedMultiadminServiceHandler) GetCellNames(context.Context, *connect.Request[multiadmin.GetCellNamesRequest]) (*connect.Response[multiadmin.GetCellNamesResponse], error) {

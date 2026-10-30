@@ -17,7 +17,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
+import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, ListDesiredTableGroupsRequest, ListDesiredTableGroupsResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
 import { MethodKind } from "@bufbuild/protobuf";
 import { CreateConnectionRequest, CreateConnectionResponse, CreateMigrationRequest, CreateMigrationResponse, DropConnectionRequest, DropConnectionResponse, DropMigrationRequest, DropMigrationResponse, GetConnectionRequest, GetConnectionResponse, GetMigrationJournalRequest, GetMigrationJournalResponse, GetMigrationRequest, GetMigrationResponse, ListConnectionsRequest, ListConnectionsResponse, ListMigrationsRequest, ListMigrationsResponse, SetMigrationDirectionRequest, SetMigrationDirectionResponse } from "./migratorservice_pb";
 
@@ -59,6 +59,28 @@ export const MultiadminService = {
       name: "GetDatabase",
       I: GetDatabaseRequest,
       O: GetDatabaseResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * ListDesiredTableGroups returns the tablegroups a provisioner should have
+     * provisioned for a database: every non-default tablegroup recorded in the
+     * sharding catalog that is creating or active, with its shard layout. A
+     * tablegroup being dropped is omitted, which is how a provisioner learns to
+     * remove it. The list is read from the catalog primary, so it reflects
+     * committed CREATE TABLEGROUP intent, not what is currently provisioned.
+     *
+     * Errors and recovery:
+     * InvalidArgument (3) means the database name is missing. NotFound (5) means topology has no
+     * primary pooler for the database's catalog shard yet. Every downstream failure becomes
+     * Unavailable (14). A provisioner must treat any error as "unknown", never as an empty list: it
+     * adds nothing and removes nothing until a read succeeds.
+     *
+     * @generated from rpc multiadmin.MultiadminService.ListDesiredTableGroups
+     */
+    listDesiredTableGroups: {
+      name: "ListDesiredTableGroups",
+      I: ListDesiredTableGroupsRequest,
+      O: ListDesiredTableGroupsResponse,
       kind: MethodKind.Unary,
     },
     /**
