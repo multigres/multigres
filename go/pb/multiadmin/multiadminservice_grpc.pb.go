@@ -36,6 +36,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	MultiadminService_GetCell_FullMethodName                    = "/multiadmin.MultiadminService/GetCell"
 	MultiadminService_GetDatabase_FullMethodName                = "/multiadmin.MultiadminService/GetDatabase"
+	MultiadminService_ListDesiredTableGroups_FullMethodName     = "/multiadmin.MultiadminService/ListDesiredTableGroups"
 	MultiadminService_GetCellNames_FullMethodName               = "/multiadmin.MultiadminService/GetCellNames"
 	MultiadminService_GetDatabaseNames_FullMethodName           = "/multiadmin.MultiadminService/GetDatabaseNames"
 	MultiadminService_GetGateways_FullMethodName                = "/multiadmin.MultiadminService/GetGateways"
@@ -84,6 +85,19 @@ type MultiadminServiceClient interface {
 	// database; other topology failures become Internal (13). This read can be retried with bounded
 	// backoff after a transient dependency failure.
 	GetDatabase(ctx context.Context, in *GetDatabaseRequest, opts ...grpc.CallOption) (*GetDatabaseResponse, error)
+	// ListDesiredTableGroups returns the tablegroups a provisioner should have
+	// provisioned for a database: every non-default tablegroup recorded in the
+	// sharding catalog that is creating or active, with its shard layout. A
+	// tablegroup being dropped is omitted, which is how a provisioner learns to
+	// remove it. The list is read from the catalog primary, so it reflects
+	// committed CREATE TABLEGROUP intent, not what is currently provisioned.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the database name is missing. NotFound (5) means topology has no
+	// primary pooler for the database's catalog shard yet. Every downstream failure becomes
+	// Unavailable (14). A provisioner must treat any error as "unknown", never as an empty list: it
+	// adds nothing and removes nothing until a read succeeds.
+	ListDesiredTableGroups(ctx context.Context, in *ListDesiredTableGroupsRequest, opts ...grpc.CallOption) (*ListDesiredTableGroupsResponse, error)
 	// GetCellNames retrieves all cell names in the cluster
 	//
 	// Errors and recovery:
@@ -283,6 +297,16 @@ func (c *multiadminServiceClient) GetDatabase(ctx context.Context, in *GetDataba
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetDatabaseResponse)
 	err := c.cc.Invoke(ctx, MultiadminService_GetDatabase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiadminServiceClient) ListDesiredTableGroups(ctx context.Context, in *ListDesiredTableGroupsRequest, opts ...grpc.CallOption) (*ListDesiredTableGroupsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListDesiredTableGroupsResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_ListDesiredTableGroups_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -569,6 +593,19 @@ type MultiadminServiceServer interface {
 	// database; other topology failures become Internal (13). This read can be retried with bounded
 	// backoff after a transient dependency failure.
 	GetDatabase(context.Context, *GetDatabaseRequest) (*GetDatabaseResponse, error)
+	// ListDesiredTableGroups returns the tablegroups a provisioner should have
+	// provisioned for a database: every non-default tablegroup recorded in the
+	// sharding catalog that is creating or active, with its shard layout. A
+	// tablegroup being dropped is omitted, which is how a provisioner learns to
+	// remove it. The list is read from the catalog primary, so it reflects
+	// committed CREATE TABLEGROUP intent, not what is currently provisioned.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the database name is missing. NotFound (5) means topology has no
+	// primary pooler for the database's catalog shard yet. Every downstream failure becomes
+	// Unavailable (14). A provisioner must treat any error as "unknown", never as an empty list: it
+	// adds nothing and removes nothing until a read succeeds.
+	ListDesiredTableGroups(context.Context, *ListDesiredTableGroupsRequest) (*ListDesiredTableGroupsResponse, error)
 	// GetCellNames retrieves all cell names in the cluster
 	//
 	// Errors and recovery:
@@ -760,6 +797,9 @@ func (UnimplementedMultiadminServiceServer) GetCell(context.Context, *GetCellReq
 func (UnimplementedMultiadminServiceServer) GetDatabase(context.Context, *GetDatabaseRequest) (*GetDatabaseResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDatabase not implemented")
 }
+func (UnimplementedMultiadminServiceServer) ListDesiredTableGroups(context.Context, *ListDesiredTableGroupsRequest) (*ListDesiredTableGroupsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListDesiredTableGroups not implemented")
+}
 func (UnimplementedMultiadminServiceServer) GetCellNames(context.Context, *GetCellNamesRequest) (*GetCellNamesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCellNames not implemented")
 }
@@ -891,6 +931,24 @@ func _MultiadminService_GetDatabase_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MultiadminServiceServer).GetDatabase(ctx, req.(*GetDatabaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiadminService_ListDesiredTableGroups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDesiredTableGroupsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).ListDesiredTableGroups(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_ListDesiredTableGroups_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).ListDesiredTableGroups(ctx, req.(*ListDesiredTableGroupsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1377,6 +1435,10 @@ var MultiadminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetDatabase",
 			Handler:    _MultiadminService_GetDatabase_Handler,
+		},
+		{
+			MethodName: "ListDesiredTableGroups",
+			Handler:    _MultiadminService_ListDesiredTableGroups_Handler,
 		},
 		{
 			MethodName: "GetCellNames",

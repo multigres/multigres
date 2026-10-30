@@ -1267,8 +1267,16 @@ type Multipooler struct {
 	// its shard: callers such as multiadmin use it for work they would
 	// otherwise send to a replica, such as backups.
 	LeadershipMode LeadershipMode `protobuf:"varint,14,opt,name=leadership_mode,json=leadershipMode,proto3,enum=clustermetadata.LeadershipMode" json:"leadership_mode,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// tablegroup_id is the catalog identity (multigres.tablegroup.tablegroup_id)
+	// of the tablegroup this pooler serves, when the provisioner knows it. Zero
+	// when unknown, which is always the case for the default tablegroup and for
+	// tablegroups configured outside the catalog. The tablegroup creation loop
+	// only counts a pooler toward a tablegroup's readiness when this matches, so
+	// poolers left over from a dropped tablegroup of the same name never count
+	// toward a new one.
+	TablegroupId  int64 `protobuf:"varint,15,opt,name=tablegroup_id,json=tablegroupId,proto3" json:"tablegroup_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Multipooler) Reset() {
@@ -1384,6 +1392,13 @@ func (x *Multipooler) GetLeadershipMode() LeadershipMode {
 		return x.LeadershipMode
 	}
 	return LeadershipMode_LEADERSHIP_MODE_UNSPECIFIED
+}
+
+func (x *Multipooler) GetTablegroupId() int64 {
+	if x != nil {
+		return x.TablegroupId
+	}
+	return 0
 }
 
 // Multigateway represents metadata about a running multigateway component instance in the cluster.
@@ -3117,7 +3132,7 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\rPoolerAddress\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12#\n" +
-	"\rpostgres_port\x18\x03 \x01(\x05R\fpostgresPort\"\xdc\x05\n" +
+	"\rpostgres_port\x18\x03 \x01(\x05R\fpostgresPort\"\x81\x06\n" +
 	"\vMultipooler\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x126\n" +
 	"\tshard_ref\x18\x02 \x01(\v2\x19.clustermetadata.ShardRefR\bshardRef\x126\n" +
@@ -3132,7 +3147,8 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\vpg_data_dir\x18\v \x01(\tR\tpgDataDir\x12K\n" +
 	"\x10lifecycle_status\x18\f \x01(\v2 .clustermetadata.PoolerLifecycleR\x0flifecycleStatus\x12B\n" +
 	"\rrouting_state\x18\r \x01(\v2\x1d.clustermetadata.RoutingStateR\froutingState\x12H\n" +
-	"\x0fleadership_mode\x18\x0e \x01(\x0e2\x1f.clustermetadata.LeadershipModeR\x0eleadershipMode\x1a:\n" +
+	"\x0fleadership_mode\x18\x0e \x01(\x0e2\x1f.clustermetadata.LeadershipModeR\x0eleadershipMode\x12#\n" +
+	"\rtablegroup_id\x18\x0f \x01(\x03R\ftablegroupId\x1a:\n" +
 	"\fPortMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x05R\x05value:\x028\x01\"\xf1\x01\n" +

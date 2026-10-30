@@ -333,3 +333,7 @@ flowchart TD
 - Cross-shard transactions (2PC) and cross-shard query planning.
 - Where the catalog is stored (topology vs postgres), and its committed proto or
   table definitions.
+
+The control plane that creates a tablegroup once declared (catalog intent,
+provisioner API, completion) is described in
+[tablegroup-operations.md](tablegroup-operations.md).

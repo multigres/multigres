@@ -87,6 +87,15 @@ const (
 	// MultipoolerManagerReloadConfigProcedure is the fully-qualified name of the MultipoolerManager's
 	// ReloadConfig RPC.
 	MultipoolerManagerReloadConfigProcedure = "/multipoolermanager.MultipoolerManager/ReloadConfig"
+	// MultipoolerManagerCreateTableGroupProcedure is the fully-qualified name of the
+	// MultipoolerManager's CreateTableGroup RPC.
+	MultipoolerManagerCreateTableGroupProcedure = "/multipoolermanager.MultipoolerManager/CreateTableGroup"
+	// MultipoolerManagerGetOperationProcedure is the fully-qualified name of the MultipoolerManager's
+	// GetOperation RPC.
+	MultipoolerManagerGetOperationProcedure = "/multipoolermanager.MultipoolerManager/GetOperation"
+	// MultipoolerManagerListTableGroupsProcedure is the fully-qualified name of the
+	// MultipoolerManager's ListTableGroups RPC.
+	MultipoolerManagerListTableGroupsProcedure = "/multipoolermanager.MultipoolerManager/ListTableGroups"
 	// MultipoolerManagerManagerHealthStreamProcedure is the fully-qualified name of the
 	// MultipoolerManager's ManagerHealthStream RPC.
 	MultipoolerManagerManagerHealthStreamProcedure = "/multipoolermanager.MultipoolerManager/ManagerHealthStream"
@@ -145,6 +154,22 @@ type MultipoolerManagerClient interface {
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
 	// lets the caller verify its config-file change was re-read.
 	ReloadConfig(context.Context, *connect.Request[multipoolermanagerdata.ReloadConfigRequest]) (*connect.Response[multipoolermanagerdata.ReloadConfigResponse], error)
+	// CreateTableGroup records the intent to create a tablegroup: the tablegroup
+	// row in state creating, its shards in state preparing, and an operation row
+	// in state creating, all in one catalog transaction. The provisioner picks
+	// the tablegroup up through ListTableGroups, and the completion loop on the
+	// catalog primary marks everything active once every shard has a serving
+	// primary registered in topology. Idempotent on the name: a repeat while the
+	// tablegroup is still creating returns the existing operation.
+	CreateTableGroup(context.Context, *connect.Request[multipoolermanagerdata.CreateTableGroupRequest]) (*connect.Response[multipoolermanagerdata.CreateTableGroupResponse], error)
+	// GetOperation returns the current state of a catalog operation, with
+	// progress derived from topology for an in-flight tablegroup creation.
+	GetOperation(context.Context, *connect.Request[multipoolermanagerdata.GetOperationRequest]) (*connect.Response[multipoolermanagerdata.GetOperationResponse], error)
+	// ListTableGroups returns the tablegroups the provisioner should have
+	// provisioned: every non-default tablegroup that is creating or active, with
+	// its shard layout. Tablegroups being dropped are omitted, which is how the
+	// provisioner learns to remove them.
+	ListTableGroups(context.Context, *connect.Request[multipoolermanagerdata.ListTableGroupsRequest]) (*connect.Response[multipoolermanagerdata.ListTableGroupsResponse], error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
 	//
@@ -251,6 +276,24 @@ func NewMultipoolerManagerClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(multipoolerManagerMethods.ByName("ReloadConfig")),
 			connect.WithClientOptions(opts...),
 		),
+		createTableGroup: connect.NewClient[multipoolermanagerdata.CreateTableGroupRequest, multipoolermanagerdata.CreateTableGroupResponse](
+			httpClient,
+			baseURL+MultipoolerManagerCreateTableGroupProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("CreateTableGroup")),
+			connect.WithClientOptions(opts...),
+		),
+		getOperation: connect.NewClient[multipoolermanagerdata.GetOperationRequest, multipoolermanagerdata.GetOperationResponse](
+			httpClient,
+			baseURL+MultipoolerManagerGetOperationProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("GetOperation")),
+			connect.WithClientOptions(opts...),
+		),
+		listTableGroups: connect.NewClient[multipoolermanagerdata.ListTableGroupsRequest, multipoolermanagerdata.ListTableGroupsResponse](
+			httpClient,
+			baseURL+MultipoolerManagerListTableGroupsProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("ListTableGroups")),
+			connect.WithClientOptions(opts...),
+		),
 		managerHealthStream: connect.NewClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse](
 			httpClient,
 			baseURL+MultipoolerManagerManagerHealthStreamProcedure,
@@ -275,6 +318,9 @@ type multipoolerManagerClient struct {
 	setPostgresRestartsEnabled *connect.Client[multipoolermanagerdata.SetPostgresRestartsEnabledRequest, multipoolermanagerdata.SetPostgresRestartsEnabledResponse]
 	reconcileFollowers         *connect.Client[multipoolermanagerdata.ReconcileFollowersRequest, multipoolermanagerdata.ReconcileFollowersResponse]
 	reloadConfig               *connect.Client[multipoolermanagerdata.ReloadConfigRequest, multipoolermanagerdata.ReloadConfigResponse]
+	createTableGroup           *connect.Client[multipoolermanagerdata.CreateTableGroupRequest, multipoolermanagerdata.CreateTableGroupResponse]
+	getOperation               *connect.Client[multipoolermanagerdata.GetOperationRequest, multipoolermanagerdata.GetOperationResponse]
+	listTableGroups            *connect.Client[multipoolermanagerdata.ListTableGroupsRequest, multipoolermanagerdata.ListTableGroupsResponse]
 	managerHealthStream        *connect.Client[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]
 }
 
@@ -344,6 +390,21 @@ func (c *multipoolerManagerClient) ReloadConfig(ctx context.Context, req *connec
 	return c.reloadConfig.CallUnary(ctx, req)
 }
 
+// CreateTableGroup calls multipoolermanager.MultipoolerManager.CreateTableGroup.
+func (c *multipoolerManagerClient) CreateTableGroup(ctx context.Context, req *connect.Request[multipoolermanagerdata.CreateTableGroupRequest]) (*connect.Response[multipoolermanagerdata.CreateTableGroupResponse], error) {
+	return c.createTableGroup.CallUnary(ctx, req)
+}
+
+// GetOperation calls multipoolermanager.MultipoolerManager.GetOperation.
+func (c *multipoolerManagerClient) GetOperation(ctx context.Context, req *connect.Request[multipoolermanagerdata.GetOperationRequest]) (*connect.Response[multipoolermanagerdata.GetOperationResponse], error) {
+	return c.getOperation.CallUnary(ctx, req)
+}
+
+// ListTableGroups calls multipoolermanager.MultipoolerManager.ListTableGroups.
+func (c *multipoolerManagerClient) ListTableGroups(ctx context.Context, req *connect.Request[multipoolermanagerdata.ListTableGroupsRequest]) (*connect.Response[multipoolermanagerdata.ListTableGroupsResponse], error) {
+	return c.listTableGroups.CallUnary(ctx, req)
+}
+
 // ManagerHealthStream calls multipoolermanager.MultipoolerManager.ManagerHealthStream.
 func (c *multipoolerManagerClient) ManagerHealthStream(ctx context.Context) *connect.BidiStreamForClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse] {
 	return c.managerHealthStream.CallBidiStream(ctx)
@@ -403,6 +464,22 @@ type MultipoolerManagerHandler interface {
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
 	// lets the caller verify its config-file change was re-read.
 	ReloadConfig(context.Context, *connect.Request[multipoolermanagerdata.ReloadConfigRequest]) (*connect.Response[multipoolermanagerdata.ReloadConfigResponse], error)
+	// CreateTableGroup records the intent to create a tablegroup: the tablegroup
+	// row in state creating, its shards in state preparing, and an operation row
+	// in state creating, all in one catalog transaction. The provisioner picks
+	// the tablegroup up through ListTableGroups, and the completion loop on the
+	// catalog primary marks everything active once every shard has a serving
+	// primary registered in topology. Idempotent on the name: a repeat while the
+	// tablegroup is still creating returns the existing operation.
+	CreateTableGroup(context.Context, *connect.Request[multipoolermanagerdata.CreateTableGroupRequest]) (*connect.Response[multipoolermanagerdata.CreateTableGroupResponse], error)
+	// GetOperation returns the current state of a catalog operation, with
+	// progress derived from topology for an in-flight tablegroup creation.
+	GetOperation(context.Context, *connect.Request[multipoolermanagerdata.GetOperationRequest]) (*connect.Response[multipoolermanagerdata.GetOperationResponse], error)
+	// ListTableGroups returns the tablegroups the provisioner should have
+	// provisioned: every non-default tablegroup that is creating or active, with
+	// its shard layout. Tablegroups being dropped are omitted, which is how the
+	// provisioner learns to remove them.
+	ListTableGroups(context.Context, *connect.Request[multipoolermanagerdata.ListTableGroupsRequest]) (*connect.Response[multipoolermanagerdata.ListTableGroupsResponse], error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
 	//
@@ -505,6 +582,24 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 		connect.WithSchema(multipoolerManagerMethods.ByName("ReloadConfig")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multipoolerManagerCreateTableGroupHandler := connect.NewUnaryHandler(
+		MultipoolerManagerCreateTableGroupProcedure,
+		svc.CreateTableGroup,
+		connect.WithSchema(multipoolerManagerMethods.ByName("CreateTableGroup")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multipoolerManagerGetOperationHandler := connect.NewUnaryHandler(
+		MultipoolerManagerGetOperationProcedure,
+		svc.GetOperation,
+		connect.WithSchema(multipoolerManagerMethods.ByName("GetOperation")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multipoolerManagerListTableGroupsHandler := connect.NewUnaryHandler(
+		MultipoolerManagerListTableGroupsProcedure,
+		svc.ListTableGroups,
+		connect.WithSchema(multipoolerManagerMethods.ByName("ListTableGroups")),
+		connect.WithHandlerOptions(opts...),
+	)
 	multipoolerManagerManagerHealthStreamHandler := connect.NewBidiStreamHandler(
 		MultipoolerManagerManagerHealthStreamProcedure,
 		svc.ManagerHealthStream,
@@ -539,6 +634,12 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 			multipoolerManagerReconcileFollowersHandler.ServeHTTP(w, r)
 		case MultipoolerManagerReloadConfigProcedure:
 			multipoolerManagerReloadConfigHandler.ServeHTTP(w, r)
+		case MultipoolerManagerCreateTableGroupProcedure:
+			multipoolerManagerCreateTableGroupHandler.ServeHTTP(w, r)
+		case MultipoolerManagerGetOperationProcedure:
+			multipoolerManagerGetOperationHandler.ServeHTTP(w, r)
+		case MultipoolerManagerListTableGroupsProcedure:
+			multipoolerManagerListTableGroupsHandler.ServeHTTP(w, r)
 		case MultipoolerManagerManagerHealthStreamProcedure:
 			multipoolerManagerManagerHealthStreamHandler.ServeHTTP(w, r)
 		default:
@@ -600,6 +701,18 @@ func (UnimplementedMultipoolerManagerHandler) ReconcileFollowers(context.Context
 
 func (UnimplementedMultipoolerManagerHandler) ReloadConfig(context.Context, *connect.Request[multipoolermanagerdata.ReloadConfigRequest]) (*connect.Response[multipoolermanagerdata.ReloadConfigResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.ReloadConfig is not implemented"))
+}
+
+func (UnimplementedMultipoolerManagerHandler) CreateTableGroup(context.Context, *connect.Request[multipoolermanagerdata.CreateTableGroupRequest]) (*connect.Response[multipoolermanagerdata.CreateTableGroupResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.CreateTableGroup is not implemented"))
+}
+
+func (UnimplementedMultipoolerManagerHandler) GetOperation(context.Context, *connect.Request[multipoolermanagerdata.GetOperationRequest]) (*connect.Response[multipoolermanagerdata.GetOperationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.GetOperation is not implemented"))
+}
+
+func (UnimplementedMultipoolerManagerHandler) ListTableGroups(context.Context, *connect.Request[multipoolermanagerdata.ListTableGroupsRequest]) (*connect.Response[multipoolermanagerdata.ListTableGroupsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.ListTableGroups is not implemented"))
 }
 
 func (UnimplementedMultipoolerManagerHandler) ManagerHealthStream(context.Context, *connect.BidiStream[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]) error {

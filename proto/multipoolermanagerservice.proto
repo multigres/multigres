@@ -118,6 +118,35 @@ service MultipoolerManager {
   rpc ReloadConfig(multipoolermanagerdata.ReloadConfigRequest)
       returns (multipoolermanagerdata.ReloadConfigResponse);
 
+  //
+  // Tablegroup operations
+  // Served only by the pooler that is primary for the catalog shard (the
+  // default tablegroup's 0-inf shard), which is the sole writer of the
+  // sharding catalog. Other poolers reject them with FAILED_PRECONDITION.
+  //
+
+  // CreateTableGroup records the intent to create a tablegroup: the tablegroup
+  // row in state creating, its shards in state preparing, and an operation row
+  // in state creating, all in one catalog transaction. The provisioner picks
+  // the tablegroup up through ListTableGroups, and the completion loop on the
+  // catalog primary marks everything active once every shard has a serving
+  // primary registered in topology. Idempotent on the name: a repeat while the
+  // tablegroup is still creating returns the existing operation.
+  rpc CreateTableGroup(multipoolermanagerdata.CreateTableGroupRequest)
+      returns (multipoolermanagerdata.CreateTableGroupResponse);
+
+  // GetOperation returns the current state of a catalog operation, with
+  // progress derived from topology for an in-flight tablegroup creation.
+  rpc GetOperation(multipoolermanagerdata.GetOperationRequest)
+      returns (multipoolermanagerdata.GetOperationResponse);
+
+  // ListTableGroups returns the tablegroups the provisioner should have
+  // provisioned: every non-default tablegroup that is creating or active, with
+  // its shard layout. Tablegroups being dropped are omitted, which is how the
+  // provisioner learns to remove them.
+  rpc ListTableGroups(multipoolermanagerdata.ListTableGroupsRequest)
+      returns (multipoolermanagerdata.ListTableGroupsResponse);
+
   // ManagerHealthStream is a bidirectional health stream between orchestrator
   // and pooler.
   //

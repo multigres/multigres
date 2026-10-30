@@ -112,6 +112,14 @@ func (a *connectAdapter) GetCellNames(ctx context.Context, req *connect.Request[
 	return connect.NewResponse(resp), nil
 }
 
+func (a *connectAdapter) ListDesiredTableGroups(ctx context.Context, req *connect.Request[multiadminpb.ListDesiredTableGroupsRequest]) (*connect.Response[multiadminpb.ListDesiredTableGroupsResponse], error) {
+	resp, err := a.MultiadminServer.ListDesiredTableGroups(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
 func (a *connectAdapter) GetDatabaseNames(ctx context.Context, req *connect.Request[multiadminpb.GetDatabaseNamesRequest]) (*connect.Response[multiadminpb.GetDatabaseNamesResponse], error) {
 	resp, err := a.MultiadminServer.GetDatabaseNames(ctx, req.Msg)
 	if err != nil {

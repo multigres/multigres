@@ -47,6 +47,9 @@ const (
 	MultipoolerManager_SetPostgresRestartsEnabled_FullMethodName = "/multipoolermanager.MultipoolerManager/SetPostgresRestartsEnabled"
 	MultipoolerManager_ReconcileFollowers_FullMethodName         = "/multipoolermanager.MultipoolerManager/ReconcileFollowers"
 	MultipoolerManager_ReloadConfig_FullMethodName               = "/multipoolermanager.MultipoolerManager/ReloadConfig"
+	MultipoolerManager_CreateTableGroup_FullMethodName           = "/multipoolermanager.MultipoolerManager/CreateTableGroup"
+	MultipoolerManager_GetOperation_FullMethodName               = "/multipoolermanager.MultipoolerManager/GetOperation"
+	MultipoolerManager_ListTableGroups_FullMethodName            = "/multipoolermanager.MultipoolerManager/ListTableGroups"
 	MultipoolerManager_ManagerHealthStream_FullMethodName        = "/multipoolermanager.MultipoolerManager/ManagerHealthStream"
 )
 
@@ -107,6 +110,22 @@ type MultipoolerManagerClient interface {
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
 	// lets the caller verify its config-file change was re-read.
 	ReloadConfig(ctx context.Context, in *multipoolermanagerdata.ReloadConfigRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ReloadConfigResponse, error)
+	// CreateTableGroup records the intent to create a tablegroup: the tablegroup
+	// row in state creating, its shards in state preparing, and an operation row
+	// in state creating, all in one catalog transaction. The provisioner picks
+	// the tablegroup up through ListTableGroups, and the completion loop on the
+	// catalog primary marks everything active once every shard has a serving
+	// primary registered in topology. Idempotent on the name: a repeat while the
+	// tablegroup is still creating returns the existing operation.
+	CreateTableGroup(ctx context.Context, in *multipoolermanagerdata.CreateTableGroupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.CreateTableGroupResponse, error)
+	// GetOperation returns the current state of a catalog operation, with
+	// progress derived from topology for an in-flight tablegroup creation.
+	GetOperation(ctx context.Context, in *multipoolermanagerdata.GetOperationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetOperationResponse, error)
+	// ListTableGroups returns the tablegroups the provisioner should have
+	// provisioned: every non-default tablegroup that is creating or active, with
+	// its shard layout. Tablegroups being dropped are omitted, which is how the
+	// provisioner learns to remove them.
+	ListTableGroups(ctx context.Context, in *multipoolermanagerdata.ListTableGroupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ListTableGroupsResponse, error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
 	//
@@ -262,6 +281,36 @@ func (c *multipoolerManagerClient) ReloadConfig(ctx context.Context, in *multipo
 	return out, nil
 }
 
+func (c *multipoolerManagerClient) CreateTableGroup(ctx context.Context, in *multipoolermanagerdata.CreateTableGroupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.CreateTableGroupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.CreateTableGroupResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_CreateTableGroup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multipoolerManagerClient) GetOperation(ctx context.Context, in *multipoolermanagerdata.GetOperationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetOperationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.GetOperationResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_GetOperation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multipoolerManagerClient) ListTableGroups(ctx context.Context, in *multipoolermanagerdata.ListTableGroupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ListTableGroupsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.ListTableGroupsResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_ListTableGroups_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multipoolerManagerClient) ManagerHealthStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &MultipoolerManager_ServiceDesc.Streams[0], MultipoolerManager_ManagerHealthStream_FullMethodName, cOpts...)
@@ -332,6 +381,22 @@ type MultipoolerManagerServer interface {
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
 	// lets the caller verify its config-file change was re-read.
 	ReloadConfig(context.Context, *multipoolermanagerdata.ReloadConfigRequest) (*multipoolermanagerdata.ReloadConfigResponse, error)
+	// CreateTableGroup records the intent to create a tablegroup: the tablegroup
+	// row in state creating, its shards in state preparing, and an operation row
+	// in state creating, all in one catalog transaction. The provisioner picks
+	// the tablegroup up through ListTableGroups, and the completion loop on the
+	// catalog primary marks everything active once every shard has a serving
+	// primary registered in topology. Idempotent on the name: a repeat while the
+	// tablegroup is still creating returns the existing operation.
+	CreateTableGroup(context.Context, *multipoolermanagerdata.CreateTableGroupRequest) (*multipoolermanagerdata.CreateTableGroupResponse, error)
+	// GetOperation returns the current state of a catalog operation, with
+	// progress derived from topology for an in-flight tablegroup creation.
+	GetOperation(context.Context, *multipoolermanagerdata.GetOperationRequest) (*multipoolermanagerdata.GetOperationResponse, error)
+	// ListTableGroups returns the tablegroups the provisioner should have
+	// provisioned: every non-default tablegroup that is creating or active, with
+	// its shard layout. Tablegroups being dropped are omitted, which is how the
+	// provisioner learns to remove them.
+	ListTableGroups(context.Context, *multipoolermanagerdata.ListTableGroupsRequest) (*multipoolermanagerdata.ListTableGroupsResponse, error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
 	//
@@ -395,6 +460,15 @@ func (UnimplementedMultipoolerManagerServer) ReconcileFollowers(context.Context,
 }
 func (UnimplementedMultipoolerManagerServer) ReloadConfig(context.Context, *multipoolermanagerdata.ReloadConfigRequest) (*multipoolermanagerdata.ReloadConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReloadConfig not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) CreateTableGroup(context.Context, *multipoolermanagerdata.CreateTableGroupRequest) (*multipoolermanagerdata.CreateTableGroupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateTableGroup not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) GetOperation(context.Context, *multipoolermanagerdata.GetOperationRequest) (*multipoolermanagerdata.GetOperationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetOperation not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) ListTableGroups(context.Context, *multipoolermanagerdata.ListTableGroupsRequest) (*multipoolermanagerdata.ListTableGroupsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListTableGroups not implemented")
 }
 func (UnimplementedMultipoolerManagerServer) ManagerHealthStream(grpc.BidiStreamingServer[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method ManagerHealthStream not implemented")
@@ -654,6 +728,60 @@ func _MultipoolerManager_ReloadConfig_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultipoolerManager_CreateTableGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.CreateTableGroupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).CreateTableGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_CreateTableGroup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).CreateTableGroup(ctx, req.(*multipoolermanagerdata.CreateTableGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultipoolerManager_GetOperation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.GetOperationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).GetOperation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_GetOperation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).GetOperation(ctx, req.(*multipoolermanagerdata.GetOperationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultipoolerManager_ListTableGroups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.ListTableGroupsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).ListTableGroups(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_ListTableGroups_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).ListTableGroups(ctx, req.(*multipoolermanagerdata.ListTableGroupsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultipoolerManager_ManagerHealthStream_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(MultipoolerManagerServer).ManagerHealthStream(&grpc.GenericServerStream[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]{ServerStream: stream})
 }
@@ -719,6 +847,18 @@ var MultipoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReloadConfig",
 			Handler:    _MultipoolerManager_ReloadConfig_Handler,
+		},
+		{
+			MethodName: "CreateTableGroup",
+			Handler:    _MultipoolerManager_CreateTableGroup_Handler,
+		},
+		{
+			MethodName: "GetOperation",
+			Handler:    _MultipoolerManager_GetOperation_Handler,
+		},
+		{
+			MethodName: "ListTableGroups",
+			Handler:    _MultipoolerManager_ListTableGroups_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
