@@ -5,563 +5,563 @@
       {
         "name": "test_setup",
         "status": "pass",
-        "duration": "261ms",
+        "duration": "191ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/test_setup.patch"
       },
       {
         "name": "boolean",
         "status": "pass",
-        "duration": "102ms"
+        "duration": "71ms"
       },
       {
         "name": "char",
         "status": "pass",
-        "duration": "42ms"
+        "duration": "29ms"
       },
       {
         "name": "name",
         "status": "pass",
-        "duration": "51ms"
+        "duration": "38ms"
       },
       {
         "name": "varchar",
         "status": "pass",
-        "duration": "31ms"
+        "duration": "24ms"
       },
       {
         "name": "text",
         "status": "pass",
-        "duration": "71ms"
+        "duration": "49ms"
       },
       {
         "name": "int2",
         "status": "pass",
-        "duration": "73ms"
+        "duration": "51ms"
       },
       {
         "name": "int4",
         "status": "pass",
-        "duration": "83ms"
+        "duration": "53ms"
       },
       {
         "name": "int8",
         "status": "pass",
-        "duration": "140ms"
+        "duration": "90ms"
       },
       {
         "name": "oid",
         "status": "pass",
-        "duration": "43ms"
+        "duration": "31ms"
       },
       {
         "name": "float4",
         "status": "pass",
-        "duration": "99ms"
+        "duration": "64ms"
       },
       {
         "name": "float8",
         "status": "pass",
-        "duration": "146ms"
+        "duration": "94ms"
       },
       {
         "name": "bit",
         "status": "pass",
-        "duration": "148ms"
+        "duration": "102ms"
       },
       {
         "name": "numeric",
         "status": "pass",
-        "duration": "895ms"
+        "duration": "554ms"
       },
       {
         "name": "txid",
         "status": "pass",
-        "duration": "46ms"
+        "duration": "31ms"
       },
       {
         "name": "uuid",
         "status": "pass",
-        "duration": "58ms"
+        "duration": "41ms"
       },
       {
         "name": "enum",
         "status": "pass",
-        "duration": "179ms"
+        "duration": "122ms"
       },
       {
         "name": "money",
         "status": "pass",
-        "duration": "96ms"
+        "duration": "62ms"
       },
       {
         "name": "rangetypes",
         "status": "pass",
-        "duration": "533ms"
+        "duration": "355ms"
       },
       {
         "name": "pg_lsn",
         "status": "pass",
-        "duration": "40ms"
+        "duration": "27ms"
       },
       {
         "name": "regproc",
         "status": "pass",
-        "duration": "90ms"
+        "duration": "55ms"
       },
       {
         "name": "strings",
         "status": "pass",
-        "duration": "386ms",
+        "duration": "241ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/strings.patch"
       },
       {
         "name": "md5",
         "status": "pass",
-        "duration": "23ms"
+        "duration": "17ms"
       },
       {
         "name": "numerology",
         "status": "pass",
-        "duration": "68ms",
+        "duration": "99ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/numerology.patch"
       },
       {
         "name": "point",
         "status": "pass",
-        "duration": "53ms"
+        "duration": "42ms"
       },
       {
         "name": "lseg",
         "status": "pass",
-        "duration": "27ms"
+        "duration": "23ms"
       },
       {
         "name": "line",
         "status": "pass",
-        "duration": "40ms"
+        "duration": "31ms"
       },
       {
         "name": "box",
         "status": "pass",
-        "duration": "180ms"
+        "duration": "136ms"
       },
       {
         "name": "path",
         "status": "pass",
-        "duration": "34ms"
+        "duration": "26ms"
       },
       {
         "name": "polygon",
         "status": "pass",
-        "duration": "180ms"
+        "duration": "298ms"
       },
       {
         "name": "circle",
         "status": "pass",
-        "duration": "33ms"
+        "duration": "27ms"
       },
       {
         "name": "date",
         "status": "pass",
-        "duration": "217ms"
+        "duration": "139ms"
       },
       {
         "name": "time",
         "status": "pass",
-        "duration": "49ms"
+        "duration": "36ms"
       },
       {
         "name": "timetz",
         "status": "pass",
-        "duration": "59ms"
+        "duration": "48ms"
       },
       {
         "name": "timestamp",
         "status": "pass",
-        "duration": "483ms"
+        "duration": "424ms"
       },
       {
         "name": "timestamptz",
         "status": "pass",
-        "duration": "761ms"
+        "duration": "529ms"
       },
       {
         "name": "interval",
         "status": "pass",
-        "duration": "354ms",
+        "duration": "217ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/interval.patch"
       },
       {
         "name": "inet",
         "status": "pass",
-        "duration": "113ms"
+        "duration": "293ms"
       },
       {
         "name": "macaddr",
         "status": "pass",
-        "duration": "45ms"
+        "duration": "970ms"
       },
       {
         "name": "macaddr8",
         "status": "pass",
-        "duration": "77ms"
+        "duration": "51ms"
       },
       {
         "name": "multirangetypes",
         "status": "pass",
-        "duration": "601ms"
+        "duration": "366ms"
       },
       {
         "name": "geometry",
         "status": "pass",
-        "duration": "171ms"
+        "duration": "106ms"
       },
       {
         "name": "horology",
         "status": "pass",
-        "duration": "314ms"
+        "duration": "256ms"
       },
       {
         "name": "tstypes",
         "status": "pass",
-        "duration": "188ms"
+        "duration": "116ms"
       },
       {
         "name": "regex",
         "status": "pass",
-        "duration": "275ms"
+        "duration": "185ms"
       },
       {
         "name": "type_sanity",
         "status": "pass",
-        "duration": "95ms"
+        "duration": "59ms"
       },
       {
         "name": "opr_sanity",
         "status": "pass",
-        "duration": "248ms"
+        "duration": "154ms"
       },
       {
         "name": "misc_sanity",
         "status": "pass",
-        "duration": "18ms"
+        "duration": "13ms"
       },
       {
         "name": "comments",
         "status": "pass",
-        "duration": "15ms"
+        "duration": "10ms"
       },
       {
         "name": "expressions",
         "status": "pass",
-        "duration": "85ms"
+        "duration": "55ms"
       },
       {
         "name": "unicode",
         "status": "pass",
-        "duration": "28ms"
+        "duration": "17ms"
       },
       {
         "name": "xid",
         "status": "pass",
-        "duration": "81ms"
+        "duration": "50ms"
       },
       {
         "name": "mvcc",
         "status": "pass",
-        "duration": "41ms"
+        "duration": "27ms"
       },
       {
         "name": "database",
         "status": "pass",
-        "duration": "34ms",
+        "duration": "27ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/database.patch"
       },
       {
         "name": "copy",
         "status": "pass",
-        "duration": "153ms"
+        "duration": "101ms"
       },
       {
         "name": "copyselect",
         "status": "pass",
-        "duration": "75ms"
+        "duration": "55ms"
       },
       {
         "name": "copydml",
         "status": "pass",
-        "duration": "143ms"
+        "duration": "120ms"
       },
       {
         "name": "insert",
         "status": "pass",
-        "duration": "690ms"
+        "duration": "490ms"
       },
       {
         "name": "insert_conflict",
         "status": "pass",
-        "duration": "328ms",
+        "duration": "231ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/insert_conflict.patch"
       },
       {
         "name": "create_function_c",
         "status": "pass",
-        "duration": "15ms",
+        "duration": "11ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/create_function_c.patch"
       },
       {
         "name": "create_misc",
         "status": "pass",
-        "duration": "116ms"
+        "duration": "80ms"
       },
       {
         "name": "create_operator",
         "status": "pass",
-        "duration": "75ms"
+        "duration": "54ms"
       },
       {
         "name": "create_procedure",
         "status": "pass",
-        "duration": "135ms"
+        "duration": "106ms"
       },
       {
         "name": "create_table",
         "status": "pass",
-        "duration": "665ms",
+        "duration": "471ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/create_table.patch"
       },
       {
         "name": "create_type",
         "status": "pass",
-        "duration": "107ms"
+        "duration": "73ms"
       },
       {
         "name": "create_schema",
         "status": "pass",
-        "duration": "74ms"
+        "duration": "49ms"
       },
       {
         "name": "create_index",
         "status": "pass",
-        "duration": "1099ms",
+        "duration": "914ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/create_index.patch"
       },
       {
         "name": "create_index_spgist",
         "status": "pass",
-        "duration": "383ms"
+        "duration": "237ms"
       },
       {
         "name": "create_view",
         "status": "pass",
-        "duration": "555ms"
+        "duration": "376ms"
       },
       {
         "name": "index_including",
         "status": "pass",
-        "duration": "206ms"
+        "duration": "143ms"
       },
       {
         "name": "index_including_gist",
         "status": "pass",
-        "duration": "180ms"
+        "duration": "142ms"
       },
       {
         "name": "create_aggregate",
         "status": "pass",
-        "duration": "83ms"
+        "duration": "72ms"
       },
       {
         "name": "create_function_sql",
         "status": "pass",
-        "duration": "191ms",
+        "duration": "205ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/create_function_sql.patch"
       },
       {
         "name": "create_cast",
         "status": "pass",
-        "duration": "38ms"
+        "duration": "27ms"
       },
       {
         "name": "constraints",
         "status": "pass",
-        "duration": "367ms"
+        "duration": "233ms"
       },
       {
         "name": "triggers",
         "status": "pass",
-        "duration": "1560ms",
+        "duration": "1192ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/triggers.patch"
       },
       {
         "name": "select",
         "status": "pass",
-        "duration": "98ms"
+        "duration": "68ms"
       },
       {
         "name": "inherit",
         "status": "pass",
-        "duration": "1143ms"
+        "duration": "806ms"
       },
       {
         "name": "typed_table",
         "status": "pass",
-        "duration": "100ms"
+        "duration": "68ms"
       },
       {
         "name": "vacuum",
         "status": "pass",
-        "duration": "449ms"
+        "duration": "316ms"
       },
       {
         "name": "drop_if_exists",
         "status": "pass",
-        "duration": "146ms",
+        "duration": "101ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/drop_if_exists.patch"
       },
       {
         "name": "updatable_views",
         "status": "pass",
-        "duration": "1330ms",
+        "duration": "975ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/updatable_views.patch"
       },
       {
         "name": "roleattributes",
         "status": "pass",
-        "duration": "92ms"
+        "duration": "66ms"
       },
       {
         "name": "create_am",
         "status": "pass",
-        "duration": "200ms",
+        "duration": "308ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/create_am.patch"
       },
       {
         "name": "hash_func",
         "status": "pass",
-        "duration": "58ms"
+        "duration": "39ms"
       },
       {
         "name": "errors",
         "status": "pass",
-        "duration": "50ms"
+        "duration": "30ms"
       },
       {
         "name": "infinite_recurse",
         "status": "pass",
-        "duration": "136ms"
+        "duration": "108ms"
       },
       {
         "name": "sanity_check",
         "status": "pass",
-        "duration": "78ms"
+        "duration": "55ms"
       },
       {
         "name": "select_into",
         "status": "pass",
-        "duration": "88ms"
+        "duration": "68ms"
       },
       {
         "name": "select_distinct",
         "status": "pass",
-        "duration": "118ms"
+        "duration": "98ms"
       },
       {
         "name": "select_distinct_on",
         "status": "pass",
-        "duration": "21ms"
+        "duration": "15ms"
       },
       {
         "name": "select_implicit",
         "status": "pass",
-        "duration": "55ms",
+        "duration": "42ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/select_implicit.patch"
       },
       {
         "name": "select_having",
         "status": "pass",
-        "duration": "36ms"
+        "duration": "27ms"
       },
       {
         "name": "subselect",
         "status": "pass",
-        "duration": "311ms"
+        "duration": "202ms"
       },
       {
         "name": "union",
         "status": "pass",
-        "duration": "225ms",
+        "duration": "148ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/union.patch"
       },
       {
         "name": "case",
         "status": "pass",
-        "duration": "70ms"
+        "duration": "80ms"
       },
       {
         "name": "join",
         "status": "pass",
-        "duration": "809ms",
+        "duration": "539ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/join.patch"
       },
       {
         "name": "aggregates",
         "status": "pass",
-        "duration": "675ms",
+        "duration": "460ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/aggregates.patch"
       },
       {
         "name": "transactions",
         "status": "pass",
-        "duration": "353ms"
+        "duration": "222ms"
       },
       {
         "name": "random",
         "status": "pass",
-        "duration": "66ms"
+        "duration": "48ms"
       },
       {
         "name": "portals",
         "status": "pass",
-        "duration": "278ms"
+        "duration": "171ms"
       },
       {
         "name": "arrays",
         "status": "pass",
-        "duration": "456ms"
+        "duration": "289ms"
       },
       {
         "name": "btree_index",
         "status": "pass",
-        "duration": "789ms"
+        "duration": "651ms"
       },
       {
         "name": "hash_index",
         "status": "pass",
-        "duration": "498ms"
+        "duration": "863ms"
       },
       {
         "name": "update",
         "status": "pass",
-        "duration": "463ms"
+        "duration": "314ms"
       },
       {
         "name": "delete",
@@ -571,684 +571,684 @@
       {
         "name": "namespace",
         "status": "pass",
-        "duration": "66ms"
+        "duration": "49ms"
       },
       {
         "name": "prepared_xacts",
         "status": "pass",
-        "duration": "99ms"
+        "duration": "69ms"
       },
       {
         "name": "brin",
         "status": "pass",
-        "duration": "149ms",
+        "duration": "188ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/brin.patch"
       },
       {
         "name": "gin",
         "status": "pass",
-        "duration": "379ms",
+        "duration": "298ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/gin.patch"
       },
       {
         "name": "gist",
         "status": "pass",
-        "duration": "426ms",
+        "duration": "447ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/gist.patch"
       },
       {
         "name": "spgist",
         "status": "pass",
-        "duration": "288ms",
+        "duration": "370ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/spgist.patch"
       },
       {
         "name": "privileges",
         "status": "pass",
-        "duration": "1579ms",
+        "duration": "1066ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/privileges.patch"
       },
       {
         "name": "init_privs",
         "status": "pass",
-        "duration": "15ms"
+        "duration": "12ms"
       },
       {
         "name": "security_label",
         "status": "pass",
-        "duration": "41ms"
+        "duration": "31ms"
       },
       {
         "name": "collate",
         "status": "pass",
-        "duration": "198ms"
+        "duration": "138ms"
       },
       {
         "name": "matview",
         "status": "pass",
-        "duration": "399ms"
+        "duration": "268ms"
       },
       {
         "name": "lock",
         "status": "pass",
-        "duration": "133ms"
+        "duration": "90ms"
       },
       {
         "name": "replica_identity",
         "status": "pass",
-        "duration": "200ms"
+        "duration": "131ms"
       },
       {
         "name": "rowsecurity",
         "status": "pass",
-        "duration": "1450ms",
+        "duration": "993ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/rowsecurity.patch"
       },
       {
         "name": "object_address",
         "status": "pass",
-        "duration": "104ms",
+        "duration": "74ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/object_address.patch"
       },
       {
         "name": "tablesample",
         "status": "pass",
-        "duration": "74ms"
+        "duration": "51ms"
       },
       {
         "name": "groupingsets",
         "status": "pass",
-        "duration": "236ms"
+        "duration": "165ms"
       },
       {
         "name": "drop_operator",
         "status": "pass",
-        "duration": "30ms"
+        "duration": "19ms"
       },
       {
         "name": "password",
         "status": "pass",
-        "duration": "100ms"
+        "duration": "69ms"
       },
       {
         "name": "identity",
         "status": "pass",
-        "duration": "456ms",
+        "duration": "315ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/identity.patch"
       },
       {
         "name": "generated",
         "status": "pass",
-        "duration": "799ms"
+        "duration": "552ms"
       },
       {
         "name": "join_hash",
         "status": "pass",
-        "duration": "835ms",
+        "duration": "690ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/join_hash.patch"
       },
       {
         "name": "brin_bloom",
         "status": "pass",
-        "duration": "81ms",
+        "duration": "52ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/brin_bloom.patch"
       },
       {
         "name": "brin_multi",
         "status": "pass",
-        "duration": "252ms",
+        "duration": "168ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/brin_multi.patch"
       },
       {
         "name": "create_table_like",
         "status": "pass",
-        "duration": "453ms"
+        "duration": "1092ms"
       },
       {
         "name": "alter_generic",
         "status": "pass",
-        "duration": "347ms",
+        "duration": "221ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/alter_generic.patch"
       },
       {
         "name": "alter_operator",
         "status": "pass",
-        "duration": "83ms"
+        "duration": "55ms"
       },
       {
         "name": "misc",
         "status": "pass",
-        "duration": "118ms"
+        "duration": "79ms"
       },
       {
         "name": "async",
         "status": "pass",
-        "duration": "23ms"
+        "duration": "17ms"
       },
       {
         "name": "dbsize",
         "status": "pass",
-        "duration": "31ms"
+        "duration": "21ms"
       },
       {
         "name": "merge",
         "status": "pass",
-        "duration": "637ms",
+        "duration": "451ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/merge.patch"
       },
       {
         "name": "misc_functions",
         "status": "pass",
-        "duration": "125ms",
+        "duration": "83ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/misc_functions.patch"
       },
       {
         "name": "sysviews",
         "status": "pass",
-        "duration": "120ms"
+        "duration": "82ms"
       },
       {
         "name": "tsrf",
         "status": "pass",
-        "duration": "80ms"
+        "duration": "53ms"
       },
       {
         "name": "tid",
         "status": "pass",
-        "duration": "59ms"
+        "duration": "43ms"
       },
       {
         "name": "tidscan",
         "status": "pass",
-        "duration": "58ms"
+        "duration": "37ms"
       },
       {
         "name": "tidrangescan",
         "status": "pass",
-        "duration": "52ms"
+        "duration": "35ms"
       },
       {
         "name": "collate.utf8",
         "status": "pass",
-        "duration": "34ms"
+        "duration": "25ms"
       },
       {
         "name": "collate.icu.utf8",
         "status": "pass",
-        "duration": "12ms"
+        "duration": "10ms"
       },
       {
         "name": "incremental_sort",
         "status": "pass",
-        "duration": "168ms",
+        "duration": "101ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/incremental_sort.patch"
       },
       {
         "name": "create_role",
         "status": "pass",
-        "duration": "165ms",
+        "duration": "108ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/create_role.patch"
       },
       {
         "name": "rules",
         "status": "pass",
-        "duration": "826ms"
+        "duration": "573ms"
       },
       {
         "name": "psql",
         "status": "pass",
-        "duration": "801ms",
+        "duration": "522ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/psql.patch"
       },
       {
         "name": "psql_crosstab",
         "status": "pass",
-        "duration": "44ms"
+        "duration": "34ms"
       },
       {
         "name": "amutils",
         "status": "pass",
-        "duration": "25ms"
+        "duration": "19ms"
       },
       {
         "name": "stats_ext",
         "status": "pass",
-        "duration": "1479ms",
+        "duration": "1160ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/stats_ext.patch"
       },
       {
         "name": "collate.linux.utf8",
         "status": "pass",
-        "duration": "12ms"
+        "duration": "10ms"
       },
       {
         "name": "collate.windows.win1252",
         "status": "pass",
-        "duration": "12ms"
+        "duration": "9ms"
       },
       {
         "name": "select_parallel",
         "status": "pass",
-        "duration": "769ms",
+        "duration": "730ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/select_parallel.patch"
       },
       {
         "name": "write_parallel",
         "status": "pass",
-        "duration": "77ms"
+        "duration": "62ms"
       },
       {
         "name": "vacuum_parallel",
         "status": "pass",
-        "duration": "92ms"
+        "duration": "69ms"
       },
       {
         "name": "maintain_every",
         "status": "pass",
-        "duration": "38ms"
+        "duration": "30ms"
       },
       {
         "name": "publication",
         "status": "pass",
-        "duration": "1086ms",
+        "duration": "782ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/publication.patch"
       },
       {
         "name": "subscription",
         "status": "pass",
-        "duration": "154ms",
+        "duration": "99ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/subscription.patch"
       },
       {
         "name": "select_views",
         "status": "pass",
-        "duration": "110ms"
+        "duration": "73ms"
       },
       {
         "name": "portals_p2",
         "status": "pass",
-        "duration": "42ms"
+        "duration": "29ms"
       },
       {
         "name": "foreign_key",
         "status": "pass",
-        "duration": "1761ms",
+        "duration": "1408ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/foreign_key.patch"
       },
       {
         "name": "cluster",
         "status": "pass",
-        "duration": "347ms"
+        "duration": "289ms"
       },
       {
         "name": "dependency",
         "status": "pass",
-        "duration": "96ms",
+        "duration": "71ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/dependency.patch"
       },
       {
         "name": "guc",
         "status": "pass",
-        "duration": "208ms",
+        "duration": "133ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/guc.patch"
       },
       {
         "name": "bitmapops",
         "status": "pass",
-        "duration": "196ms"
+        "duration": "336ms"
       },
       {
         "name": "combocid",
         "status": "pass",
-        "duration": "61ms"
+        "duration": "42ms"
       },
       {
         "name": "tsearch",
         "status": "pass",
-        "duration": "471ms"
+        "duration": "316ms"
       },
       {
         "name": "tsdicts",
         "status": "pass",
-        "duration": "123ms"
+        "duration": "77ms"
       },
       {
         "name": "foreign_data",
         "status": "pass",
-        "duration": "806ms",
+        "duration": "528ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/foreign_data.patch"
       },
       {
         "name": "window",
         "status": "pass",
-        "duration": "392ms",
+        "duration": "273ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/window.patch"
       },
       {
         "name": "xmlmap",
         "status": "pass",
-        "duration": "39ms",
+        "duration": "30ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/xmlmap.patch"
       },
       {
         "name": "functional_deps",
         "status": "pass",
-        "duration": "60ms",
+        "duration": "44ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/functional_deps.patch"
       },
       {
         "name": "advisory_lock",
         "status": "pass",
-        "duration": "48ms"
+        "duration": "31ms"
       },
       {
         "name": "indirect_toast",
         "status": "pass",
-        "duration": "224ms"
+        "duration": "143ms"
       },
       {
         "name": "equivclass",
         "status": "pass",
-        "duration": "108ms"
+        "duration": "83ms"
       },
       {
         "name": "json",
         "status": "pass",
-        "duration": "390ms",
+        "duration": "242ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/json.patch"
       },
       {
         "name": "jsonb",
         "status": "pass",
-        "duration": "864ms",
+        "duration": "542ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/jsonb.patch"
       },
       {
         "name": "json_encoding",
         "status": "pass",
-        "duration": "45ms"
+        "duration": "31ms"
       },
       {
         "name": "jsonpath",
         "status": "pass",
-        "duration": "178ms"
+        "duration": "98ms"
       },
       {
         "name": "jsonpath_encoding",
         "status": "pass",
-        "duration": "34ms"
+        "duration": "24ms"
       },
       {
         "name": "jsonb_jsonpath",
         "status": "pass",
-        "duration": "626ms"
+        "duration": "419ms"
       },
       {
         "name": "sqljson",
         "status": "pass",
-        "duration": "205ms",
+        "duration": "133ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/sqljson.patch"
       },
       {
         "name": "sqljson_queryfuncs",
         "status": "pass",
-        "duration": "308ms",
+        "duration": "199ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/sqljson_queryfuncs.patch"
       },
       {
         "name": "sqljson_jsontable",
         "status": "pass",
-        "duration": "161ms",
+        "duration": "105ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/sqljson_jsontable.patch"
       },
       {
         "name": "plancache",
         "status": "pass",
-        "duration": "116ms",
+        "duration": "81ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/plancache.patch"
       },
       {
         "name": "limit",
         "status": "pass",
-        "duration": "114ms"
+        "duration": "80ms"
       },
       {
         "name": "plpgsql",
         "status": "pass",
-        "duration": "1162ms",
+        "duration": "987ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/plpgsql.patch"
       },
       {
         "name": "copy2",
         "status": "pass",
-        "duration": "310ms"
+        "duration": "202ms"
       },
       {
         "name": "temp",
         "status": "pass",
-        "duration": "177ms",
+        "duration": "128ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/temp.patch"
       },
       {
         "name": "domain",
         "status": "pass",
-        "duration": "570ms",
+        "duration": "431ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/domain.patch"
       },
       {
         "name": "rangefuncs",
         "status": "pass",
-        "duration": "443ms"
+        "duration": "313ms"
       },
       {
         "name": "prepare",
         "status": "pass",
-        "duration": "41ms",
+        "duration": "32ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/prepare.patch"
       },
       {
         "name": "conversion",
         "status": "pass",
-        "duration": "98ms"
+        "duration": "72ms"
       },
       {
         "name": "truncate",
         "status": "pass",
-        "duration": "278ms"
+        "duration": "202ms"
       },
       {
         "name": "alter_table",
         "status": "pass",
-        "duration": "2855ms",
+        "duration": "2021ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/alter_table.patch"
       },
       {
         "name": "sequence",
         "status": "pass",
-        "duration": "329ms",
+        "duration": "198ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/sequence.patch"
       },
       {
         "name": "polymorphism",
         "status": "pass",
-        "duration": "499ms"
+        "duration": "283ms"
       },
       {
         "name": "rowtypes",
         "status": "pass",
-        "duration": "262ms"
+        "duration": "190ms"
       },
       {
         "name": "returning",
         "status": "pass",
-        "duration": "90ms"
+        "duration": "62ms"
       },
       {
         "name": "largeobject",
         "status": "pass",
-        "duration": "120ms",
+        "duration": "80ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/largeobject.patch"
       },
       {
         "name": "with",
         "status": "pass",
-        "duration": "321ms",
+        "duration": "233ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/with.patch"
       },
       {
         "name": "xml",
         "status": "pass",
-        "duration": "256ms",
+        "duration": "151ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/xml.patch"
       },
       {
         "name": "partition_join",
         "status": "pass",
-        "duration": "1076ms"
+        "duration": "756ms"
       },
       {
         "name": "partition_prune",
         "status": "pass",
-        "duration": "1016ms",
+        "duration": "857ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/partition_prune.patch"
       },
       {
         "name": "reloptions",
         "status": "pass",
-        "duration": "79ms"
+        "duration": "56ms"
       },
       {
         "name": "hash_part",
         "status": "pass",
-        "duration": "44ms"
+        "duration": "31ms"
       },
       {
         "name": "indexing",
         "status": "pass",
-        "duration": "1187ms"
+        "duration": "829ms"
       },
       {
         "name": "partition_aggregate",
         "status": "pass",
-        "duration": "512ms"
+        "duration": "358ms"
       },
       {
         "name": "partition_info",
         "status": "pass",
-        "duration": "94ms"
+        "duration": "66ms"
       },
       {
         "name": "tuplesort",
         "status": "pass",
-        "duration": "488ms"
+        "duration": "309ms"
       },
       {
         "name": "explain",
         "status": "pass",
-        "duration": "76ms",
+        "duration": "57ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/explain.patch"
       },
       {
         "name": "compression",
         "status": "pass",
-        "duration": "272ms"
+        "duration": "358ms"
       },
       {
         "name": "memoize",
         "status": "pass",
-        "duration": "117ms",
+        "duration": "97ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/memoize.patch"
       },
       {
         "name": "stats",
         "status": "pass",
-        "duration": "1085ms",
+        "duration": "1166ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/stats.patch"
       },
       {
         "name": "predicate",
         "status": "pass",
-        "duration": "56ms"
+        "duration": "43ms"
       },
       {
         "name": "oidjoins",
         "status": "pass",
-        "duration": "12ms",
+        "duration": "9ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/oidjoins.patch"
       },
       {
         "name": "event_trigger",
         "status": "pass",
-        "duration": "310ms",
+        "duration": "227ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/event_trigger.patch"
       },
       {
         "name": "event_trigger_login",
         "status": "pass",
-        "duration": "40ms",
+        "duration": "32ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/event_trigger_login.patch"
       },
       {
         "name": "fast_default",
         "status": "pass",
-        "duration": "365ms",
+        "duration": "376ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/fast_default.patch"
       },
       {
         "name": "tablespace",
         "status": "pass",
-        "duration": "687ms"
+        "duration": "514ms"
       }
     ]
   },
@@ -1258,599 +1258,597 @@
       {
         "name": "read-only-anomaly",
         "status": "pass",
-        "duration": "46ms"
+        "duration": "30ms"
       },
       {
         "name": "read-only-anomaly-2",
         "status": "pass",
-        "duration": "52ms"
+        "duration": "34ms"
       },
       {
         "name": "read-only-anomaly-3",
         "status": "pass",
-        "duration": "70ms"
+        "duration": "55ms"
       },
       {
         "name": "read-write-unique",
         "status": "pass",
-        "duration": "56ms"
+        "duration": "43ms"
       },
       {
         "name": "read-write-unique-2",
         "status": "pass",
-        "duration": "57ms"
+        "duration": "44ms"
       },
       {
         "name": "read-write-unique-3",
         "status": "pass",
-        "duration": "48ms"
+        "duration": "36ms"
       },
       {
         "name": "read-write-unique-4",
         "status": "pass",
-        "duration": "88ms"
+        "duration": "70ms"
       },
       {
         "name": "simple-write-skew",
         "status": "pass",
-        "duration": "72ms"
+        "duration": "48ms"
       },
       {
         "name": "receipt-report",
         "status": "pass",
-        "duration": "9947ms"
+        "duration": "9415ms"
       },
       {
         "name": "temporal-range-integrity",
         "status": "pass",
-        "duration": "264ms"
+        "duration": "155ms"
       },
       {
         "name": "project-manager",
         "status": "pass",
-        "duration": "253ms"
+        "duration": "191ms"
       },
       {
         "name": "classroom-scheduling",
         "status": "pass",
-        "duration": "224ms"
+        "duration": "134ms"
       },
       {
         "name": "total-cash",
         "status": "pass",
-        "duration": "227ms"
+        "duration": "130ms"
       },
       {
         "name": "referential-integrity",
         "status": "pass",
-        "duration": "383ms"
+        "duration": "232ms"
       },
       {
         "name": "ri-trigger",
         "status": "pass",
-        "duration": "142ms"
+        "duration": "83ms"
       },
       {
         "name": "partial-index",
         "status": "pass",
-        "duration": "437ms"
+        "duration": "383ms"
       },
       {
         "name": "two-ids",
         "status": "pass",
-        "duration": "920ms"
+        "duration": "563ms"
       },
       {
         "name": "multiple-row-versions",
         "status": "pass",
-        "duration": "1236ms"
+        "duration": "1676ms"
       },
       {
         "name": "index-only-scan",
         "status": "pass",
-        "duration": "265ms"
+        "duration": "352ms"
       },
       {
         "name": "predicate-lock-hot-tuple",
         "status": "pass",
-        "duration": "46ms"
+        "duration": "23ms"
       },
       {
         "name": "update-conflict-out",
         "status": "pass",
-        "duration": "61ms"
+        "duration": "37ms"
       },
       {
         "name": "deadlock-simple",
         "status": "pass",
-        "duration": "49ms"
+        "duration": "35ms"
       },
       {
         "name": "deadlock-hard",
         "status": "pass",
-        "duration": "800ms"
+        "duration": "731ms"
       },
       {
         "name": "deadlock-soft",
         "status": "pass",
-        "duration": "203ms"
+        "duration": "175ms"
       },
       {
         "name": "deadlock-soft-2",
         "status": "pass",
-        "duration": "236ms"
+        "duration": "207ms"
       },
       {
         "name": "deadlock-parallel",
         "status": "pass",
-        "duration": "193ms"
+        "duration": "167ms"
       },
       {
         "name": "detach-partition-concurrently-1",
         "status": "pass",
-        "duration": "610ms"
+        "duration": "576ms"
       },
       {
         "name": "detach-partition-concurrently-2",
         "status": "pass",
-        "duration": "186ms"
+        "duration": "148ms"
       },
       {
         "name": "detach-partition-concurrently-3",
         "status": "pass",
-        "duration": "525ms"
+        "duration": "405ms"
       },
       {
         "name": "detach-partition-concurrently-4",
         "status": "pass",
-        "duration": "632ms"
+        "duration": "482ms"
       },
       {
         "name": "fk-contention",
         "status": "pass",
-        "duration": "48ms"
+        "duration": "32ms"
       },
       {
         "name": "fk-deadlock",
         "status": "pass",
-        "duration": "268ms"
+        "duration": "192ms"
       },
       {
         "name": "fk-deadlock2",
         "status": "pass",
-        "duration": "251ms"
+        "duration": "186ms"
       },
       {
         "name": "fk-partitioned-1",
         "status": "pass",
-        "duration": "255ms"
+        "duration": "181ms"
       },
       {
         "name": "fk-partitioned-2",
         "status": "pass",
-        "duration": "161ms"
+        "duration": "126ms"
       },
       {
         "name": "fk-snapshot",
         "status": "pass",
-        "duration": "184ms"
+        "duration": "284ms"
       },
       {
         "name": "subxid-overflow",
         "status": "pass",
-        "duration": "104ms"
+        "duration": "73ms"
       },
       {
         "name": "eval-plan-qual",
         "status": "pass",
-        "duration": "1679ms"
+        "duration": "1276ms"
       },
       {
         "name": "eval-plan-qual-trigger",
         "status": "pass",
-        "duration": "1279ms"
+        "duration": "1028ms"
       },
       {
         "name": "inplace-inval",
         "status": "pass",
-        "duration": "49ms"
+        "duration": "33ms"
       },
       {
         "name": "intra-grant-inplace",
         "status": "pass",
-        "duration": "373ms"
+        "duration": "319ms"
       },
       {
         "name": "intra-grant-inplace-db",
         "status": "pass",
-        "duration": "82ms",
+        "duration": "59ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/isolation/intra-grant-inplace-db.patch"
       },
       {
         "name": "lock-update-delete",
         "status": "pass",
-        "duration": "651ms"
+        "duration": "602ms"
       },
       {
         "name": "lock-update-traversal",
         "status": "pass",
-        "duration": "82ms"
+        "duration": "65ms"
       },
       {
         "name": "inherit-temp",
         "status": "pass",
-        "duration": "166ms"
+        "duration": "117ms"
       },
       {
         "name": "temp-schema-cleanup",
         "status": "pass",
-        "duration": "99ms"
+        "duration": "75ms"
       },
       {
         "name": "insert-conflict-do-nothing",
         "status": "pass",
-        "duration": "67ms"
+        "duration": "53ms"
       },
       {
         "name": "insert-conflict-do-nothing-2",
         "status": "pass",
-        "duration": "145ms"
+        "duration": "112ms"
       },
       {
         "name": "insert-conflict-do-update",
         "status": "pass",
-        "duration": "68ms"
+        "duration": "54ms"
       },
       {
         "name": "insert-conflict-do-update-2",
         "status": "pass",
-        "duration": "69ms"
+        "duration": "55ms"
       },
       {
         "name": "insert-conflict-do-update-3",
         "status": "pass",
-        "duration": "48ms"
+        "duration": "211ms"
       },
       {
         "name": "insert-conflict-specconflict",
         "status": "pass",
-        "duration": "1408ms",
+        "duration": "1277ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/isolation/insert-conflict-specconflict.patch"
       },
       {
         "name": "merge-insert-update",
         "status": "pass",
-        "duration": "143ms"
+        "duration": "109ms"
       },
       {
         "name": "merge-delete",
         "status": "pass",
-        "duration": "397ms"
+        "duration": "286ms"
       },
       {
         "name": "merge-update",
         "status": "pass",
-        "duration": "296ms"
+        "duration": "230ms"
       },
       {
         "name": "merge-match-recheck",
         "status": "pass",
-        "duration": "400ms"
+        "duration": "314ms"
       },
       {
         "name": "merge-join",
         "status": "pass",
-        "duration": "110ms"
+        "duration": "86ms"
       },
       {
         "name": "delete-abort-savept",
         "status": "pass",
-        "duration": "221ms"
+        "duration": "185ms"
       },
       {
         "name": "delete-abort-savept-2",
         "status": "pass",
-        "duration": "111ms"
+        "duration": "85ms"
       },
       {
         "name": "aborted-keyrevoke",
         "status": "pass",
-        "duration": "216ms"
+        "duration": "159ms"
       },
       {
         "name": "multixact-no-deadlock",
         "status": "pass",
-        "duration": "81ms"
+        "duration": "62ms"
       },
       {
         "name": "multixact-no-forget",
         "status": "pass",
-        "duration": "158ms"
+        "duration": "115ms"
       },
       {
         "name": "lock-committed-update",
         "status": "pass",
-        "duration": "781ms"
+        "duration": "652ms"
       },
       {
         "name": "lock-committed-keyupdate",
         "status": "pass",
-        "duration": "706ms"
+        "duration": "607ms"
       },
       {
         "name": "update-locked-tuple",
         "status": "pass",
-        "duration": "91ms"
+        "duration": "59ms"
       },
       {
         "name": "reindex-concurrently",
         "status": "pass",
-        "duration": "297ms"
+        "duration": "254ms"
       },
       {
         "name": "reindex-concurrently-toast",
         "status": "pass",
-        "duration": "1299ms"
+        "duration": "1043ms"
       },
       {
         "name": "reindex-schema",
         "status": "pass",
-        "duration": "106ms"
+        "duration": "90ms"
       },
       {
         "name": "propagate-lock-delete",
         "status": "pass",
-        "duration": "258ms"
+        "duration": "255ms"
       },
       {
         "name": "tuplelock-conflict",
         "status": "pass",
-        "duration": "465ms"
+        "duration": "380ms"
       },
       {
         "name": "tuplelock-update",
         "status": "pass",
-        "duration": "294ms"
+        "duration": "273ms"
       },
       {
         "name": "tuplelock-upgrade-no-deadlock",
         "status": "pass",
-        "duration": "790ms"
+        "duration": "1021ms"
       },
       {
         "name": "tuplelock-partition",
         "status": "pass",
-        "duration": "63ms"
+        "duration": "47ms"
       },
       {
         "name": "freeze-the-dead",
         "status": "pass",
-        "duration": "49ms"
+        "duration": "37ms"
       },
       {
         "name": "nowait",
         "status": "pass",
-        "duration": "69ms"
+        "duration": "51ms"
       },
       {
         "name": "nowait-2",
         "status": "pass",
-        "duration": "48ms"
+        "duration": "34ms"
       },
       {
         "name": "nowait-3",
         "status": "pass",
-        "duration": "69ms"
+        "duration": "54ms"
       },
       {
         "name": "nowait-4",
         "status": "pass",
-        "duration": "87ms"
+        "duration": "74ms"
       },
       {
         "name": "nowait-5",
         "status": "pass",
-        "duration": "83ms"
+        "duration": "68ms"
       },
       {
         "name": "skip-locked",
         "status": "pass",
-        "duration": "217ms"
+        "duration": "150ms"
       },
       {
         "name": "skip-locked-2",
         "status": "pass",
-        "duration": "52ms"
+        "duration": "36ms"
       },
       {
         "name": "skip-locked-3",
         "status": "pass",
-        "duration": "69ms"
+        "duration": "56ms"
       },
       {
         "name": "skip-locked-4",
         "status": "pass",
-        "duration": "90ms"
+        "duration": "73ms"
       },
       {
         "name": "drop-index-concurrently-1",
         "status": "pass",
-        "duration": "113ms",
-        "patch_applied": true,
-        "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/isolation/drop-index-concurrently-1.patch"
+        "duration": "93ms"
       },
       {
         "name": "multiple-cic",
         "status": "pass",
-        "duration": "49ms"
+        "duration": "37ms"
       },
       {
         "name": "alter-table-1",
         "status": "pass",
-        "duration": "2454ms"
+        "duration": "1952ms"
       },
       {
         "name": "alter-table-2",
         "status": "pass",
-        "duration": "896ms"
+        "duration": "693ms"
       },
       {
         "name": "alter-table-3",
         "status": "pass",
-        "duration": "765ms"
+        "duration": "722ms"
       },
       {
         "name": "alter-table-4",
         "status": "pass",
-        "duration": "111ms"
+        "duration": "84ms"
       },
       {
         "name": "create-trigger",
         "status": "pass",
-        "duration": "350ms"
+        "duration": "264ms"
       },
       {
         "name": "sequence-ddl",
         "status": "pass",
-        "duration": "109ms"
+        "duration": "84ms"
       },
       {
         "name": "async-notify",
         "status": "pass",
-        "duration": "106ms",
+        "duration": "64ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/isolation/async-notify.patch"
       },
       {
         "name": "vacuum-no-cleanup-lock",
         "status": "pass",
-        "duration": "115ms"
+        "duration": "83ms"
       },
       {
         "name": "timeouts",
         "status": "pass",
-        "duration": "170ms"
+        "duration": "144ms"
       },
       {
         "name": "vacuum-concurrent-drop",
         "status": "pass",
-        "duration": "140ms"
+        "duration": "119ms"
       },
       {
         "name": "vacuum-conflict",
         "status": "pass",
-        "duration": "211ms"
+        "duration": "153ms"
       },
       {
         "name": "vacuum-skip-locked",
         "status": "pass",
-        "duration": "154ms"
+        "duration": "107ms"
       },
       {
         "name": "stats",
         "status": "pass",
-        "duration": "1141ms",
+        "duration": "716ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/isolation/stats.patch"
       },
       {
         "name": "horizons",
         "status": "pass",
-        "duration": "115ms"
+        "duration": "75ms"
       },
       {
         "name": "predicate-hash",
         "status": "pass",
-        "duration": "514ms"
+        "duration": "330ms"
       },
       {
         "name": "predicate-gist",
         "status": "pass",
-        "duration": "668ms"
+        "duration": "590ms"
       },
       {
         "name": "predicate-gin",
         "status": "pass",
-        "duration": "715ms"
+        "duration": "604ms"
       },
       {
         "name": "partition-concurrent-attach",
         "status": "pass",
-        "duration": "111ms"
+        "duration": "83ms"
       },
       {
         "name": "partition-drop-index-locking",
         "status": "pass",
-        "duration": "138ms",
+        "duration": "116ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/isolation/partition-drop-index-locking.patch"
       },
       {
         "name": "partition-key-update-1",
         "status": "pass",
-        "duration": "367ms"
+        "duration": "282ms"
       },
       {
         "name": "partition-key-update-2",
         "status": "pass",
-        "duration": "111ms"
+        "duration": "88ms"
       },
       {
         "name": "partition-key-update-3",
         "status": "pass",
-        "duration": "326ms"
+        "duration": "275ms"
       },
       {
         "name": "partition-key-update-4",
         "status": "pass",
-        "duration": "140ms"
+        "duration": "105ms"
       },
       {
         "name": "plpgsql-toast",
         "status": "pass",
-        "duration": "237ms"
+        "duration": "201ms"
       },
       {
         "name": "cluster-conflict",
         "status": "pass",
-        "duration": "71ms"
+        "duration": "60ms"
       },
       {
         "name": "cluster-conflict-partition",
         "status": "pass",
-        "duration": "98ms"
+        "duration": "279ms"
       },
       {
         "name": "truncate-conflict",
         "status": "pass",
-        "duration": "127ms"
+        "duration": "88ms"
       },
       {
         "name": "serializable-parallel",
         "status": "pass",
-        "duration": "80ms"
+        "duration": "41ms"
       },
       {
         "name": "serializable-parallel-2",
         "status": "pass",
-        "duration": "46ms"
+        "duration": "29ms"
       },
       {
         "name": "serializable-parallel-3",
         "status": "pass",
-        "duration": "65ms"
+        "duration": "43ms"
       },
       {
         "name": "matview-write-skew",
         "status": "pass",
-        "duration": "150ms"
+        "duration": "100ms"
       },
       {
         "name": "lock-nowait",
         "status": "pass",
-        "duration": "58ms"
+        "duration": "47ms"
       }
     ]
   },
@@ -1860,525 +1858,525 @@
       {
         "name": "btree_gin/install_btree_gin",
         "status": "pass",
-        "duration": "34ms"
+        "duration": "22ms"
       },
       {
         "name": "btree_gin/int2",
         "status": "pass",
-        "duration": "29ms"
+        "duration": "21ms"
       },
       {
         "name": "btree_gin/int4",
         "status": "pass",
-        "duration": "30ms"
+        "duration": "20ms"
       },
       {
         "name": "btree_gin/int8",
         "status": "pass",
-        "duration": "31ms"
+        "duration": "22ms"
       },
       {
         "name": "btree_gin/float4",
         "status": "pass",
-        "duration": "28ms"
+        "duration": "17ms"
       },
       {
         "name": "btree_gin/float8",
         "status": "pass",
-        "duration": "24ms"
+        "duration": "14ms"
       },
       {
         "name": "btree_gin/money",
         "status": "pass",
-        "duration": "24ms"
+        "duration": "14ms"
       },
       {
         "name": "btree_gin/oid",
         "status": "pass",
-        "duration": "24ms"
+        "duration": "14ms"
       },
       {
         "name": "btree_gin/timestamp",
         "status": "pass",
-        "duration": "22ms"
+        "duration": "14ms"
       },
       {
         "name": "btree_gin/timestamptz",
         "status": "pass",
-        "duration": "22ms"
+        "duration": "14ms"
       },
       {
         "name": "btree_gin/time",
         "status": "pass",
-        "duration": "22ms"
+        "duration": "13ms"
       },
       {
         "name": "btree_gin/timetz",
         "status": "pass",
-        "duration": "22ms"
+        "duration": "14ms"
       },
       {
         "name": "btree_gin/date",
         "status": "pass",
-        "duration": "22ms"
+        "duration": "14ms"
       },
       {
         "name": "btree_gin/interval",
         "status": "pass",
-        "duration": "23ms"
+        "duration": "13ms"
       },
       {
         "name": "btree_gin/macaddr",
         "status": "pass",
-        "duration": "22ms"
+        "duration": "15ms"
       },
       {
         "name": "btree_gin/macaddr8",
         "status": "pass",
-        "duration": "26ms"
+        "duration": "14ms"
       },
       {
         "name": "btree_gin/inet",
         "status": "pass",
-        "duration": "22ms"
+        "duration": "14ms"
       },
       {
         "name": "btree_gin/cidr",
         "status": "pass",
-        "duration": "22ms"
+        "duration": "14ms"
       },
       {
         "name": "btree_gin/text",
         "status": "pass",
-        "duration": "21ms"
+        "duration": "14ms"
       },
       {
         "name": "btree_gin/varchar",
         "status": "pass",
-        "duration": "22ms"
+        "duration": "14ms"
       },
       {
         "name": "btree_gin/char",
         "status": "pass",
-        "duration": "22ms"
+        "duration": "14ms"
       },
       {
         "name": "btree_gin/bytea",
         "status": "pass",
-        "duration": "24ms"
+        "duration": "15ms"
       },
       {
         "name": "btree_gin/bit",
         "status": "pass",
-        "duration": "24ms"
+        "duration": "14ms"
       },
       {
         "name": "btree_gin/varbit",
         "status": "pass",
-        "duration": "23ms"
+        "duration": "14ms"
       },
       {
         "name": "btree_gin/numeric",
         "status": "pass",
-        "duration": "24ms"
+        "duration": "16ms"
       },
       {
         "name": "btree_gin/enum",
         "status": "pass",
-        "duration": "131ms"
+        "duration": "118ms"
       },
       {
         "name": "btree_gin/uuid",
         "status": "pass",
-        "duration": "31ms"
+        "duration": "19ms"
       },
       {
         "name": "btree_gin/name",
         "status": "pass",
-        "duration": "24ms"
+        "duration": "17ms"
       },
       {
         "name": "btree_gin/bool",
         "status": "pass",
-        "duration": "30ms"
+        "duration": "22ms"
       },
       {
         "name": "btree_gin/bpchar",
         "status": "pass",
-        "duration": "26ms"
+        "duration": "16ms"
       },
       {
         "name": "btree_gist/init",
         "status": "pass",
-        "duration": "40ms"
+        "duration": "24ms"
       },
       {
         "name": "btree_gist/int2",
         "status": "pass",
-        "duration": "38ms"
+        "duration": "24ms"
       },
       {
         "name": "btree_gist/int4",
         "status": "pass",
-        "duration": "33ms"
+        "duration": "21ms"
       },
       {
         "name": "btree_gist/int8",
         "status": "pass",
-        "duration": "34ms"
+        "duration": "21ms"
       },
       {
         "name": "btree_gist/float4",
         "status": "pass",
-        "duration": "33ms"
+        "duration": "22ms"
       },
       {
         "name": "btree_gist/float8",
         "status": "pass",
-        "duration": "33ms"
+        "duration": "21ms"
       },
       {
         "name": "btree_gist/cash",
         "status": "pass",
-        "duration": "31ms"
+        "duration": "20ms"
       },
       {
         "name": "btree_gist/oid",
         "status": "pass",
-        "duration": "28ms"
+        "duration": "18ms"
       },
       {
         "name": "btree_gist/timestamp",
         "status": "pass",
-        "duration": "33ms"
+        "duration": "21ms"
       },
       {
         "name": "btree_gist/timestamptz",
         "status": "pass",
-        "duration": "53ms"
+        "duration": "32ms"
       },
       {
         "name": "btree_gist/time",
         "status": "pass",
-        "duration": "35ms"
+        "duration": "20ms"
       },
       {
         "name": "btree_gist/timetz",
         "status": "pass",
-        "duration": "65ms"
+        "duration": "44ms"
       },
       {
         "name": "btree_gist/date",
         "status": "pass",
-        "duration": "33ms"
+        "duration": "20ms"
       },
       {
         "name": "btree_gist/interval",
         "status": "pass",
-        "duration": "37ms"
+        "duration": "22ms"
       },
       {
         "name": "btree_gist/macaddr",
         "status": "pass",
-        "duration": "35ms"
+        "duration": "20ms"
       },
       {
         "name": "btree_gist/macaddr8",
         "status": "pass",
-        "duration": "33ms"
+        "duration": "20ms"
       },
       {
         "name": "btree_gist/inet",
         "status": "pass",
-        "duration": "44ms"
+        "duration": "26ms"
       },
       {
         "name": "btree_gist/cidr",
         "status": "pass",
-        "duration": "27ms"
+        "duration": "25ms"
       },
       {
         "name": "btree_gist/text",
         "status": "pass",
-        "duration": "43ms"
+        "duration": "28ms"
       },
       {
         "name": "btree_gist/varchar",
         "status": "pass",
-        "duration": "34ms"
+        "duration": "21ms"
       },
       {
         "name": "btree_gist/char",
         "status": "pass",
-        "duration": "36ms"
+        "duration": "23ms"
       },
       {
         "name": "btree_gist/bytea",
         "status": "pass",
-        "duration": "45ms"
+        "duration": "26ms"
       },
       {
         "name": "btree_gist/bit",
         "status": "pass",
-        "duration": "32ms"
+        "duration": "21ms"
       },
       {
         "name": "btree_gist/varbit",
         "status": "pass",
-        "duration": "33ms"
+        "duration": "22ms"
       },
       {
         "name": "btree_gist/numeric",
         "status": "pass",
-        "duration": "63ms"
+        "duration": "39ms"
       },
       {
         "name": "btree_gist/uuid",
         "status": "pass",
-        "duration": "30ms"
+        "duration": "20ms"
       },
       {
         "name": "btree_gist/not_equal",
         "status": "pass",
-        "duration": "40ms"
+        "duration": "27ms"
       },
       {
         "name": "btree_gist/enum",
         "status": "pass",
-        "duration": "33ms"
+        "duration": "22ms"
       },
       {
         "name": "btree_gist/bool",
         "status": "pass",
-        "duration": "30ms"
+        "duration": "24ms"
       },
       {
         "name": "btree_gist/partitions",
         "status": "pass",
-        "duration": "33ms"
+        "duration": "23ms"
       },
       {
         "name": "citext/create_index_acl",
         "status": "pass",
-        "duration": "40ms",
+        "duration": "23ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/contrib/citext/create_index_acl.patch"
       },
       {
         "name": "citext/citext",
         "status": "pass",
-        "duration": "462ms"
+        "duration": "277ms"
       },
       {
         "name": "citext/citext_utf8",
         "status": "pass",
-        "duration": "13ms"
+        "duration": "9ms"
       },
       {
         "name": "cube/cube",
         "status": "pass",
-        "duration": "303ms"
+        "duration": "202ms"
       },
       {
         "name": "cube/cube_sci",
         "status": "pass",
-        "duration": "24ms"
+        "duration": "19ms"
       },
       {
         "name": "earthdistance/earthdistance",
         "status": "pass",
-        "duration": "241ms"
+        "duration": "145ms"
       },
       {
         "name": "fuzzystrmatch/fuzzystrmatch",
         "status": "pass",
-        "duration": "44ms"
+        "duration": "26ms"
       },
       {
         "name": "fuzzystrmatch/fuzzystrmatch_utf8",
         "status": "pass",
-        "duration": "20ms"
+        "duration": "13ms"
       },
       {
         "name": "hstore/hstore",
         "status": "pass",
-        "duration": "760ms"
+        "duration": "592ms"
       },
       {
         "name": "hstore/hstore_utf8",
         "status": "pass",
-        "duration": "23ms"
+        "duration": "13ms"
       },
       {
         "name": "ltree/ltree",
         "status": "pass",
-        "duration": "466ms"
+        "duration": "323ms"
       },
       {
         "name": "pg_prewarm/pg_prewarm",
         "status": "pass",
-        "duration": "21ms"
+        "duration": "15ms"
       },
       {
         "name": "pg_trgm/pg_trgm",
         "status": "pass",
-        "duration": "527ms"
+        "duration": "286ms"
       },
       {
         "name": "pg_trgm/pg_word_trgm",
         "status": "pass",
-        "duration": "74ms"
+        "duration": "48ms"
       },
       {
         "name": "pg_trgm/pg_strict_word_trgm",
         "status": "pass",
-        "duration": "72ms"
+        "duration": "45ms"
       },
       {
         "name": "pg_walinspect/pg_walinspect",
         "status": "pass",
-        "duration": "99ms",
+        "duration": "105ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/contrib/pg_walinspect/pg_walinspect.patch"
       },
       {
         "name": "pg_walinspect/oldextversions",
         "status": "pass",
-        "duration": "31ms",
+        "duration": "24ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/contrib/pg_walinspect/oldextversions.patch"
       },
       {
         "name": "pgcrypto/init",
         "status": "pass",
-        "duration": "19ms"
+        "duration": "14ms"
       },
       {
         "name": "pgcrypto/md5",
         "status": "pass",
-        "duration": "17ms"
+        "duration": "11ms"
       },
       {
         "name": "pgcrypto/sha1",
         "status": "pass",
-        "duration": "17ms"
+        "duration": "10ms"
       },
       {
         "name": "pgcrypto/hmac-md5",
         "status": "pass",
-        "duration": "17ms"
+        "duration": "11ms"
       },
       {
         "name": "pgcrypto/hmac-sha1",
         "status": "pass",
-        "duration": "17ms"
+        "duration": "10ms"
       },
       {
         "name": "pgcrypto/blowfish",
         "status": "pass",
-        "duration": "30ms"
+        "duration": "16ms"
       },
       {
         "name": "pgcrypto/rijndael",
         "status": "pass",
-        "duration": "28ms"
+        "duration": "15ms"
       },
       {
         "name": "pgcrypto/sha2",
         "status": "pass",
-        "duration": "28ms"
+        "duration": "16ms"
       },
       {
         "name": "pgcrypto/des",
         "status": "pass",
-        "duration": "18ms"
+        "duration": "11ms"
       },
       {
         "name": "pgcrypto/3des",
         "status": "pass",
-        "duration": "19ms"
+        "duration": "11ms"
       },
       {
         "name": "pgcrypto/cast5",
         "status": "pass",
-        "duration": "21ms"
+        "duration": "12ms"
       },
       {
         "name": "pgcrypto/crypt-des",
         "status": "pass",
-        "duration": "23ms"
+        "duration": "14ms"
       },
       {
         "name": "pgcrypto/crypt-md5",
         "status": "pass",
-        "duration": "23ms"
+        "duration": "15ms"
       },
       {
         "name": "pgcrypto/crypt-blowfish",
         "status": "pass",
-        "duration": "61ms"
+        "duration": "42ms"
       },
       {
         "name": "pgcrypto/crypt-xdes",
         "status": "pass",
-        "duration": "27ms"
+        "duration": "17ms"
       },
       {
         "name": "pgcrypto/pgp-armor",
         "status": "pass",
-        "duration": "40ms"
+        "duration": "24ms"
       },
       {
         "name": "pgcrypto/pgp-decrypt",
         "status": "pass",
-        "duration": "43ms"
+        "duration": "25ms"
       },
       {
         "name": "pgcrypto/pgp-encrypt",
         "status": "pass",
-        "duration": "304ms"
+        "duration": "205ms"
       },
       {
         "name": "pgcrypto/pgp-encrypt-md5",
         "status": "pass",
-        "duration": "13ms"
+        "duration": "9ms"
       },
       {
         "name": "pgcrypto/pgp-compression",
         "status": "pass",
-        "duration": "27ms"
+        "duration": "16ms"
       },
       {
         "name": "pgcrypto/pgp-pubkey-decrypt",
         "status": "pass",
-        "duration": "56ms"
+        "duration": "37ms"
       },
       {
         "name": "pgcrypto/pgp-pubkey-encrypt",
         "status": "pass",
-        "duration": "32ms"
+        "duration": "20ms"
       },
       {
         "name": "pgcrypto/pgp-info",
         "status": "pass",
-        "duration": "23ms"
+        "duration": "14ms"
       },
       {
         "name": "pgstattuple/pgstattuple",
         "status": "pass",
-        "duration": "96ms",
+        "duration": "64ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/contrib/pgstattuple/pgstattuple.patch"
       },
       {
         "name": "unaccent/unaccent",
         "status": "pass",
-        "duration": "37ms"
+        "duration": "24ms"
       },
       {
         "name": "uuid-ossp/uuid_ossp",
         "status": "pass",
-        "duration": "101ms"
+        "duration": "72ms"
       }
     ]
   },
@@ -2388,870 +2386,870 @@
       {
         "name": "http/http",
         "status": "pass",
-        "duration": "28802ms",
+        "duration": "28740ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/external/http/http.patch"
       },
       {
         "name": "hypopg/hypopg",
         "status": "pass",
-        "duration": "166ms",
+        "duration": "158ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/external/hypopg/hypopg.patch"
       },
       {
         "name": "hypopg/hypo_brin",
         "status": "pass",
-        "duration": "31ms",
+        "duration": "20ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/external/hypopg/hypo_brin.patch"
       },
       {
         "name": "hypopg/hypo_index_part",
         "status": "pass",
-        "duration": "42ms"
+        "duration": "27ms"
       },
       {
         "name": "hypopg/hypo_include",
         "status": "pass",
-        "duration": "48ms"
+        "duration": "27ms"
       },
       {
         "name": "hypopg/hypo_hash",
         "status": "pass",
-        "duration": "16ms"
+        "duration": "11ms"
       },
       {
         "name": "hypopg/hypo_hide_index",
         "status": "pass",
-        "duration": "122ms"
+        "duration": "83ms"
       },
       {
         "name": "index_advisor/disallow_semicolon",
         "status": "pass",
-        "duration": "31ms"
+        "duration": "20ms"
       },
       {
         "name": "index_advisor/integration",
         "status": "pass",
-        "duration": "34ms"
+        "duration": "22ms"
       },
       {
         "name": "index_advisor/issue_1",
         "status": "pass",
-        "duration": "36ms"
+        "duration": "22ms"
       },
       {
         "name": "index_advisor/multi_index",
         "status": "pass",
-        "duration": "45ms"
+        "duration": "27ms"
       },
       {
         "name": "index_advisor/postgrest_query",
         "status": "pass",
-        "duration": "38ms"
+        "duration": "21ms"
       },
       {
         "name": "index_advisor/semicolon_in_comment_query",
         "status": "pass",
-        "duration": "36ms"
+        "duration": "21ms"
       },
       {
         "name": "index_advisor/unknown_parameter_type",
         "status": "pass",
-        "duration": "25ms"
+        "duration": "17ms"
       },
       {
         "name": "pg_cron/pg_cron-test",
         "status": "pass",
-        "duration": "144ms",
+        "duration": "84ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/external/pg_cron/pg_cron-test.patch"
       },
       {
         "name": "pg_graphql/aggregate",
         "status": "pass",
-        "duration": "89ms"
+        "duration": "54ms"
       },
       {
         "name": "pg_graphql/aggregate_directive",
         "status": "pass",
-        "duration": "69ms"
+        "duration": "40ms"
       },
       {
         "name": "pg_graphql/aliases",
         "status": "pass",
-        "duration": "53ms"
+        "duration": "32ms"
       },
       {
         "name": "pg_graphql/allow_camel_names",
         "status": "pass",
-        "duration": "53ms"
+        "duration": "34ms"
       },
       {
         "name": "pg_graphql/array_args_and_return_types",
         "status": "pass",
-        "duration": "1341ms"
+        "duration": "682ms"
       },
       {
         "name": "pg_graphql/bigint_is_string",
         "status": "pass",
-        "duration": "55ms"
+        "duration": "36ms"
       },
       {
         "name": "pg_graphql/builtin_directives",
         "status": "pass",
-        "duration": "60ms"
+        "duration": "37ms"
       },
       {
         "name": "pg_graphql/comment_directive",
         "status": "pass",
-        "duration": "14ms"
+        "duration": "10ms"
       },
       {
         "name": "pg_graphql/comment_directive_description",
         "status": "pass",
-        "duration": "42ms"
+        "duration": "24ms"
       },
       {
         "name": "pg_graphql/compound_filters",
         "status": "pass",
-        "duration": "233ms"
+        "duration": "126ms"
       },
       {
         "name": "pg_graphql/empty_mutations",
         "status": "pass",
-        "duration": "44ms"
+        "duration": "27ms"
       },
       {
         "name": "pg_graphql/enum_mappings",
         "status": "pass",
-        "duration": "50ms"
+        "duration": "32ms"
       },
       {
         "name": "pg_graphql/extend_type_with_function",
         "status": "pass",
-        "duration": "40ms"
+        "duration": "24ms"
       },
       {
         "name": "pg_graphql/extend_type_with_function_relation",
         "status": "pass",
-        "duration": "121ms"
+        "duration": "67ms"
       },
       {
         "name": "pg_graphql/extend_type_with_generated_column",
         "status": "pass",
-        "duration": "40ms"
+        "duration": "25ms"
       },
       {
         "name": "pg_graphql/filter_by_node_id",
         "status": "pass",
-        "duration": "56ms"
+        "duration": "33ms"
       },
       {
         "name": "pg_graphql/fragment_on_mutation",
         "status": "pass",
-        "duration": "37ms"
+        "duration": "22ms"
       },
       {
         "name": "pg_graphql/fragment_on_query",
         "status": "pass",
-        "duration": "35ms"
+        "duration": "21ms"
       },
       {
         "name": "pg_graphql/function_calls",
         "status": "pass",
-        "duration": "1158ms"
+        "duration": "585ms"
       },
       {
         "name": "pg_graphql/function_calls_default_args",
         "status": "pass",
-        "duration": "80ms"
+        "duration": "47ms"
       },
       {
         "name": "pg_graphql/function_calls_unsupported",
         "status": "pass",
-        "duration": "244ms"
+        "duration": "125ms"
       },
       {
         "name": "pg_graphql/function_return_row_is_selectable",
         "status": "pass",
-        "duration": "70ms"
+        "duration": "41ms"
       },
       {
         "name": "pg_graphql/function_return_view_has_pkey",
         "status": "pass",
-        "duration": "61ms"
+        "duration": "35ms"
       },
       {
         "name": "pg_graphql/inflection_fields",
         "status": "pass",
-        "duration": "106ms"
+        "duration": "57ms"
       },
       {
         "name": "pg_graphql/inflection_function",
         "status": "pass",
-        "duration": "103ms"
+        "duration": "56ms"
       },
       {
         "name": "pg_graphql/inflection_relationships",
         "status": "pass",
-        "duration": "158ms"
+        "duration": "85ms"
       },
       {
         "name": "pg_graphql/inflection_types",
         "status": "pass",
-        "duration": "102ms"
+        "duration": "54ms"
       },
       {
         "name": "pg_graphql/introspection",
         "status": "pass",
-        "duration": "241ms"
+        "duration": "132ms"
       },
       {
         "name": "pg_graphql/issue_163",
         "status": "pass",
-        "duration": "35ms"
+        "duration": "22ms"
       },
       {
         "name": "pg_graphql/issue_170",
         "status": "pass",
-        "duration": "38ms"
+        "duration": "23ms"
       },
       {
         "name": "pg_graphql/issue_225",
         "status": "pass",
-        "duration": "44ms"
+        "duration": "26ms"
       },
       {
         "name": "pg_graphql/issue_237_field_merging",
         "status": "pass",
-        "duration": "80ms"
+        "duration": "46ms"
       },
       {
         "name": "pg_graphql/issue_237_field_merging_mismatched",
         "status": "pass",
-        "duration": "72ms"
+        "duration": "44ms"
       },
       {
         "name": "pg_graphql/issue_300",
         "status": "pass",
-        "duration": "44ms"
+        "duration": "27ms"
       },
       {
         "name": "pg_graphql/issue_306",
         "status": "pass",
-        "duration": "42ms"
+        "duration": "26ms"
       },
       {
         "name": "pg_graphql/issue_312",
         "status": "pass",
-        "duration": "38ms"
+        "duration": "23ms"
       },
       {
         "name": "pg_graphql/issue_334_ambiguous_function",
         "status": "pass",
-        "duration": "39ms"
+        "duration": "24ms"
       },
       {
         "name": "pg_graphql/issue_337",
         "status": "pass",
-        "duration": "68ms"
+        "duration": "40ms"
       },
       {
         "name": "pg_graphql/issue_339_function_return_json",
         "status": "pass",
-        "duration": "38ms"
+        "duration": "24ms"
       },
       {
         "name": "pg_graphql/issue_339_function_return_table",
         "status": "pass",
-        "duration": "38ms"
+        "duration": "24ms"
       },
       {
         "name": "pg_graphql/issue_353_too_many_fields",
         "status": "pass",
-        "duration": "45ms"
+        "duration": "33ms"
       },
       {
         "name": "pg_graphql/issue_370_citext_as_string",
         "status": "pass",
-        "duration": "52ms"
+        "duration": "33ms"
       },
       {
         "name": "pg_graphql/issue_373",
         "status": "pass",
-        "duration": "39ms"
+        "duration": "29ms"
       },
       {
         "name": "pg_graphql/issue_377_enum_search_path",
         "status": "pass",
-        "duration": "67ms"
+        "duration": "38ms"
       },
       {
         "name": "pg_graphql/issue_409_fkey_rls_nullability",
         "status": "pass",
-        "duration": "88ms"
+        "duration": "49ms"
       },
       {
         "name": "pg_graphql/issue_444",
         "status": "pass",
-        "duration": "33ms"
+        "duration": "21ms"
       },
       {
         "name": "pg_graphql/issue_463",
         "status": "pass",
-        "duration": "41ms"
+        "duration": "24ms"
       },
       {
         "name": "pg_graphql/issue_511",
         "status": "pass",
-        "duration": "44ms"
+        "duration": "27ms"
       },
       {
         "name": "pg_graphql/issue_533",
         "status": "pass",
-        "duration": "89ms"
+        "duration": "48ms"
       },
       {
         "name": "pg_graphql/issue_542_partial_unique",
         "status": "pass",
-        "duration": "62ms"
+        "duration": "36ms"
       },
       {
         "name": "pg_graphql/issue_551_too_many_fields",
         "status": "pass",
-        "duration": "53ms"
+        "duration": "32ms"
       },
       {
         "name": "pg_graphql/issue_557_1_to_1_nullability",
         "status": "pass",
-        "duration": "45ms"
+        "duration": "27ms"
       },
       {
         "name": "pg_graphql/issue_581_missing_desc_on_schema",
         "status": "pass",
-        "duration": "41ms"
+        "duration": "25ms"
       },
       {
         "name": "pg_graphql/issue_fragment_spread_cycles",
         "status": "pass",
-        "duration": "155ms"
+        "duration": "92ms"
       },
       {
         "name": "pg_graphql/json_is_stringified",
         "status": "pass",
-        "duration": "43ms"
+        "duration": "27ms"
       },
       {
         "name": "pg_graphql/max_page_size",
         "status": "pass",
-        "duration": "38ms"
+        "duration": "23ms"
       },
       {
         "name": "pg_graphql/max_rows_directive",
         "status": "pass",
-        "duration": "170ms"
+        "duration": "89ms"
       },
       {
         "name": "pg_graphql/multi_column_primary_key",
         "status": "pass",
-        "duration": "52ms"
+        "duration": "33ms"
       },
       {
         "name": "pg_graphql/multiple_mutations",
         "status": "pass",
-        "duration": "42ms"
+        "duration": "25ms"
       },
       {
         "name": "pg_graphql/multiple_queries",
         "status": "pass",
-        "duration": "38ms"
+        "duration": "23ms"
       },
       {
         "name": "pg_graphql/mutation_delete",
         "status": "pass",
-        "duration": "51ms"
+        "duration": "32ms"
       },
       {
         "name": "pg_graphql/mutation_delete_variable",
         "status": "pass",
-        "duration": "43ms"
+        "duration": "25ms"
       },
       {
         "name": "pg_graphql/mutation_insert",
         "status": "pass",
-        "duration": "55ms"
+        "duration": "33ms"
       },
       {
         "name": "pg_graphql/mutation_update",
         "status": "pass",
-        "duration": "67ms"
+        "duration": "39ms"
       },
       {
         "name": "pg_graphql/null_argument",
         "status": "pass",
-        "duration": "35ms"
+        "duration": "22ms"
       },
       {
         "name": "pg_graphql/omit_exotic_types",
         "status": "pass",
-        "duration": "40ms"
+        "duration": "23ms"
       },
       {
         "name": "pg_graphql/omit_weird_names",
         "status": "pass",
-        "duration": "57ms"
+        "duration": "34ms"
       },
       {
         "name": "pg_graphql/operation_name",
         "status": "pass",
-        "duration": "41ms"
+        "duration": "25ms"
       },
       {
         "name": "pg_graphql/override_enum_name",
         "status": "pass",
-        "duration": "33ms"
+        "duration": "20ms"
       },
       {
         "name": "pg_graphql/override_field_name",
         "status": "pass",
-        "duration": "37ms"
+        "duration": "21ms"
       },
       {
         "name": "pg_graphql/override_func_field_name",
         "status": "pass",
-        "duration": "39ms"
+        "duration": "23ms"
       },
       {
         "name": "pg_graphql/override_relationship_field_name",
         "status": "pass",
-        "duration": "39ms"
+        "duration": "25ms"
       },
       {
         "name": "pg_graphql/override_type_name",
         "status": "pass",
-        "duration": "38ms"
+        "duration": "23ms"
       },
       {
         "name": "pg_graphql/page_info",
         "status": "pass",
-        "duration": "58ms"
+        "duration": "37ms"
       },
       {
         "name": "pg_graphql/permissions_connection_column",
         "status": "pass",
-        "duration": "66ms"
+        "duration": "38ms"
       },
       {
         "name": "pg_graphql/permissions_functions",
         "status": "pass",
-        "duration": "66ms"
+        "duration": "38ms"
       },
       {
         "name": "pg_graphql/permissions_node_column",
         "status": "pass",
-        "duration": "67ms"
+        "duration": "39ms"
       },
       {
         "name": "pg_graphql/permissions_table_level",
         "status": "pass",
-        "duration": "149ms"
+        "duration": "74ms"
       },
       {
         "name": "pg_graphql/permissions_types",
         "status": "pass",
-        "duration": "87ms"
+        "duration": "46ms"
       },
       {
         "name": "pg_graphql/primary_key_is_required",
         "status": "pass",
-        "duration": "64ms"
+        "duration": "33ms"
       },
       {
         "name": "pg_graphql/primary_key_queries",
         "status": "pass",
-        "duration": "265ms"
+        "duration": "145ms"
       },
       {
         "name": "pg_graphql/relationship_one_to_one",
         "status": "pass",
-        "duration": "44ms"
+        "duration": "27ms"
       },
       {
         "name": "pg_graphql/resolve___schema",
         "status": "pass",
-        "duration": "45ms"
+        "duration": "27ms"
       },
       {
         "name": "pg_graphql/resolve___type",
         "status": "pass",
-        "duration": "37ms"
+        "duration": "23ms"
       },
       {
         "name": "pg_graphql/resolve___typename",
         "status": "pass",
-        "duration": "88ms"
+        "duration": "50ms"
       },
       {
         "name": "pg_graphql/resolve_array_type",
         "status": "pass",
-        "duration": "43ms"
+        "duration": "25ms"
       },
       {
         "name": "pg_graphql/resolve_connection_filter",
         "status": "pass",
-        "duration": "135ms"
+        "duration": "86ms"
       },
       {
         "name": "pg_graphql/resolve_connection_named",
         "status": "pass",
-        "duration": "38ms"
+        "duration": "22ms"
       },
       {
         "name": "pg_graphql/resolve_connection_order_by",
         "status": "pass",
-        "duration": "78ms"
+        "duration": "48ms"
       },
       {
         "name": "pg_graphql/resolve_connection_pagination_args",
         "status": "pass",
-        "duration": "89ms"
+        "duration": "52ms"
       },
       {
         "name": "pg_graphql/resolve_connection_to_conn",
         "status": "pass",
-        "duration": "43ms"
+        "duration": "27ms"
       },
       {
         "name": "pg_graphql/resolve_connection_to_node",
         "status": "pass",
-        "duration": "42ms"
+        "duration": "25ms"
       },
       {
         "name": "pg_graphql/resolve_error_connection_edge_no_field",
         "status": "pass",
-        "duration": "35ms"
+        "duration": "20ms"
       },
       {
         "name": "pg_graphql/resolve_error_connection_edge_node_no_field",
         "status": "pass",
-        "duration": "36ms"
+        "duration": "20ms"
       },
       {
         "name": "pg_graphql/resolve_error_connection_no_field",
         "status": "pass",
-        "duration": "34ms"
+        "duration": "21ms"
       },
       {
         "name": "pg_graphql/resolve_error_from_parser",
         "status": "pass",
-        "duration": "12ms"
+        "duration": "8ms"
       },
       {
         "name": "pg_graphql/resolve_error_mutation_no_field",
         "status": "pass",
-        "duration": "31ms"
+        "duration": "19ms"
       },
       {
         "name": "pg_graphql/resolve_error_node_no_field",
         "status": "pass",
-        "duration": "36ms"
+        "duration": "22ms"
       },
       {
         "name": "pg_graphql/resolve_error_query_no_field",
         "status": "pass",
-        "duration": "31ms"
+        "duration": "19ms"
       },
       {
         "name": "pg_graphql/resolve_fragment",
         "status": "pass",
-        "duration": "38ms"
+        "duration": "23ms"
       },
       {
         "name": "pg_graphql/resolve_graphiql_schema",
         "status": "pass",
-        "duration": "105ms"
+        "duration": "54ms"
       },
       {
         "name": "pg_graphql/resolve_one",
         "status": "pass",
-        "duration": "73ms"
+        "duration": "44ms"
       },
       {
         "name": "pg_graphql/roundtrip_types",
         "status": "pass",
-        "duration": "50ms"
+        "duration": "32ms"
       },
       {
         "name": "pg_graphql/row_level_security",
         "status": "pass",
-        "duration": "48ms"
+        "duration": "27ms"
       },
       {
         "name": "pg_graphql/sqli_connection",
         "status": "pass",
-        "duration": "74ms"
+        "duration": "47ms"
       },
       {
         "name": "pg_graphql/string_filters",
         "status": "pass",
-        "duration": "54ms"
+        "duration": "32ms"
       },
       {
         "name": "pg_graphql/test_error_anon_and_named_operations",
         "status": "pass",
-        "duration": "36ms"
+        "duration": "23ms"
       },
       {
         "name": "pg_graphql/test_error_invalid_offset",
         "status": "pass",
-        "duration": "58ms"
+        "duration": "34ms"
       },
       {
         "name": "pg_graphql/test_error_multiple_anon_operations",
         "status": "pass",
-        "duration": "36ms"
+        "duration": "22ms"
       },
       {
         "name": "pg_graphql/test_error_mutation_transpilation",
         "status": "pass",
-        "duration": "37ms"
+        "duration": "22ms"
       },
       {
         "name": "pg_graphql/test_error_operation_name_not_found",
         "status": "pass",
-        "duration": "37ms"
+        "duration": "24ms"
       },
       {
         "name": "pg_graphql/test_error_operation_names_not_unique",
         "status": "pass",
-        "duration": "36ms"
+        "duration": "24ms"
       },
       {
         "name": "pg_graphql/test_error_query_transpilation",
         "status": "pass",
-        "duration": "40ms"
+        "duration": "28ms"
       },
       {
         "name": "pg_graphql/test_error_subscription",
         "status": "pass",
-        "duration": "35ms"
+        "duration": "25ms"
       },
       {
         "name": "pg_graphql/test_query__type",
         "status": "pass",
-        "duration": "34ms"
+        "duration": "22ms"
       },
       {
         "name": "pg_graphql/total_count",
         "status": "pass",
-        "duration": "58ms"
+        "duration": "37ms"
       },
       {
         "name": "pg_graphql/type_bigfloat",
         "status": "pass",
-        "duration": "42ms"
+        "duration": "27ms"
       },
       {
         "name": "pg_graphql/type_modifier_max_length",
         "status": "pass",
-        "duration": "39ms"
+        "duration": "26ms"
       },
       {
         "name": "pg_graphql/type_opaque",
         "status": "pass",
-        "duration": "40ms"
+        "duration": "27ms"
       },
       {
         "name": "pg_graphql/variable_default",
         "status": "pass",
-        "duration": "40ms"
+        "duration": "27ms"
       },
       {
         "name": "pg_graphql/views_integration",
         "status": "pass",
-        "duration": "144ms"
+        "duration": "85ms"
       },
       {
         "name": "pg_jsonschema/pg_jsonschema",
         "status": "pass",
-        "duration": "29ms"
+        "duration": "20ms"
       },
       {
         "name": "pg_net/pg_net",
         "status": "pass",
-        "duration": "627ms"
+        "duration": "1021ms"
       },
       {
         "name": "pg_partman/test-dump-definition",
         "status": "pass",
-        "duration": "183ms"
+        "duration": "113ms"
       },
       {
         "name": "pg_partman/test-id-1-bigint-list",
         "status": "pass",
-        "duration": "397ms"
+        "duration": "227ms"
       },
       {
         "name": "pg_partman/test-id-1-int-list",
         "status": "pass",
-        "duration": "381ms"
+        "duration": "214ms"
       },
       {
         "name": "pg_partman/test-id-10-offset-5",
         "status": "pass",
-        "duration": "375ms"
+        "duration": "214ms"
       },
       {
         "name": "pg_partman/test-id-10",
         "status": "pass",
-        "duration": "664ms"
+        "duration": "463ms"
       },
       {
         "name": "pg_partman/test-id-gap-fill",
         "status": "pass",
-        "duration": "297ms"
+        "duration": "168ms"
       },
       {
         "name": "pg_partman/test-id-numeric",
         "status": "pass",
-        "duration": "316ms"
+        "duration": "178ms"
       },
       {
         "name": "pg_partman/test-id-time-subpart-custom-start",
         "status": "pass",
-        "duration": "2333ms"
+        "duration": "1262ms"
       },
       {
         "name": "pg_partman/test-text-gap-fill",
         "status": "pass",
-        "duration": "443ms"
+        "duration": "244ms"
       },
       {
         "name": "pg_partman/test-text-time-daily",
         "status": "pass",
-        "duration": "1186ms"
+        "duration": "654ms"
       },
       {
         "name": "pg_partman/test-text-time-subpart-custom-start",
         "status": "pass",
-        "duration": "1974ms"
+        "duration": "1142ms"
       },
       {
         "name": "pg_partman/test-text-time-subpart-native",
         "status": "pass",
-        "duration": "2139ms"
+        "duration": "1209ms"
       },
       {
         "name": "pg_partman/test-time-100years",
         "status": "pass",
-        "duration": "716ms"
+        "duration": "408ms"
       },
       {
         "name": "pg_partman/test-time-daily-generated",
         "status": "pass",
-        "duration": "455ms"
+        "duration": "259ms"
       },
       {
         "name": "pg_partman/test-time-daily",
         "status": "pass",
-        "duration": "1140ms"
+        "duration": "634ms"
       },
       {
         "name": "pg_partman/test-time-epoch-id-subpart-native",
         "status": "pass",
-        "duration": "2246ms"
+        "duration": "1244ms"
       },
       {
         "name": "pg_partman/test-time-epoch-milliseconds-weekly",
         "status": "pass",
-        "duration": "465ms"
+        "duration": "265ms"
       },
       {
         "name": "pg_partman/test-time-epoch-weekly",
         "status": "pass",
-        "duration": "418ms"
+        "duration": "230ms"
       },
       {
         "name": "pg_partman/test-time-gap-fill",
         "status": "pass",
-        "duration": "429ms"
+        "duration": "250ms"
       },
       {
         "name": "pg_partman/test-time-hourly-trunc",
         "status": "pass",
-        "duration": "600ms"
+        "duration": "347ms"
       },
       {
         "name": "pg_partman/test-time-infinite-no-data",
         "status": "pass",
-        "duration": "143ms"
+        "duration": "82ms"
       },
       {
         "name": "pg_partman/test-time-maintenance-order",
         "status": "pass",
-        "duration": "139ms"
+        "duration": "79ms"
       },
       {
         "name": "pg_partman/test-time-mixed-case",
         "status": "pass",
-        "duration": "1129ms"
+        "duration": "617ms"
       },
       {
         "name": "pg_partman/test-time-monthly-infinity",
         "status": "pass",
-        "duration": "176ms"
+        "duration": "102ms"
       },
       {
         "name": "pg_partman/test-time-monthly",
         "status": "pass",
-        "duration": "676ms"
+        "duration": "442ms"
       },
       {
         "name": "pg_partman/test-time-replica-identity-full",
         "status": "pass",
-        "duration": "242ms"
+        "duration": "141ms"
       },
       {
         "name": "pg_partman/test-time-replica-identity-using-index",
         "status": "pass",
-        "duration": "260ms"
+        "duration": "146ms"
       },
       {
         "name": "pg_partman/test-uuid-daily",
         "status": "pass",
-        "duration": "1165ms"
+        "duration": "690ms"
       },
       {
         "name": "pg_partman/test-uuid-gap-fill",
         "status": "pass",
-        "duration": "467ms"
+        "duration": "272ms"
       },
       {
         "name": "pg_partman/test-uuid-time-subpart-custom-start",
         "status": "pass",
-        "duration": "2033ms"
+        "duration": "1142ms"
       },
       {
         "name": "pg_partman/test-uuid-time-subpart-text-time",
         "status": "pass",
-        "duration": "2206ms"
+        "duration": "1222ms"
       },
       {
         "name": "pg_partman/test_no_search_path/test-time-daily_nosearchpath",
         "status": "pass",
-        "duration": "1064ms"
+        "duration": "619ms"
       },
       {
         "name": "pg_partman/test_pg17plus/test-id-10-source-generated-override",
         "status": "pass",
-        "duration": "143ms"
+        "duration": "89ms"
       },
       {
         "name": "pg_partman/test_pg17plus/test-id-10-source-generated",
         "status": "pass",
-        "duration": "302ms"
+        "duration": "185ms"
       },
       {
         "name": "pgaudit/load",
@@ -3261,243 +3259,243 @@
       {
         "name": "pgjwt/test",
         "status": "pass",
-        "duration": "142ms"
+        "duration": "229ms"
       },
       {
         "name": "pgmq/base",
         "status": "pass",
-        "duration": "21600ms"
+        "duration": "21087ms"
       },
       {
         "name": "pgmq/fifo_per_group_tests",
         "status": "pass",
-        "duration": "77ms"
+        "duration": "52ms"
       },
       {
         "name": "pgmq/fifo_rr_tests",
         "status": "pass",
-        "duration": "181ms"
+        "duration": "123ms"
       },
       {
         "name": "pgmq/fifo_tests",
         "status": "pass",
-        "duration": "2524ms"
+        "duration": "2371ms"
       },
       {
         "name": "pgmq/topic_tests",
         "status": "pass",
-        "duration": "3495ms"
+        "duration": "3338ms"
       },
       {
         "name": "pgsodium/test",
         "status": "pass",
-        "duration": "4195ms"
+        "duration": "2963ms"
       },
       {
         "name": "pgtap/aretap",
         "status": "pass",
-        "duration": "810ms",
+        "duration": "470ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/external/pgtap/aretap.patch"
       },
       {
         "name": "pgtap/check",
         "status": "pass",
-        "duration": "95ms"
+        "duration": "60ms"
       },
       {
         "name": "pgtap/cmpok",
         "status": "pass",
-        "duration": "67ms"
+        "duration": "41ms"
       },
       {
         "name": "pgtap/coltap",
         "status": "pass",
-        "duration": "380ms"
+        "duration": "215ms"
       },
       {
         "name": "pgtap/do_tap",
         "status": "pass",
-        "duration": "74ms"
+        "duration": "43ms"
       },
       {
         "name": "pgtap/enumtap",
         "status": "pass",
-        "duration": "171ms"
+        "duration": "102ms"
       },
       {
         "name": "pgtap/extension",
         "status": "pass",
-        "duration": "118ms"
+        "duration": "66ms"
       },
       {
         "name": "pgtap/fktap",
         "status": "pass",
-        "duration": "340ms"
+        "duration": "192ms"
       },
       {
         "name": "pgtap/functap",
         "status": "pass",
-        "duration": "1680ms"
+        "duration": "1046ms"
       },
       {
         "name": "pgtap/hastap",
         "status": "pass",
-        "duration": "1170ms",
+        "duration": "656ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/external/pgtap/hastap.patch"
       },
       {
         "name": "pgtap/index",
         "status": "pass",
-        "duration": "453ms"
+        "duration": "266ms"
       },
       {
         "name": "pgtap/inheritance",
         "status": "pass",
-        "duration": "592ms"
+        "duration": "340ms"
       },
       {
         "name": "pgtap/istap",
         "status": "pass",
-        "duration": "81ms"
+        "duration": "50ms"
       },
       {
         "name": "pgtap/matching",
         "status": "pass",
-        "duration": "60ms"
+        "duration": "37ms"
       },
       {
         "name": "pgtap/moretap",
         "status": "pass",
-        "duration": "124ms"
+        "duration": "75ms"
       },
       {
         "name": "pgtap/ownership",
         "status": "pass",
-        "duration": "292ms",
+        "duration": "161ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/external/pgtap/ownership.patch"
       },
       {
         "name": "pgtap/partitions",
         "status": "pass",
-        "duration": "175ms"
+        "duration": "161ms"
       },
       {
         "name": "pgtap/pg73",
         "status": "pass",
-        "duration": "113ms"
+        "duration": "65ms"
       },
       {
         "name": "pgtap/pktap",
         "status": "pass",
-        "duration": "161ms"
+        "duration": "93ms"
       },
       {
         "name": "pgtap/policy",
         "status": "pass",
-        "duration": "274ms"
+        "duration": "160ms"
       },
       {
         "name": "pgtap/proctap",
         "status": "pass",
-        "duration": "272ms"
+        "duration": "155ms"
       },
       {
         "name": "pgtap/roletap",
         "status": "pass",
-        "duration": "69ms"
+        "duration": "43ms"
       },
       {
         "name": "pgtap/ruletap",
         "status": "pass",
-        "duration": "200ms"
+        "duration": "112ms"
       },
       {
         "name": "pgtap/runjusttests",
         "status": "pass",
-        "duration": "65ms"
+        "duration": "40ms"
       },
       {
         "name": "pgtap/runnotests",
         "status": "pass",
-        "duration": "35ms"
+        "duration": "25ms"
       },
       {
         "name": "pgtap/runtests",
         "status": "pass",
-        "duration": "123ms"
+        "duration": "69ms"
       },
       {
         "name": "pgtap/throwtap",
         "status": "pass",
-        "duration": "148ms",
+        "duration": "82ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/external/pgtap/throwtap.patch"
       },
       {
         "name": "pgtap/todotap",
         "status": "pass",
-        "duration": "69ms"
+        "duration": "41ms"
       },
       {
         "name": "pgtap/trigger",
         "status": "pass",
-        "duration": "137ms"
+        "duration": "78ms"
       },
       {
         "name": "pgtap/unique",
         "status": "pass",
-        "duration": "105ms"
+        "duration": "60ms"
       },
       {
         "name": "pgtap/usergroup",
         "status": "pass",
-        "duration": "131ms"
+        "duration": "77ms"
       },
       {
         "name": "pgtap/util",
         "status": "pass",
-        "duration": "56ms"
+        "duration": "34ms"
       },
       {
         "name": "plpgsql_check/plpgsql_check_passive",
         "status": "pass",
-        "duration": "101ms",
+        "duration": "68ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/external/plpgsql_check/plpgsql_check_passive.patch"
       },
       {
         "name": "plpgsql_check/plpgsql_check_active",
         "status": "pass",
-        "duration": "1211ms",
+        "duration": "967ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/external/plpgsql_check/plpgsql_check_active.patch"
       },
       {
         "name": "plpgsql_check/plpgsql_check_active-17",
         "status": "pass",
-        "duration": "55ms",
+        "duration": "40ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/external/plpgsql_check/plpgsql_check_active-17.patch"
       },
       {
         "name": "plpgsql_check/plpgsql_check_passive-17",
         "status": "pass",
-        "duration": "10ms"
+        "duration": "8ms"
       },
       {
         "name": "plpgsql_check/plpgsql_check_profiler",
         "status": "pass",
-        "duration": "133ms",
+        "duration": "93ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/external/plpgsql_check/plpgsql_check_profiler.patch"
       },
       {
         "name": "postgis/regress/core/affine",
         "status": "pass",
-        "duration": "62ms"
+        "duration": "43ms"
       },
       {
         "name": "postgis/regress/core/bestsrid",
@@ -3516,42 +3514,42 @@
       {
         "name": "postgis/regress/core/boundary",
         "status": "pass",
-        "duration": "28ms"
+        "duration": "21ms"
       },
       {
         "name": "postgis/regress/core/chaikin",
         "status": "pass",
-        "duration": "20ms"
+        "duration": "15ms"
       },
       {
         "name": "postgis/regress/core/filterm",
         "status": "pass",
-        "duration": "15ms"
+        "duration": "14ms"
       },
       {
         "name": "postgis/regress/core/cluster",
         "status": "pass",
-        "duration": "49ms"
+        "duration": "37ms"
       },
       {
         "name": "postgis/regress/core/ctors",
         "status": "pass",
-        "duration": "23ms"
+        "duration": "16ms"
       },
       {
         "name": "postgis/regress/core/curvetoline",
         "status": "pass",
-        "duration": "20ms"
+        "duration": "16ms"
       },
       {
         "name": "postgis/regress/core/dump",
         "status": "pass",
-        "duration": "39ms"
+        "duration": "27ms"
       },
       {
         "name": "postgis/regress/core/dumppoints",
         "status": "pass",
-        "duration": "29ms"
+        "duration": "21ms"
       },
       {
         "name": "postgis/regress/core/dumpsegments",
@@ -3563,72 +3561,72 @@
       {
         "name": "postgis/regress/core/empty",
         "status": "pass",
-        "duration": "62ms"
+        "duration": "39ms"
       },
       {
         "name": "postgis/regress/core/estimatedextent",
         "status": "pass",
-        "duration": "165ms"
+        "duration": "120ms"
       },
       {
         "name": "postgis/regress/core/forcecurve",
         "status": "pass",
-        "duration": "22ms"
+        "duration": "17ms"
       },
       {
         "name": "postgis/regress/core/flatgeobuf",
         "status": "pass",
-        "duration": "69ms"
+        "duration": "50ms"
       },
       {
         "name": "postgis/regress/core/frechet",
         "status": "pass",
-        "duration": "17ms"
+        "duration": "15ms"
       },
       {
         "name": "postgis/regress/core/generate_points",
         "status": "pass",
-        "duration": "15ms"
+        "duration": "12ms"
       },
       {
         "name": "postgis/regress/core/geography",
         "status": "pass",
-        "duration": "83ms"
+        "duration": "56ms"
       },
       {
         "name": "postgis/regress/core/geography_centroid",
         "status": "pass",
-        "duration": "17ms"
+        "duration": "13ms"
       },
       {
         "name": "postgis/regress/core/geography_covers",
         "status": "pass",
-        "duration": "20ms"
+        "duration": "15ms"
       },
       {
         "name": "postgis/regress/core/geometric_median",
         "status": "pass",
-        "duration": "22ms"
+        "duration": "16ms"
       },
       {
         "name": "postgis/regress/core/geos_noop",
         "status": "pass",
-        "duration": "14ms"
+        "duration": "11ms"
       },
       {
         "name": "postgis/regress/core/geos38",
         "status": "pass",
-        "duration": "14ms"
+        "duration": "11ms"
       },
       {
         "name": "postgis/regress/core/hausdorff",
         "status": "pass",
-        "duration": "18ms"
+        "duration": "14ms"
       },
       {
         "name": "postgis/regress/core/in_flatgeobuf",
         "status": "pass",
-        "duration": "20ms"
+        "duration": "15ms"
       },
       {
         "name": "postgis/regress/core/in_geohash",
@@ -3638,32 +3636,32 @@
       {
         "name": "postgis/regress/core/in_gml",
         "status": "pass",
-        "duration": "435ms"
+        "duration": "303ms"
       },
       {
         "name": "postgis/regress/core/in_kml",
         "status": "pass",
-        "duration": "97ms"
+        "duration": "57ms"
       },
       {
         "name": "postgis/regress/core/in_marc21",
         "status": "pass",
-        "duration": "64ms"
+        "duration": "39ms"
       },
       {
         "name": "postgis/regress/core/out_marc21",
         "status": "pass",
-        "duration": "111ms"
+        "duration": "68ms"
       },
       {
         "name": "postgis/regress/core/in_encodedpolyline",
         "status": "pass",
-        "duration": "15ms"
+        "duration": "12ms"
       },
       {
         "name": "postgis/regress/core/iscollection",
         "status": "pass",
-        "duration": "27ms"
+        "duration": "18ms"
       },
       {
         "name": "postgis/regress/core/legacy",
@@ -3675,77 +3673,77 @@
       {
         "name": "postgis/regress/core/letters",
         "status": "pass",
-        "duration": "16ms"
+        "duration": "12ms"
       },
       {
         "name": "postgis/regress/core/lwgeom_regress",
         "status": "pass",
-        "duration": "84ms"
+        "duration": "60ms"
       },
       {
         "name": "postgis/regress/core/measures",
         "status": "pass",
-        "duration": "91ms"
+        "duration": "58ms"
       },
       {
         "name": "postgis/regress/core/minimum_bounding_circle",
         "status": "pass",
-        "duration": "18ms"
+        "duration": "14ms"
       },
       {
         "name": "postgis/regress/core/normalize",
         "status": "pass",
-        "duration": "15ms"
+        "duration": "12ms"
       },
       {
         "name": "postgis/regress/core/operators",
         "status": "pass",
-        "duration": "81ms"
+        "duration": "53ms"
       },
       {
         "name": "postgis/regress/core/orientation",
         "status": "pass",
-        "duration": "41ms"
+        "duration": "27ms"
       },
       {
         "name": "postgis/regress/core/out_flatgeobuf",
         "status": "pass",
-        "duration": "17ms"
+        "duration": "13ms"
       },
       {
         "name": "postgis/regress/core/out_geometry",
         "status": "pass",
-        "duration": "101ms"
+        "duration": "62ms"
       },
       {
         "name": "postgis/regress/core/out_geography",
         "status": "pass",
-        "duration": "67ms"
+        "duration": "42ms"
       },
       {
         "name": "postgis/regress/core/out_gml",
         "status": "pass",
-        "duration": "16ms"
+        "duration": "12ms"
       },
       {
         "name": "postgis/regress/core/polygonize",
         "status": "pass",
-        "duration": "19ms"
+        "duration": "12ms"
       },
       {
         "name": "postgis/regress/core/polyhedralsurface",
         "status": "pass",
-        "duration": "32ms"
+        "duration": "20ms"
       },
       {
         "name": "postgis/regress/core/postgis_type_name",
         "status": "pass",
-        "duration": "166ms"
+        "duration": "97ms"
       },
       {
         "name": "postgis/regress/core/quantize_coordinates",
         "status": "pass",
-        "duration": "22ms"
+        "duration": "17ms"
       },
       {
         "name": "postgis/regress/core/regress",
@@ -3757,12 +3755,12 @@
       {
         "name": "postgis/regress/core/regress_bdpoly",
         "status": "pass",
-        "duration": "23ms"
+        "duration": "19ms"
       },
       {
         "name": "postgis/regress/core/regress_buffer_params",
         "status": "pass",
-        "duration": "23ms"
+        "duration": "18ms"
       },
       {
         "name": "postgis/regress/core/regress_gist_index_nd",
@@ -3781,82 +3779,82 @@
       {
         "name": "postgis/regress/core/regress_index_nulls",
         "status": "pass",
-        "duration": "67ms"
+        "duration": "43ms"
       },
       {
         "name": "postgis/regress/core/regress_management",
         "status": "pass",
-        "duration": "28ms"
+        "duration": "21ms"
       },
       {
         "name": "postgis/regress/core/regress_selectivity",
         "status": "pass",
-        "duration": "57ms"
+        "duration": "43ms"
       },
       {
         "name": "postgis/regress/core/regress_lrs",
         "status": "pass",
-        "duration": "52ms"
+        "duration": "35ms"
       },
       {
         "name": "postgis/regress/core/regress_ogc",
         "status": "pass",
-        "duration": "114ms"
+        "duration": "73ms"
       },
       {
         "name": "postgis/regress/core/regress_ogc_cover",
         "status": "pass",
-        "duration": "29ms"
+        "duration": "19ms"
       },
       {
         "name": "postgis/regress/core/regress_ogc_prep",
         "status": "pass",
-        "duration": "45ms"
+        "duration": "31ms"
       },
       {
         "name": "postgis/regress/core/regress_proj_basic",
         "status": "pass",
-        "duration": "43ms"
+        "duration": "29ms"
       },
       {
         "name": "postgis/regress/core/regress_proj_adhoc",
         "status": "pass",
-        "duration": "326ms"
+        "duration": "192ms"
       },
       {
         "name": "postgis/regress/core/regress_proj_cache_overflow",
         "status": "pass",
-        "duration": "57ms"
+        "duration": "32ms"
       },
       {
         "name": "postgis/regress/core/regress_proj_4890",
         "status": "pass",
-        "duration": "23ms"
+        "duration": "21ms"
       },
       {
         "name": "postgis/regress/core/regress_proj_pipeline",
         "status": "pass",
-        "duration": "302ms"
+        "duration": "183ms"
       },
       {
         "name": "postgis/regress/core/relate",
         "status": "pass",
-        "duration": "435ms"
+        "duration": "249ms"
       },
       {
         "name": "postgis/regress/core/remove_irrelevant_points_for_view",
         "status": "pass",
-        "duration": "21ms"
+        "duration": "14ms"
       },
       {
         "name": "postgis/regress/core/remove_repeated_points",
         "status": "pass",
-        "duration": "29ms"
+        "duration": "19ms"
       },
       {
         "name": "postgis/regress/core/remove_small_parts",
         "status": "pass",
-        "duration": "16ms"
+        "duration": "13ms"
       },
       {
         "name": "postgis/regress/core/removepoint",
@@ -3866,92 +3864,92 @@
       {
         "name": "postgis/regress/core/reverse",
         "status": "pass",
-        "duration": "53ms"
+        "duration": "31ms"
       },
       {
         "name": "postgis/regress/core/scroll",
         "status": "pass",
-        "duration": "21ms"
+        "duration": "15ms"
       },
       {
         "name": "postgis/regress/core/setpoint",
         "status": "pass",
-        "duration": "25ms"
+        "duration": "18ms"
       },
       {
         "name": "postgis/regress/core/simplify",
         "status": "pass",
-        "duration": "29ms"
+        "duration": "18ms"
       },
       {
         "name": "postgis/regress/core/simplifyvw",
         "status": "pass",
-        "duration": "25ms"
+        "duration": "17ms"
       },
       {
         "name": "postgis/regress/core/size",
         "status": "pass",
-        "duration": "16ms"
+        "duration": "13ms"
       },
       {
         "name": "postgis/regress/core/snaptogrid",
         "status": "pass",
-        "duration": "28ms"
+        "duration": "22ms"
       },
       {
         "name": "postgis/regress/core/split",
         "status": "pass",
-        "duration": "42ms"
+        "duration": "32ms"
       },
       {
         "name": "postgis/regress/core/sql-mm-serialize",
         "status": "pass",
-        "duration": "50ms"
+        "duration": "49ms"
       },
       {
         "name": "postgis/regress/core/sql-mm-circularstring",
         "status": "pass",
-        "duration": "87ms"
+        "duration": "56ms"
       },
       {
         "name": "postgis/regress/core/sql-mm-compoundcurve",
         "status": "pass",
-        "duration": "92ms"
+        "duration": "60ms"
       },
       {
         "name": "postgis/regress/core/sql-mm-curvepoly",
         "status": "pass",
-        "duration": "111ms"
+        "duration": "73ms"
       },
       {
         "name": "postgis/regress/core/sql-mm-general",
         "status": "pass",
-        "duration": "33ms"
+        "duration": "22ms"
       },
       {
         "name": "postgis/regress/core/sql-mm-multicurve",
         "status": "pass",
-        "duration": "82ms"
+        "duration": "53ms"
       },
       {
         "name": "postgis/regress/core/sql-mm-multisurface",
         "status": "pass",
-        "duration": "79ms"
+        "duration": "49ms"
       },
       {
         "name": "postgis/regress/core/swapordinates",
         "status": "pass",
-        "duration": "23ms"
+        "duration": "17ms"
       },
       {
         "name": "postgis/regress/core/summary",
         "status": "pass",
-        "duration": "22ms"
+        "duration": "17ms"
       },
       {
         "name": "postgis/regress/core/temporal",
         "status": "pass",
-        "duration": "34ms"
+        "duration": "24ms"
       },
       {
         "name": "postgis/regress/core/temporal_knn",
@@ -3970,7 +3968,7 @@
       {
         "name": "postgis/regress/core/twkb",
         "status": "pass",
-        "duration": "30ms"
+        "duration": "22ms"
       },
       {
         "name": "postgis/regress/core/typmod",
@@ -3982,52 +3980,52 @@
       {
         "name": "postgis/regress/core/wkb",
         "status": "pass",
-        "duration": "110ms"
+        "duration": "68ms"
       },
       {
         "name": "postgis/regress/core/wkt",
         "status": "pass",
-        "duration": "100ms"
+        "duration": "66ms"
       },
       {
         "name": "postgis/regress/core/wmsservers",
         "status": "pass",
-        "duration": "80ms"
+        "duration": "58ms"
       },
       {
         "name": "postgis/regress/core/offsetcurve",
         "status": "pass",
-        "duration": "30ms"
+        "duration": "23ms"
       },
       {
         "name": "postgis/regress/core/relatematch",
         "status": "pass",
-        "duration": "20ms"
+        "duration": "15ms"
       },
       {
         "name": "postgis/regress/core/isvaliddetail",
         "status": "pass",
-        "duration": "31ms"
+        "duration": "25ms"
       },
       {
         "name": "postgis/regress/core/sharedpaths",
         "status": "pass",
-        "duration": "21ms"
+        "duration": "17ms"
       },
       {
         "name": "postgis/regress/core/snap",
         "status": "pass",
-        "duration": "18ms"
+        "duration": "15ms"
       },
       {
         "name": "postgis/regress/core/node",
         "status": "pass",
-        "duration": "17ms"
+        "duration": "14ms"
       },
       {
         "name": "postgis/regress/core/unaryunion",
         "status": "pass",
-        "duration": "17ms"
+        "duration": "14ms"
       },
       {
         "name": "postgis/regress/core/union",
@@ -4039,27 +4037,27 @@
       {
         "name": "postgis/regress/core/clean",
         "status": "pass",
-        "duration": "47ms"
+        "duration": "31ms"
       },
       {
         "name": "postgis/regress/core/delaunaytriangles",
         "status": "pass",
-        "duration": "22ms"
+        "duration": "17ms"
       },
       {
         "name": "postgis/regress/core/clipbybox2d",
         "status": "pass",
-        "duration": "26ms"
+        "duration": "21ms"
       },
       {
         "name": "postgis/regress/core/subdivide",
         "status": "pass",
-        "duration": "2231ms"
+        "duration": "1722ms"
       },
       {
         "name": "postgis/regress/core/voronoi",
         "status": "pass",
-        "duration": "20ms"
+        "duration": "17ms"
       },
       {
         "name": "postgis/regress/core/regress_brin_index",
@@ -4085,27 +4083,27 @@
       {
         "name": "postgis/regress/core/minimum_clearance",
         "status": "pass",
-        "duration": "21ms"
+        "duration": "17ms"
       },
       {
         "name": "postgis/regress/core/oriented_envelope",
         "status": "pass",
-        "duration": "20ms"
+        "duration": "16ms"
       },
       {
         "name": "postgis/regress/core/point_coordinates",
         "status": "pass",
-        "duration": "39ms"
+        "duration": "27ms"
       },
       {
         "name": "postgis/regress/core/out_geojson",
         "status": "pass",
-        "duration": "35ms"
+        "duration": "26ms"
       },
       {
         "name": "postgis/regress/core/wrapx",
         "status": "pass",
-        "duration": "27ms"
+        "duration": "24ms"
       },
       {
         "name": "postgis/regress/core/computed_columns",
@@ -4117,42 +4115,42 @@
       {
         "name": "postgis/regress/core/geos39",
         "status": "pass",
-        "duration": "24ms"
+        "duration": "19ms"
       },
       {
         "name": "postgis/regress/core/fixedoverlay",
         "status": "pass",
-        "duration": "21ms"
+        "duration": "15ms"
       },
       {
         "name": "postgis/regress/core/geos310",
         "status": "pass",
-        "duration": "16ms"
+        "duration": "12ms"
       },
       {
         "name": "postgis/regress/core/geos311",
         "status": "pass",
-        "duration": "27ms"
+        "duration": "21ms"
       },
       {
         "name": "postgis/regress/core/coverage",
         "status": "pass",
-        "duration": "34ms"
+        "duration": "29ms"
       },
       {
         "name": "postgis/regress/core/interrupt",
         "status": "pass",
-        "duration": "128ms"
+        "duration": "133ms"
       },
       {
         "name": "postgis/regress/core/interrupt_relate",
         "status": "pass",
-        "duration": "1153ms"
+        "duration": "1239ms"
       },
       {
         "name": "postgis/regress/core/interrupt_buffer",
         "status": "pass",
-        "duration": "277ms"
+        "duration": "168ms"
       },
       {
         "name": "postgis/regress/core/in_geojson",
@@ -4185,37 +4183,37 @@
       {
         "name": "postgis/regress/core/mvt",
         "status": "pass",
-        "duration": "250ms"
+        "duration": "159ms"
       },
       {
         "name": "postgis/regress/core/mvt_jsonb",
         "status": "pass",
-        "duration": "18ms"
+        "duration": "15ms"
       },
       {
         "name": "postgis/regress/core/geobuf",
         "status": "pass",
-        "duration": "25ms"
+        "duration": "19ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/addedge",
         "status": "pass",
-        "duration": "126ms"
+        "duration": "86ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/addface2.5d",
         "status": "pass",
-        "duration": "69ms"
+        "duration": "51ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/addface",
         "status": "pass",
-        "duration": "425ms"
+        "duration": "442ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/addnode",
         "status": "pass",
-        "duration": "91ms"
+        "duration": "64ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/addtopogeometrycolumn",
@@ -4227,182 +4225,182 @@
       {
         "name": "postgis_topology/topology/test/regress/cleartopogeom",
         "status": "pass",
-        "duration": "143ms"
+        "duration": "103ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/copytopology",
         "status": "pass",
-        "duration": "318ms"
+        "duration": "213ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/createtopogeom",
         "status": "pass",
-        "duration": "124ms"
+        "duration": "89ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/createtopology",
         "status": "pass",
-        "duration": "262ms"
+        "duration": "163ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/droptopogeometrycolumn",
         "status": "pass",
-        "duration": "89ms"
+        "duration": "61ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/droptopology",
         "status": "pass",
-        "duration": "140ms"
+        "duration": "97ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/findlayer",
         "status": "pass",
-        "duration": "59ms"
+        "duration": "37ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/findtopology",
         "status": "pass",
-        "duration": "59ms"
+        "duration": "39ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/geometry_cast",
         "status": "pass",
-        "duration": "117ms"
+        "duration": "78ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/getedgebypoint",
         "status": "pass",
-        "duration": "74ms"
+        "duration": "51ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/getfacebypoint",
         "status": "pass",
-        "duration": "102ms"
+        "duration": "67ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/getfacecontainingpoint",
         "status": "pass",
-        "duration": "210ms"
+        "duration": "131ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/getnodebypoint",
         "status": "pass",
-        "duration": "69ms"
+        "duration": "49ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/getnodeedges",
         "status": "pass",
-        "duration": "88ms"
+        "duration": "57ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/getringedges",
         "status": "pass",
-        "duration": "98ms"
+        "duration": "61ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/gettopogeomelements",
         "status": "pass",
-        "duration": "136ms"
+        "duration": "83ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/gettopogeomelements_large",
         "status": "pass",
-        "duration": "202ms"
+        "duration": "101ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/gml",
         "status": "pass",
-        "duration": "212ms"
+        "duration": "142ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/layertrigger",
         "status": "pass",
-        "duration": "93ms"
+        "duration": "66ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/legacy_invalid",
         "status": "pass",
-        "duration": "369ms"
+        "duration": "304ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/legacy_predicate",
         "status": "pass",
-        "duration": "368ms"
+        "duration": "208ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/legacy_query",
         "status": "pass",
-        "duration": "207ms"
+        "duration": "131ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/legacy_validate",
         "status": "pass",
-        "duration": "139ms"
+        "duration": "91ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/maketopologyprecise",
         "status": "pass",
-        "duration": "58ms"
+        "duration": "44ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/polygonize",
         "status": "pass",
-        "duration": "111ms"
+        "duration": "96ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/populate_topology_layer",
         "status": "pass",
-        "duration": "48ms"
+        "duration": "32ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/removeunusedprimitives",
         "status": "pass",
-        "duration": "438ms"
+        "duration": "325ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/renametopogeometrycolumn",
         "status": "pass",
-        "duration": "37ms"
+        "duration": "28ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/renametopology",
         "status": "pass",
-        "duration": "32ms"
+        "duration": "26ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/share_sequences",
         "status": "pass",
-        "duration": "101ms"
+        "duration": "66ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/sqlmm",
         "status": "pass",
-        "duration": "102ms"
+        "duration": "73ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/st_addedgemodface",
         "status": "pass",
-        "duration": "340ms"
+        "duration": "239ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/st_addedgenewfaces",
         "status": "pass",
-        "duration": "320ms"
+        "duration": "209ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/st_addisoedge",
         "status": "pass",
-        "duration": "80ms"
+        "duration": "60ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/st_addisonode",
         "status": "pass",
-        "duration": "118ms"
+        "duration": "89ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/st_changeedgegeom",
         "status": "pass",
-        "duration": "236ms"
+        "duration": "190ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/st_createtopogeo",
@@ -4414,37 +4412,37 @@
       {
         "name": "postgis_topology/topology/test/regress/st_getfaceedges",
         "status": "pass",
-        "duration": "189ms"
+        "duration": "130ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/st_getfacegeometry",
         "status": "pass",
-        "duration": "55ms"
+        "duration": "46ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/st_modedgeheal",
         "status": "pass",
-        "duration": "404ms"
+        "duration": "268ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/st_modedgesplit",
         "status": "pass",
-        "duration": "233ms"
+        "duration": "164ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/st_moveisonode",
         "status": "pass",
-        "duration": "94ms"
+        "duration": "69ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/st_newedgeheal",
         "status": "pass",
-        "duration": "384ms"
+        "duration": "256ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/st_newedgessplit",
         "status": "pass",
-        "duration": "324ms"
+        "duration": "256ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/st_remedgemodface",
@@ -4463,37 +4461,37 @@
       {
         "name": "postgis_topology/topology/test/regress/st_removeisoedge",
         "status": "pass",
-        "duration": "129ms"
+        "duration": "87ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/st_removeisonode",
         "status": "pass",
-        "duration": "120ms"
+        "duration": "77ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/st_simplify",
         "status": "pass",
-        "duration": "108ms"
+        "duration": "70ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/topo2.5d",
         "status": "pass",
-        "duration": "77ms"
+        "duration": "57ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/topoelementarray_agg",
         "status": "pass",
-        "duration": "20ms"
+        "duration": "15ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/topoelement_cast",
         "status": "pass",
-        "duration": "78ms"
+        "duration": "47ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/topoelement",
         "status": "pass",
-        "duration": "21ms"
+        "duration": "15ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/topogeo_addlinestring_robust",
@@ -4505,7 +4503,7 @@
       {
         "name": "postgis_topology/topology/test/regress/topogeo_addlinestring",
         "status": "pass",
-        "duration": "1226ms"
+        "duration": "862ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/topogeo_addpoint_merge_edges",
@@ -4517,7 +4515,7 @@
       {
         "name": "postgis_topology/topology/test/regress/topogeo_addpoint",
         "status": "pass",
-        "duration": "301ms"
+        "duration": "191ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/topogeo_addpolygon",
@@ -4529,367 +4527,367 @@
       {
         "name": "postgis_topology/topology/test/regress/topogeo_loadgeometry",
         "status": "pass",
-        "duration": "132ms"
+        "duration": "83ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/topogeom_addtopogeom",
         "status": "pass",
-        "duration": "159ms"
+        "duration": "98ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/topogeom_edit",
         "status": "pass",
-        "duration": "79ms"
+        "duration": "49ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/topogeometry_srid",
         "status": "pass",
-        "duration": "208ms"
+        "duration": "137ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/topogeometry_type",
         "status": "pass",
-        "duration": "207ms"
+        "duration": "133ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/topojson",
         "status": "pass",
-        "duration": "301ms"
+        "duration": "199ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/topologysummary",
         "status": "pass",
-        "duration": "78ms"
+        "duration": "57ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/totaltopologysize",
         "status": "pass",
-        "duration": "51ms"
+        "duration": "37ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/totopogeom",
         "status": "pass",
-        "duration": "576ms"
+        "duration": "338ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/upgradetopology",
         "status": "pass",
-        "duration": "180ms"
+        "duration": "113ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/validatetopologyprecision",
         "status": "pass",
-        "duration": "80ms"
+        "duration": "53ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/validatetopologyrelation",
         "status": "pass",
-        "duration": "191ms"
+        "duration": "119ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/validatetopologyrelation_large",
         "status": "pass",
-        "duration": "201ms"
+        "duration": "127ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/validatetopology",
         "status": "pass",
-        "duration": "557ms"
+        "duration": "325ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/validatetopology_large",
         "status": "pass",
-        "duration": "455ms"
+        "duration": "449ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/verifylargeids",
         "status": "pass",
-        "duration": "307ms"
+        "duration": "267ms"
       },
       {
         "name": "postgis_topology/topology/test/regress/fix_topogeometry_columns",
         "status": "pass",
-        "duration": "218ms"
+        "duration": "139ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/check_gdal",
         "status": "pass",
-        "duration": "210ms"
+        "duration": "142ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/loader/load_outdb",
         "status": "pass",
-        "duration": "128ms"
+        "duration": "88ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/check_raster_columns",
         "status": "pass",
-        "duration": "237ms"
+        "duration": "146ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/check_raster_overviews",
         "status": "pass",
-        "duration": "107ms"
+        "duration": "69ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_io",
         "status": "pass",
-        "duration": "42ms"
+        "duration": "34ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_bytea",
         "status": "pass",
-        "duration": "29ms"
+        "duration": "21ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_wkb",
         "status": "pass",
-        "duration": "66ms"
+        "duration": "47ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/box3d",
         "status": "pass",
-        "duration": "31ms"
+        "duration": "28ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_addband",
         "status": "pass",
-        "duration": "128ms"
+        "duration": "84ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_band",
         "status": "pass",
-        "duration": "64ms"
+        "duration": "39ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_tile",
         "status": "pass",
-        "duration": "42ms"
+        "duration": "31ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_dimensions",
         "status": "pass",
-        "duration": "32ms"
+        "duration": "22ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_scale",
         "status": "pass",
-        "duration": "28ms"
+        "duration": "21ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_pixelsize",
         "status": "pass",
-        "duration": "28ms"
+        "duration": "21ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_upperleft",
         "status": "pass",
-        "duration": "27ms"
+        "duration": "20ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_rotation",
         "status": "pass",
-        "duration": "43ms"
+        "duration": "29ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_georeference",
         "status": "pass",
-        "duration": "68ms"
+        "duration": "41ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_set_properties",
         "status": "pass",
-        "duration": "37ms"
+        "duration": "28ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_isempty",
         "status": "pass",
-        "duration": "22ms"
+        "duration": "15ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_hasnoband",
         "status": "pass",
-        "duration": "19ms"
+        "duration": "16ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_metadata",
         "status": "pass",
-        "duration": "16ms"
+        "duration": "12ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_rastertoworldcoord",
         "status": "pass",
-        "duration": "57ms"
+        "duration": "39ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_worldtorastercoord",
         "status": "pass",
-        "duration": "66ms"
+        "duration": "49ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_convexhull",
         "status": "pass",
-        "duration": "34ms"
+        "duration": "25ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_envelope",
         "status": "pass",
-        "duration": "19ms"
+        "duration": "14ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_band_properties",
         "status": "pass",
-        "duration": "34ms"
+        "duration": "29ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_set_band_properties",
         "status": "pass",
-        "duration": "24ms"
+        "duration": "20ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_pixelaspolygons",
         "status": "pass",
-        "duration": "32ms"
+        "duration": "24ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_pixelaspoints",
         "status": "pass",
-        "duration": "31ms"
+        "duration": "24ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_pixelascentroids",
         "status": "pass",
-        "duration": "36ms"
+        "duration": "29ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_setvalues_array",
         "status": "pass",
-        "duration": "69ms"
+        "duration": "51ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_summarystats",
         "status": "pass",
-        "duration": "91ms"
+        "duration": "62ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_count",
         "status": "pass",
-        "duration": "84ms"
+        "duration": "61ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_histogram",
         "status": "pass",
-        "duration": "74ms"
+        "duration": "62ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_quantile",
         "status": "pass",
-        "duration": "27ms"
+        "duration": "20ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_valuecount",
         "status": "pass",
-        "duration": "101ms"
+        "duration": "70ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_valuepercent",
         "status": "pass",
-        "duration": "90ms"
+        "duration": "66ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_bandmetadata",
         "status": "pass",
-        "duration": "25ms"
+        "duration": "20ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_pixelvalue",
         "status": "pass",
-        "duration": "41ms"
+        "duration": "29ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_neighborhood",
         "status": "pass",
-        "duration": "37ms"
+        "duration": "27ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_nearestvalue",
         "status": "pass",
-        "duration": "42ms"
+        "duration": "29ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_pixelofvalue",
         "status": "pass",
-        "duration": "29ms"
+        "duration": "23ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_polygon",
         "status": "pass",
-        "duration": "54ms"
+        "duration": "45ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_setbandpath",
         "status": "pass",
-        "duration": "42ms"
+        "duration": "31ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_utility",
         "status": "pass",
-        "duration": "76ms"
+        "duration": "50ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_fromgdalraster",
         "status": "pass",
-        "duration": "54ms"
+        "duration": "36ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_asgdalraster",
         "status": "pass",
-        "duration": "101ms"
+        "duration": "68ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_astiff",
         "status": "pass",
-        "duration": "67ms"
+        "duration": "50ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_asjpeg",
         "status": "pass",
-        "duration": "54ms"
+        "duration": "40ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_aspng",
         "status": "pass",
-        "duration": "62ms"
+        "duration": "43ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_reclass",
         "status": "pass",
-        "duration": "29ms"
+        "duration": "22ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_reclassexact",
         "status": "pass",
-        "duration": "25ms"
+        "duration": "20ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_gdalwarp",
         "status": "pass",
-        "duration": "1929ms"
+        "duration": "1103ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_gdalcontour",
         "status": "pass",
-        "duration": "28ms"
+        "duration": "22ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_asraster",
         "status": "pass",
-        "duration": "535ms"
+        "duration": "327ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_asrasteragg",
         "status": "pass",
-        "duration": "16ms"
+        "duration": "13ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_dumpvalues",
@@ -4901,72 +4899,72 @@
       {
         "name": "postgis_raster/raster/test/regress/rt_makeemptycoverage",
         "status": "pass",
-        "duration": "19ms"
+        "duration": "15ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_createoverview",
         "status": "pass",
-        "duration": "2985ms"
+        "duration": "1346ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_mapalgebraexpr",
         "status": "pass",
-        "duration": "51ms"
+        "duration": "36ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_mapalgebrafct",
         "status": "pass",
-        "duration": "50ms"
+        "duration": "34ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_mapalgebraexpr_2raster",
         "status": "pass",
-        "duration": "73ms"
+        "duration": "49ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_mapalgebrafct_2raster",
         "status": "pass",
-        "duration": "79ms"
+        "duration": "54ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_mapalgebrafctngb",
         "status": "pass",
-        "duration": "47ms"
+        "duration": "33ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_mapalgebrafctngb_userfunc",
         "status": "pass",
-        "duration": "53ms"
+        "duration": "35ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_intersection",
         "status": "pass",
-        "duration": "61ms"
+        "duration": "49ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_clip",
         "status": "pass",
-        "duration": "80ms"
+        "duration": "54ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_mapalgebra",
         "status": "pass",
-        "duration": "83ms"
+        "duration": "62ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_mapalgebra_expr",
         "status": "pass",
-        "duration": "130ms"
+        "duration": "85ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_mapalgebra_mask",
         "status": "pass",
-        "duration": "66ms"
+        "duration": "48ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_union",
         "status": "pass",
-        "duration": "124ms"
+        "duration": "85ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_invdistweight4ma",
@@ -4985,7 +4983,7 @@
       {
         "name": "postgis_raster/raster/test/regress/rt_setvalues_geomval",
         "status": "pass",
-        "duration": "34ms"
+        "duration": "26ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_elevation_functions",
@@ -4997,47 +4995,47 @@
       {
         "name": "postgis_raster/raster/test/regress/rt_colormap",
         "status": "pass",
-        "duration": "33ms"
+        "duration": "23ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_grayscale",
         "status": "pass",
-        "duration": "83ms"
+        "duration": "58ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_gist_relationships",
         "status": "pass",
-        "duration": "70ms"
+        "duration": "46ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_intersects",
         "status": "pass",
-        "duration": "96ms"
+        "duration": "58ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_samealignment",
         "status": "pass",
-        "duration": "41ms"
+        "duration": "30ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_geos_relationships",
         "status": "pass",
-        "duration": "86ms"
+        "duration": "57ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_iscoveragetile",
         "status": "pass",
-        "duration": "52ms"
+        "duration": "35ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/bug_test_car5",
         "status": "pass",
-        "duration": "69ms"
+        "duration": "49ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/permitted_gdal_drivers",
         "status": "pass",
-        "duration": "123ms"
+        "duration": "79ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/tickets",
@@ -5049,121 +5047,121 @@
       {
         "name": "postgis_raster/raster/test/regress/clean",
         "status": "pass",
-        "duration": "34ms"
+        "duration": "22ms"
       },
       {
         "name": "postgis_raster/raster/test/regress/rt_intersection_fractions",
         "status": "pass",
-        "duration": "28ms"
+        "duration": "21ms"
       },
       {
         "name": "postgis_sfcgal/sfcgal/regress/regress_sfcgal",
         "status": "pass",
-        "duration": "602ms"
+        "duration": "452ms"
       },
       {
         "name": "postgis_sfcgal/sfcgal/regress/approximatemedialaxis",
         "status": "pass",
-        "duration": "16ms"
+        "duration": "13ms"
       },
       {
         "name": "postgis_sfcgal/sfcgal/regress/alphashape",
         "status": "pass",
-        "duration": "21ms"
+        "duration": "17ms"
       },
       {
         "name": "postgis_sfcgal/sfcgal/regress/partition",
         "status": "pass",
-        "duration": "18ms"
+        "duration": "14ms"
       },
       {
         "name": "postgis_sfcgal/sfcgal/regress/extrudestraigthskeleton",
         "status": "pass",
-        "duration": "29ms"
+        "duration": "38ms"
       },
       {
         "name": "postgis_sfcgal/sfcgal/regress/visibility",
         "status": "pass",
-        "duration": "23ms"
+        "duration": "16ms"
       },
       {
         "name": "supabase_vault/supabase_vault",
         "status": "pass",
-        "duration": "40ms"
+        "duration": "27ms"
       },
       {
         "name": "vector/bit",
         "status": "pass",
-        "duration": "33ms"
+        "duration": "20ms"
       },
       {
         "name": "vector/btree",
         "status": "pass",
-        "duration": "54ms"
+        "duration": "37ms"
       },
       {
         "name": "vector/cast",
         "status": "pass",
-        "duration": "67ms"
+        "duration": "39ms"
       },
       {
         "name": "vector/copy",
         "status": "pass",
-        "duration": "50ms"
+        "duration": "37ms"
       },
       {
         "name": "vector/halfvec",
         "status": "pass",
-        "duration": "110ms"
+        "duration": "64ms"
       },
       {
         "name": "vector/hnsw_bit",
         "status": "pass",
-        "duration": "50ms"
+        "duration": "31ms"
       },
       {
         "name": "vector/hnsw_halfvec",
         "status": "pass",
-        "duration": "54ms"
+        "duration": "37ms"
       },
       {
         "name": "vector/hnsw_sparsevec",
         "status": "pass",
-        "duration": "69ms"
+        "duration": "49ms"
       },
       {
         "name": "vector/hnsw_vector",
         "status": "pass",
-        "duration": "110ms",
+        "duration": "75ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/external/vector/hnsw_vector.patch"
       },
       {
         "name": "vector/ivfflat_bit",
         "status": "pass",
-        "duration": "35ms"
+        "duration": "25ms"
       },
       {
         "name": "vector/ivfflat_halfvec",
         "status": "pass",
-        "duration": "44ms"
+        "duration": "32ms"
       },
       {
         "name": "vector/ivfflat_vector",
         "status": "pass",
-        "duration": "110ms",
+        "duration": "81ms",
         "patch_applied": true,
         "patch_path": "go/test/endtoend/pgregresstest/testdata/pg17/patches/external/vector/ivfflat_vector.patch"
       },
       {
         "name": "vector/sparsevec",
         "status": "pass",
-        "duration": "108ms"
+        "duration": "61ms"
       },
       {
         "name": "vector/vector_type",
         "status": "pass",
-        "duration": "115ms"
+        "duration": "69ms"
       },
       {
         "name": "wrappers/load",
