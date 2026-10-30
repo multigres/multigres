@@ -54,7 +54,7 @@ require an active database connection.`,
 
 	cmd.Flags().String("cell", "", "Cell name where the pooler resides (required)")
 	cmd.Flags().String("service-id", "", "Service ID (name) of the pooler (required)")
-	cmd.Flags().String("admin-server", "", "gRPC address of the multiadmin server (e.g., localhost:18070)")
+	cmd.Flags().String("admin-server", "", "gRPC address of the multiadmin server (e.g., localhost:18070; env: MULTIGRES_ADMIN_SERVER)")
 
 	_ = cmd.MarkFlagRequired("cell")
 	_ = cmd.MarkFlagRequired("service-id")
