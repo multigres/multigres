@@ -148,6 +148,7 @@ forwards them to it.
 | Multiadmin RPC       | Multiadmin REST                                                                                        | Pooler RPC           |
 | -------------------- | ------------------------------------------------------------------------------------------------------ | -------------------- |
 | `GetRoutingRules`    | `GET /api/v1/databases/{database}/routing`                                                             | `GetRoutingSnapshot` |
+| `EnsureImportTarget` | `PUT /api/v1/databases/{database}/routing/operations/{operation_id}/import-target`                     | `EnsureImportTarget` |
 | `SetRoutingRules`    | `PUT /api/v1/databases/{database}/routing/operations/{operation_id}/rules`                             | `SetRoutingRules`    |
 | `DeleteRoutingRules` | `DELETE /api/v1/databases/{database}/routing/operations/{operation_id}/rules?expectedRoutingVersion=N` | `DeleteRoutingRules` |
 
@@ -156,7 +157,73 @@ with the `routing_version` a rule change is based on. Every catalog write
 advances that version, a new tablegroup as well as a rule change, so a change
 based on an older read fails and the caller reads again.
 
+`EnsureImportTarget` creates, if absent, the import operation, the tablegroup
+it imports into and that tablegroup's `0-inf` shard, in one catalog write. It
+writes no rule, but a new tablegroup or shard advances `routing_version`, as
+every catalog write does. It refuses a tablegroup another unfinished operation
+acts on. The RPC is temporary, for the first version of imports, and will be
+deprecated. Tablegroup creation (the equivalent of `CREATE TABLEGROUP`) plus
+the import's PREPARE step (registering its tables, the default rule and
+fencing) will replace it.
+
 Errors: a pooler that is not the catalog primary answers `UNAVAILABLE` to a
 rule change (find the primary and retry); a stale expected version or a change
 the catalog does not allow answers `FAILED_PRECONDITION`; a malformed request
 answers `INVALID_ARGUMENT`.
+
+## Example: serving a database from an external PostgreSQL
+
+This routes the application traffic of database `app` to an external
+PostgreSQL fronted by unmanaged poolers of tablegroup `srctg`, shard `0-inf`.
+`$MULTIADMIN` is multiadmin's HTTP address.
+
+1. Copy the external PostgreSQL's roles into `app` verbatim.
+   `pg_dumpall --roles-only` emits `CREATE ROLE` for roles that may already
+   exist; edit those (and the bootstrap superuser) out, then load the rest:
+
+   ```bash
+   pg_dumpall --roles-only --dbname="$SOURCE_URL" > roles.sql
+   ```
+
+   ```bash
+   psql "$APP_DEFAULT_PRIMARY_URL" --file=roles.sql
+   ```
+
+2. Create the import operation and the target tablegroup:
+
+   ```bash
+   curl -X PUT "$MULTIADMIN/api/v1/databases/app/routing/operations/$OP/import-target" -H 'Content-Type: application/json' \
+     -d '{"tablegroup": "srctg"}'
+   ```
+
+3. Read the current routing version, which step 2 advanced:
+
+   ```bash
+   curl "$MULTIADMIN/api/v1/databases/app/routing"
+   ```
+
+4. Quiesce the application, then route `default` to `srctg`, passing the version
+   from step 3:
+
+   ```bash
+   curl -X PUT "$MULTIADMIN/api/v1/databases/app/routing/operations/$OP/rules" -H 'Content-Type: application/json' \
+     -d '{"rules": [{"fromTablegroup": "default", "toTablegroup": "srctg", "toShard": "0-inf"}], "expectedRoutingVersion": "1"}'
+   ```
+
+5. Every gateway reads the new snapshot when the catalog primary's health
+   stream reports its routing version, or at the latest within one
+   `--sharding-catalog-poll-interval`, and then sends `app`'s application
+   traffic to `srctg`. Verify through a gateway, for example by reading a row
+   that only the external PostgreSQL has, and check `GET .../routing` lists
+   the rule.
+
+6. Deleting the rule undoes step 4. It is safe only while the application
+   does not yet rely on `srctg`, for example right after the check in step 5:
+   quiesce the application and delete the rule, passing the version the
+   previous call returned. Once the application runs on `srctg`, deleting the
+   rule sends its traffic to `default`, which does not have the external
+   PostgreSQL's data.
+
+   ```bash
+   curl -X DELETE "$MULTIADMIN/api/v1/databases/app/routing/operations/$OP/rules?expectedRoutingVersion=2"
+   ```

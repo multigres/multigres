@@ -16,6 +16,8 @@ package manager
 
 import (
 	"context"
+	"regexp"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -94,6 +96,8 @@ func TestRoutingRPCs_OnlyOnCatalogPrimary(t *testing.T) {
 	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "SetRoutingRules: %v", err)
 	_, err = pm.DeleteRoutingRules(ctx, &multipoolermanagerdatapb.DeleteRoutingRulesRequest{Database: routingTestDatabase, OperationId: importOp})
 	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "DeleteRoutingRules: %v", err)
+	_, err = pm.EnsureImportTarget(ctx, &multipoolermanagerdatapb.EnsureImportTargetRequest{Database: routingTestDatabase, OperationId: importOp, Tablegroup: "srctg"})
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "EnsureImportTarget: %v", err)
 
 	assert.False(t, began, "a refused routing RPC must not open a transaction")
 }
@@ -174,4 +178,45 @@ func TestGetRoutingSnapshot_RecordsTheRuleCount(t *testing.T) {
 	require.Len(t, gauge.DataPoints, 1)
 	assert.Equal(t, testTableGroupDB, attrValue(t, gauge.DataPoints[0].Attributes, "db.namespace"))
 	assert.Equal(t, int64(2), gauge.DataPoints[0].Value)
+}
+
+func TestEnsureImportTarget_WritesThroughWriteCatalog(t *testing.T) {
+	env := newCatalogTestEnv(t)
+	env.expectLock()
+	env.expect("^"+regexp.QuoteMeta(insertTablegroupSQL)+"$", []string{"tablegroup_id"}, [][]any{{int64(2)}})
+	env.expect("SET routing_version = routing_version \\+ 1 RETURNING", []string{"routing_version", "plan_epoch"}, [][]any{{int64(5), int64(2)}})
+	env.expectCommit()
+	env.qs.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), func(q string) { env.queries = append(env.queries, q) })
+
+	_, err := env.pm.EnsureImportTarget(t.Context(), &multipoolermanagerdatapb.EnsureImportTargetRequest{
+		Database: testTableGroupDB, OperationId: importOp, Tablegroup: "srctg",
+	})
+	require.NoError(t, err)
+	queries := slices.DeleteFunc(slices.Clone(env.queries), func(q string) bool { return q == "BEGIN" })
+	assert.Contains(t, queries[0], "FROM multigres.catalog_state FOR UPDATE", "writeCatalog takes the catalog_state lock first")
+	assert.Equal(t, []string{
+		selectOperationForUpdateSQL, selectTablegroupByNameSQL, insertTablegroupSQL, insertOperationSQL,
+		selectShardNamesSQL, insertFullShardSQL,
+	}, queries[1:7])
+	assert.Len(t, env.queriesMatching("UPDATE multigres.catalog_state"), 1,
+		"the new tablegroup is a routing change, so writeCatalog advances the version")
+	assert.Equal(t, "COMMIT", env.queries[len(env.queries)-1])
+}
+
+func TestEnsureImportTarget_AlreadyInPlaceCommitsNothing(t *testing.T) {
+	env := newCatalogTestEnv(t)
+	env.expectLock()
+	env.expect("^"+regexp.QuoteMeta(selectOperationForUpdateSQL)+"$", []string{"kind", "state", "tablegroup_id", "name"},
+		[][]any{{importOperationKind, "preparing", int64(2), "srctg"}})
+	env.expect("^"+regexp.QuoteMeta(selectTablegroupByNameSQL)+"$", []string{"tablegroup_id", "state"}, [][]any{{int64(2), "active"}})
+	env.expect("^"+regexp.QuoteMeta(selectShardNamesSQL)+"$", []string{"shard_name"}, [][]any{{constants.DefaultShard}})
+	env.qs.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), func(q string) { env.queries = append(env.queries, q) })
+
+	_, err := env.pm.EnsureImportTarget(t.Context(), &multipoolermanagerdatapb.EnsureImportTargetRequest{
+		Database: testTableGroupDB, OperationId: importOp, Tablegroup: "srctg",
+	})
+	require.NoError(t, err)
+	assert.Empty(t, env.queriesMatching("INSERT INTO"))
+	assert.Empty(t, env.queriesMatching("UPDATE multigres.catalog_state"))
+	assert.Empty(t, env.queriesMatching("COMMIT"))
 }

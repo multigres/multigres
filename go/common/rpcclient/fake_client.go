@@ -79,6 +79,7 @@ type FakeClient struct {
 	GetRoutingSnapshotResponses         map[topoclient.ComponentID]*multipoolermanagerdatapb.GetRoutingSnapshotResponse
 	SetRoutingRulesResponses            map[topoclient.ComponentID]*multipoolermanagerdatapb.SetRoutingRulesResponse
 	DeleteRoutingRulesResponses         map[topoclient.ComponentID]*multipoolermanagerdatapb.DeleteRoutingRulesResponse
+	EnsureImportTargetResponses         map[topoclient.ComponentID]*multipoolermanagerdatapb.EnsureImportTargetResponse
 	ReloadConfigResponses               map[topoclient.ComponentID]*multipoolermanagerdatapb.ReloadConfigResponse
 	ListTableGroupsResponses            map[topoclient.ComponentID]*multipoolermanagerdatapb.ListTableGroupsResponse
 
@@ -128,6 +129,7 @@ func NewFakeClient() *FakeClient {
 		GetRoutingSnapshotResponses:         make(map[topoclient.ComponentID]*multipoolermanagerdatapb.GetRoutingSnapshotResponse),
 		SetRoutingRulesResponses:            make(map[topoclient.ComponentID]*multipoolermanagerdatapb.SetRoutingRulesResponse),
 		DeleteRoutingRulesResponses:         make(map[topoclient.ComponentID]*multipoolermanagerdatapb.DeleteRoutingRulesResponse),
+		EnsureImportTargetResponses:         make(map[topoclient.ComponentID]*multipoolermanagerdatapb.EnsureImportTargetResponse),
 		ReloadConfigResponses:               make(map[topoclient.ComponentID]*multipoolermanagerdatapb.ReloadConfigResponse),
 		ListTableGroupsResponses:            make(map[topoclient.ComponentID]*multipoolermanagerdatapb.ListTableGroupsResponse),
 		Errors:                              make(map[topoclient.ComponentID]error),
@@ -598,6 +600,22 @@ func (f *FakeClient) DeleteRoutingRules(ctx context.Context, pooler *clustermeta
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.DeleteRoutingRulesResponse{}, nil
+}
+
+func (f *FakeClient) EnsureImportTarget(ctx context.Context, pooler *clustermetadatapb.Multipooler, req *multipoolermanagerdatapb.EnsureImportTargetRequest) (*multipoolermanagerdatapb.EnsureImportTargetResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("EnsureImportTarget", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.EnsureImportTargetResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.EnsureImportTargetResponse{}, nil
 }
 
 //

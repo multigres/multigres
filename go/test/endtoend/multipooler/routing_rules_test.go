@@ -38,11 +38,13 @@ import (
 )
 
 const (
-	routingE2EDatabase = "postgres"
-	routingImportOp    = "aaaaaaaa-0000-0000-0000-000000000001"
-	routingSplitOpA    = "aaaaaaaa-0000-0000-0000-00000000000a"
-	routingSplitOpB    = "aaaaaaaa-0000-0000-0000-00000000000b"
-	routingCreateOp    = "aaaaaaaa-0000-0000-0000-00000000000c"
+	routingE2EDatabase     = "postgres"
+	routingImportOp        = "aaaaaaaa-0000-0000-0000-000000000001"
+	routingSecondImportOp  = "aaaaaaaa-0000-0000-0000-000000000002"
+	routingEnsuredImportOp = "aaaaaaaa-0000-0000-0000-000000000003"
+	routingSplitOpA        = "aaaaaaaa-0000-0000-0000-00000000000a"
+	routingSplitOpB        = "aaaaaaaa-0000-0000-0000-00000000000b"
+	routingCreateOp        = "aaaaaaaa-0000-0000-0000-00000000000c"
 )
 
 // routingClients are the routing RPC clients of one pooler.
@@ -128,9 +130,10 @@ FROM multigres.tablegroup tg CROSS JOIN (VALUES
 WHERE tg.name IN ('commerce', 'orders')`
 
 // TestRoutingRules_RPCs drives the routing RPCs against a real catalog: which
-// poolers serve them, setting, retrying and deleting rules, a race of two
-// writers on the routing version, shard ranges in the snapshot, an unfinished
-// operation blocking a tablegroup's routing, and the default tablegroup guard.
+// poolers serve them, EnsureImportTarget, setting, retrying and deleting
+// rules, a race of two writers on the routing version, shard ranges in the
+// snapshot, an unfinished operation blocking a tablegroup's routing, and the
+// default tablegroup guard.
 //
 // Uses an isolated shard: it writes catalog rows.
 func TestRoutingRules_RPCs(t *testing.T) {
@@ -177,6 +180,10 @@ func TestRoutingRules_RPCs(t *testing.T) {
 			Database: routingE2EDatabase, OperationId: "not-a-uuid", Rules: []*mdpb.ShardRoutingRuleSpec{shardSpec("default", "srctg", "0-inf")},
 		})
 		assert.Equal(t, codes.InvalidArgument, status.Code(err), "set: %v", err)
+		_, err = pc.manager.EnsureImportTarget(ctx, &mdpb.EnsureImportTargetRequest{
+			Database: routingE2EDatabase, OperationId: "not-a-uuid", Tablegroup: "srctg",
+		})
+		assert.Equal(t, codes.InvalidArgument, status.Code(err), "ensure: %v", err)
 	})
 
 	t.Run("set, retry and snapshot the import rule", func(t *testing.T) {
@@ -212,13 +219,54 @@ func TestRoutingRules_RPCs(t *testing.T) {
 		assert.Equal(t, int64(1), rule.GetCreatedVersion())
 	})
 
+	t.Run("ensure import target is idempotent", func(t *testing.T) {
+		version := pc.snapshot(t).GetRoutingVersion()
+		for range 2 {
+			_, err := pc.manager.EnsureImportTarget(ctx, &mdpb.EnsureImportTargetRequest{
+				Database: routingE2EDatabase, OperationId: routingEnsuredImportOp, Tablegroup: "ensuredtg",
+			})
+			require.NoError(t, err)
+		}
+		var ops, shards int
+		var kind, opState, tgState string
+		require.NoError(t, db.QueryRow(`SELECT count(*), min(kind), min(state) FROM multigres.operation WHERE operation_id = $1`,
+			routingEnsuredImportOp).Scan(&ops, &kind, &opState))
+		require.NoError(t, db.QueryRow(`SELECT count(*), min(tg.state) FROM multigres.shard s
+			JOIN multigres.tablegroup tg USING (tablegroup_id) WHERE tg.name = 'ensuredtg' AND s.shard_name = '0-inf'`).Scan(&shards, &tgState))
+		assert.Equal(t, 1, ops)
+		assert.Equal(t, "import", kind)
+		assert.Equal(t, "preparing", opState)
+		assert.Equal(t, 1, shards)
+		assert.Equal(t, "active", tgState)
+		version++
+		assert.Equal(t, version, pc.snapshot(t).GetRoutingVersion(),
+			"the new tablegroup advanced the routing version once; the second call changed nothing")
+
+		// The import fixture is what EnsureImportTarget creates, so ensuring
+		// it again changes nothing.
+		_, err := pc.manager.EnsureImportTarget(ctx, &mdpb.EnsureImportTargetRequest{
+			Database: routingE2EDatabase, OperationId: routingImportOp, Tablegroup: "srctg",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, version, pc.snapshot(t).GetRoutingVersion(), "ensuring a target that exists changes nothing")
+
+		// A second import into the same tablegroup is refused.
+		_, err = pc.manager.EnsureImportTarget(ctx, &mdpb.EnsureImportTargetRequest{
+			Database: routingE2EDatabase, OperationId: routingSecondImportOp, Tablegroup: "srctg",
+		})
+		require.Error(t, err)
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+		assert.Contains(t, err.Error(), "is already the target of operation "+routingImportOp)
+	})
+
 	t.Run("two writers race on the routing version", func(t *testing.T) {
 		_, err := db.ExecContext(ctx, splitFixture)
 		require.NoError(t, err)
 
 		// Hold the catalog_state lock so both writers block on it, then let
-		// them go: the first to get it commits version 2, the second then
-		// reads version 2 and must fail its expected version of 1.
+		// them go: the first to get it commits version base+1, the second then
+		// reads that version and must fail its expected version of base.
+		base := pc.snapshot(t).GetRoutingVersion()
 		lockTx, err := db.BeginTx(ctx, nil)
 		require.NoError(t, err)
 		defer func() { _ = lockTx.Rollback() }()
@@ -230,7 +278,7 @@ func TestRoutingRules_RPCs(t *testing.T) {
 		for i, tc := range []struct{ op, tg string }{{routingSplitOpA, "commerce"}, {routingSplitOpB, "orders"}} {
 			wg.Go(func() {
 				_, errs[i] = pc.manager.SetRoutingRules(ctx, &mdpb.SetRoutingRulesRequest{
-					Database: routingE2EDatabase, OperationId: tc.op, ExpectedRoutingVersion: 1,
+					Database: routingE2EDatabase, OperationId: tc.op, ExpectedRoutingVersion: base,
 					Rules: []*mdpb.ShardRoutingRuleSpec{shardSpec(tc.tg, tc.tg, "0-40"), shardSpec(tc.tg, tc.tg, "40-80")},
 				})
 			})
@@ -247,13 +295,13 @@ func TestRoutingRules_RPCs(t *testing.T) {
 			}
 			lost++
 			assert.Equal(t, codes.FailedPrecondition, status.Code(err))
-			assert.Contains(t, err.Error(), "routing version is 2, expected 1")
+			assert.Contains(t, err.Error(), fmt.Sprintf("routing version is %d, expected %d", base+1, base))
 		}
 		assert.Equal(t, 1, won, "exactly one writer commits: %v", errs)
 		assert.Equal(t, 1, lost)
 
 		snap := pc.snapshot(t)
-		assert.Equal(t, int64(2), snap.GetRoutingVersion())
+		assert.Equal(t, base+1, snap.GetRoutingVersion())
 		require.Len(t, snap.GetRules(), 3)
 		ranges := map[string][2][]byte{}
 		for _, r := range snap.GetRules()[1:] {
@@ -266,7 +314,8 @@ func TestRoutingRules_RPCs(t *testing.T) {
 	})
 
 	t.Run("delete rules", func(t *testing.T) {
-		version := pc.snapshot(t).GetRoutingVersion()
+		start := pc.snapshot(t).GetRoutingVersion()
+		version := start
 		for _, op := range []string{routingSplitOpA, routingSplitOpB, routingImportOp} {
 			resp, err := pc.manager.DeleteRoutingRules(ctx, &mdpb.DeleteRoutingRulesRequest{
 				Database: routingE2EDatabase, OperationId: op, ExpectedRoutingVersion: version,
@@ -276,7 +325,7 @@ func TestRoutingRules_RPCs(t *testing.T) {
 		}
 		snap := pc.snapshot(t)
 		assert.Empty(t, snap.GetRules())
-		assert.Equal(t, int64(4), snap.GetRoutingVersion(), "two deletes changed routing; the losing writer's had nothing to delete")
+		assert.Equal(t, start+2, snap.GetRoutingVersion(), "two deletes changed routing; the losing writer's had nothing to delete")
 	})
 
 	t.Run("an unfinished operation on a tablegroup blocks routing it", func(t *testing.T) {
@@ -296,6 +345,14 @@ func TestRoutingRules_RPCs(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 		assert.Contains(t, err.Error(), `tablegroup "srctg" is the subject of operation `+routingCreateOp)
+
+		// The import sees that operation too.
+		_, err = pc.manager.EnsureImportTarget(ctx, &mdpb.EnsureImportTargetRequest{
+			Database: routingE2EDatabase, OperationId: routingImportOp, Tablegroup: "srctg",
+		})
+		require.Error(t, err)
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+		assert.Contains(t, err.Error(), "is already the target of operation "+routingCreateOp)
 
 		// Once that operation is done, the import may route the tablegroup.
 		_, err = db.ExecContext(ctx, `UPDATE multigres.operation SET state = 'done' WHERE operation_id = $1::uuid`, routingCreateOp)
