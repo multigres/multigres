@@ -16,12 +16,14 @@ package migration
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/shardref"
@@ -37,8 +39,11 @@ type fakeQS struct {
 	// rows), i.e. "not present" — the same shape a real pg_replication_slots miss
 	// returns, so tests that want a 0-row result need not script anything.
 	scriptedResults map[string]*sqltypes.Result
-	adminQueries    []string
-	adminArgs       []qsArgCall
+	// scriptedErrs maps an exact SQL string to the error QueryAdmin and
+	// QueryAdminArgs return for it.
+	scriptedErrs map[string]error
+	adminQueries []string
+	adminArgs    []qsArgCall
 	// noQueryTextQueries records calls through QueryAdminNoQueryText, kept
 	// separate from adminQueries so a test can assert a query ran through the
 	// secret-safe path rather than the traced one.
@@ -55,6 +60,9 @@ func emptyResult() *sqltypes.Result { return &sqltypes.Result{} }
 
 func (f *fakeQS) QueryAdmin(_ context.Context, query string) (*sqltypes.Result, error) {
 	f.adminQueries = append(f.adminQueries, query)
+	if err, ok := f.scriptedErrs[query]; ok {
+		return nil, err
+	}
 	if query == selectMigrationSQL && f.selectResult != nil {
 		return f.selectResult, nil
 	}
@@ -77,6 +85,9 @@ func (f *fakeQS) QueryAdminNoQueryText(_ context.Context, query string) (*sqltyp
 
 func (f *fakeQS) QueryAdminArgs(_ context.Context, query string, args ...any) (*sqltypes.Result, error) {
 	f.adminArgs = append(f.adminArgs, qsArgCall{sql: query, args: args})
+	if err, ok := f.scriptedErrs[query]; ok {
+		return nil, err
+	}
 	if res, ok := f.scriptedResults[query]; ok {
 		return res, nil
 	}
@@ -109,10 +120,15 @@ type fakeTx struct {
 	calls      []qsArgCall
 	committed  bool
 	rolledBack bool
+	// scriptedErrs maps an exact SQL string to the error QueryArgs returns for it.
+	scriptedErrs map[string]error
 }
 
 func (t *fakeTx) QueryArgs(_ context.Context, query string, args ...any) (*sqltypes.Result, error) {
 	t.calls = append(t.calls, qsArgCall{sql: query, args: args})
+	if err, ok := t.scriptedErrs[query]; ok {
+		return nil, err
+	}
 	return emptyResult(), nil
 }
 
@@ -433,10 +449,96 @@ func noLegacyShardRefResult() *sqltypes.Result {
 	return &sqltypes.Result{Rows: []*sqltypes.Row{{Values: []sqltypes.Value{sqltypes.Value("f"), sqltypes.Value("f")}}}}
 }
 
+// boolResult is a one-row, one-column boolean result.
+func boolResult(v bool) *sqltypes.Result {
+	val := "f"
+	if v {
+		val = "t"
+	}
+	return &sqltypes.Result{Rows: []*sqltypes.Row{{Values: []sqltypes.Value{sqltypes.Value(val)}}}}
+}
+
+// TestEnsureSchemaCreatesStatViewOnlyWhereConnectionsExist proves the foreign
+// key into multigres.connections and the stat_migration view, which joins it,
+// are created where that table exists and skipped, with ErrNoConnectionsTable,
+// where it does not. The migration tables themselves are created on both.
+func TestEnsureSchemaCreatesStatViewOnlyWhereConnectionsExist(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		haveConnections bool
+	}{{"catalog shard", true}, {"other shard", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{
+				shardref.CheckLegacyTypeSQL: noLegacyShardRefResult(),
+				connectionsPresentSQL:       boolResult(tc.haveConnections),
+			}}
+			err := NewStore(qs).EnsureSchema(context.Background())
+			if tc.haveConnections {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, ErrNoConnectionsTable, "the caller decides whether that is expected")
+			}
+			joined := strings.Join(qs.adminQueries, "\n")
+			require.Contains(t, joined, "CREATE TABLE IF NOT EXISTS multigres.migration ")
+			require.NotContains(t, joined, "multigres.migration_connection", "no shard creates multigres.migration_connection")
+			require.Equal(t, tc.haveConnections, strings.Contains(joined, AddConnectionForeignKeySQL), "the foreign key only where connections exists")
+			require.Equal(t, tc.haveConnections, strings.Contains(joined, CreateStatMigrationViewSQL))
+			require.Equal(t, tc.haveConnections, strings.Contains(joined, GrantStatMigrationSQL))
+		})
+	}
+}
+
+// TestAddConnectionForeignKeyIsGuardedAndNotValid: the foreign key is added only when it is
+// missing (so a run where it exists takes no lock), NOT VALID (so an old dangling row does not
+// fail the ensure), and names its relations with to_regclass, not a ::regclass cast, which is
+// resolved at plan time and raises when a relation is missing.
+func TestAddConnectionForeignKeyIsGuardedAndNotValid(t *testing.T) {
+	fk := AddConnectionForeignKeySQL
+	require.Contains(t, fk, "FOREIGN KEY (connection_id)")
+	require.Contains(t, fk, "REFERENCES multigres.connections (connection_id)")
+	require.Contains(t, fk, "IF NOT EXISTS (")
+	require.Contains(t, fk, "conrelid = to_regclass('multigres.migration')")
+	require.Contains(t, fk, "confrelid = to_regclass('multigres.connections')")
+	require.NotContains(t, fk, "::regclass")
+	require.Contains(t, fk, "NOT VALID")
+}
+
+// TestEnsureSchemaAddsTheForeignKeyAfterTheMigrationTable: the key is added once multigres.migration
+// exists, and before the view.
+func TestEnsureSchemaAddsTheForeignKeyAfterTheMigrationTable(t *testing.T) {
+	qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{
+		shardref.CheckLegacyTypeSQL: noLegacyShardRefResult(),
+		connectionsPresentSQL:       boolResult(true),
+	}}
+	require.NoError(t, NewStore(qs).EnsureSchema(context.Background()))
+	idx := func(q string) int {
+		for i, got := range qs.adminQueries {
+			if got == q {
+				return i
+			}
+		}
+		return -1
+	}
+	table, fk, view := idx(CreateMigrationSQL), idx(AddConnectionForeignKeySQL), idx(CreateStatMigrationViewSQL)
+	require.GreaterOrEqual(t, table, 0)
+	require.Greater(t, fk, table)
+	require.Greater(t, view, fk)
+}
+
+// TestMigrationHasNoForeignKeyToConnections pins that multigres.migration, which
+// every shard creates, does not reference the catalog-only connections table.
+func TestMigrationHasNoForeignKeyToConnections(t *testing.T) {
+	require.NotContains(t, CreateMigrationSQL, "REFERENCES")
+	require.Contains(t, CreateMigrationSQL, "connection_id BIGINT NOT NULL,")
+}
+
 // TestEnsureSchemaCreatesJournal proves EnsureSchema issues the journal DDL (and
 // its index) alongside the migration tables.
 func TestEnsureSchemaCreatesJournal(t *testing.T) {
-	qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{shardref.CheckLegacyTypeSQL: noLegacyShardRefResult()}}
+	qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{
+		shardref.CheckLegacyTypeSQL: noLegacyShardRefResult(),
+		connectionsPresentSQL:       boolResult(true),
+	}}
 	require.NoError(t, NewStore(qs).EnsureSchema(context.Background()))
 	joined := strings.Join(qs.adminQueries, "\n")
 	require.Contains(t, joined, shardref.CreateTypeSQL, "the shared shard_ref type is ensured first")
@@ -445,4 +547,204 @@ func TestEnsureSchemaCreatesJournal(t *testing.T) {
 	require.Contains(t, joined, "migration_journal_migration_id_idx")
 	require.NotContains(t, CreateMigrationJournalSQL, "REFERENCES",
 		"journal must have no FK so it is retained after the migration row is dropped")
+}
+
+func connectionRow(id int64, name, dsn string) *sqltypes.Row {
+	return &sqltypes.Row{Values: []sqltypes.Value{
+		sqltypes.Value(strconv.FormatInt(id, 10)), // connection_id
+		sqltypes.Value(name),                      // name
+		sqltypes.Value(dsn),                       // dsn
+		sqltypes.Value(""),                        // owner_role
+		sqltypes.Value("2026-01-01T00:00:00Z"),    // created_at
+	}}
+}
+
+func TestStoreConnectionsUseTheSharedTable(t *testing.T) {
+	ctx := context.Background()
+
+	qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{
+		selectConnectionByIDSQL:   {Rows: []*sqltypes.Row{connectionRow(7, "src", "host=h dbname=app")}},
+		selectConnectionByNameSQL: {Rows: []*sqltypes.Row{connectionRow(7, "src", "host=h dbname=app")}},
+		selectConnectionsSQL:      {Rows: []*sqltypes.Row{connectionRow(9, "b", "host=b"), connectionRow(7, "a", "host=a")}},
+	}}
+	s := NewStore(qs)
+
+	// The id is assigned by the caller, not by the table: the migrator keeps
+	// its own id scheme.
+	require.NoError(t, s.InsertConnection(ctx, &Connection{ID: 7, Name: "src", DSN: "host=h", OwnerRole: "alice"}))
+	require.Len(t, qs.adminArgs, 1)
+	require.Contains(t, qs.adminArgs[0].sql, "INSERT INTO multigres.connections")
+	require.Equal(t, []any{int64(7), "src", "host=h", "alice"}, qs.adminArgs[0].args)
+
+	c, err := s.GetConnectionByRef(ctx, Ref{ID: 7})
+	require.NoError(t, err)
+	require.Equal(t, "src", c.Name)
+	c, err = s.GetConnectionByRef(ctx, Ref{Name: "src"})
+	require.NoError(t, err)
+	require.Equal(t, int64(7), c.ID)
+	_, err = s.GetConnectionByRef(ctx, Ref{})
+	require.ErrorIs(t, err, ErrConnectionNotFound)
+
+	all, err := s.ListConnections(ctx)
+	require.NoError(t, err)
+	require.Len(t, all, 2)
+	require.Equal(t, []int64{7, 9}, []int64{all[0].ID, all[1].ID}, "listed by id")
+
+	for _, q := range qs.adminArgs {
+		require.NotContains(t, q.sql, "migration_connection")
+	}
+}
+
+// deleteResult is the (deleted, referenced) row deleteConnectionSQL returns.
+func deleteResult(deleted, referenced bool) *sqltypes.Result {
+	val := func(b bool) sqltypes.Value {
+		if b {
+			return sqltypes.Value("t")
+		}
+		return sqltypes.Value("f")
+	}
+	return &sqltypes.Result{Rows: []*sqltypes.Row{{Values: []sqltypes.Value{val(deleted), val(referenced)}}}}
+}
+
+func TestStoreDeleteConnection(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("deleted", func(t *testing.T) {
+		qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{deleteConnectionSQL: deleteResult(true, false)}}
+		require.NoError(t, NewStore(qs).DeleteConnection(ctx, 7))
+		require.Len(t, qs.adminArgs, 1, "one statement decides the outcome")
+		require.Equal(t, []any{int64(7)}, qs.adminArgs[0].args)
+	})
+
+	t.Run("a migration references it", func(t *testing.T) {
+		qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{deleteConnectionSQL: deleteResult(false, true)}}
+		err := NewStore(qs).DeleteConnection(ctx, 7)
+		require.ErrorIs(t, err, ErrConnectionInUse)
+		require.Len(t, qs.adminArgs, 1, "no follow-up probe")
+	})
+
+	t.Run("no such connection", func(t *testing.T) {
+		qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{deleteConnectionSQL: deleteResult(false, false)}}
+		err := NewStore(qs).DeleteConnection(ctx, 7)
+		require.ErrorIs(t, err, ErrConnectionNotFound)
+		require.Len(t, qs.adminArgs, 1, "no follow-up probe")
+	})
+
+	t.Run("the reference check and the delete are one statement", func(t *testing.T) {
+		require.Contains(t, deleteConnectionSQL, "DELETE FROM multigres.connections")
+		require.Contains(t, deleteConnectionSQL, "FROM multigres.migration WHERE connection_id")
+		require.Contains(t, deleteConnectionSQL, "NOT (SELECT referenced FROM ref)")
+	})
+}
+
+// foreignKeyViolation is PostgreSQL's foreign_key_violation on the named constraint.
+func foreignKeyViolation(constraint string) error {
+	return &mterrors.PgDiagnostic{
+		MessageType: 'E', Severity: "ERROR", Code: mterrors.PgSSForeignKeyViolation,
+		Message: "violates foreign key constraint \"" + constraint + "\"", Constraint: constraint,
+	}
+}
+
+// TestStoreMapsTheConnectionsForeignKey: a migration written by another process while a
+// connection is being deleted (or the other way around) is caught by the foreign key, not
+// by the statements' own checks. Only that constraint is mapped; another constraint's
+// foreign_key_violation, or another code on that constraint, is a plain error.
+func TestStoreMapsTheConnectionsForeignKey(t *testing.T) {
+	ctx := context.Background()
+	fk := foreignKeyViolation(migrationConnectionsFKey)
+	other := foreignKeyViolation("migration_tables_migration_id_fkey")
+	wrongCode := &mterrors.PgDiagnostic{
+		MessageType: 'E', Severity: "ERROR", Code: mterrors.PgSSUndefinedTable, Constraint: migrationConnectionsFKey,
+	}
+
+	t.Run("the constraint named by the catalog DDL", func(t *testing.T) {
+		require.Contains(t, AddConnectionForeignKeySQL, "ADD CONSTRAINT "+migrationConnectionsFKey+" ")
+	})
+
+	deleteWith := func(err error) error {
+		qs := &fakeQS{scriptedErrs: map[string]error{deleteConnectionSQL: err}}
+		return NewStore(qs).DeleteConnection(ctx, 7)
+	}
+	insertWith := func(err error) error {
+		qs := &fakeQS{tx: &fakeTx{scriptedErrs: map[string]error{insertMigrationSQL: err}}}
+		return NewStore(qs).Insert(ctx, &Migration{ID: 1, Phase: PhaseCreated, ConnectionID: 7})
+	}
+
+	t.Run("delete: a reference written while deleting is in use", func(t *testing.T) {
+		require.ErrorIs(t, deleteWith(fk), ErrConnectionInUse)
+	})
+	t.Run("insert: a connection deleted meanwhile is not found", func(t *testing.T) {
+		err := insertWith(fk)
+		require.ErrorIs(t, err, ErrConnectionNotFound)
+		require.NotErrorIs(t, err, ErrConnectionInUse)
+	})
+	t.Run("another constraint is not remapped", func(t *testing.T) {
+		err := deleteWith(other)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, ErrConnectionInUse)
+		require.NotErrorIs(t, err, ErrConnectionNotFound)
+		err = insertWith(other)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, ErrConnectionInUse)
+		require.NotErrorIs(t, err, ErrConnectionNotFound)
+	})
+	t.Run("another code on that constraint is not remapped", func(t *testing.T) {
+		require.NotErrorIs(t, deleteWith(wrongCode), ErrConnectionInUse)
+		require.NotErrorIs(t, insertWith(wrongCode), ErrConnectionNotFound)
+	})
+	t.Run("an insert that fails does not commit", func(t *testing.T) {
+		qs := &fakeQS{tx: &fakeTx{scriptedErrs: map[string]error{insertMigrationSQL: fk}}}
+		require.Error(t, NewStore(qs).Insert(ctx, &Migration{ID: 1, Phase: PhaseCreated, ConnectionID: 7}))
+		require.False(t, qs.tx.committed)
+		require.True(t, qs.tx.rolledBack)
+	})
+}
+
+// undefinedTable is PostgreSQL's undefined_table error for the named relation.
+func undefinedTable(relation string) error {
+	return &mterrors.PgDiagnostic{
+		MessageType: 'E', Severity: "ERROR", Code: mterrors.PgSSUndefinedTable,
+		Message: `relation "` + relation + `" does not exist`,
+	}
+}
+
+// TestStoreConnectionQueriesReportAMissingConnectionsTable: every connection query
+// maps undefined_table on multigres.connections to ErrNoConnectionsTable, so the
+// service can say where connections live instead of leaking a raw SQL error.
+func TestStoreConnectionQueriesReportAMissingConnectionsTable(t *testing.T) {
+	ctx := context.Background()
+	missing := undefinedTable("multigres.connections")
+
+	cases := map[string]struct {
+		failing string
+		call    func(*Store) error
+	}{
+		"insert":      {insertConnectionSQL, func(s *Store) error { return s.InsertConnection(ctx, &Connection{ID: 1, Name: "src"}) }},
+		"get by id":   {selectConnectionByIDSQL, func(s *Store) error { _, err := s.GetConnectionByRef(ctx, Ref{ID: 1}); return err }},
+		"get by name": {selectConnectionByNameSQL, func(s *Store) error { _, err := s.GetConnectionByRef(ctx, Ref{Name: "src"}); return err }},
+		"list":        {selectConnectionsSQL, func(s *Store) error { _, err := s.ListConnections(ctx); return err }},
+		"delete":      {deleteConnectionSQL, func(s *Store) error { return s.DeleteConnection(ctx, 1) }},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			qs := &fakeQS{scriptedErrs: map[string]error{tc.failing: missing}}
+			err := tc.call(NewStore(qs))
+			require.ErrorIs(t, err, ErrNoConnectionsTable)
+		})
+	}
+
+	t.Run("another missing relation is not that condition", func(t *testing.T) {
+		qs := &fakeQS{scriptedErrs: map[string]error{deleteConnectionSQL: undefinedTable("multigres.migration")}}
+		err := NewStore(qs).DeleteConnection(ctx, 1)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, ErrNoConnectionsTable)
+	})
+
+	t.Run("other errors pass through", func(t *testing.T) {
+		boom := errors.New("connection reset")
+		qs := &fakeQS{scriptedErrs: map[string]error{selectConnectionsSQL: boom}}
+		_, err := NewStore(qs).ListConnections(ctx)
+		require.ErrorIs(t, err, boom)
+		require.NotErrorIs(t, err, ErrNoConnectionsTable)
+	})
 }

@@ -1803,10 +1803,12 @@ func (x *ReseedReverseLinkResponse) GetStatus() *MigrationStatus {
 	return nil
 }
 
-// Connection is a stored, named source conninfo. It is scoped to the shard
-// whose Migrator created it — its row lives only in that shard's own
-// multigres.migration_connection, so which shard it belongs to is implied by
-// which Migrator you asked, not a field on the message. Every migration
+// Connection is a stored, named source conninfo: a row of
+// multigres.connections, the catalog table the Migrator shares with the other
+// users of named connections. The table exists on the catalog shard only, so
+// connections are created, read and dropped there; where the table is missing,
+// CreateConnection, GetConnection, ListConnections, DropConnection and
+// CreateMigration fail with FAILED_PRECONDITION. Every migration
 // references one by id via Migration.connection_name. Connections are
 // immutable once created: there is no in-place update, only create/drop —
 // so a migration's resolved source never changes underneath it except by

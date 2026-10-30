@@ -168,8 +168,9 @@ type Migration struct {
 	// is an alternative address for lookups.
 	Name string
 
-	// ConnectionID is a live, required reference to a multigres.migration_connection
-	// row: the migration's source DSN is resolved from it fresh on every use,
+	// ConnectionID is a live, required reference to a multigres.connections
+	// row (a foreign key on the catalog shard; see AddConnectionForeignKeySQL): the
+	// migration's source DSN is resolved from it fresh on every use,
 	// never copied in at create time. Set once at create time and not currently
 	// changeable afterward; Connections themselves are immutable once created too.
 	ConnectionID int64
@@ -286,17 +287,24 @@ func (m *Migration) quiesceRolesToRestoreConnect() []string {
 // CreateMigrationSQL is the DDL for the sidecar migration table, idempotent so
 // it can run both at shard bootstrap and on first use against an
 // already-bootstrapped shard. Created through the admin pool with no PUBLIC
-// grant, so only the superuser admin connection can read it. connection_id has
-// no ON DELETE clause, so Postgres applies its default (RESTRICT): dropping a
-// connection still referenced by a migration fails with a
-// foreign-key-violation error rather than silently orphaning the migration.
+// grant, so only the superuser admin connection can read it.
+//
+// connection_id has no foreign key in this definition. This table exists on
+// every shard, but multigres.connections exists on the catalog shard only, so
+// the key cannot be declared here. The store's EnsureSchema adds it where
+// connections exists (AddConnectionForeignKeySQL), and the store checks the
+// reference before it writes either side: CreateMigration resolves the
+// connection inside the coordinator's lock before it inserts, and
+// DeleteConnection refuses to drop a connection that a migration references.
+// Other shards have no key and, since their migrations cannot resolve a
+// connection, no migrations.
 const CreateMigrationSQL = `CREATE TABLE IF NOT EXISTS multigres.migration (
 	migration_id BIGINT PRIMARY KEY,
 	migration_name TEXT NULL,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 	migration_phase TEXT NOT NULL,
 	migration_target multigres.shard_ref NOT NULL,
-	connection_id BIGINT NOT NULL REFERENCES multigres.migration_connection(connection_id),
+	connection_id BIGINT NOT NULL,
 	owner_role TEXT NOT NULL DEFAULT '',
 	sequence_margin BIGINT NOT NULL DEFAULT 0,
 	copy_data BOOLEAN NOT NULL DEFAULT true,
@@ -311,6 +319,32 @@ const CreateMigrationSQL = `CREATE TABLE IF NOT EXISTS multigres.migration (
 	reverse_link_error TEXT NOT NULL DEFAULT '',
 	streaming_since TIMESTAMPTZ NULL
 )`
+
+// AddConnectionForeignKeySQL adds the foreign key from migration.connection_id
+// into multigres.connections, on the catalog shard (the store runs it only where
+// that table exists), right after multigres.migration is created. It is skipped,
+// taking no lock on either table, when the constraint exists. NOT VALID enforces
+// the key on new rows and on deletes from connections without failing over a row
+// written before the key existed. The store still checks the reference first, to
+// answer with ErrConnectionInUse.
+//
+// The relations are named with to_regclass, not a ::regclass cast: a cast of a
+// constant is resolved while the statement is planned, before the IF can skip it,
+// and raises when a relation does not exist.
+const AddConnectionForeignKeySQL = `DO $fk$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1 FROM pg_constraint
+		WHERE contype = 'f'
+		  AND conrelid = to_regclass('multigres.migration')
+		  AND confrelid = to_regclass('multigres.connections')
+	) THEN
+		ALTER TABLE multigres.migration
+			ADD CONSTRAINT migration_connections_fkey FOREIGN KEY (connection_id)
+			REFERENCES multigres.connections (connection_id) NOT VALID;
+	END IF;
+END
+$fk$`
 
 // MigrationNameUniqueIndexSQL enforces per-database uniqueness of the optional
 // migration name. It is a partial unique index so multiple unnamed (NULL)

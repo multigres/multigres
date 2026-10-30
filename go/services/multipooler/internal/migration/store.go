@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/shardref"
@@ -67,15 +68,22 @@ func NewStore(qs executor.InternalQueryService) *Store {
 // migration.migration_target and stat_migration.migration_target both
 // store/cast into it. Every shard also ensures it with its sidecar schema, but
 // the store ensures it itself so it never depends on that ordering.
-// migration_connection
-// is created next: migration.connection_id carries a foreign key into it.
 // migration_tables is created after migration (it references it).
+//
+// The connections table is not created here: it is a catalog table (see
+// ensureCatalogSchema in the manager package) and exists on the catalog shard
+// only. Where it exists, EnsureSchema adds the foreign key from
+// migration.connection_id into it (AddConnectionForeignKeySQL) and creates the
+// stat_migration view, which joins it. Where it does not, EnsureSchema creates
+// everything else and returns ErrNoConnectionsTable. A shard that is not the
+// catalog shard expects that. On the catalog shard it means the catalog ensure
+// has not completed, so the caller must retry rather than treat the schema as
+// ensured.
 func (s *Store) EnsureSchema(ctx context.Context) error {
 	if _, err := shardref.Ensure(ctx, s.qs); err != nil {
 		return fmt.Errorf("ensure migration schema: %w", err)
 	}
 	sqlList := []string{
-		CreateMigrationConnectionSQL, MigrationConnectionNameUniqueIndexSQL,
 		CreateMigrationSQL, CreateMigrationTablesSQL, CreateMigrationJournalSQL,
 		MigrationNameUniqueIndexSQL, MigrationJournalMigrationIndexSQL,
 	}
@@ -83,6 +91,20 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 		if _, err := s.qs.QueryAdmin(ctx, sql); err != nil {
 			return fmt.Errorf("ensure migration schema: %w", err)
 		}
+	}
+	res, err := s.qs.QueryAdmin(ctx, connectionsPresentSQL)
+	if err != nil {
+		return fmt.Errorf("ensure migration schema: probe connections table: %w", err)
+	}
+	var haveConnections bool
+	if err := executor.ScanSingleRow(res, &haveConnections); err != nil {
+		return fmt.Errorf("ensure migration schema: probe connections table: %w", err)
+	}
+	if !haveConnections {
+		return ErrNoConnectionsTable
+	}
+	if _, err := s.qs.QueryAdmin(ctx, AddConnectionForeignKeySQL); err != nil {
+		return fmt.Errorf("ensure migration schema: add foreign key to connections: %w", err)
 	}
 	if _, err := s.qs.QueryAdmin(ctx, CreateStatMigrationViewSQL); err != nil {
 		return fmt.Errorf("ensure migration schema: create stat_migration view: %w", err)
@@ -92,6 +114,10 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 	}
 	return nil
 }
+
+// connectionsPresentSQL probes for multigres.connections, which exists on the
+// catalog shard only.
+const connectionsPresentSQL = `SELECT to_regclass('multigres.connections') IS NOT NULL`
 
 // insertMigrationSQL's args $5-$7 are (TargetDatabase, TargetShard,
 // TargetTableGroup) in Insert's own call order, but shard_ref's declared
@@ -130,6 +156,10 @@ func (s *Store) Insert(ctx context.Context, m *Migration) error {
 		m.TargetDatabase, m.TargetShard, m.TargetTableGroup, m.SequenceMargin, m.CopyData, m.SkipSchemaCopy,
 		string(m.effectiveDirection()), quiesceRolesJSON, m.PublicHadConnect, connLimitsJSON, hadConnectJSON, m.OwnerRole,
 	); err != nil {
+		if isConnectionsFKViolation(err) {
+			// The connection was deleted by another process after it was resolved.
+			return fmt.Errorf("insert migration: %w", ErrConnectionNotFound)
+		}
 		return fmt.Errorf("insert migration: %w", err)
 	}
 	if err := insertMigrationTables(ctx, tx, m.ID, m.Tables); err != nil {
@@ -424,7 +454,33 @@ func (s *Store) List(ctx context.Context) ([]*Migration, error) {
 // with the given ref matches.
 var ErrConnectionNotFound = errors.New("connection not found")
 
-const insertConnectionSQL = `INSERT INTO multigres.migration_connection
+// ErrNoConnectionsTable is returned when multigres.connections does not exist:
+// by EnsureSchema, after the migration tables are created and before the
+// stat_migration view, which needs it, is; and by every connection query,
+// which maps PostgreSQL undefined_table on that relation to it (see
+// connectionsErr). The table exists on the catalog shard only, and on the
+// catalog shard it is created when the pooler opens, so the same error means
+// "not the catalog shard" elsewhere and "catalog ensure not complete yet" there.
+var ErrNoConnectionsTable = errors.New("multigres.connections does not exist")
+
+// ErrConnectionInUse is returned by DeleteConnection when a migration still
+// references the connection.
+var ErrConnectionInUse = errors.New("connection is referenced by a migration")
+
+// connectionsErr wraps a failed connection query as "<op>: <err>", reporting
+// ErrNoConnectionsTable when PostgreSQL says undefined_table for
+// multigres.connections itself. Other undefined_table errors (the migration
+// table, for example) are not that condition and keep their own text.
+func connectionsErr(op string, err error) error {
+	var diag *mterrors.PgDiagnostic
+	if errors.As(err, &diag) && diag.Code == mterrors.PgSSUndefinedTable &&
+		strings.Contains(diag.Message, `"multigres.connections"`) {
+		return fmt.Errorf("%s: %w", op, ErrNoConnectionsTable)
+	}
+	return fmt.Errorf("%s: %w", op, err)
+}
+
+const insertConnectionSQL = `INSERT INTO multigres.connections
 	(connection_id, name, dsn, owner_role)
 	VALUES ($1,$2,$3,$4)`
 
@@ -438,31 +494,75 @@ func (s *Store) InsertConnection(ctx context.Context, c *Connection) error {
 		ctx, insertConnectionSQL,
 		c.ID, c.Name, c.DSN, c.OwnerRole,
 	); err != nil {
-		return fmt.Errorf("insert connection: %w", err)
+		return connectionsErr("insert connection", err)
 	}
 	return nil
 }
 
-const deleteConnectionSQL = `DELETE FROM multigres.migration_connection WHERE connection_id=$1`
+// deleteConnectionSQL checks for a referencing migration and deletes the row
+// unless one exists, in one statement, so both see the same snapshot: a
+// migration dropped between a delete and a separate probe cannot turn an
+// existing connection into "not found". It returns (deleted, referenced); both
+// false means there is no such connection. On the catalog shard a foreign key
+// from multigres.migration stops the delete as well, whichever process wrote the
+// reference (see AddConnectionForeignKeySQL); the check is here so the usual
+// refusal is ErrConnectionInUse, not a constraint violation.
+const deleteConnectionSQL = `WITH ref AS (
+	SELECT EXISTS (SELECT 1 FROM multigres.migration WHERE connection_id = $1) AS referenced
+), del AS (
+	DELETE FROM multigres.connections
+	WHERE connection_id = $1 AND NOT (SELECT referenced FROM ref)
+	RETURNING 1
+)
+SELECT EXISTS (SELECT 1 FROM del), (SELECT referenced FROM ref)`
 
-// DeleteConnection removes a connection row. Fails with a foreign-key-violation
-// error if a migration still references it (migration.connection_id has no ON
-// DELETE clause, so Postgres applies its default RESTRICT).
+// migrationConnectionsFKey is the foreign key from multigres.migration to
+// multigres.connections (see AddConnectionForeignKeySQL).
+const migrationConnectionsFKey = "migration_connections_fkey"
+
+// isConnectionsFKViolation reports whether err is PostgreSQL's
+// foreign_key_violation on migrationConnectionsFKey, and no other constraint.
+func isConnectionsFKViolation(err error) bool {
+	var diag *mterrors.PgDiagnostic
+	return errors.As(err, &diag) && diag.Code == mterrors.PgSSForeignKeyViolation &&
+		diag.Constraint == migrationConnectionsFKey
+}
+
+// DeleteConnection removes a connection row. It returns ErrConnectionInUse if
+// a migration references the connection, and ErrConnectionNotFound if there is
+// no such row. A migration inserted by another process while the delete runs is
+// not seen by the statement's own check: the delete waits for that insert, then
+// the foreign key refuses it, and that is reported as ErrConnectionInUse too.
 func (s *Store) DeleteConnection(ctx context.Context, id int64) error {
-	if _, err := s.qs.QueryAdminArgs(ctx, deleteConnectionSQL, id); err != nil {
+	res, err := s.qs.QueryAdminArgs(ctx, deleteConnectionSQL, id)
+	if err != nil {
+		if isConnectionsFKViolation(err) {
+			return ErrConnectionInUse
+		}
+		return connectionsErr("delete connection", err)
+	}
+	var deleted, referenced bool
+	if err := executor.ScanSingleRow(res, &deleted, &referenced); err != nil {
 		return fmt.Errorf("delete connection: %w", err)
 	}
-	return nil
+	switch {
+	case deleted:
+		return nil
+	case referenced:
+		return ErrConnectionInUse
+	default:
+		return ErrConnectionNotFound
+	}
 }
 
 const selectConnectionsSQL = `SELECT connection_id, name, dsn, owner_role, created_at
-	FROM multigres.migration_connection`
+	FROM multigres.connections`
 
 const selectConnectionByIDSQL = `SELECT connection_id, name, dsn, owner_role, created_at
-	FROM multigres.migration_connection WHERE connection_id = $1`
+	FROM multigres.connections WHERE connection_id = $1`
 
 const selectConnectionByNameSQL = `SELECT connection_id, name, dsn, owner_role, created_at
-	FROM multigres.migration_connection WHERE name = $1`
+	FROM multigres.connections WHERE name = $1`
 
 // GetConnectionByRef returns the connection addressed by ref: an exact id match
 // takes precedence, then a unique name match. Returns ErrConnectionNotFound if
@@ -482,7 +582,7 @@ func (s *Store) GetConnectionByRef(ctx context.Context, ref Ref) (*Connection, e
 		return nil, ErrConnectionNotFound
 	}
 	if err != nil {
-		return nil, fmt.Errorf("get connection: %w", err)
+		return nil, connectionsErr("get connection", err)
 	}
 	if res == nil || len(res.Rows) == 0 {
 		return nil, ErrConnectionNotFound
@@ -495,7 +595,7 @@ func (s *Store) GetConnectionByRef(ctx context.Context, ref Ref) (*Connection, e
 func (s *Store) ListConnections(ctx context.Context) ([]*Connection, error) {
 	res, err := s.qs.QueryAdmin(ctx, selectConnectionsSQL)
 	if err != nil {
-		return nil, fmt.Errorf("list connections: %w", err)
+		return nil, connectionsErr("list connections", err)
 	}
 	out := make([]*Connection, 0)
 	if res != nil {
