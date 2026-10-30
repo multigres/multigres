@@ -1,53 +1,12 @@
-# Known divergence (by design): multigateway blocks CREATE FOREIGN DATA WRAPPER,
-# CREATE SERVER, and CREATE LANGUAGE — all pooler-unsafe (outbound connections /
-# installing procedural languages). Every difference below is deterministic
-# fallout from those blocks: the wrappers, servers, and languages never exist,
-# so the ALTER RENAME/OWNER, catalog SELECTs, and CASCADE DROPs that reference
-# them all resolve to "does not exist" instead of the upstream name-conflict,
-# ownership, and cascade-notice output.
+# Known divergence (by design): multigateway blocks CREATE LANGUAGE (installing
+# procedural languages into the shared server). Every difference below is
+# deterministic fallout from that block: the languages never exist, so the
+# ALTER RENAME/OWNER, catalog SELECT, and DROP that reference them resolve to
+# "does not exist" instead of the upstream name-conflict and ownership output.
 # See go/services/multigateway/planner/unsafe_stmt.go.
 --- a
 +++ b
-@@ -157,57 +157,63 @@
- -- Foreign Data Wrapper and Foreign Server
- --
- CREATE FOREIGN DATA WRAPPER alt_fdw1;
-+ERROR: CREATE FOREIGN DATA WRAPPER is not supported through the connection pooler
- CREATE FOREIGN DATA WRAPPER alt_fdw2;
-+ERROR: CREATE FOREIGN DATA WRAPPER is not supported through the connection pooler
- CREATE SERVER alt_fserv1 FOREIGN DATA WRAPPER alt_fdw1;
-+ERROR: CREATE SERVER is not supported: creating foreign server connections is not permitted through the connection pooler
- CREATE SERVER alt_fserv2 FOREIGN DATA WRAPPER alt_fdw2;
-+ERROR: CREATE SERVER is not supported: creating foreign server connections is not permitted through the connection pooler
- ALTER FOREIGN DATA WRAPPER alt_fdw1 RENAME TO alt_fdw2; -- failed (name conflict)
--ERROR: foreign-data wrapper "alt_fdw2" already exists
-+ERROR: foreign-data wrapper "alt_fdw1" does not exist
- ALTER FOREIGN DATA WRAPPER alt_fdw1 RENAME TO alt_fdw3; -- OK
-+ERROR: foreign-data wrapper "alt_fdw1" does not exist
- ALTER SERVER alt_fserv1 RENAME TO alt_fserv2; -- failed (name conflict)
--ERROR: server "alt_fserv2" already exists
-+ERROR: server "alt_fserv1" does not exist
- ALTER SERVER alt_fserv1 RENAME TO alt_fserv3; -- OK
-+ERROR: server "alt_fserv1" does not exist
- SELECT fdwname FROM pg_foreign_data_wrapper WHERE fdwname like 'alt_fdw%';
- fdwname
------------
--alt_fdw2
--alt_fdw3
--(2 rows)
-+---------
-+(0 rows)
- 
- SELECT srvname FROM pg_foreign_server WHERE srvname like 'alt_fserv%';
- srvname
--------------
--alt_fserv2
--alt_fserv3
--(2 rows)
-+---------
-+(0 rows)
- 
- --
+@@ -184,30 +184,34 @@
  -- Procedural Language
  --
  CREATE LANGUAGE alt_lang1 HANDLER plpgsql_call_handler;
@@ -69,9 +28,10 @@
 +ERROR: language "alt_lang1" does not exist
  ALTER LANGUAGE alt_lang2 OWNER TO regress_alter_generic_user3; -- failed (not owner)
 -ERROR: must be owner of language alt_lang2
-+ERROR: language "alt_lang2" does not exist
- ALTER LANGUAGE alt_lang3 OWNER TO regress_alter_generic_user2; -- failed (no role membership)
+-ALTER LANGUAGE alt_lang3 OWNER TO regress_alter_generic_user2; -- failed (no role membership)
 -ERROR: must be able to SET ROLE "regress_alter_generic_user2"
++ERROR: language "alt_lang2" does not exist
++ALTER LANGUAGE alt_lang3 OWNER TO regress_alter_generic_user2; -- failed (no role membership)
 +ERROR: language "alt_lang3" does not exist
  ALTER LANGUAGE alt_lang3 OWNER TO regress_alter_generic_user3; -- OK
 +ERROR: language "alt_lang3" does not exist
@@ -90,15 +50,9 @@
  
  --
  -- Operator
-@@ -704,11 +710,13 @@
- --- Cleanup resources
- ---
- DROP FOREIGN DATA WRAPPER alt_fdw2 CASCADE;
--NOTICE: drop cascades to server alt_fserv2
-+ERROR: foreign-data wrapper "alt_fdw2" does not exist
+@@ -708,7 +712,9 @@
  DROP FOREIGN DATA WRAPPER alt_fdw3 CASCADE;
--NOTICE: drop cascades to server alt_fserv3
-+ERROR: foreign-data wrapper "alt_fdw3" does not exist
+ NOTICE: drop cascades to server alt_fserv3
  DROP LANGUAGE alt_lang2 CASCADE;
 +ERROR: language "alt_lang2" does not exist
  DROP LANGUAGE alt_lang3 CASCADE;

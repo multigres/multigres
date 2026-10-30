@@ -91,16 +91,6 @@ func TestMultigateway_UnsafeStatementRejection(t *testing.T) {
 				sql:     "CREATE SUBSCRIPTION _test_unsafe_sub CONNECTION 'host=localhost' PUBLICATION mypub",
 				wantMsg: "CREATE SUBSCRIPTION is not supported",
 			},
-			{
-				name:    "CREATE FOREIGN DATA WRAPPER",
-				sql:     "CREATE FOREIGN DATA WRAPPER _test_unsafe_fdw",
-				wantMsg: "CREATE FOREIGN DATA WRAPPER is not supported",
-			},
-			{
-				name:    "CREATE FOREIGN SERVER",
-				sql:     "CREATE SERVER _test_unsafe_srv FOREIGN DATA WRAPPER postgres_fdw OPTIONS (host 'localhost')",
-				wantMsg: "CREATE SERVER is not supported",
-			},
 		}
 
 		for _, tt := range tests {

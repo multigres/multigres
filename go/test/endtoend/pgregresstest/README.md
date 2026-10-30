@@ -158,9 +158,12 @@ How it differs from the core regression suite:
   captured as per-module patches under
   `testdata/pg17/patches/contrib/<module>/`.
 
-Some extensions are intentionally **excluded**: `dblink` and `postgres_fdw`
-(open outbound connections, which the pooler blocks by design),
-`pg_stat_statements` (`NO_INSTALLCHECK=1`; records query text the gateway
+Some extensions are intentionally **excluded**: `dblink` (its functions open
+outbound connections from an ad-hoc connection string, which the gateway's
+expression filter blocks), `postgres_fdw` (its upstream suite builds the
+loopback servers inside a DO block with a raw `||` dynamic EXECUTE, which the
+gateway's body analysis rejects; FDW DDL itself is allowed and covered by the
+queryserving e2e), `pg_stat_statements` (`NO_INSTALLCHECK=1`; records query text the gateway
 rewrites), and `moddatetime` (contrib/spi ships no pg_regress suite).
 
 ### Coverage map
@@ -419,9 +422,10 @@ Enrolling another external extension is a small catalog edit: add its
 `ExtensionCatalog` row to `StatusCovered`, `StatusPartial`, or
 `StatusBuildOnly`. The catalog and report update automatically. PGXS and
 Rust/pgrx extensions are both supported (CI provisions the Rust toolchain).
-Extensions whose full behavior the pooler blocks by design (for example generic
-outbound FDW/server creation) stay `StatusBuildOnly`, `StatusExternal`, or
-`StatusUnsupported` until there is a safe product policy for them.
+Extensions whose upstream suite cannot run through the gateway (for example
+wrappers, whose per-service tests need emulator containers, or anything built
+on `dblink`) stay `StatusBuildOnly`, `StatusExternal`, or `StatusUnsupported`;
+a `SmokeSQL` list on the spec can still prove the core objects work.
 
 Regenerate the patches after an output change with:
 
