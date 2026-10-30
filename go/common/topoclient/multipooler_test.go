@@ -1690,3 +1690,46 @@ func TestGetMultipoolersByCell_Comprehensive(t *testing.T) {
 		require.Equal(t, "zone2", zone2FromZone1.Id.Cell)
 	})
 }
+
+// TestRegisterMultipoolerKeepsTheManagementMode: an update that would change an existing
+// record's management mode is refused and leaves the record as it was; an unspecified mode
+// reads as managed.
+func TestRegisterMultipoolerKeepsTheManagementMode(t *testing.T) {
+	const (
+		unspecified = clustermetadatapb.PoolerManagementMode_POOLER_MANAGEMENT_MODE_UNSPECIFIED
+		managed     = clustermetadatapb.PoolerManagementMode_POOLER_MANAGEMENT_MODE_MANAGED
+		unmanaged   = clustermetadatapb.PoolerManagementMode_POOLER_MANAGEMENT_MODE_UNMANAGED
+	)
+	for name, tc := range map[string]struct {
+		registered, registering clustermetadatapb.PoolerManagementMode
+		refused                 bool
+	}{
+		"managed stays managed":     {managed, managed, false},
+		"unmanaged stays unmanaged": {unmanaged, unmanaged, false},
+		"legacy record, managed":    {unspecified, managed, false},
+		"managed to unmanaged":      {managed, unmanaged, true},
+		"legacy record, unmanaged":  {unspecified, unmanaged, true},
+		"unmanaged to managed":      {unmanaged, managed, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+			t.Cleanup(func() { _ = ts.Close() })
+			id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p"}
+			require.NoError(t, ts.CreateMultipooler(ctx, &clustermetadatapb.Multipooler{Id: id, Hostname: "before", ManagementMode: tc.registered}))
+
+			err := ts.RegisterMultipooler(ctx, &clustermetadatapb.Multipooler{Id: id, Hostname: "after", ManagementMode: tc.registering}, true)
+
+			got, getErr := ts.GetMultipooler(ctx, id)
+			require.NoError(t, getErr)
+			if tc.refused {
+				require.ErrorIs(t, err, topoclient.ErrManagementModeChanged)
+				require.Equal(t, "before", got.GetHostname(), "a refused update leaves the record as it was")
+				require.Equal(t, tc.registered, got.GetManagementMode())
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, "after", got.GetHostname())
+			}
+		})
+	}
+}

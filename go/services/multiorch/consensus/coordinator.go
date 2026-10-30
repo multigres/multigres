@@ -274,6 +274,9 @@ func (c *Coordinator) GetShardNodes(ctx context.Context, cell string, database s
 	// Convert topology poolers to PoolerHealthState instances
 	poolerHealths := make([]*multiorchdatapb.PoolerHealthState, 0, len(poolers))
 	for _, poolerInfo := range poolers {
+		if !isManagedPooler(poolerInfo.Multipooler) {
+			continue
+		}
 		ph := &multiorchdatapb.PoolerHealthState{
 			Multipooler: poolerInfo.Multipooler,
 		}
@@ -317,4 +320,17 @@ func poolerIDs(poolers []*multiorchdatapb.PoolerHealthState) []*clustermetadatap
 		out[i] = p.Multipooler.Id
 	}
 	return out
+}
+
+// isManagedPooler reports whether the orchestrator may manage and elect p.
+// Unmanaged poolers front an external postgres and never take part in
+// consensus; unknown future modes are not authority to manage either.
+func isManagedPooler(p *clustermetadatapb.Multipooler) bool {
+	switch p.GetManagementMode() {
+	case clustermetadatapb.PoolerManagementMode_POOLER_MANAGEMENT_MODE_UNSPECIFIED,
+		clustermetadatapb.PoolerManagementMode_POOLER_MANAGEMENT_MODE_MANAGED:
+		return true
+	default:
+		return false
+	}
 }

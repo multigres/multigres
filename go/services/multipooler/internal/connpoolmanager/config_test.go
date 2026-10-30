@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -511,4 +512,29 @@ func TestConfig_GlobalCapacityExplicit(t *testing.T) {
 
 		assert.False(t, config.GlobalCapacityExplicit())
 	})
+}
+
+// TestConfig_SetBackingCredentialsSSLMode: the external password must not go over a connection
+// that can be downgraded to plaintext, so an unset sslmode is "require", not the "prefer" that
+// the managed connections default to, and plaintext has to be asked for.
+func TestConfig_SetBackingCredentialsSSLMode(t *testing.T) {
+	for name, tc := range map[string]struct {
+		sslMode string
+		want    client.SSLMode
+	}{
+		"unset requires TLS": {"", client.SSLModeRequire},
+		"explicit disable":   {"disable", client.SSLModeDisable},
+		"explicit verify-ca": {"verify-ca", client.SSLModeVerifyCA},
+		"explicit require":   {"require", client.SSLModeRequire},
+	} {
+		t.Run(name, func(t *testing.T) {
+			config := NewConfig(viperutil.NewRegistry())
+			cmd := &cobra.Command{}
+			config.RegisterFlags(cmd.Flags())
+			config.SetBackingCredentials("app", "secret", tc.sslMode, "", "")
+			got, err := config.PgSSLMode()
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
 }

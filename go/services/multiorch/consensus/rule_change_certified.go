@@ -152,7 +152,7 @@ func (c *Coordinator) refreshShardConsensusStatuses(
 			return nil, mterrors.Wrapf(err, "failed to list poolers in cell %s during shard status refresh", cell)
 		}
 		for _, info := range infos {
-			if info.Multipooler != nil {
+			if info.Multipooler != nil && isManagedPooler(info.Multipooler) {
 				poolers = append(poolers, info.Multipooler)
 			}
 		}
@@ -200,6 +200,14 @@ func (c *Coordinator) resolveCohort(
 		if err != nil {
 			return nil, nil, mterrors.Wrapf(err,
 				"failed to look up cohort member %s", topoclient.ClusterIDString(id))
+		}
+		// The cohort is caller-supplied: a member multiorch may not manage
+		// fails the request rather than being dropped, which would change the
+		// cohort that was proposed.
+		if !isManagedPooler(info.Multipooler) {
+			return nil, nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+				"cohort member %s is not managed by multiorch (management mode %s)",
+				topoclient.ClusterIDString(id), info.Multipooler.GetManagementMode())
 		}
 		key := topoclient.ClusterIDString(id)
 		addressByID[key] = topoclient.PoolerAddressFor(info.Multipooler)
