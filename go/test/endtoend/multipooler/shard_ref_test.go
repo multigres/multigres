@@ -146,13 +146,14 @@ func TestShardRef_UpgradeFromLegacyShardKeyType(t *testing.T) {
 	ensureMigrationStoreSchema(t, primary.Multipooler.GrpcPort)
 	requireShardRefLayout(t, primaryDB)
 
-	// Recreate a main-built catalog shard: no catalog shard_key tables, and the
-	// migration store's composite named multigres.shard_key. Renaming the
-	// bootstrap-created shard_ref back retypes migration.migration_target to
-	// the legacy type, exactly as such a cluster has it. A probe table with a
-	// row of the legacy type checks data survives the rename.
+	// Recreate a main-built catalog shard: no catalog shard_key tables (nor
+	// routing_rule, which references them), and the migration store's
+	// composite named multigres.shard_key. Renaming the bootstrap-created
+	// shard_ref back retypes migration.migration_target to the legacy type,
+	// exactly as such a cluster has it. A probe table with a row of the legacy
+	// type checks data survives the rename.
 	_, err := primaryDB.Exec(`BEGIN;
-DROP TABLE multigres.shard_key_column, multigres.shard_key;
+DROP TABLE multigres.routing_rule, multigres.shard_key_column, multigres.shard_key;
 ALTER TYPE multigres.shard_ref RENAME TO shard_key;
 CREATE TABLE public.shard_ref_upgrade_probe (target multigres.shard_key);
 INSERT INTO public.shard_ref_upgrade_probe VALUES (ROW('postgres', 'commerce', '0-80')::multigres.shard_key);
