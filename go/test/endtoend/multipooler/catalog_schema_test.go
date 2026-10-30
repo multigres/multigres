@@ -47,6 +47,10 @@ var catalogFormat1Columns = map[string][]string{
 		"last_error", "created_at", "updated_at",
 	},
 	"connections": {"connection_id", "name", "dsn", "owner_role", "created_at"},
+	"routing_rule": {
+		"rule_id", "operation_id", "scope", "from_tablegroup_id", "from_table_id", "to_tablegroup_id",
+		"to_shard_id", "to_shard_key_id", "created_at", "created_version",
+	},
 }
 
 // legacyCatalogSQL replaces the format 1 catalog with the pre-versioning
@@ -54,7 +58,7 @@ var catalogFormat1Columns = map[string][]string{
 const legacyCatalogSQL = `BEGIN;
 DROP VIEW IF EXISTS multigres.stat_migration;
 ALTER TABLE multigres.migration DROP CONSTRAINT IF EXISTS migration_connections_fkey;
-DROP TABLE multigres.shard_key_column, multigres.shard_key, multigres.shard_index,
+DROP TABLE multigres.routing_rule, multigres.shard_key_column, multigres.shard_key, multigres.shard_index,
 	multigres.tablegroup_table, multigres.shard, multigres.tablegroup, multigres.operation,
 	multigres.connections, multigres.catalog_state;
 CREATE TABLE multigres.tablegroup (
@@ -161,7 +165,7 @@ func requireCatalogFormat1(t *testing.T, db *sql.DB) {
 		  AND pg_get_constraintdef(oid) LIKE '%type%'`).Scan(&typeChecks))
 	assert.Zero(t, typeChecks, "shard_index.type must not be limited to a fixed list")
 
-	for _, table := range []string{"tablegroup_table", "shard_index", "shard_key", "shard_key_column", "operation", "connections"} {
+	for _, table := range []string{"tablegroup_table", "shard_index", "shard_key", "shard_key_column", "operation", "connections", "routing_rule"} {
 		var n int
 		require.NoError(t, db.QueryRow(`SELECT count(*) FROM multigres.`+table).Scan(&n))
 		assert.Zero(t, n, "multigres.%s should start empty", table)
@@ -354,21 +358,21 @@ func TestCatalogSchema_UpgradeFromLegacy(t *testing.T) {
 	requireCatalogFormat1(t, standbyDB)
 
 	// A catalog table missing from an existing catalog is recreated on the next
-	// open, with no format change. operation has no dependents.
-	_, err = primaryDB.Exec(`DROP TABLE multigres.operation`)
+	// open, with no format change. routing_rule has no dependents.
+	_, err = primaryDB.Exec(`DROP TABLE multigres.routing_rule`)
 	require.NoError(t, err)
 	restartMultipooler(t, primary)
 	require.Eventually(t, func() bool {
 		var exists bool
-		err := primaryDB.QueryRow(`SELECT to_regclass('multigres.operation') IS NOT NULL`).Scan(&exists)
+		err := primaryDB.QueryRow(`SELECT to_regclass('multigres.routing_rule') IS NOT NULL`).Scan(&exists)
 		return err == nil && exists
-	}, 30*time.Second, 200*time.Millisecond, "open should recreate the missing operation table")
+	}, 30*time.Second, 200*time.Millisecond, "open should recreate the missing routing_rule table")
 	assert.Equal(t, 1, catalogFormatVersion(t, primaryDB), "recreating a table must not change the format")
 	assert.Equal(t, upgraded, catalogSnapshot(t, primaryDB), "recreating a table must not touch the seeded rows")
 	requireCatalogFormat1(t, primaryDB)
 	require.Eventually(t, func() bool {
 		var exists bool
-		err := standbyDB.QueryRow(`SELECT to_regclass('multigres.operation') IS NOT NULL`).Scan(&exists)
+		err := standbyDB.QueryRow(`SELECT to_regclass('multigres.routing_rule') IS NOT NULL`).Scan(&exists)
 		return err == nil && exists
 	}, 30*time.Second, 200*time.Millisecond, "the recreated table should replicate to the standby")
 	requireCatalogFormat1(t, standbyDB)
