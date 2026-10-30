@@ -129,3 +129,12 @@ func (s *MultiadminServer) UnfenceScopes(ctx context.Context, req *multipoolerma
 	}
 	return s.rpcClient.UnfenceScopes(ctx, pooler, req)
 }
+
+// EnsureImportTarget forwards to the database's catalog primary.
+func (s *MultiadminServer) EnsureImportTarget(ctx context.Context, req *multipoolermanagerdatapb.EnsureImportTargetRequest) (*multipoolermanagerdatapb.EnsureImportTargetResponse, error) {
+	pooler, err := s.catalogPrimary(ctx, req.GetDatabase())
+	if err != nil {
+		return nil, err
+	}
+	return s.rpcClient.EnsureImportTarget(ctx, pooler, req)
+}

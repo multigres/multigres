@@ -130,6 +130,17 @@ service MultipoolerManager {
   rpc DeleteRoutingRules(multipoolermanagerdata.DeleteRoutingRulesRequest)
       returns (multipoolermanagerdata.DeleteRoutingRulesResponse);
 
+  // EnsureImportTarget creates, if absent, the operation of an import of a
+  // tablegroup that is already served from an external database: an active
+  // tablegroup with the one shard 0-inf, bound to a backing connection (see
+  // CreateTableGroup). It creates no tablegroup or shard, and changes no
+  // routing. Served only by the catalog primary, like SetRoutingRules.
+  // This RPC is temporary, for the first version of imports, and will be
+  // deprecated. The import's PREPARE step (registering its tables, the
+  // default rule and fencing) will replace it.
+  rpc EnsureImportTarget(multipoolermanagerdata.EnsureImportTargetRequest)
+      returns (multipoolermanagerdata.EnsureImportTargetResponse);
+
   //
   // Admission fences (catalog primary only)
   //

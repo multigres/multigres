@@ -20,6 +20,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 )
 
 // checkRoutingRuleCaller checks that a rule or fence RPC for database reached the
@@ -131,6 +132,30 @@ func (pm *MultipoolerManager) writeFences(ctx context.Context, change fenceChang
 		"operation_id", change.operationID, "scopes", len(change.scopes),
 		"unfence", change.lift, "routing_version", versions.routingVersion)
 	return versions, nil
+}
+
+// EnsureImportTarget creates, if absent, the import operation of a
+// tablegroup that is already a served external database: it creates no
+// tablegroup or shard, and refuses one that is missing, not active, not the
+// single bound shard 0-inf, or in use by another operation. It writes no
+// routing rule and advances no catalog version.
+//
+// It is temporary, for the first version of imports, and will be deprecated:
+// the import's PREPARE step (registering its tables, the default rule and
+// fencing) will replace it.
+func (pm *MultipoolerManager) EnsureImportTarget(ctx context.Context, req *multipoolermanagerdatapb.EnsureImportTargetRequest) (*multipoolermanagerdatapb.EnsureImportTargetResponse, error) {
+	if err := pm.checkRoutingRuleCaller(ctx, req.GetDatabase()); err != nil {
+		return nil, err
+	}
+	_, err := pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {
+		return catalogNoSnapshotChange, ensureImportTarget(ctx, tx, req.GetOperationId(), req.GetTablegroup())
+	})
+	if err != nil {
+		return nil, err
+	}
+	pm.logger.InfoContext(ctx, "ensured import target",
+		"operation_id", req.GetOperationId(), "tablegroup", req.GetTablegroup())
+	return &multipoolermanagerdatapb.EnsureImportTargetResponse{}, nil
 }
 
 // writeRoutingRules writes change through changeRoutingRules and logs the

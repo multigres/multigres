@@ -901,6 +901,31 @@ service MultiadminService {
       body: "*"
     };
   }
+
+  // EnsureImportTarget creates, if absent, the operation of an import of a
+  // tablegroup that is already served from an external database: an active
+  // tablegroup with the one shard 0-inf, bound to a backing connection. It
+  // creates no tablegroup or shard, and changes no routing. This RPC is
+  // temporary, for the first version of imports, and will be deprecated. The
+  // import's PREPARE step (registering its tables, the default rule and
+  // fencing) will replace it.
+  rpc EnsureImportTarget(multipoolermanagerdata.EnsureImportTargetRequest)
+    returns (multipoolermanagerdata.EnsureImportTargetResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Create an import's operation on a bound tablegroup (temporary)"
+      tags: "routing"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {
+      put: "/api/v1/databases/{database}/routing/operations/{operation_id}/import-target"
+      body: "*"
+    };
+  }
 }
 
 // GetRoutingRulesRequest asks for a database's routing rules.

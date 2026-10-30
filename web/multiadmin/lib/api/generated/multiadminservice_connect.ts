@@ -20,7 +20,7 @@
 import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, GetRoutingRulesRequest, GetRoutingRulesResponse, ListDesiredTableGroupsRequest, ListDesiredTableGroupsResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
 import { MethodKind } from "@bufbuild/protobuf";
 import { CreateConnectionRequest, CreateConnectionResponse, CreateMigrationRequest, CreateMigrationResponse, DropConnectionRequest, DropConnectionResponse, DropMigrationRequest, DropMigrationResponse, GetConnectionRequest, GetConnectionResponse, GetMigrationJournalRequest, GetMigrationJournalResponse, GetMigrationRequest, GetMigrationResponse, ListConnectionsRequest, ListConnectionsResponse, ListMigrationsRequest, ListMigrationsResponse, SetMigrationDirectionRequest, SetMigrationDirectionResponse } from "./migratorservice_pb";
-import { DeleteRoutingRulesRequest, DeleteRoutingRulesResponse, FenceScopesRequest, FenceScopesResponse, SetRoutingRulesRequest, SetRoutingRulesResponse, UnfenceScopesRequest, UnfenceScopesResponse } from "./multipoolermanagerdata_pb";
+import { DeleteRoutingRulesRequest, DeleteRoutingRulesResponse, EnsureImportTargetRequest, EnsureImportTargetResponse, FenceScopesRequest, FenceScopesResponse, SetRoutingRulesRequest, SetRoutingRulesResponse, UnfenceScopesRequest, UnfenceScopesResponse } from "./multipoolermanagerdata_pb";
 
 /**
  * MultiadminService provides administrative APIs for cluster metadata, backups, and shard operations.
@@ -552,6 +552,23 @@ export const MultiadminService = {
       name: "UnfenceScopes",
       I: UnfenceScopesRequest,
       O: UnfenceScopesResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * EnsureImportTarget creates, if absent, the operation of an import of a
+     * tablegroup that is already served from an external database: an active
+     * tablegroup with the one shard 0-inf, bound to a backing connection. It
+     * creates no tablegroup or shard, and changes no routing. This RPC is
+     * temporary, for the first version of imports, and will be deprecated. The
+     * import's PREPARE step (registering its tables, the default rule and
+     * fencing) will replace it.
+     *
+     * @generated from rpc multiadmin.MultiadminService.EnsureImportTarget
+     */
+    ensureImportTarget: {
+      name: "EnsureImportTarget",
+      I: EnsureImportTargetRequest,
+      O: EnsureImportTargetResponse,
       kind: MethodKind.Unary,
     },
   }

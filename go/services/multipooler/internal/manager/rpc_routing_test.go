@@ -16,6 +16,9 @@ package manager
 
 import (
 	"context"
+	"regexp"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -104,6 +107,8 @@ func TestRoutingRPCs_OnlyOnCatalogPrimary(t *testing.T) {
 	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "SetRoutingRules: %v", err)
 	_, err = pm.DeleteRoutingRules(ctx, &multipoolermanagerdatapb.DeleteRoutingRulesRequest{Database: routingTestDatabase, OperationId: importOp})
 	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "DeleteRoutingRules: %v", err)
+	_, err = pm.EnsureImportTarget(ctx, &multipoolermanagerdatapb.EnsureImportTargetRequest{Database: routingTestDatabase, OperationId: importOp, Tablegroup: "srctg"})
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "EnsureImportTarget: %v", err)
 
 	assert.False(t, began, "a refused routing RPC must not open a transaction")
 }
@@ -203,4 +208,47 @@ func TestGetRoutingSnapshot_RecordsTheRuleCount(t *testing.T) {
 	require.Len(t, gauge.DataPoints, 1)
 	assert.Equal(t, testTableGroupDB, attrValue(t, gauge.DataPoints[0].Attributes, "db.namespace"))
 	assert.Equal(t, int64(2), gauge.DataPoints[0].Value)
+}
+
+func TestEnsureImportTarget_WritesThroughWriteCatalog(t *testing.T) {
+	env := newCatalogTestEnv(t)
+	env.expectLock()
+	env.expect("^"+regexp.QuoteMeta(selectTablegroupByNameSQL)+"$", []string{"tablegroup_id", "state"}, [][]any{{int64(2), "active"}})
+	env.expect("^"+regexp.QuoteMeta(selectImportShardsSQL)+"$", []string{"shard_name", "state", "bound"},
+		[][]any{{constants.DefaultShard, "active", true}})
+	env.expectCommit()
+	env.qs.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), func(q string) { env.queries = append(env.queries, q) })
+
+	_, err := env.pm.EnsureImportTarget(t.Context(), &multipoolermanagerdatapb.EnsureImportTargetRequest{
+		Database: testTableGroupDB, OperationId: importOp, Tablegroup: "srctg",
+	})
+	require.NoError(t, err)
+	// The catalog primary check, then the transaction: the catalog_state lock
+	// first, then the writer's own statements.
+	lock := slices.IndexFunc(env.queries, func(q string) bool { return strings.Contains(q, "FROM multigres.catalog_state FOR UPDATE") })
+	require.GreaterOrEqual(t, lock, 0, "writeCatalog takes the catalog_state lock")
+	assert.Equal(t, []string{
+		selectOperationForUpdateSQL, selectTablegroupByNameSQL, selectImportShardsSQL,
+		selectOtherOperationOnTablegroupSQL, insertOperationSQL,
+	}, env.queries[lock+1:lock+6])
+	assert.Empty(t, env.queriesMatching("UPDATE multigres.catalog_state"),
+		"an operation row is not in the routing snapshot, so no version advances")
+	assert.Equal(t, "COMMIT", env.queries[len(env.queries)-1], "the operation row is committed")
+}
+
+func TestEnsureImportTarget_RefusedSourceCommitsNothing(t *testing.T) {
+	env := newCatalogTestEnv(t)
+	env.expectLock()
+	env.expect("^"+regexp.QuoteMeta(selectTablegroupByNameSQL)+"$", []string{"tablegroup_id", "state"}, [][]any{{int64(2), "active"}})
+	env.expect("^"+regexp.QuoteMeta(selectImportShardsSQL)+"$", []string{"shard_name", "state", "bound"},
+		[][]any{{constants.DefaultShard, "active", false}})
+	env.qs.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), func(q string) { env.queries = append(env.queries, q) })
+
+	_, err := env.pm.EnsureImportTarget(t.Context(), &multipoolermanagerdatapb.EnsureImportTargetRequest{
+		Database: testTableGroupDB, OperationId: importOp, Tablegroup: "srctg",
+	})
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err), "error: %v", err)
+	assert.Empty(t, env.queriesMatching("INSERT INTO"))
+	assert.Empty(t, env.queriesMatching("COMMIT"))
 }

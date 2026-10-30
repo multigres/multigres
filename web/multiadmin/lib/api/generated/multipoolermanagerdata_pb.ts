@@ -4107,3 +4107,102 @@ export class UnfenceScopesResponse extends Message<UnfenceScopesResponse> {
   }
 }
 
+/**
+ * EnsureImportTargetRequest creates, if it does not exist, the operation of
+ * an import of a tablegroup that is already served from an external database.
+ * The tablegroup is not created: it must exist, be active, and have the one
+ * shard 0-inf, bound to a backing connection (created with CREATE TABLEGROUP
+ * ... CONNECTION, or CreateTableGroup with shard_backing_connections).
+ *
+ * @generated from message multipoolermanagerdata.EnsureImportTargetRequest
+ */
+export class EnsureImportTargetRequest extends Message<EnsureImportTargetRequest> {
+  /**
+   * database must be the database the pooler serves.
+   *
+   * @generated from field: string database = 1;
+   */
+  database = "";
+
+  /**
+   * operation_id is the import operation (a UUID).
+   *
+   * @generated from field: string operation_id = 2;
+   */
+  operationId = "";
+
+  /**
+   * tablegroup is the tablegroup the import serves the source database from.
+   * It may not be the default tablegroup, nor one another unfinished
+   * operation acts on, such as a tablegroup being created. A tablegroup that
+   * does not exist is NOT_FOUND; one that is not active, is not the single
+   * bound shard 0-inf, or is acted on by another operation is
+   * FAILED_PRECONDITION.
+   *
+   * @generated from field: string tablegroup = 3;
+   */
+  tablegroup = "";
+
+  constructor(data?: PartialMessage<EnsureImportTargetRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.EnsureImportTargetRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "database", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "operation_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "tablegroup", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): EnsureImportTargetRequest {
+    return new EnsureImportTargetRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): EnsureImportTargetRequest {
+    return new EnsureImportTargetRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): EnsureImportTargetRequest {
+    return new EnsureImportTargetRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: EnsureImportTargetRequest | PlainMessage<EnsureImportTargetRequest> | undefined, b: EnsureImportTargetRequest | PlainMessage<EnsureImportTargetRequest> | undefined): boolean {
+    return proto3.util.equals(EnsureImportTargetRequest, a, b);
+  }
+}
+
+/**
+ * EnsureImportTargetResponse confirms the operation exists.
+ *
+ * @generated from message multipoolermanagerdata.EnsureImportTargetResponse
+ */
+export class EnsureImportTargetResponse extends Message<EnsureImportTargetResponse> {
+  constructor(data?: PartialMessage<EnsureImportTargetResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.EnsureImportTargetResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): EnsureImportTargetResponse {
+    return new EnsureImportTargetResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): EnsureImportTargetResponse {
+    return new EnsureImportTargetResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): EnsureImportTargetResponse {
+    return new EnsureImportTargetResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: EnsureImportTargetResponse | PlainMessage<EnsureImportTargetResponse> | undefined, b: EnsureImportTargetResponse | PlainMessage<EnsureImportTargetResponse> | undefined): boolean {
+    return proto3.util.equals(EnsureImportTargetResponse, a, b);
+  }
+}
+

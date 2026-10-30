@@ -341,3 +341,76 @@ func TestUnmanagedPoolerWithAnUnreachableBackendNeverServes(t *testing.T) {
 
 	requireNeverReady(t, p, 8*time.Second)
 }
+
+// TestEnsureImportTargetNeedsAServedExternalTablegroup: an import's source is the tablegroup
+// CREATE TABLEGROUP ... CONNECTION made, once its unmanaged pooler serves. EnsureImportTarget
+// creates neither tablegroup nor shard, so it refuses a name that does not exist and a
+// tablegroup whose creation has not completed, and creates only the operation for the one that
+// has.
+func TestEnsureImportTargetNeedsAServedExternalTablegroup(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires built binaries, etcd and PostgreSQL")
+	}
+	ctx := t.Context()
+	s := getSharedSetup(t)
+	extPort := startExternalPostgres(t)
+	const importOp = "bbbbbbbb-0000-0000-0000-000000000001"
+	const secondImportOp = "bbbbbbbb-0000-0000-0000-000000000002"
+
+	tablegroupID, _ := seedExternalTablegroup(t, s, "importsrctg", "import-source", &backingconn.Conn{
+		Hosts: []string{"127.0.0.1"}, Ports: []int{extPort}, Database: "postgres", User: "postgres",
+		Password: externalPostgresPassword, SSLMode: "disable",
+	})
+	admin := s.ConnectPrimaryAdmin(t)
+	t.Cleanup(func() {
+		_, err := admin.Exec(context.Background(), `DELETE FROM multigres.operation WHERE kind = 'import' AND (request->>'tablegroup_id')::bigint = $1`, tablegroupID)
+		require.NoError(t, err)
+	})
+	count := func(query string, args ...any) (n int) {
+		require.NoError(t, admin.QueryRow(ctx, query, args...).Scan(&n))
+		return n
+	}
+	primary := s.NewPrimaryClient(t)
+	defer primary.Close()
+	ensure := func(op, tablegroup string) error {
+		_, err := primary.Manager.EnsureImportTarget(ctx, &multipoolermanagerdata.EnsureImportTargetRequest{
+			Database: "postgres", OperationId: op, Tablegroup: tablegroup,
+		})
+		return err
+	}
+	tablegroups := count(`SELECT count(*) FROM multigres.tablegroup`)
+
+	// A name nothing created is not made into a managed tablegroup.
+	err := ensure(importOp, "neverseentg")
+	require.Equal(t, codes.NotFound, status.Code(err), "%v", err)
+	require.Contains(t, err.Error(), "CREATE TABLEGROUP neverseentg CONNECTION")
+
+	// The tablegroup exists, bound, but its creation has not completed: no pooler serves it yet.
+	err = ensure(importOp, "importsrctg")
+	require.Equal(t, codes.FailedPrecondition, status.Code(err), "%v", err)
+	require.Contains(t, err.Error(), "is creating, not active")
+	require.Zero(t, count(`SELECT count(*) FROM multigres.operation WHERE operation_id = $1::uuid`, importOp))
+
+	p := startUnmanagedPooler(t, s, "unmanaged-import-source", "importsrctg", tablegroupID)
+	client, err := NewMultipoolerClient(p.grpcPort)
+	require.NoError(t, err)
+	defer client.Close()
+	requireServesQueries(t, client, "the unmanaged pooler never served a query")
+	require.Eventually(t, func() bool {
+		return count(`SELECT count(*) FROM multigres.tablegroup WHERE tablegroup_id = $1 AND state = 'active'`, tablegroupID) == 1
+	}, 30*time.Second, 200*time.Millisecond, "the creation never completed")
+
+	// Now it is a served source: the operation is created once and nothing else is.
+	for range 2 {
+		require.NoError(t, ensure(importOp, "importsrctg"))
+	}
+	require.Equal(t, 1, count(`SELECT count(*) FROM multigres.operation WHERE operation_id = $1::uuid AND kind = 'import'
+		AND state = 'preparing' AND (request->>'tablegroup_id')::bigint = $2`, importOp, tablegroupID))
+	require.Equal(t, 1, count(`SELECT count(*) FROM multigres.shard WHERE tablegroup_id = $1`, tablegroupID))
+	require.Equal(t, tablegroups, count(`SELECT count(*) FROM multigres.tablegroup`), "EnsureImportTarget must not create a tablegroup")
+
+	// One import at a time: a second operation on the tablegroup is refused.
+	err = ensure(secondImportOp, "importsrctg")
+	require.Equal(t, codes.FailedPrecondition, status.Code(err), "%v", err)
+	require.Contains(t, err.Error(), "is already the target of operation "+importOp)
+}
