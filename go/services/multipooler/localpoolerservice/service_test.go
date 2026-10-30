@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package multipooler
+package localpoolerservice
 
 import (
 	"context"
@@ -52,25 +52,25 @@ func requireNotServing(t *testing.T, err error) {
 	assert.True(t, mterrors.IsPreExecutionUnavailable(err), "refusal must be retryable as not executed: %v", err)
 }
 
-func TestLocalQueryService_RefusedBeforeRegistration(t *testing.T) {
-	var l localQueryService
+func TestServer_RefusedBeforeRegistration(t *testing.T) {
+	var l Server
 	_, _, err := l.ExecuteQuery(t.Context(), &query.Target{}, "select 1", nil)
 	requireNotServing(t, err)
 }
 
-func TestLocalQueryService_RefusedAfterStop(t *testing.T) {
-	l := localQueryService{inner: newBlockingQueryService()}
+func TestServer_RefusedAfterStop(t *testing.T) {
+	l := Server{inner: newBlockingQueryService()}
 	l.Stop() // nothing in flight: returns at once
 	_, _, err := l.ExecuteQuery(t.Context(), &query.Target{}, "select 1", nil)
 	requireNotServing(t, err)
 }
 
-// TestLocalQueryService_StopWaitsForInFlight checks that Stop waits for a
+// TestServer_StopWaitsForInFlight checks that Stop waits for a
 // running call to return, as the gRPC server's graceful stop does, and that
 // the running call completes normally.
-func TestLocalQueryService_StopWaitsForInFlight(t *testing.T) {
+func TestServer_StopWaitsForInFlight(t *testing.T) {
 	inner := newBlockingQueryService()
-	l := localQueryService{inner: inner}
+	l := Server{inner: inner}
 
 	callErr := make(chan error, 1)
 	go func() {

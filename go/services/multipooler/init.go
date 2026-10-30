@@ -39,7 +39,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/grpcconsensusservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager"
-	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
+	"github.com/multigres/multigres/go/services/multipooler/localpoolerservice"
 	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -144,9 +144,9 @@ type Multipooler struct {
 	grpcServer *servenv.GrpcServer
 	// queryGrpcServer serves the query service (ProcessResources.QueryGrpcServer).
 	queryGrpcServer *servenv.GrpcServer
-	// localQueryService serves the query service to callers in this process
+	// localServer serves the query service to callers in this process
 	// (minigres's gateway) without gRPC; see LocalQueryService.
-	localQueryService localQueryService
+	localServer *localpoolerservice.Server
 	// Senv is the serving environment
 	senv      *servenv.ServEnv
 	telemetry *telemetry.Telemetry
@@ -331,6 +331,7 @@ func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, res
 	mp.senv = resources.ServEnv
 	mp.grpcServer = resources.GrpcServer
 	mp.queryGrpcServer = resources.QueryGrpcServer
+	mp.localServer = localpoolerservice.NewServer()
 	mp.statusPath = statusPath
 	mp.staticLeader = staticLeader
 	mp.senv.InitServiceMap("grpc", "pooler")
@@ -601,10 +602,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		grpcconsensusservice.RegisterConsensusServices(mp.senv, mp.grpcServer)
 	}
 	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.queryGrpcServer)
-	poolerserver.RegisterPoolerServices = append(poolerserver.RegisterPoolerServices, mp.localQueryService.register)
-	// Stop with the gRPC servers' graceful stop, before OnClose closes the
-	// pools and executor, so no in-process call is left running on them.
-	mp.senv.OnTermSync(mp.localQueryService.Stop)
+	localpoolerservice.RegisterPoolerServices(mp.senv, mp.localServer)
 	grpcmigrationservice.RegisterMigrationServices(mp.senv, mp.grpcServer)
 
 	mp.senv.HTTPHandleFunc(mp.statusPath, mp.handleIndex)
@@ -655,7 +653,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 // gRPC query service uses, called directly. Calls are refused as unavailable
 // before the pooler registers its services and once shutdown begins.
 func (mp *Multipooler) LocalQueryService() queryservice.QueryService {
-	return &mp.localQueryService
+	return mp.localServer
 }
 
 // Database returns the configured database name.

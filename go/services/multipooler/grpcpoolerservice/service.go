@@ -870,12 +870,8 @@ func (s *poolerService) DiscardTempTables(ctx context.Context, req *multipoolerp
 func (s *poolerService) ReleaseReservedConnection(ctx context.Context, req *multipoolerpb.ReleaseReservedConnectionRequest) (*multipoolerpb.ReleaseReservedConnectionResponse, error) {
 	annotateCaller(ctx, req.GetCallerId())
 
-	executor, err := s.pooler.Executor()
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-
-	reservedState, err := executor.ReleaseReservedConnection(ctx, req.Target, req.Options, req.GetKeepStickyReservations())
+	// The pooler's query service admits it as an existing reservation.
+	reservedState, err := s.pooler.QueryService().ReleaseReservedConnection(ctx, req.Target, req.Options, req.GetKeepStickyReservations())
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

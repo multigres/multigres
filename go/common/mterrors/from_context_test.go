@@ -52,6 +52,7 @@ func TestFromContext(t *testing.T) {
 		{"FATAL is kept at the deadline", expired, fatal, fatal},
 		{"cancelled is a cancelled query", cancelled, pgErr, NewQueryCanceled()},
 		{"cancellation error is a cancelled query", live, context.Canceled, NewQueryCanceled()},
+		{"FATAL is kept on cancellation", cancelled, fatal, fatal},
 		{"PostgreSQL error passes through", live, pgErr, pgErr},
 		{"plain error passes through", live, plain, plain},
 	}

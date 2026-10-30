@@ -138,19 +138,21 @@ func FromGRPC(err error) error {
 
 // FromContext gives an error from a call made in-process under ctx the meaning
 // a PostgreSQL client expects, as FromGRPC does for one that crossed gRPC: a
-// call that ended because ctx's deadline passed is a statement timeout (unless
-// it already ended the session with a FATAL error), and one that ended because
-// ctx was cancelled is a cancelled query. Other errors are returned as they are.
+// call that ended because ctx's deadline passed is a statement timeout, and one
+// that ended because ctx was cancelled is a cancelled query. A FATAL error is
+// kept either way: the session has ended, and reporting a recoverable timeout
+// or cancellation would let the client go on using it. Other errors are
+// returned as they are.
 func FromContext(ctx context.Context, err error) error {
 	if err == nil {
 		return nil
 	}
+	var diag *PgDiagnostic
+	if errors.As(err, &diag) && diag.IsFatal() {
+		return err
+	}
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded):
-		var diag *PgDiagnostic
-		if errors.As(err, &diag) && diag.IsFatal() {
-			return err
-		}
 		return interruptedStatement(true)
 	case errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled):
 		return interruptedStatement(false)
