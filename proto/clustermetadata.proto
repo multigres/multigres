@@ -237,6 +237,22 @@ message Multipooler {
   // its shard: callers such as multiadmin use it for work they would
   // otherwise send to a replica, such as backups.
   LeadershipMode leadership_mode = 14;
+
+  // management_mode records who owns the backing PostgreSQL. Unspecified is
+  // treated as MANAGED so records written before this field existed keep their
+  // current behavior.
+  PoolerManagementMode management_mode = 15;
+}
+
+// PoolerManagementMode is independent of query-serving role and readiness.
+enum PoolerManagementMode {
+  POOLER_MANAGEMENT_MODE_UNSPECIFIED = 0;
+  // MANAGED poolers front a PostgreSQL owned by multigres (pgctld, consensus,
+  // backups).
+  POOLER_MANAGEMENT_MODE_MANAGED = 1;
+  // UNMANAGED poolers front an external PostgreSQL that multigres neither
+  // starts, replicates, backs up, nor elects.
+  POOLER_MANAGEMENT_MODE_UNMANAGED = 2;
 }
 
 // Multigateway represents metadata about a running multigateway component instance in the cluster.
