@@ -1,0 +1,122 @@
+[
+  {
+    "name": "backup-primary",
+    "command": "COMMAND_BACKUP",
+    "args": [
+      "--type=full",
+      "--annotation=table_group=default",
+      "--annotation=shard=0-inf",
+      "--annotation=multipooler_id=test-multipooler",
+      "--annotation=pooler_type=PRIMARY",
+      "--annotation=job_id=job-1"
+    ]
+  },
+  {
+    "name": "backup-primary",
+    "command": "COMMAND_INFO",
+    "args": [
+      "--output=json",
+      "--log-level-console=off"
+    ]
+  },
+  {
+    "name": "backup-primary",
+    "command": "COMMAND_VERIFY",
+    "args": [
+      "--set=20250104-100000F"
+    ]
+  },
+  {
+    "name": "backup-replica-overrides",
+    "command": "COMMAND_BACKUP",
+    "args": [
+      "--type=full",
+      "--pg2-host=primary.example.com",
+      "--pg2-path=/other/pgdata",
+      "--pg2-host-port=8432",
+      "--repo=1",
+      "--annotation=table_group=default",
+      "--annotation=shard=0-inf",
+      "--annotation=multipooler_id=test-multipooler",
+      "--annotation=pooler_type=REPLICA",
+      "--annotation=job_id=job-1"
+    ]
+  },
+  {
+    "name": "backup-replica-overrides",
+    "command": "COMMAND_INFO",
+    "args": [
+      "--output=json",
+      "--log-level-console=off"
+    ]
+  },
+  {
+    "name": "backup-replica-overrides",
+    "command": "COMMAND_VERIFY",
+    "args": [
+      "--set=20250104-100000F"
+    ]
+  },
+  {
+    "name": "restore-latest",
+    "command": "COMMAND_RESTORE",
+    "args": [
+      "--type=standby"
+    ]
+  },
+  {
+    "name": "restore-set",
+    "command": "COMMAND_RESTORE",
+    "args": [
+      "--type=standby",
+      "--set=20250104-100000F_20250105-010101I"
+    ]
+  },
+  {
+    "name": "expire-retention",
+    "command": "COMMAND_INFO",
+    "args": [
+      "--output=json",
+      "--log-level-console=off"
+    ]
+  },
+  {
+    "name": "expire-retention",
+    "command": "COMMAND_EXPIRE",
+    "args": [
+      "--repo1-retention-diff=3",
+      "--repo1-retention-full=7"
+    ]
+  },
+  {
+    "name": "expire-retention",
+    "command": "COMMAND_INFO",
+    "args": [
+      "--output=json",
+      "--log-level-console=off"
+    ]
+  },
+  {
+    "name": "info",
+    "command": "COMMAND_INFO",
+    "args": [
+      "--output=json",
+      "--log-level-console=off"
+    ]
+  },
+  {
+    "name": "check",
+    "command": "COMMAND_CHECK",
+    "args": []
+  },
+  {
+    "name": "stanza-create",
+    "command": "COMMAND_STANZA_CREATE",
+    "args": []
+  },
+  {
+    "name": "verify",
+    "command": "COMMAND_VERIFY",
+    "args": []
+  }
+]

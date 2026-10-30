@@ -31,7 +31,11 @@ RUN GIT_COMMIT="${GIT_COMMIT}" COMMIT_DATE="${COMMIT_DATE}" make build-release
 # =========================================================================
 FROM postgres:17.7
 
-# Install pgBackRest from PostgreSQL APT repository and procps
+# Install pgBackRest from PostgreSQL APT repository and procps.
+# The pgBackRest version is pinned exactly to match the sidecar, and curl stays
+# because archive_command is a curl call to the sidecar's WAL socket. The live
+# PGDG index keeps only the newest release, so the pgdg-archive source keeps
+# the pin resolvable later.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -40,13 +44,14 @@ RUN apt-get update && \
     lsb-release && \
     curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql-archive-keyring.gpg && \
     echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list && \
+    echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] https://apt-archive.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg-archive main" >> /etc/apt/sources.list.d/pgdg.list && \
     apt-get update && \
     apt-cache policy pgbackrest && \
     apt-get install -y --no-install-recommends \
-    pgbackrest \
+    pgbackrest=2.60.0-1.pgdg13+1 \
     procps && \
     pgbackrest version && \
-    apt-get remove -y ca-certificates curl gnupg lsb-release && \
+    apt-get remove -y ca-certificates gnupg lsb-release && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
