@@ -15,6 +15,7 @@
 package keyrange
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -200,6 +201,80 @@ func TestValidateTableGroupAndShard(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestOverlaps(t *testing.T) {
+	kr := func(name string) *clustermetadatapb.KeyRange {
+		r, err := ParseShardName(name)
+		require.NoError(t, err)
+		return r
+	}
+	tests := []struct {
+		a, b string
+		want bool
+	}{
+		{"0-inf", "0-80", true},
+		{"80-inf", "0-inf", true},
+		{"0-80", "80-inf", false},
+		{"0-80", "40-c0", true},
+		{"40-c0", "80-inf", true},
+		{"40-80", "8040-c0", false},
+		{"80-8040", "8040-c0", false},
+		{"80-8040", "8020-c0", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.a+"/"+tt.b, func(t *testing.T) {
+			assert.Equal(t, tt.want, Overlaps(kr(tt.a), kr(tt.b)))
+			assert.Equal(t, tt.want, Overlaps(kr(tt.b), kr(tt.a)))
+		})
+	}
+	assert.True(t, Overlaps(nil, kr("40-80")), "a nil key range is the full keyspace")
+}
+
+func TestEqual(t *testing.T) {
+	full, err := ParseShardName("0-inf")
+	require.NoError(t, err)
+	low, err := ParseShardName("0-80")
+	require.NoError(t, err)
+	assert.True(t, Equal(full, &clustermetadatapb.KeyRange{}))
+	assert.True(t, Equal(nil, full), "a nil key range is the full keyspace")
+	assert.True(t, Equal(low, &clustermetadatapb.KeyRange{End: []byte{0x80}}))
+	assert.False(t, Equal(full, low))
+}
+
+func TestContiguous(t *testing.T) {
+	tests := []struct {
+		names []string
+		want  string // "" when the ranges aren't contiguous
+	}{
+		{[]string{"0-inf"}, "0-inf"},
+		{[]string{"0-80", "80-inf"}, "0-inf"},
+		{[]string{"80-inf", "0-80"}, "0-inf"},
+		{[]string{"40-80", "80-c0", "c0-inf"}, "40-inf"},
+		{[]string{"80-8040", "40-80"}, "40-8040"},
+		{[]string{"0-80", "40-inf"}, ""},
+		{[]string{"0-40", "80-inf"}, ""},
+		{[]string{"0-inf", "80-inf"}, ""},
+		{[]string{"0-80", "0-80"}, ""},
+		{nil, ""},
+	}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.names, ","), func(t *testing.T) {
+			var ranges []*clustermetadatapb.KeyRange
+			for _, n := range tt.names {
+				kr, err := ParseShardName(n)
+				require.NoError(t, err)
+				ranges = append(ranges, kr)
+			}
+			got, ok := Contiguous(ranges)
+			if tt.want == "" {
+				assert.False(t, ok)
+				return
+			}
+			require.True(t, ok)
+			assert.Equal(t, tt.want, ShardName(got))
 		})
 	}
 }
