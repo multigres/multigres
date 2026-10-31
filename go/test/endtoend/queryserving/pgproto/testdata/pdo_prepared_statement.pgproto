@@ -1,0 +1,58 @@
+#
+# PHP pdo_pgsql prepared statements, as PHP 8.4 with libpq 17 sends them (#803).
+#
+# PQprepare sends Parse+Sync. Each PQexecPrepared sends Bind, Describe('P'),
+# Execute and Sync on the unnamed portal, and freeing the statement sends
+# Close('S')+Sync. libpq expects only RowDescription for the Describe('P'); an
+# extra ParameterDescription made every query fail with "server sent data
+# ("D" message) without prior row description ("T" message)".
+#
+# Bind field layout (tab-separated):
+#   'B'  portal  stmt  ncodes  [code]...  nparams  [paramlen "value"]...  nresultcodes  [code]...
+# libpq sends one format code per parameter and always one result format code.
+#
+
+# $pdo->query('select 1 as one;')
+'P'	"pdo_stmt_00000001"	"select 1 as one;"	0
+'S'
+'Y'
+'B'	""	"pdo_stmt_00000001"	0	0	1	0
+'D'	'P'	""
+'E'	""	0
+'S'
+'Y'
+'C'	'S'	"pdo_stmt_00000001"
+'S'
+'Y'
+
+# $pdo->prepare('select ?::int + 1 as next'), executed with 41 and then 99.
+'P'	"pdo_stmt_00000002"	"select $1::int + 1 as next"	1	0
+'S'
+'Y'
+'B'	""	"pdo_stmt_00000002"	1	0	1	2	"41"	1	0
+'D'	'P'	""
+'E'	""	0
+'S'
+'Y'
+'B'	""	"pdo_stmt_00000002"	1	0	1	2	"99"	1	0
+'D'	'P'	""
+'E'	""	0
+'S'
+'Y'
+
+# A row with several columns.
+'P'	"pdo_stmt_00000003"	"select 7 as id, 'alice' as name, true as active, 2.50::numeric as balance, null::text as note"	0
+'S'
+'Y'
+'B'	""	"pdo_stmt_00000003"	0	0	1	0
+'D'	'P'	""
+'E'	""	0
+'S'
+'Y'
+'C'	'S'	"pdo_stmt_00000003"
+'S'
+'Y'
+'C'	'S'	"pdo_stmt_00000002"
+'S'
+'Y'
+'X'
