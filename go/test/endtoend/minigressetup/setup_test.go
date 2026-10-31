@@ -298,3 +298,34 @@ func TestMinigres_BackupAndRestore(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT v FROM backup_check").Scan(&v))
 	assert.Equal(t, "kept", v)
 }
+
+// TestMinigres_ShutdownWaitsForRunningQuery sends SIGTERM while a query runs
+// on the gateway's direct path to the pooler, and checks that shutdown lets it
+// finish before the pooler closes its pools and executor.
+func TestMinigres_ShutdownWaitsForRunningQuery(t *testing.T) {
+	skipIfShort(t)
+	setup, cleanup := NewIsolated(t)
+	defer cleanup()
+
+	db, err := sql.Open("postgres", clustersetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5"))
+	require.NoError(t, err)
+	defer db.Close()
+	require.NoError(t, db.PingContext(t.Context()))
+
+	const sleepQuery = "SELECT 1 FROM pg_sleep(3)"
+	queryErr := make(chan error, 1)
+	go func() {
+		var one int
+		queryErr <- db.QueryRowContext(t.Context(), sleepQuery).Scan(&one)
+	}()
+	require.Eventually(t, func() bool {
+		var running int
+		err := db.QueryRowContext(t.Context(), "SELECT count(*) FROM pg_stat_activity WHERE query = $1", sleepQuery).Scan(&running)
+		return err == nil && running == 1
+	}, 10*time.Second, 50*time.Millisecond, "the query must be running before SIGTERM")
+
+	exitErr, stopped := setup.Minigres.Process.Terminate(utils.WithTimeout(t, 30*time.Second))
+	require.True(t, stopped, "minigres must exit after SIGTERM")
+	assert.NoError(t, exitErr, "minigres must exit cleanly")
+	assert.NoError(t, <-queryErr, "the running query must finish, not fail on closed pools")
+}

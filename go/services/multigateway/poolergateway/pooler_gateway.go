@@ -167,6 +167,11 @@ type LocalPooler struct {
 	// topology: the fields it uses (ID, shard) never change, and role and
 	// serving status come from the health stream. Optional.
 	Record func() *clustermetadatapb.Multipooler
+	// QueryService, when set, is the pooler's query service, which the
+	// gateway then calls directly instead of over DialOptions. The connection
+	// still dials for everything else (auth, health, notifications,
+	// replication). Optional.
+	QueryService queryservice.QueryService
 }
 
 // isLocal reports whether pooler is the local pooler.
