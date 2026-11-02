@@ -549,6 +549,20 @@ func TestServerGetMultipoolersByCell(t *testing.T) {
 }
 
 // TestMultipoolerIDString tests the ID string functionality
+func TestIsManagedPooler(t *testing.T) {
+	for mode, managed := range map[clustermetadatapb.LeadershipMode]bool{
+		clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNSPECIFIED: true,
+		clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_CONSENSUS:   true,
+		clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC:      true,
+		clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNMANAGED:   false,
+		clustermetadatapb.LeadershipMode(99):                         false,
+	} {
+		t.Run(mode.String(), func(t *testing.T) {
+			require.Equal(t, managed, topoclient.IsManagedPooler(&clustermetadatapb.Multipooler{LeadershipMode: mode}))
+		})
+	}
+}
+
 func TestMultipoolerIDString(t *testing.T) {
 	tests := []struct {
 		name     string
