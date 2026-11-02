@@ -2719,6 +2719,14 @@ func TestPrepareOnlyReusesNamedStatement(t *testing.T) {
 // on a fake server that accepts any query.
 func newDiscardTempExecutor(t *testing.T, reasons uint32) (*Executor, *reserved.Conn) {
 	t.Helper()
+	e, rconn, _ := newDiscardTempExecutorWithServer(t, reasons)
+	return e, rconn
+}
+
+// newDiscardTempExecutorWithServer is newDiscardTempExecutor, also returning the
+// fake server so a test can script and count queries.
+func newDiscardTempExecutorWithServer(t *testing.T, reasons uint32) (*Executor, *reserved.Conn, *fakepgserver.Server) {
+	t.Helper()
 	server := fakepgserver.New(t)
 	t.Cleanup(server.Close)
 	server.SetNeverFail(true)
@@ -2741,7 +2749,7 @@ func newDiscardTempExecutor(t *testing.T, reasons uint32) (*Executor, *reserved.
 		logger:      slog.Default(),
 		poolerID:    &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
 		poolManager: &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
-	}, rconn
+	}, rconn, server
 }
 
 // TestDiscardTempTables_InTransactionKeepsTheTempTableReason: DISCARD TEMP is undone by
@@ -2773,4 +2781,85 @@ func TestDiscardTempTables_OutsideTransactionReleasesTheConnection(t *testing.T)
 
 	assert.Nil(t, reservedState)
 	assert.True(t, rconn.IsReleased())
+}
+
+// concludeAfterDiscardTemp runs DISCARD TEMP in a transaction on a connection reserved
+// for temp tables, then concludes the transaction the way the gateway would.
+func concludeAfterDiscardTemp(t *testing.T, e *Executor, rconn *reserved.Conn, conclusion multipoolerpb.TransactionConclusion) (*query.ReservedState, error) {
+	t.Helper()
+	opts := &query.ExecuteOptions{ReservedConnectionId: uint64(rconn.ConnID())}
+	_, _, err := e.DiscardTempTables(context.Background(), nil, opts)
+	require.NoError(t, err)
+
+	_, reservedState, err := e.ConcludeTransaction(context.Background(), nil, opts, conclusion, nil, false, false, map[string]string{})
+	return reservedState, err
+}
+
+// TestConcludeTransaction_CommitAfterDiscardTempReleasesTheConnection: a COMMIT makes
+// DISCARD TEMP final, so once the backend reports no temp objects the connection no
+// longer needs its temp table reservation.
+func TestConcludeTransaction_CommitAfterDiscardTempReleasesTheConnection(t *testing.T) {
+	e, rconn, server := newDiscardTempExecutorWithServer(t, protoutil.ReasonTempTable|protoutil.ReasonTransaction)
+
+	reservedState, err := concludeAfterDiscardTemp(t, e, rconn, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT)
+	require.NoError(t, err)
+
+	assert.Nil(t, reservedState)
+	assert.True(t, rconn.IsReleased())
+	assert.Equal(t, 1, server.GetQueryCalledNum(constants.TempObjectsProbeSQL))
+}
+
+// TestConcludeTransaction_RollbackAfterDiscardTempKeepsTheTempTables: a ROLLBACK brings
+// the temp tables back, which the probe sees, so the connection stays reserved.
+func TestConcludeTransaction_RollbackAfterDiscardTempKeepsTheTempTables(t *testing.T) {
+	e, rconn, server := newDiscardTempExecutorWithServer(t, protoutil.ReasonTempTable|protoutil.ReasonTransaction)
+	server.AddQuery(constants.TempObjectsProbeSQL, fakepgserver.MakeResult([]string{"relkind"}, [][]any{{"r"}}))
+
+	reservedState, err := concludeAfterDiscardTemp(t, e, rconn, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK)
+	require.NoError(t, err)
+
+	assert.False(t, rconn.IsReleased())
+	assert.True(t, protoutil.HasTempTableReason(rconn.RemainingReasons()))
+	assert.True(t, protoutil.HasTempTableReason(reservedState.GetReservationReasons()),
+		"the gateway must keep tracking the temp tables the rollback brought back")
+}
+
+// TestConcludeTransaction_RollbackAfterDiscardTempOfNothingReleases: a ROLLBACK that
+// leaves no temp objects (the tables never existed past the transaction) releases too.
+func TestConcludeTransaction_RollbackAfterDiscardTempOfNothingReleases(t *testing.T) {
+	e, rconn, _ := newDiscardTempExecutorWithServer(t, protoutil.ReasonTempTable|protoutil.ReasonTransaction)
+
+	reservedState, err := concludeAfterDiscardTemp(t, e, rconn, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK)
+	require.NoError(t, err)
+
+	assert.Nil(t, reservedState)
+	assert.True(t, rconn.IsReleased())
+}
+
+// TestConcludeTransaction_FailedTempProbeKeepsTheConnectionReserved: releasing a backend
+// that may still have the session's temp tables would lose them, so a probe that fails
+// leaves the reservation alone.
+func TestConcludeTransaction_FailedTempProbeKeepsTheConnectionReserved(t *testing.T) {
+	e, rconn, server := newDiscardTempExecutorWithServer(t, protoutil.ReasonTempTable|protoutil.ReasonTransaction)
+	server.AddRejectedQuery(constants.TempObjectsProbeSQL, errors.New("probe failed"))
+
+	reservedState, err := concludeAfterDiscardTemp(t, e, rconn, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT)
+	require.NoError(t, err)
+
+	assert.False(t, rconn.IsReleased())
+	assert.True(t, protoutil.HasTempTableReason(reservedState.GetReservationReasons()))
+}
+
+// TestConcludeTransaction_WithoutDiscardTempDoesNotProbe: the probe is only for a
+// transaction in which DISCARD TEMP ran; every other COMMIT skips the round trip.
+func TestConcludeTransaction_WithoutDiscardTempDoesNotProbe(t *testing.T) {
+	e, rconn, server := newDiscardTempExecutorWithServer(t, protoutil.ReasonTempTable|protoutil.ReasonTransaction)
+
+	_, reservedState, err := e.ConcludeTransaction(context.Background(), nil,
+		&query.ExecuteOptions{ReservedConnectionId: uint64(rconn.ConnID())},
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT, nil, false, false, nil)
+	require.NoError(t, err)
+
+	assert.True(t, protoutil.HasTempTableReason(reservedState.GetReservationReasons()))
+	assert.Equal(t, 0, server.GetQueryCalledNum(constants.TempObjectsProbeSQL))
 }
