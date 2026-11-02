@@ -17,12 +17,11 @@ Minigres evolves.
   services.
 - **The multipooler as a static leader.** It is the only pooler of its shard, so
   it leads without consensus and without Multiorch.
-- **The multigateway reaches the pooler in memory.** Queries are plain Go
-  calls into the pooler; authentication, LISTEN/NOTIFY, logical replication
-  and the health stream go over the in-memory gRPC server. None leave the
-  process. The gateway learns of the pooler from the pooler
-  itself, not from etcd, so it never sees other instances' poolers. An
-  in-process health subscription, replacing the health stream, is planned work.
+- **The multigateway reaches the pooler in memory.** Queries, credential
+  lookups, the health subscription and LISTEN/NOTIFY are plain Go calls into
+  the pooler; logical replication goes over the in-memory gRPC server.
+  None leave the process. The gateway learns of the pooler from the pooler
+  itself, not from etcd, so it never sees other instances' poolers.
 - **pgctld runs as its own process**, as in Multigres.
 
 Many Minigres processes can share one etcd and one Multiadmin. Once a database
@@ -155,8 +154,9 @@ no port, no TLS and no auth, and the external server's limits. The serving loop
 starts both servers (`RunDefault(grpcServer, queryGrpcServer)`). `cmd/minigres`
 also gives the gateway its pooler (`poolergateway.LocalPooler`): the pooler's ID
 the in-memory server's dial options (`DialOptions`) and the pooler's record
-(`Record`), and its query service (`QueryService`, from
-`Multipooler.LocalQueryService`). The gateway then reads that pooler's record in memory instead of
+(`Record`), and the pooler itself (`Service`, from
+`Multipooler.LocalPoolerService`: its query service, credential lookup, health
+and notifications). The gateway then reads that pooler's record in memory instead of
 watching etcd, keeps only that pooler (the pooler cache's filter), and connects
 to it in memory; the Multigres binaries pass none and use every pooler
 in the topology.
@@ -180,8 +180,8 @@ in the topology.
 - **It uses only its own pooler.** The gateway reads the record of the pooler
   in its own process once, when it starts (`Multipooler.Record`), and never
   watches etcd for poolers. It needs nothing more: the fields it uses (ID and
-  shard) never change, and the pooler's role and serving status come from the
-  health stream. Even when many Minigres
+  shard) never change, and the pooler's role and serving status come from its
+  health subscription. Even when many Minigres
   instances share one etcd, queries never reach another instance and readiness
   counts only its own pooler.
 - **Queries are direct calls.** Every query-path call (statements, portals,
@@ -192,10 +192,20 @@ in the topology.
   or cancellation reaches the client as the same error as over gRPC. At
   shutdown the pooler refuses new direct calls and waits for running ones
   before closing its pools, as the gRPC server's graceful stop does.
-- **The rest connects in memory.** The pooler serves its gRPC query service
+- **Credentials, health and notifications are direct calls too.** The gateway
+  looks up a role's credentials with the same code the pooler's gRPC handler
+  runs, and subscribes to the pooler's health in-process: the same messages as
+  the gRPC health stream, read by the same loop, with the same staleness
+  timeout and retry. Each client session's LISTEN/NOTIFY stream runs the
+  pooler's notification loop in-process, joined to the gateway by Go channels,
+  so ordering, the wait for LISTEN to be active and reconnecting work as over
+  gRPC. At shutdown the pooler ends health subscriptions and notification
+  streams instead of waiting for them, as a gRPC stream ends at the server's
+  graceful stop.
+- **Replication connects in memory.** The pooler serves its gRPC query service
   (`MultipoolerService`) only on an in-memory gRPC server, and the gateway
-  connects there, without TLS, for authentication, LISTEN/NOTIFY, logical
-  replication (`StreamReplication`) and the health stream.
+  connects there, without TLS, for logical replication (`StreamReplication`)
+  only.
 - **Observability differs on the query path.** The direct path has no
   pooler-side operation span and no transport metrics: traces go from the
   gateway's spans straight to the pooler's internal spans, and the gateway's

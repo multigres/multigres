@@ -97,14 +97,14 @@ func newMinigres() *minigres {
 	m.pooler = multipooler.NewMultipooler(tel, reg.WithPrefix(constants.ServiceMultipooler), resources, "/"+constants.ServiceMultipooler, true)
 	// The multigateway uses only the multipooler in this process: it reads the
 	// pooler's record in memory instead of through the topology, calls its
-	// query service directly, and reaches it through the in-memory server for
-	// the rest. It is the only gateway in front of the only pooler, so what
+	// query service, credential lookup and health directly, and reaches it
+	// through the in-memory server for the rest. It is the only gateway in front of the only pooler, so what
 	// needs several of either is turned off.
 	localPooler := &poolergateway.LocalPooler{
-		ID:           m.poolerID,
-		DialOptions:  m.queryGrpcServer.DialOptions(),
-		Record:       m.pooler.Record,
-		QueryService: m.pooler.LocalQueryService(),
+		ID:          m.poolerID,
+		DialOptions: m.queryGrpcServer.DialOptions(),
+		Record:      m.pooler.Record,
+		Service:     m.pooler.LocalPoolerService(),
 	}
 	m.gateway = multigateway.NewMultigateway(reg.WithPrefix(constants.ServiceMultigateway), resources, "/"+constants.ServiceMultigateway, localPooler)
 	return m

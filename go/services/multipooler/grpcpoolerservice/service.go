@@ -19,12 +19,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/common/callerid"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -34,9 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
-	"github.com/multigres/multigres/go/services/multipooler/internal/pools/admin"
 )
 
 // poolerService is the gRPC wrapper for Multipooler
@@ -185,100 +180,11 @@ func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.Exe
 // have access to password hashes and at the time of this request we wouldn't have authenticated
 // that we have permission to run queries under any other user's role.
 func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
-	// Validate request.
-	if req.Username == "" {
-		return nil, status.Error(codes.InvalidArgument, "username is required")
-	}
-	if req.Database == "" {
-		return nil, status.Error(codes.InvalidArgument, "database is required")
-	}
-
-	if s.pooler == nil {
-		return nil, status.Error(codes.Unavailable, "pooler not initialized")
-	}
-
-	// Admin credential fetch (not a query). Treat like a new reservation so it is
-	// buffered during any drain — the same behavior as before the two-stage drain.
-	if err := s.pooler.StartRequest(nil, poolerserver.RequestNewReservation); err != nil {
+	resp, err := s.pooler.GetAuthCredentials(ctx, req)
+	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-
-	poolManager := s.pooler.PoolManager()
-	if poolManager == nil {
-		return nil, status.Error(codes.Unavailable, "pool manager not initialized")
-	}
-
-	// Time the full credential-query path (admin acquire + pg_authid
-	// lookup + decode) for mg.pooler.auth.credential_query.duration so
-	// admin-pool contention shows up before it cascades into
-	// gateway-visible auth latency. The duration is recorded on every
-	// exit, error or not; the error counter only fires on failures so
-	// the success rate is implicit.
-	recorder := poolManager.CredentialQueryRecorder()
-	start := time.Now()
-	var errorType string
-	defer func() {
-		if recorder != nil {
-			recorder.RecordCredentialQuery(ctx, time.Since(start), errorType)
-		}
-	}()
-
-	// An admin connection:
-	// - has permission to read password hashes
-	// - also avoids a chicken-egg scenario of needing to create and use a role-specific connection
-	//   to figure out if the caller should have access to that role-specific connection.
-	conn, err := poolManager.GetAdminConn(ctx)
-	if err != nil {
-		errorType = connpoolmanager.CredentialQueryErrorPoolAcquireFailed
-		return nil, status.Errorf(codes.Unavailable, "failed to get admin connection: %v", err)
-	}
-	defer conn.Recycle()
-
-	// Get the role auth info (password hash + rolreplication) using the admin
-	// connection. This queries pg_authid, which requires superuser access.
-	authInfo, err := conn.Conn.GetRolAuthInfo(ctx, req.Username)
-	if err != nil {
-		switch {
-		case errors.Is(err, admin.ErrUserNotFound):
-			errorType = connpoolmanager.CredentialQueryErrorUserNotFound
-			return nil, status.Errorf(codes.NotFound, "user %q not found", req.Username)
-		case errors.Is(err, admin.ErrLoginDisabled):
-			// Emit as a PgDiagnostic so the SQLSTATE (28000) is the
-			// distinguishing signal at the gateway, not the gRPC code.
-			// gRPC auth interceptors use codes.PermissionDenied /
-			// codes.Unauthenticated for transport failures; keying on code
-			// alone would misclassify an mTLS or authz error as an app-level
-			// "role not permitted to log in" rejection to the end user.
-			errorType = connpoolmanager.CredentialQueryErrorLoginDisabled
-			return nil, mterrors.ToGRPC(mterrors.NewPgError(
-				"FATAL", mterrors.PgSSInvalidAuthSpec,
-				fmt.Sprintf("role %q is not permitted to log in", req.Username),
-				"",
-			))
-		case errors.Is(err, admin.ErrPasswordExpired):
-			// SQLSTATE 28P01 matches PG's opaque "password authentication
-			// failed" error for expired passwords. PgDiagnostic detail
-			// survives the gRPC round trip and the gateway matches on it.
-			errorType = connpoolmanager.CredentialQueryErrorPasswordExpired
-			return nil, mterrors.ToGRPC(mterrors.NewPgError(
-				"FATAL", mterrors.PgSSAuthFailed,
-				fmt.Sprintf("password authentication failed for user %q", req.Username),
-				"",
-			))
-		default:
-			// Genuine DB-level failure (SQL error, unexpected result shape,
-			// connection drop mid-query). Tagged db_error so operators can
-			// alert on it without false positives from the user_not_found
-			// baseline.
-			errorType = connpoolmanager.CredentialQueryErrorDB
-			return nil, status.Errorf(codes.Internal, "failed to get role password: %v", err)
-		}
-	}
-
-	return &multipoolerpb.GetAuthCredentialsResponse{
-		ScramHash:         authInfo.ScramHash,
-		IsReplicationRole: authInfo.IsReplicationRole,
-	}, nil
+	return resp, nil
 }
 
 // Describe returns metadata about a prepared statement or portal.
@@ -868,21 +774,15 @@ func (s *poolerService) StreamPoolerHealth(req *multipoolerpb.StreamPoolerHealth
 		return status.Error(codes.Unavailable, "pooler not initialized")
 	}
 
-	// Get the health provider
-	hp := s.pooler.HealthProvider()
-	if hp == nil {
-		return status.Error(codes.Unavailable, "health provider not initialized")
-	}
-
 	// Subscribe to health updates
-	initialState, healthChan, err := hp.SubscribeHealth(ctx)
+	initialState, healthChan, err := s.pooler.SubscribeHealth(ctx)
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed to subscribe to health: %v", err)
+		return mterrors.ToGRPC(err)
 	}
 
 	// Send initial health state
 	if initialState != nil {
-		if err := stream.Send(healthStateToProto(initialState)); err != nil {
+		if err := stream.Send(initialState.ToProto()); err != nil {
 			return err
 		}
 	}
@@ -897,28 +797,11 @@ func (s *poolerService) StreamPoolerHealth(req *multipoolerpb.StreamPoolerHealth
 				// Channel closed, stream ended
 				return nil
 			}
-			if err := stream.Send(healthStateToProto(state)); err != nil {
+			if err := stream.Send(state.ToProto()); err != nil {
 				return err
 			}
 		}
 	}
-}
-
-// healthStateToProto converts internal health state to proto response.
-func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPoolerHealthResponse {
-	resp := &multipoolerpb.StreamPoolerHealthResponse{
-		PoolerId:      state.PoolerID,
-		ServingStatus: state.ServingStatus,
-		RoutingState:  state.RoutingState,
-	}
-
-	if state.RecommendedStalenessTimeout > 0 {
-		resp.RecommendedStalenessTimeout = durationpb.New(state.RecommendedStalenessTimeout)
-	}
-
-	resp.ReplicationLagNs = state.ReplicationLagNs
-
-	return resp
 }
 
 // NotificationStream keeps one ordered notification stream per gateway client
@@ -934,91 +817,12 @@ func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPo
 // it can never deliver on, so a gateway that still routes to a demoted leader
 // keeps retrying until the load balancer observes the new one.
 func (s *poolerService) NotificationStream(stream multipoolerpb.MultipoolerService_NotificationStreamServer) error {
-	listener := s.pooler.PubSubListener()
-	if listener == nil {
-		return errors.New("PubSubListener not initialized")
+	err := s.pooler.ServeNotifications(stream.Context(), stream.Recv, stream.Send)
+	// The pooler's refusals carry a code for the gRPC status; stream and
+	// context errors are returned as they are.
+	var coded mterrors.ErrorWithCode
+	if errors.As(err, &coded) {
+		return mterrors.ToGRPC(err)
 	}
-	if !listener.Running() {
-		return status.Error(codes.Unavailable, "pubsub listener not running: pooler is not the serving leader")
-	}
-
-	notifCh := make(chan *sqltypes.Notification, 256)
-	subscribed := make(map[string]bool)
-	defer func() {
-		for ch := range subscribed {
-			listener.Unsubscribe(ch, notifCh)
-		}
-	}()
-
-	reqCh := make(chan *multipoolerpb.NotificationStreamRequest)
-	errCh := make(chan error, 1)
-	go func() {
-		for {
-			req, err := stream.Recv()
-			if err != nil {
-				errCh <- err
-				return
-			}
-			select {
-			case reqCh <- req:
-			case <-stream.Context().Done():
-				return
-			}
-		}
-	}()
-
-	for {
-		select {
-		case <-stream.Context().Done():
-			return stream.Context().Err()
-		case err := <-errCh:
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-			return err
-		case req := <-reqCh:
-			if req.GetUnsubscribeAll() {
-				for ch := range subscribed {
-					listener.Unsubscribe(ch, notifCh)
-					delete(subscribed, ch)
-				}
-			}
-			for _, ch := range req.GetUnsubscribeChannels() {
-				if subscribed[ch] {
-					listener.Unsubscribe(ch, notifCh)
-					delete(subscribed, ch)
-				}
-			}
-			for _, ch := range req.GetSubscribeChannels() {
-				if subscribed[ch] {
-					continue
-				}
-				// The listener may have stopped since the Running check
-				// above. An unregistered notifCh is never closed, so
-				// acking here would leave this stream open, and the
-				// gateway subscribed to nothing, until the client went
-				// away. Refuse instead so the gateway reconnects.
-				if !listener.SubscribeCh(ch, notifCh) {
-					return status.Error(codes.Unavailable, "pubsub listener stopped: pooler is no longer the serving leader")
-				}
-				subscribed[ch] = true
-			}
-			if err := stream.Send(&multipoolerpb.NotificationStreamResponse{Ready: true}); err != nil {
-				return err
-			}
-		case notif := <-notifCh:
-			if notif == nil {
-				return nil
-			}
-			if err := stream.Send(&multipoolerpb.NotificationStreamResponse{
-				Notification: &query.PgNotification{
-					Pid:     notif.PID,
-					Channel: notif.Channel,
-					Payload: notif.Payload,
-				},
-			}); err != nil {
-				return err
-			}
-		}
-	}
+	return err
 }

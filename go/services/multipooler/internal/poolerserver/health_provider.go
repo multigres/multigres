@@ -18,7 +18,12 @@ import (
 	"context"
 	"time"
 
+	"google.golang.org/protobuf/types/known/durationpb"
+
+	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
 
 // HealthState contains the current health state of the pooler.
@@ -66,4 +71,36 @@ type HealthProvider interface {
 	// Implementations should send updates on state changes and periodic
 	// heartbeats to allow clients to detect stream liveness.
 	SubscribeHealth(ctx context.Context) (*HealthState, <-chan *HealthState, error)
+}
+
+// ToProto returns the health state as the message the gateway receives,
+// whatever the transport: the gRPC health stream and, in minigres, the
+// gateway's direct subscription.
+func (h *HealthState) ToProto() *multipoolerpb.StreamPoolerHealthResponse {
+	resp := &multipoolerpb.StreamPoolerHealthResponse{
+		PoolerId:         h.PoolerID,
+		ServingStatus:    h.ServingStatus,
+		RoutingState:     h.RoutingState,
+		ReplicationLagNs: h.ReplicationLagNs,
+	}
+	if h.RecommendedStalenessTimeout > 0 {
+		resp.RecommendedStalenessTimeout = durationpb.New(h.RecommendedStalenessTimeout)
+	}
+	return resp
+}
+
+// SubscribeHealth subscribes to the pooler's health, for the gRPC health
+// stream and, in minigres, the gateway's direct subscription. It returns the
+// current state and a channel of updates, closed when ctx ends or the provider
+// shuts down.
+func (s *QueryPoolerServer) SubscribeHealth(ctx context.Context) (*HealthState, <-chan *HealthState, error) {
+	hp := s.HealthProvider()
+	if hp == nil {
+		return nil, nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "health provider not initialized")
+	}
+	initial, updates, err := hp.SubscribeHealth(ctx)
+	if err != nil {
+		return nil, nil, mterrors.Errorf(mtrpcpb.Code_INTERNAL, "failed to subscribe to health: %v", err)
+	}
+	return initial, updates, nil
 }

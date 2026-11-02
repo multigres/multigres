@@ -34,12 +34,12 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/pid"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/auth"
 	"github.com/multigres/multigres/go/services/multigateway/buffer"
@@ -438,8 +438,8 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	if notifMetricsErr != nil {
 		logger.WarnContext(ctx, "failed to initialise some notification metrics", "error", notifMetricsErr)
 	}
-	notifMgr := poolergateway.NewGRPCNotificationManager(
-		func() multipoolerpb.MultipoolerServiceClient {
+	notifMgr := poolergateway.NewNotificationManager(
+		func() queryservice.Pooler {
 			conn, err := mg.poolerGateway.GetConnection(&querypb.Target{
 				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   constants.DefaultPostgresDatabase,
@@ -451,7 +451,7 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 			if err != nil || conn == nil {
 				return nil
 			}
-			return conn.ServiceClient()
+			return conn.Pooler()
 		},
 		logger,
 		notifMetrics,

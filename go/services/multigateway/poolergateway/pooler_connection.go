@@ -110,16 +110,14 @@ type poolerConnection struct {
 	poolerInfo atomic.Pointer[topoclient.MultipoolerInfo]
 
 	// conn is the underlying gRPC connection. Production code reaches the
-	// connection only via queryService (which owns its lifecycle: Shutdown
-	// calls queryService.Close()). The field is retained so telemetry tests
+	// connection only via pooler (which owns its lifecycle: Shutdown
+	// calls pooler.Close()). The field is retained so telemetry tests
 	// can inspect the dial's OpenTelemetry attributes directly.
 	conn *grpc.ClientConn
 
-	// client is the gRPC client for health streaming
-	client multipoolerservice.MultipoolerServiceClient
-
-	// queryService handles query execution over gRPC
-	queryService queryservice.QueryService
+	// pooler is the pooler's query service, credential lookup, health and
+	// notifications: over gRPC, or direct calls to a pooler in this process.
+	pooler queryservice.Pooler
 
 	// logger for debugging
 	logger *slog.Logger
@@ -200,11 +198,11 @@ func newPoolerConnection(
 	// health stream goroutine. This ensures proper shutdown propagation.
 	ctx, cancel := context.WithCancel(ctx)
 
-	// Create QueryService wrapper: direct calls to a pooler in this process
-	// that offers them, gRPC otherwise.
-	queryService := newGRPCQueryService(conn, poolerID, logger)
-	if local != nil && local.QueryService != nil {
-		queryService = newDirectQueryService(local.QueryService, queryService)
+	// Reach the pooler by direct calls when it is in this process and offers
+	// them, over gRPC otherwise.
+	service := newGRPCQueryService(conn, poolerID, logger)
+	if local != nil && local.Service != nil {
+		service = newDirectQueryService(local.Service, service)
 	}
 
 	// Initialize health state to DISABLED until the health stream provides data.
@@ -212,8 +210,7 @@ func newPoolerConnection(
 	// consensus observations, not the topology Type label.
 	pc := &poolerConnection{
 		conn:           conn,
-		client:         multipoolerservice.NewMultipoolerServiceClient(conn),
-		queryService:   queryService,
+		pooler:         service,
 		logger:         logger,
 		ctx:            ctx,
 		cancel:         cancel,
@@ -260,15 +257,15 @@ func (pc *poolerConnection) PoolerInfo() *topoclient.MultipoolerInfo {
 	return pc.poolerInfo.Load()
 }
 
-// ServiceClient returns the MultipoolerServiceClient for admin operations.
-// This can be used for authentication, health checks, and other system-level operations.
-func (pc *poolerConnection) ServiceClient() multipoolerservice.MultipoolerServiceClient {
-	return pc.client
+// Pooler returns the pooler's query service, credential lookup, health and
+// notifications for this connection.
+func (pc *poolerConnection) Pooler() queryservice.Pooler {
+	return pc.pooler
 }
 
 // QueryService returns the query execution service for this connection.
 func (pc *poolerConnection) QueryService() queryservice.QueryService {
-	return pc.queryService
+	return pc.pooler
 }
 
 // Shutdown stops the health stream goroutine and closes the underlying
@@ -283,7 +280,7 @@ func (pc *poolerConnection) Shutdown() error {
 		pc.cancel()
 	}
 
-	if err := pc.queryService.Close(); err != nil {
+	if err := pc.pooler.Close(); err != nil {
 		return fmt.Errorf("failed to close query service for pooler %s: %w", poolerID, err)
 	}
 	return nil
@@ -356,7 +353,7 @@ func (pc *poolerConnection) streamHealth(
 	pc.healthTimedOut.Store(false)
 
 	// Open the health stream.
-	stream, err := pc.client.StreamPoolerHealth(streamCtx, &multipoolerservice.StreamPoolerHealthRequest{})
+	recv, err := pc.pooler.SubscribeHealth(streamCtx)
 	if err != nil {
 		pc.logger.WarnContext(streamCtx, "failed to open health stream",
 			"pooler_id", poolerID,
@@ -378,7 +375,7 @@ func (pc *poolerConnection) streamHealth(
 
 	// Process responses from the stream.
 	for {
-		response, err := stream.Recv()
+		response, err := recv()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				pc.logger.DebugContext(streamCtx, "health stream closed by server", "pooler_id", poolerID)

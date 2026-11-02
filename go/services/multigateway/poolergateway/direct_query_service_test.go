@@ -41,11 +41,16 @@ import (
 // fakeLocalQueryService stands in for the pooler's query service. Methods the
 // tests do not use panic through the nil embedded interface.
 type fakeLocalQueryService struct {
-	queryservice.QueryService
+	queryservice.Pooler
 	executeQuery  func(ctx context.Context, sql string) (*sqltypes.Result, *querypb.ReservedState, error)
 	streamExecute func(ctx context.Context, callback func(context.Context, *sqltypes.Result) error) (*querypb.ReservedState, error)
+	getAuth       func(ctx context.Context) (*multipoolerservice.GetAuthCredentialsResponse, error)
 	closed        bool
 	replication   bool
+}
+
+func (f *fakeLocalQueryService) GetAuthCredentials(ctx context.Context, _ *multipoolerservice.GetAuthCredentialsRequest) (*multipoolerservice.GetAuthCredentialsResponse, error) {
+	return f.getAuth(ctx)
 }
 
 func (f *fakeLocalQueryService) ExecuteQuery(ctx context.Context, _ *querypb.Target, sql string, _ *querypb.ExecuteOptions) (*sqltypes.Result, *querypb.ReservedState, error) {
@@ -121,6 +126,14 @@ type errorPoolerServer struct {
 
 func (s *errorPoolerServer) ExecuteStream(stream multipoolerservice.MultipoolerService_ExecuteStreamServer) error {
 	return queryrpc.Serve(stream, s)
+}
+
+func (s *errorPoolerServer) GetAuthCredentials(ctx context.Context, req *multipoolerservice.GetAuthCredentialsRequest) (*multipoolerservice.GetAuthCredentialsResponse, error) {
+	resp, err := s.local.(queryservice.Pooler).GetAuthCredentials(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
 }
 
 func (s *errorPoolerServer) ExecuteQuery(ctx context.Context, req *multipoolerservice.ExecuteQueryRequest) (*multipoolerservice.ExecuteQueryResponse, error) {
@@ -250,4 +263,42 @@ func TestDirectQueryService_AnnotatesCaller(t *testing.T) {
 	require.Len(t, spans, 1)
 	assert.Contains(t, spans[0].Attributes, attribute.String(callerid.KeyAuthenticatedUser, "alice"))
 	assert.Contains(t, spans[0].Attributes, attribute.String(callerid.KeyApplicationName, "checkout-service"))
+}
+
+// TestDirectQueryService_SameAuthErrorAsGRPC checks that each failure of the
+// credential lookup gives the gateway the same error on the direct path as on
+// the gRPC path, so its handling (buffering on unavailable, the client
+// message) is the same.
+func TestDirectQueryService_SameAuthErrorAsGRPC(t *testing.T) {
+	tests := map[string]error{
+		"invalid request":  mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "username is required"),
+		"unavailable":      mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "failed to get admin connection: %v", errors.New("pool closed")),
+		"not found":        mterrors.Errorf(mtrpcpb.Code_NOT_FOUND, "user %q not found", "u"),
+		"login disabled":   mterrors.NewPgError("FATAL", mterrors.PgSSInvalidAuthSpec, `role "u" is not permitted to log in`, ""),
+		"password expired": mterrors.NewPgError("FATAL", mterrors.PgSSAuthFailed, `password authentication failed for user "u"`, ""),
+		"database error":   mterrors.Errorf(mtrpcpb.Code_INTERNAL, "failed to get role password: %v", errors.New("boom")),
+		"planned failover": mterrors.MTF01.New(),
+	}
+	for name, lookupErr := range tests {
+		t.Run(name, func(t *testing.T) {
+			local := &fakeLocalQueryService{getAuth: func(context.Context) (*multipoolerservice.GetAuthCredentialsResponse, error) {
+				return nil, lookupErr
+			}}
+			lis, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			server := grpc.NewServer()
+			multipoolerservice.RegisterMultipoolerServiceServer(server, &errorPoolerServer{local: local})
+			go func() { _ = server.Serve(lis) }()
+			t.Cleanup(server.Stop)
+			grpcQS := queryServiceAt(t, lis.Addr().String())
+			req := &multipoolerservice.GetAuthCredentialsRequest{Username: "u", Database: "d"}
+
+			_, grpcErr := grpcQS.GetAuthCredentials(t.Context(), req)
+			require.Error(t, grpcErr)
+			_, directErr := newDirectQueryService(local, grpcQS).GetAuthCredentials(t.Context(), req)
+			require.Error(t, directErr)
+
+			assert.Equal(t, clientErrorOf(grpcErr), clientErrorOf(directErr), "gRPC: %v\ndirect: %v", grpcErr, directErr)
+		})
+	}
 }
