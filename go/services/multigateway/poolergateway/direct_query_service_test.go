@@ -23,8 +23,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"google.golang.org/grpc"
 
+	"github.com/multigres/multigres/go/common/callerid"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/queryrpc"
 	"github.com/multigres/multigres/go/common/queryservice"
@@ -220,4 +224,30 @@ func TestDirectQueryService_SameClientErrorAsGRPC(t *testing.T) {
 			assert.Equal(t, clientErrorOf(grpcErr), clientErrorOf(directErr), "gRPC: %v\ndirect: %v", grpcErr, directErr)
 		})
 	}
+}
+
+// TestDirectQueryService_AnnotatesCaller checks that a direct call puts the
+// caller's identity on the current span, as the pooler's gRPC handler puts it
+// on its operation span, so Minigres traces still attribute a query to its
+// caller.
+func TestDirectQueryService_AnnotatesCaller(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	local := &fakeLocalQueryService{executeQuery: func(context.Context, string) (*sqltypes.Result, *querypb.ReservedState, error) {
+		return &sqltypes.Result{}, nil, nil
+	}}
+	qs := newDirectQueryService(local, &fakeLocalQueryService{})
+
+	ctx := callerid.NewContext(t.Context(), callerid.New("alice", "checkout-service"))
+	ctx, span := tp.Tracer("test").Start(ctx, "Route.StreamExecute")
+	_, _, err := qs.ExecuteQuery(ctx, &querypb.Target{}, "select 1", nil)
+	require.NoError(t, err)
+	span.End()
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+	assert.Contains(t, spans[0].Attributes, attribute.String(callerid.KeyAuthenticatedUser, "alice"))
+	assert.Contains(t, spans[0].Attributes, attribute.String(callerid.KeyApplicationName, "checkout-service"))
 }

@@ -22,8 +22,6 @@ import (
 	"io"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -34,7 +32,6 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
@@ -58,29 +55,11 @@ func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 	})
 }
 
-// annotateCaller records the request's caller identity on the current span so
-// pooler-side traces attribute a query to the app that issued it, not just the
-// shared database user. No-op when the gateway sent no caller_id or there is no
-// recording span.
-func annotateCaller(ctx context.Context, caller *mtrpcpb.CallerID) {
-	if caller == nil {
-		return
-	}
-	span := trace.SpanFromContext(ctx)
-	if !span.IsRecording() {
-		return
-	}
-	span.SetAttributes(
-		attribute.String(callerid.KeyAuthenticatedUser, caller.GetPrincipal()),
-		attribute.String(callerid.KeyApplicationName, caller.GetComponent()),
-	)
-}
-
 // StreamExecute executes a SQL query and streams the results back to the client.
 // This is the main execution method used by multigateway.
 // When req.ReservationOptions has non-zero reasons, creates or extends a reserved connection.
 func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, stream multipoolerpb.MultipoolerService_StreamExecuteServer) error {
-	annotateCaller(stream.Context(), req.GetCallerId())
+	callerid.AnnotateSpan(stream.Context(), req.GetCallerId())
 	// The pooler's query service admits the request and validates its
 	// reservation reasons before running it.
 	return s.streamExecuteTo(stream, s.pooler.QueryService(), req)
@@ -187,7 +166,7 @@ func (s *poolerService) streamExecuteTo(
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
 func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.ExecuteQueryRequest) (*multipoolerpb.ExecuteQueryResponse, error) {
-	annotateCaller(ctx, req.GetCallerId())
+	callerid.AnnotateSpan(ctx, req.GetCallerId())
 	res, reservedState, err := s.pooler.QueryService().ExecuteQuery(ctx, req.Target, req.Query, req.Options)
 	if err != nil {
 		// Convert errors to gRPC format, preserving PostgreSQL error details
@@ -305,7 +284,7 @@ func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipooler
 // Describe returns metadata about a prepared statement or portal.
 // Used by multigateway for the Extended Query Protocol.
 func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.DescribeRequest) (*multipoolerpb.DescribeResponse, error) {
-	annotateCaller(ctx, req.GetCallerId())
+	callerid.AnnotateSpan(ctx, req.GetCallerId())
 	desc, err := s.pooler.QueryService().Describe(ctx, req.Target, req.PreparedStatement, req.Portal, req.Options)
 	if err != nil {
 		// Convert errors to gRPC format, preserving PostgreSQL error details
@@ -326,7 +305,7 @@ func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.Describ
 // PortalStreamExecute executes a portal (bound prepared statement) and streams results.
 // Used by multigateway for the Extended Query Protocol.
 func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecuteRequest, stream multipoolerpb.MultipoolerService_PortalStreamExecuteServer) error {
-	annotateCaller(stream.Context(), req.GetCallerId())
+	callerid.AnnotateSpan(stream.Context(), req.GetCallerId())
 	// The pooler's query service admits the portal (as a reservation when it is
 	// a suspendable cursor or carries reasons) and validates its reasons.
 	return s.portalStreamExecuteTo(stream, s.pooler.QueryService(), req)
@@ -450,7 +429,7 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultipoolerService_
 	if req.Phase != multipoolerpb.CopyBidiExecuteRequest_INITIATE {
 		return status.Errorf(codes.InvalidArgument, "expected INITIATE, got %v", req.Phase)
 	}
-	annotateCaller(ctx, req.GetCallerId())
+	callerid.AnnotateSpan(ctx, req.GetCallerId())
 
 	// COPY always pins a connection (the executor adds ReasonCopy internally, so
 	// reservation reasons in the request can be 0 for an autocommit COPY that
@@ -793,7 +772,7 @@ func (s *poolerService) copyBidiExecuteToStdout(
 // ConcludeTransaction concludes a transaction on a reserved connection.
 // Executes COMMIT or ROLLBACK based on the conclusion. Returns remaining reasons if connection is still reserved.
 func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoolerpb.ConcludeTransactionRequest) (*multipoolerpb.ConcludeTransactionResponse, error) {
-	annotateCaller(ctx, req.GetCallerId())
+	callerid.AnnotateSpan(ctx, req.GetCallerId())
 
 	// The pooler's query service admits it as an existing reservation.
 	executor := s.pooler.QueryService()
@@ -850,7 +829,7 @@ func withReservedStateDetail(grpcErr error, state *query.ReservedState) error {
 // DiscardTempTables sends DISCARD TEMP on a reserved connection and removes the temp table reason.
 // Returns remaining reasons if connection is still reserved.
 func (s *poolerService) DiscardTempTables(ctx context.Context, req *multipoolerpb.DiscardTempTablesRequest) (*multipoolerpb.DiscardTempTablesResponse, error) {
-	annotateCaller(ctx, req.GetCallerId())
+	callerid.AnnotateSpan(ctx, req.GetCallerId())
 
 	// The pooler's query service admits it as an existing reservation.
 	executor := s.pooler.QueryService()
@@ -868,7 +847,7 @@ func (s *poolerService) DiscardTempTables(ctx context.Context, req *multipoolerp
 
 // ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
 func (s *poolerService) ReleaseReservedConnection(ctx context.Context, req *multipoolerpb.ReleaseReservedConnectionRequest) (*multipoolerpb.ReleaseReservedConnectionResponse, error) {
-	annotateCaller(ctx, req.GetCallerId())
+	callerid.AnnotateSpan(ctx, req.GetCallerId())
 
 	// The pooler's query service admits it as an existing reservation.
 	reservedState, err := s.pooler.QueryService().ReleaseReservedConnection(ctx, req.Target, req.Options, req.GetKeepStickyReservations())

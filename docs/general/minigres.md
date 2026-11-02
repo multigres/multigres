@@ -200,6 +200,9 @@ in the topology.
   pooler-side operation span and no transport metrics: traces go from the
   gateway's spans straight to the pooler's internal spans, and the gateway's
   stream-pool metrics (`mg.gateway.query_stream.*`) stay empty in Minigres.
+  The caller's identity (`mg.caller.authenticated_user`,
+  `mg.caller.application_name`), which Multigres puts on the pooler's operation
+  span, goes on the gateway's span for the call instead.
 - **The external gRPC port carries the admin services.** The pooler manager and
   gateway manager services stay on the TCP port, for Multiadmin and the test
   harness. Calling the query service on that port returns `Unimplemented`.
