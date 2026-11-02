@@ -59,6 +59,10 @@ type migrationTarget interface {
 	CreateSubscription(ctx context.Context, name, conninfo, publication string, copyData bool) error
 	DropSubscription(ctx context.Context, name string) error
 	SubscriptionStatus(ctx context.Context, name string) (*SubscriptionStatus, error)
+	CopySnapshot(ctx context.Context, name string) (*CopySnapshot, error)
+	WithCopyLock(ctx context.Context, name string, fn func(*CopySnapshot) error) error
+	SetSubscriptionPublications(ctx context.Context, name, publication string, recovery *CopyRecovery) error
+	TruncateCopyTables(ctx context.Context, name string, recovery *CopyRecovery) error
 	SubscriptionExists(ctx context.Context, name string) (bool, error)
 	PublicationExists(ctx context.Context, name string) (bool, error)
 	CurrentLSN(ctx context.Context) (string, error)
@@ -91,6 +95,9 @@ type migrationSource interface {
 	ReplicationLag(slot string) (lagBytes uint64, lagSeconds float64, present bool, err error)
 	SubscriptionExists(name string) (bool, error)
 	PublicationExists(name string) (bool, error)
+	ReadCopySlots(mainSlot string, names []string) (map[string]bool, error)
+	EnsureCopyPublication(name string, expected []string) error
+	ValidateCopyPublication(name string, expected []string) error
 	WaitSlotConfirmed(slot, targetLSN string) error
 	AdvanceSequences(tables []string, margin int64) error
 	close()

@@ -140,6 +140,31 @@ func switchTarget(p Phase) Direction {
 	}
 }
 
+// CopyRecoveryTable identifies one table that needs a fresh initial copy.
+type CopyRecoveryTable struct {
+	Name string `json:"name"`
+	OID  int64  `json:"oid"`
+}
+
+const (
+	// CopyRecoveryDetach removes the affected tables before their rows are cleared.
+	CopyRecoveryDetach = "detach"
+	// CopyRecoveryAttach restores the original publication after truncation.
+	CopyRecoveryAttach = "attach"
+	// CopyRecoveryWait waits for the restored tables to reach READY.
+	CopyRecoveryWait = "wait"
+)
+
+// CopyRecovery records repair intent before the subscription changes.
+// SubscriptionOID and SystemID bind it to the original target subscription.
+// A coordinator must never truncate tables in the attach or wait stages.
+type CopyRecovery struct {
+	Stage           string              `json:"stage"`
+	SubscriptionOID int64               `json:"subscription_oid"`
+	SystemID        string              `json:"system_id"`
+	Tables          []CopyRecoveryTable `json:"tables"`
+}
+
 // Migration is the persisted (coordinator-owned) state of one migration — the
 // intent, inputs, and history. Live copy/stream status (relation counts, lag,
 // caught-up) is NOT stored here; it is derived from pg_subscription_rel and
@@ -196,6 +221,10 @@ type Migration struct {
 
 	LastError string
 
+	// CopyRecovery blocks normal migration advancement until the original table
+	// set is ready. It remains present while a primary resumes an interrupted repair.
+	CopyRecovery *CopyRecovery
+
 	// ReverseLinkError is set when ensureReverseExportLink finds the EXPORT
 	// reverse link unusable (missing, still temporary, or invalidated slot) and
 	// cleared once Coordinator.ReseedReverseLink repairs it. Empty means the
@@ -245,8 +274,13 @@ const CreateMigrationSQL = `CREATE TABLE IF NOT EXISTS multigres.migration (
 	direction TEXT NOT NULL DEFAULT 'IMPORT',
 	last_error TEXT NOT NULL DEFAULT '',
 	reverse_link_error TEXT NOT NULL DEFAULT '',
+	copy_recovery JSONB NULL,
 	streaming_since TIMESTAMPTZ NULL
 )`
+
+// AddCopyRecoveryColumnSQL upgrades migration tables that predate table repair.
+const AddCopyRecoveryColumnSQL = `ALTER TABLE multigres.migration
+	ADD COLUMN IF NOT EXISTS copy_recovery JSONB NULL`
 
 // AddConnectionForeignKeySQL adds the foreign key from migration.connection_id
 // into multigres.connections, on the catalog shard (the store runs it only where

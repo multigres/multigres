@@ -1537,6 +1537,9 @@ func (c *Coordinator) teardown(ctx context.Context, m *Migration, dir Direction)
 			// force drop that never quiesced.
 			logErr("un-quiesce source", src.SetReadOnly(false))
 			logErr("drop source publication", src.DropPublication(m.PublicationName()))
+			if m.CopyRecovery != nil {
+				logErr("drop table recovery publication", src.DropPublication(copyRecoveryPublication(m)))
+			}
 		}
 		return
 	}
@@ -1577,9 +1580,15 @@ func (c *Coordinator) Reconcile(ctx context.Context) error {
 func (c *Coordinator) reconcileLocked(ctx context.Context, m *Migration) error {
 	switch m.Phase {
 	case PhaseCopying:
+		if m.CopyRecovery != nil {
+			return c.reconcileCopyRecovery(ctx, m)
+		}
 		status, err := c.target.SubscriptionStatus(ctx, m.SubscriptionName())
 		if err != nil {
 			return err
+		}
+		if !status.CaughtUp {
+			return c.startCopyRecovery(ctx, m)
 		}
 		if status.CaughtUp {
 			now := c.now()
@@ -1819,7 +1828,7 @@ func (c *Coordinator) project(ctx context.Context, m *Migration, status *Subscri
 	if status != nil {
 		p.TotalRelations = status.TotalRelations
 		p.ReadyRelations = status.ReadyRelations
-		p.CaughtUp = status.CaughtUp
+		p.CaughtUp = status.CaughtUp && m.CopyRecovery == nil
 		p.ReceivedLSN = status.ReceivedLSN
 		p.LatestEndLSN = status.LatestEndLSN
 		p.LagBytes = status.LagBytes

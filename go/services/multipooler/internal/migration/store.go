@@ -84,7 +84,7 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 		return fmt.Errorf("ensure migration schema: %w", err)
 	}
 	sqlList := []string{
-		CreateMigrationSQL, CreateMigrationTablesSQL, CreateMigrationJournalSQL,
+		CreateMigrationSQL, AddCopyRecoveryColumnSQL, CreateMigrationTablesSQL, CreateMigrationJournalSQL,
 		MigrationNameUniqueIndexSQL, MigrationJournalMigrationIndexSQL,
 	}
 	for _, sql := range sqlList {
@@ -166,7 +166,7 @@ func (s *Store) Insert(ctx context.Context, m *Migration) error {
 const (
 	updateMigrationSQL = `UPDATE multigres.migration SET
 	migration_phase=$2, connection_id=$3,
-	sequence_margin=$4, last_error=$5, streaming_since=$6, direction=$7, reverse_link_error=$8
+	sequence_margin=$4, last_error=$5, streaming_since=$6, direction=$7, reverse_link_error=$8, copy_recovery=$9::jsonb
 	WHERE migration_id=$1`
 
 	deleteMigrationTablesSQL = `DELETE FROM multigres.migration_tables WHERE migration_id=$1`
@@ -175,6 +175,17 @@ const (
 // Update writes back the mutable fields of a migration and replaces its table
 // list, atomically. The id and migration_target are immutable and not updated.
 func (s *Store) Update(ctx context.Context, m *Migration) error {
+	var copyRecoveryJSON any
+	if m.CopyRecovery != nil {
+		if err := validateCopyRecovery(m.CopyRecovery); err != nil {
+			return fmt.Errorf("update migration: %w", err)
+		}
+		data, err := json.Marshal(m.CopyRecovery)
+		if err != nil {
+			return fmt.Errorf("marshal copy recovery: %w", err)
+		}
+		copyRecoveryJSON = string(data)
+	}
 	var streamingSince any
 	if m.StreamingSince != nil {
 		streamingSince = *m.StreamingSince
@@ -187,7 +198,7 @@ func (s *Store) Update(ctx context.Context, m *Migration) error {
 	if _, err := tx.QueryArgs(
 		ctx, updateMigrationSQL,
 		m.ID, string(m.Phase), m.ConnectionID,
-		m.SequenceMargin, m.LastError, streamingSince, string(m.effectiveDirection()), m.ReverseLinkError,
+		m.SequenceMargin, m.LastError, streamingSince, string(m.effectiveDirection()), m.ReverseLinkError, copyRecoveryJSON,
 	); err != nil {
 		return fmt.Errorf("update migration: %w", err)
 	}
@@ -303,7 +314,8 @@ const selectMigrationSQL = `SELECT m.migration_id, m.migration_phase, COALESCE(m
 	m.created_at, m.streaming_since,
 	CASE WHEN count(t.table_name) = 0 THEN '[]'
 	     ELSE json_agg(t.schema_name || '.' || t.table_name)::text
-	END AS tables
+	END AS tables,
+	m.copy_recovery::text
 	FROM multigres.migration m
 	LEFT JOIN multigres.migration_tables t USING (migration_id)
 	GROUP BY m.migration_id`
@@ -350,6 +362,15 @@ func (s *Store) cacheStore(m *Migration) {
 	}
 	cp := *m
 	cp.Tables = append([]string(nil), m.Tables...)
+	if m.StreamingSince != nil {
+		streamingSince := *m.StreamingSince
+		cp.StreamingSince = &streamingSince
+	}
+	if m.CopyRecovery != nil {
+		recovery := *m.CopyRecovery
+		recovery.Tables = append([]CopyRecoveryTable(nil), m.CopyRecovery.Tables...)
+		cp.CopyRecovery = &recovery
+	}
 	s.cache[m.ID] = &cp
 }
 
@@ -599,16 +620,17 @@ func scanConnection(row *sqltypes.Row) (*Connection, error) {
 }
 
 // scanMigration decodes a result row (in selectMigrationSQL order) into a
-// Migration. The trailing tables column is a JSON array of "schema.table".
+// Migration. The tables column is a JSON array of "schema.table".
 func scanMigration(row *sqltypes.Row) (*Migration, error) {
 	var (
-		m          Migration
-		phase      string
-		direction  string
-		streaming  *time.Time
-		tablesJSON string
+		m            Migration
+		phase        string
+		direction    string
+		streaming    *time.Time
+		tablesJSON   string
+		recoveryJSON *string
 	)
-	err := executor.ScanRow(row, &m.ID, &phase, &m.Name, &m.ConnectionID, &m.TargetDatabase, &m.TargetShard, &m.TargetTableGroup, &m.SequenceMargin, &m.CopyData, &m.SkipSchemaCopy, &direction, &m.LastError, &m.ReverseLinkError, &m.CreatedAt, &streaming, &tablesJSON)
+	err := executor.ScanRow(row, &m.ID, &phase, &m.Name, &m.ConnectionID, &m.TargetDatabase, &m.TargetShard, &m.TargetTableGroup, &m.SequenceMargin, &m.CopyData, &m.SkipSchemaCopy, &direction, &m.LastError, &m.ReverseLinkError, &m.CreatedAt, &streaming, &tablesJSON, &recoveryJSON)
 	if err != nil {
 		return nil, fmt.Errorf("scan migration: %w", err)
 	}
@@ -620,7 +642,45 @@ func scanMigration(row *sqltypes.Row) (*Migration, error) {
 			return nil, fmt.Errorf("unmarshal tables: %w", err)
 		}
 	}
+	if recoveryJSON != nil {
+		if err := json.Unmarshal([]byte(*recoveryJSON), &m.CopyRecovery); err != nil {
+			return nil, fmt.Errorf("unmarshal copy recovery: %w", err)
+		}
+		if err := validateCopyRecovery(m.CopyRecovery); err != nil {
+			return nil, fmt.Errorf("unmarshal copy recovery: %w", err)
+		}
+	}
 	return &m, nil
+}
+
+// validateCopyRecovery refuses incomplete persisted repair intent.
+// Unknown stages must stop coordination rather than restart destructive steps.
+func validateCopyRecovery(recovery *CopyRecovery) error {
+	if recovery == nil {
+		return errors.New("copy recovery must be an object")
+	}
+	switch recovery.Stage {
+	case CopyRecoveryDetach, CopyRecoveryAttach, CopyRecoveryWait:
+	default:
+		return fmt.Errorf("invalid copy recovery stage %q", recovery.Stage)
+	}
+	if recovery.SubscriptionOID <= 0 || recovery.SystemID == "" || len(recovery.Tables) == 0 {
+		return errors.New("copy recovery requires subscription, system, and table identities")
+	}
+	names := make(map[string]bool, len(recovery.Tables))
+	oids := make(map[int64]bool, len(recovery.Tables))
+	for _, table := range recovery.Tables {
+		schema, name, qualified := strings.Cut(table.Name, ".")
+		if !qualified || schema == "" || name == "" || table.OID <= 0 {
+			return fmt.Errorf("invalid copy recovery table identity %q", table.Name)
+		}
+		if names[table.Name] || oids[table.OID] {
+			return fmt.Errorf("duplicate copy recovery table identity %q", table.Name)
+		}
+		names[table.Name] = true
+		oids[table.OID] = true
+	}
+	return nil
 }
 
 // nullableString maps an empty string to a SQL NULL — used for migration.name,

@@ -219,6 +219,7 @@ func selectRow(id int64, name, createdAt string) *sqltypes.Row {
 		sqltypes.Value(createdAt),                 // created_at
 		nil,                                       // streaming_since (NULL)
 		sqltypes.Value(`["public.orders"]`),       // tables
+		nil,                                       // copy_recovery (NULL)
 	}}
 }
 
@@ -682,4 +683,143 @@ func TestStoreConnectionQueriesReportAMissingConnectionsTable(t *testing.T) {
 		require.ErrorIs(t, err, boom)
 		require.NotErrorIs(t, err, ErrNoConnectionsTable)
 	})
+}
+
+func validCopyRecovery(stage string) *CopyRecovery {
+	return &CopyRecovery{
+		Stage: stage, SubscriptionOID: 1234, SystemID: "7702590315057866946",
+		Tables: []CopyRecoveryTable{{Name: "public.orders", OID: 5678}},
+	}
+}
+
+func TestStoreCopyRecoveryRoundTrip(t *testing.T) {
+	for _, stage := range []string{CopyRecoveryDetach, CopyRecoveryAttach, CopyRecoveryWait} {
+		t.Run(stage, func(t *testing.T) {
+			qs := &fakeQS{}
+			m := &Migration{
+				ID: 1, Phase: PhaseCopying, ConnectionID: 42,
+				Tables: []string{"public.orders"}, CopyRecovery: validCopyRecovery(stage),
+			}
+			require.NoError(t, NewStore(qs).Update(t.Context(), m))
+			require.True(t, qs.tx.committed)
+			persisted := qs.tx.calls[0]
+			require.Equal(t, updateMigrationSQL, persisted.sql)
+			require.Len(t, persisted.args, 9)
+			recoveryJSON, ok := persisted.args[8].(string)
+			require.True(t, ok, "JSON is passed as text with an explicit jsonb cast")
+			row := selectRow(1, "", "2026-03-04T05:06:07Z")
+			row.Values[len(row.Values)-1] = sqltypes.Value(recoveryJSON)
+			loaded, err := scanMigration(row)
+			require.NoError(t, err)
+			require.Equal(t, m.CopyRecovery, loaded.CopyRecovery)
+		})
+	}
+}
+
+func TestStoreCopyRecoveryCanBeCleared(t *testing.T) {
+	qs := &fakeQS{}
+	s := NewStore(qs)
+	s.cache = map[int64]*Migration{1: {ID: 1, CopyRecovery: validCopyRecovery(CopyRecoveryWait)}}
+	require.NoError(t, s.Update(t.Context(), &Migration{ID: 1, Phase: PhaseCopying, ConnectionID: 42}))
+	require.Nil(t, qs.tx.calls[0].args[8], "clearing repair intent writes SQL NULL")
+	loaded, err := s.Get(t.Context(), 1)
+	require.NoError(t, err)
+	require.Nil(t, loaded.CopyRecovery)
+
+	loaded, err = scanMigration(selectRow(1, "", "2026-03-04T05:06:07Z"))
+	require.NoError(t, err)
+	require.Nil(t, loaded.CopyRecovery, "old rows have no repair intent")
+}
+
+func TestStoreCopyRecoveryCacheIsIndependent(t *testing.T) {
+	qs := &fakeQS{}
+	s := NewStore(qs)
+	s.cache = map[int64]*Migration{1: {ID: 1}}
+	m := &Migration{
+		ID: 1, Phase: PhaseCopying, ConnectionID: 42,
+		Tables: []string{"public.orders"}, CopyRecovery: validCopyRecovery(CopyRecoveryDetach),
+	}
+	require.NoError(t, s.Update(t.Context(), m))
+	m.Tables[0] = "public.changed"
+	m.CopyRecovery.Stage = CopyRecoveryWait
+	m.CopyRecovery.Tables[0].Name = "public.changed"
+	m.CopyRecovery.Tables = append(m.CopyRecovery.Tables, CopyRecoveryTable{Name: "public.extra", OID: 9999})
+	loaded, err := s.Get(t.Context(), 1)
+	require.NoError(t, err)
+	require.Equal(t, []string{"public.orders"}, loaded.Tables)
+	require.Equal(t, validCopyRecovery(CopyRecoveryDetach), loaded.CopyRecovery)
+	require.NotSame(t, m.CopyRecovery, loaded.CopyRecovery)
+}
+
+func TestStoreCopyRecoveryUpdateFailureKeepsCache(t *testing.T) {
+	failure := errors.New("write failed")
+	qs := &fakeQS{tx: &fakeTx{scriptedErrs: map[string]error{updateMigrationSQL: failure}}}
+	s := NewStore(qs)
+	s.cache = map[int64]*Migration{1: {ID: 1, CopyRecovery: validCopyRecovery(CopyRecoveryDetach)}}
+	m := &Migration{ID: 1, Phase: PhaseCopying, ConnectionID: 42, CopyRecovery: validCopyRecovery(CopyRecoveryAttach)}
+	require.ErrorIs(t, s.Update(t.Context(), m), failure)
+	require.False(t, qs.tx.committed)
+	require.True(t, qs.tx.rolledBack)
+	loaded, err := s.Get(t.Context(), 1)
+	require.NoError(t, err)
+	require.Equal(t, CopyRecoveryDetach, loaded.CopyRecovery.Stage)
+}
+
+func TestStoreCopyRecoveryRejectsInvalidUpdate(t *testing.T) {
+	qs := &fakeQS{}
+	m := &Migration{ID: 1, Phase: PhaseCopying, CopyRecovery: validCopyRecovery("unknown")}
+	err := NewStore(qs).Update(t.Context(), m)
+	require.ErrorContains(t, err, "invalid copy recovery stage")
+	require.Nil(t, qs.tx, "invalid intent must not reach the database")
+}
+
+func TestScanMigrationRejectsMalformedCopyRecovery(t *testing.T) {
+	for name, value := range map[string]string{
+		"invalid JSON":      `{"stage":`,
+		"JSON null":         `null`,
+		"array":             `[]`,
+		"empty object":      `{}`,
+		"unknown stage":     `{"stage":"unknown","subscription_oid":1234,"system_id":"7702590315057866946","tables":[{"name":"public.orders","oid":5678}]}`,
+		"missing identity":  `{"stage":"detach","tables":[{"name":"public.orders","oid":5678}]}`,
+		"missing tables":    `{"stage":"detach","subscription_oid":1234,"system_id":"7702590315057866946"}`,
+		"unqualified table": `{"stage":"detach","subscription_oid":1234,"system_id":"7702590315057866946","tables":[{"name":"orders","oid":5678}]}`,
+		"duplicate table":   `{"stage":"detach","subscription_oid":1234,"system_id":"7702590315057866946","tables":[{"name":"public.orders","oid":5678},{"name":"public.orders","oid":5679}]}`,
+		"duplicate OID":     `{"stage":"detach","subscription_oid":1234,"system_id":"7702590315057866946","tables":[{"name":"public.orders","oid":5678},{"name":"public.items","oid":5678}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			row := selectRow(1, "", "2026-03-04T05:06:07Z")
+			row.Values[len(row.Values)-1] = sqltypes.Value(value)
+			_, err := scanMigration(row)
+			require.ErrorContains(t, err, "unmarshal copy recovery")
+		})
+	}
+}
+
+func TestEnsureSchemaUpgradesCopyRecovery(t *testing.T) {
+	qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{
+		shardref.CheckLegacyTypeSQL: noLegacyShardRefResult(),
+		connectionsPresentSQL:       boolResult(true),
+	}}
+	require.NoError(t, NewStore(qs).EnsureSchema(t.Context()))
+	require.Contains(t, CreateMigrationSQL, "copy_recovery JSONB NULL")
+	require.Contains(t, AddCopyRecoveryColumnSQL, "ADD COLUMN IF NOT EXISTS copy_recovery JSONB NULL")
+	tableIndex, upgradeIndex := -1, -1
+	for i, query := range qs.adminQueries {
+		if query == CreateMigrationSQL {
+			tableIndex = i
+		}
+		if query == AddCopyRecoveryColumnSQL {
+			upgradeIndex = i
+		}
+	}
+	require.GreaterOrEqual(t, tableIndex, 0)
+	require.Greater(t, upgradeIndex, tableIndex, "existing tables gain the column before coordinator reads")
+
+	failed := errors.New("upgrade blocked")
+	qs = &fakeQS{
+		scriptedResults: map[string]*sqltypes.Result{shardref.CheckLegacyTypeSQL: noLegacyShardRefResult()},
+		scriptedErrs:    map[string]error{AddCopyRecoveryColumnSQL: failed},
+	}
+	require.ErrorIs(t, NewStore(qs).EnsureSchema(t.Context()), failed)
+	require.NotContains(t, qs.adminQueries, connectionsPresentSQL, "an incomplete upgrade stops schema setup")
 }
