@@ -275,6 +275,14 @@ func connToProto(c *migration.Connection) *migratorpb.Connection {
 	}
 }
 
+// errNoConnectionsTableMsg is what a caller sees when a connection query finds
+// no multigres.connections. It is true on both kinds of shard: connections live
+// on the catalog shard only, and there the table is created when the pooler
+// opens, so on the catalog shard the error means that has not completed yet.
+const errNoConnectionsTableMsg = "multigres.connections is not available on this shard: " +
+	"connections live on the catalog shard (tablegroup default, shard 0-inf), " +
+	"and on the catalog shard the table is created when the pooler opens"
+
 // toGRPC maps coordinator errors to gRPC status errors.
 func toGRPC(err error) error {
 	if errors.Is(err, migration.ErrNotFound) {
@@ -283,8 +291,14 @@ func toGRPC(err error) error {
 	if errors.Is(err, migration.ErrConnectionNotFound) {
 		return status.Error(codes.NotFound, err.Error())
 	}
+	if errors.Is(err, migration.ErrConnectionInUse) {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
 	if errors.Is(err, migration.ErrNotReady) {
 		return status.Error(codes.FailedPrecondition, err.Error())
+	}
+	if errors.Is(err, migration.ErrNoConnectionsTable) {
+		return status.Error(codes.FailedPrecondition, errNoConnectionsTableMsg)
 	}
 	return mterrors.ToGRPC(err)
 }

@@ -26,7 +26,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	migratorpb "github.com/multigres/multigres/go/pb/migrator"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
@@ -145,7 +147,7 @@ func TestGetMigrationJournal(t *testing.T) {
 
 func TestCreateConnection(t *testing.T) {
 	svc, qs := newTestService(t)
-	qs.AddQueryPattern(`INSERT INTO multigres\.migration_connection`, mock.MakeQueryResult(nil, nil))
+	qs.AddQueryPattern(`INSERT INTO multigres\.connections`, mock.MakeQueryResult(nil, nil))
 
 	resp, err := svc.CreateConnection(context.Background(), &migratorpb.CreateConnectionRequest{
 		Connection: &migratorpb.Connection{Name: "src", Dsn: "host=h dbname=app"},
@@ -157,7 +159,7 @@ func TestCreateConnection(t *testing.T) {
 func TestGetConnection(t *testing.T) {
 	t.Run("found", func(t *testing.T) {
 		svc, qs := newTestService(t)
-		qs.AddQueryPattern(`FROM multigres\.migration_connection WHERE connection_id`, mock.MakeQueryResult(
+		qs.AddQueryPattern(`FROM multigres\.connections WHERE connection_id`, mock.MakeQueryResult(
 			[]string{"connection_id", "name", "dsn", "owner_role", "created_at"},
 			[][]any{{int64(1), "src", "host=h dbname=app", "", "2026-01-01T00:00:00Z"}},
 		))
@@ -171,7 +173,7 @@ func TestGetConnection(t *testing.T) {
 
 	t.Run("not found maps to NotFound", func(t *testing.T) {
 		svc, qs := newTestService(t)
-		qs.AddQueryPattern(`FROM multigres\.migration_connection WHERE connection_id`, mock.MakeQueryResult(nil, nil))
+		qs.AddQueryPattern(`FROM multigres\.connections WHERE connection_id`, mock.MakeQueryResult(nil, nil))
 
 		_, err := svc.GetConnection(context.Background(), &migratorpb.GetConnectionRequest{
 			Ref: &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Id{Id: 99}},
@@ -183,7 +185,7 @@ func TestGetConnection(t *testing.T) {
 
 func TestListConnections(t *testing.T) {
 	svc, qs := newTestService(t)
-	qs.AddQueryPattern(`SELECT connection_id, name, dsn, owner_role, created_at\s*FROM multigres\.migration_connection$`, mock.MakeQueryResult(
+	qs.AddQueryPattern(`SELECT connection_id, name, dsn, owner_role, created_at\s*FROM multigres\.connections$`, mock.MakeQueryResult(
 		[]string{"connection_id", "name", "dsn", "owner_role", "created_at"},
 		[][]any{
 			{int64(1), "a", "host=h1", "", "2026-01-01T00:00:00Z"},
@@ -199,11 +201,11 @@ func TestListConnections(t *testing.T) {
 func TestDropConnection(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		svc, qs := newTestService(t)
-		qs.AddQueryPattern(`FROM multigres\.migration_connection WHERE connection_id`, mock.MakeQueryResult(
+		qs.AddQueryPattern(`FROM multigres\.connections WHERE connection_id`, mock.MakeQueryResult(
 			[]string{"connection_id", "name", "dsn", "owner_role", "created_at"},
 			[][]any{{int64(1), "src", "host=h", "", "2026-01-01T00:00:00Z"}},
 		))
-		qs.AddQueryPattern(`DELETE FROM multigres\.migration_connection`, mock.MakeQueryResult(nil, nil))
+		qs.AddQueryPattern(`DELETE FROM multigres\.connections`, mock.MakeQueryResult([]string{"deleted", "referenced"}, [][]any{{true, false}}))
 
 		_, err := svc.DropConnection(context.Background(), &migratorpb.DropConnectionRequest{
 			Ref: &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Id{Id: 1}},
@@ -211,9 +213,25 @@ func TestDropConnection(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("a connection that a migration references maps to FailedPrecondition", func(t *testing.T) {
+		svc, qs := newTestService(t)
+		qs.AddQueryPattern(`FROM multigres\.connections WHERE connection_id`, mock.MakeQueryResult(
+			[]string{"connection_id", "name", "dsn", "owner_role", "created_at"},
+			[][]any{{int64(1), "src", "host=h", "", "2026-01-01T00:00:00Z"}},
+		))
+		qs.AddQueryPattern(`DELETE FROM multigres\.connections`, mock.MakeQueryResult([]string{"deleted", "referenced"}, [][]any{{false, true}}))
+
+		_, err := svc.DropConnection(context.Background(), &migratorpb.DropConnectionRequest{
+			Ref: &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Id{Id: 1}},
+		})
+		require.Error(t, err)
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+		assert.Contains(t, err.Error(), "referenced by a migration")
+	})
+
 	t.Run("missing without IfExists maps to NotFound", func(t *testing.T) {
 		svc, qs := newTestService(t)
-		qs.AddQueryPattern(`FROM multigres\.migration_connection WHERE connection_id`, mock.MakeQueryResult(nil, nil))
+		qs.AddQueryPattern(`FROM multigres\.connections WHERE connection_id`, mock.MakeQueryResult(nil, nil))
 
 		_, err := svc.DropConnection(context.Background(), &migratorpb.DropConnectionRequest{
 			Ref: &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Id{Id: 99}},
@@ -224,7 +242,7 @@ func TestDropConnection(t *testing.T) {
 
 	t.Run("missing with IfExists is a no-op success", func(t *testing.T) {
 		svc, qs := newTestService(t)
-		qs.AddQueryPattern(`FROM multigres\.migration_connection WHERE connection_id`, mock.MakeQueryResult(nil, nil))
+		qs.AddQueryPattern(`FROM multigres\.connections WHERE connection_id`, mock.MakeQueryResult(nil, nil))
 
 		_, err := svc.DropConnection(context.Background(), &migratorpb.DropConnectionRequest{
 			Ref:      &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Id{Id: 99}},
@@ -232,6 +250,64 @@ func TestDropConnection(t *testing.T) {
 		})
 		require.NoError(t, err)
 	})
+}
+
+// TestMigrationService_MissingConnectionsTable: connections are rows of
+// multigres.connections, which exists on the catalog shard only. On any other shard
+// the table is undefined, PostgreSQL says 42P01, and each handler that reads or writes
+// a connection answers FAILED_PRECONDITION saying where connections live. The text is
+// also true on the catalog shard, where the same error means the catalog ensure has
+// not completed.
+func TestMigrationService_MissingConnectionsTable(t *testing.T) {
+	svc, qs := newTestService(t)
+	qs.AddQueryPatternWithError(`multigres\.connections`, &mterrors.PgDiagnostic{
+		MessageType: 'E', Severity: "ERROR", Code: mterrors.PgSSUndefinedTable,
+		Message: `relation "multigres.connections" does not exist`,
+	})
+	ctx := context.Background()
+
+	cases := map[string]func() error{
+		"CreateMigration": func() error {
+			_, err := svc.CreateMigration(ctx, &migratorpb.CreateMigrationRequest{Migration: &migratorpb.MigrationRecord{
+				ConnectionName: "src",
+				Target:         &clustermetadatapb.ShardRef{Database: "app"},
+				Objects:        &migratorpb.SelectionObject{Object: &migratorpb.SelectionObject_Table{Table: &migratorpb.TableSpec{QualifiedNames: []string{"public.orders"}}}},
+			}})
+			return err
+		},
+		"CreateConnection": func() error {
+			_, err := svc.CreateConnection(ctx, &migratorpb.CreateConnectionRequest{
+				Connection: &migratorpb.Connection{Name: "src", Dsn: "host=src dbname=app"},
+			})
+			return err
+		},
+		"GetConnection": func() error {
+			_, err := svc.GetConnection(ctx, &migratorpb.GetConnectionRequest{
+				Ref: &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Name{Name: "src"}},
+			})
+			return err
+		},
+		"ListConnections": func() error {
+			_, err := svc.ListConnections(ctx, &migratorpb.ListConnectionsRequest{})
+			return err
+		},
+		"DropConnection": func() error {
+			_, err := svc.DropConnection(ctx, &migratorpb.DropConnectionRequest{
+				Ref: &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Id{Id: 1}},
+			})
+			return err
+		},
+	}
+	for name, call := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := call()
+			require.Error(t, err)
+			assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+			assert.Equal(t, errNoConnectionsTableMsg, status.Convert(err).Message())
+			assert.Contains(t, err.Error(), "catalog shard (tablegroup default, shard 0-inf)")
+			assert.NotContains(t, err.Error(), "not on the catalog shard")
+		})
+	}
 }
 
 // TestMigrationService_PrimaryGateError covers the one thing every handler in

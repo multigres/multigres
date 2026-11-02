@@ -46,14 +46,17 @@ var catalogFormat1Columns = map[string][]string{
 		"operation_id", "kind", "state", "request", "initiating_role", "cancel_requested",
 		"last_error", "created_at", "updated_at",
 	},
+	"connections": {"connection_id", "name", "dsn", "owner_role", "created_at"},
 }
 
 // legacyCatalogSQL replaces the format 1 catalog with the pre-versioning
 // layout and rows that older binaries bootstrapped.
 const legacyCatalogSQL = `BEGIN;
+DROP VIEW IF EXISTS multigres.stat_migration;
+ALTER TABLE multigres.migration DROP CONSTRAINT IF EXISTS migration_connections_fkey;
 DROP TABLE multigres.shard_key_column, multigres.shard_key, multigres.shard_index,
 	multigres.tablegroup_table, multigres.shard, multigres.tablegroup, multigres.operation,
-	multigres.catalog_state;
+	multigres.connections, multigres.catalog_state;
 CREATE TABLE multigres.tablegroup (
 	oid BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL UNIQUE,
@@ -121,6 +124,11 @@ func requireCatalogFormat1(t *testing.T, db *sql.DB) {
 		assert.Equal(t, strings.Join(want, ","), cols.String, "multigres.%s columns", table)
 	}
 
+	// multigres.migration references the connections table by a foreign key, which the
+	// migrator's schema ensure adds on this (the catalog) shard: the reconcile poller runs
+	// it within its first interval.
+	requireMigrationForeignKey(t, db)
+
 	var formatVersion int
 	var routingVersion, planEpoch int64
 	require.NoError(t, db.QueryRow(`SELECT format_version, routing_version, plan_epoch FROM multigres.catalog_state`).
@@ -153,11 +161,28 @@ func requireCatalogFormat1(t *testing.T, db *sql.DB) {
 		  AND pg_get_constraintdef(oid) LIKE '%type%'`).Scan(&typeChecks))
 	assert.Zero(t, typeChecks, "shard_index.type must not be limited to a fixed list")
 
-	for _, table := range []string{"tablegroup_table", "shard_index", "shard_key", "shard_key_column", "operation"} {
+	for _, table := range []string{"tablegroup_table", "shard_index", "shard_key", "shard_key_column", "operation", "connections"} {
 		var n int
 		require.NoError(t, db.QueryRow(`SELECT count(*) FROM multigres.`+table).Scan(&n))
 		assert.Zero(t, n, "multigres.%s should start empty", table)
 	}
+}
+
+// requireMigrationForeignKey waits until multigres.migration has exactly one foreign key,
+// to multigres.connections(connection_id). The migrator's schema ensure adds it, from the
+// reconcile poller (every 10 seconds) or on the first migration RPC, not the catalog ensure.
+func requireMigrationForeignKey(t *testing.T, db *sql.DB) {
+	t.Helper()
+	const want = "FOREIGN KEY (connection_id) REFERENCES multigres.connections(connection_id)"
+	var defs sql.NullString
+	require.Eventually(t, func() bool {
+		defs = sql.NullString{}
+		if err := db.QueryRow(`SELECT string_agg(pg_get_constraintdef(oid), '; ' ORDER BY oid)
+			FROM pg_constraint WHERE conrelid = to_regclass('multigres.migration') AND contype = 'f'`).Scan(&defs); err != nil {
+			return false
+		}
+		return strings.TrimSuffix(defs.String, " NOT VALID") == want
+	}, 45*time.Second, 250*time.Millisecond, "multigres.migration should reference multigres.connections (have %q)", defs.String)
 }
 
 // waitForCatalogFormat waits until db reports the given catalog format.

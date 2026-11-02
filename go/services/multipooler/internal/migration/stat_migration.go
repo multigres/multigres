@@ -30,7 +30,9 @@ package migration
 
 // CreateStatMigrationViewSQL defines multigres.stat_migration. CREATE OR
 // REPLACE VIEW is itself idempotent; shard_ref, which migration_target is
-// stored as, is not and must exist before multigres.migration itself does.
+// stored as, is not and must exist before multigres.migration itself does. It
+// joins multigres.connections, which exists on the catalog shard only, so
+// Store.EnsureSchema creates the view only where that table exists.
 //
 // total_relations/ready_relations and lag_bytes/lag_seconds are both read from
 // whichever side of the replication link is locally visible to this target
@@ -59,7 +61,7 @@ SELECT
 	COALESCE(lag.lag_seconds, 0) AS lag_seconds,
 	m.last_error
 FROM multigres.migration m
-JOIN multigres.migration_connection c USING (connection_id)
+JOIN multigres.connections c USING (connection_id)
 LEFT JOIN pg_subscription ps ON ps.subname = 'mt_sub_' || m.migration_id::text
 LEFT JOIN pg_subscription_rel r ON r.srsubid = ps.oid
 LEFT JOIN LATERAL (
@@ -74,7 +76,7 @@ GROUP BY m.migration_id, m.migration_name, c.name, m.migration_target,
 	 m.migration_phase, m.direction, m.last_error, lag.lag_bytes, lag.lag_seconds`
 
 // GrantStatMigrationSQL makes the view readable by any role, unlike
-// multigres.migration/migration_connection/migration_journal, which carry a
+// multigres.migration/connections/migration_journal, which carry a
 // source DSN/password and deliberately get no PUBLIC grant: stat_migration
 // exposes only connection_name, never the DSN, so it is safe for the gateway's
 // own serving connection and any operator to query directly. GRANT is

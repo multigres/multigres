@@ -89,6 +89,15 @@ func connectStreamPool(t testing.TB, impl pb.MultipoolerServiceServer, extraDial
 // stopStreamServer stops the most recently connected test server.
 var stopStreamServer func()
 
+// idleSnapshot copies p.idle under p.mu. The pool's connectivity watcher and
+// idle timers mutate the slice from their own goroutines, so tests must never
+// read it unlocked.
+func (p *streamPool) idleSnapshot() []*streamLease {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]*streamLease(nil), p.idle...)
+}
+
 func streamQuery(t testing.TB, p *streamPool, ctx context.Context, sql string) error {
 	t.Helper()
 	r, used, err := p.Open(ctx, &pb.StreamExecuteRequest{Query: sql})
@@ -260,7 +269,7 @@ func TestTransportLossNotReplayed(t *testing.T) {
 	err := streamQuery(t, p, t.Context(), "write")
 	require.Equal(t, codes.Unavailable, status.Code(err))
 	require.EqualValues(t, 1, received.Load())
-	require.Empty(t, p.idle)
+	require.Empty(t, p.idleSnapshot())
 }
 
 func TestConcurrentExclusiveLeases(t *testing.T) {
@@ -279,9 +288,9 @@ func TestConcurrentExclusiveLeases(t *testing.T) {
 		})
 	}
 	wg.Wait()
-	require.LessOrEqual(t, len(p.idle), maxIdleStreams)
+	require.LessOrEqual(t, len(p.idleSnapshot()), maxIdleStreams)
 	p.Close()
-	require.Empty(t, p.idle)
+	require.Empty(t, p.idleSnapshot())
 }
 
 func TestRetirementAndLateCancellation(t *testing.T) {
@@ -296,7 +305,7 @@ func TestRetirementAndLateCancellation(t *testing.T) {
 	p.idle[0].requests = maxStreamRequests - 1
 	p.mu.Unlock()
 	require.NoError(t, streamQuery(t, p, t.Context(), "retire"))
-	require.Empty(t, p.idle)
+	require.Empty(t, p.idleSnapshot())
 	require.NoError(t, streamQuery(t, p, t.Context(), "new"))
 	require.EqualValues(t, 2, s.streams.Load())
 }
@@ -314,7 +323,7 @@ func TestMalformedFrames(t *testing.T) {
 		}}
 		_, p := connectStreamPool(t, s)
 		require.Equal(t, codes.Internal, status.Code(streamQuery(t, p, t.Context(), "ok")))
-		require.Empty(t, p.idle)
+		require.Empty(t, p.idleSnapshot())
 	}
 }
 
@@ -331,7 +340,7 @@ func TestHandshakeRejectsRetirement(t *testing.T) {
 	require.Equal(t, codes.Internal, status.Code(err))
 	require.False(t, used)
 	require.Nil(t, r)
-	require.Empty(t, p.idle)
+	require.Empty(t, p.idleSnapshot())
 }
 
 func TestOperationDeadline(t *testing.T) {
@@ -383,7 +392,7 @@ func TestTransportEOFCannotReportSuccess(t *testing.T) {
 	}}
 	_, p := connectStreamPool(t, s)
 	require.Equal(t, codes.Unavailable, status.Code(streamQuery(t, p, t.Context(), "write")))
-	require.Empty(t, p.idle)
+	require.Empty(t, p.idleSnapshot())
 }
 
 func TestPoolMetrics(t *testing.T) {
@@ -509,7 +518,7 @@ func TestHandshakeHonoursCallerDeadline(t *testing.T) {
 	require.False(t, used)
 	require.Nil(t, r)
 	require.Less(t, time.Since(start), 5*time.Second)
-	require.Empty(t, p.idle)
+	require.Empty(t, p.idleSnapshot())
 }
 
 // An operation deadline cancels the pooler context and then reaches the gateway
@@ -546,9 +555,7 @@ func TestDeadTransportDropsIdleStreams(t *testing.T) {
 	s := &streamTestServer{execute: func(*pb.StreamExecuteRequest, pb.MultipoolerService_StreamExecuteServer) error { return nil }}
 	_, p := connectStreamPool(t, s)
 	require.NoError(t, streamQuery(t, p, t.Context(), "ok"))
-	p.mu.Lock()
-	require.Len(t, p.idle, 1)
-	p.mu.Unlock()
+	require.Len(t, p.idleSnapshot(), 1)
 	stopStreamServer()
 	// The connectivity watcher discards the stale idle stream, so the next
 	// operation opens a fresh stream and fails before sending SQL (used=false)

@@ -30,6 +30,7 @@ const (
 	PgSSFeatureNotSupported       = "0A000" // feature_not_supported
 	PgSSInvalidTextRepresentation = "22P02" // invalid_text_representation
 	PgSSInvalidParameterValue     = "22023" // invalid_parameter_value
+	PgSSForeignKeyViolation       = "23503" // foreign_key_violation
 	PgSSUndefinedFunction         = "42883" // undefined_function
 	PgSSUndefinedTable            = "42P01" // undefined_table
 	PgSSActiveTransaction         = "25001" // active_sql_transaction

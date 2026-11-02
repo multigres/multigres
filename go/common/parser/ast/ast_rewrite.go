@@ -100,6 +100,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfAlterTSDictionaryStmt(parent, node, replacer)
 	case *AlterTableCmd:
 		return a.rewriteRefOfAlterTableCmd(parent, node, replacer)
+	case *AlterTableGroupStmt:
+		return a.rewriteRefOfAlterTableGroupStmt(parent, node, replacer)
 	case *AlterTableMoveAllStmt:
 		return a.rewriteRefOfAlterTableMoveAllStmt(parent, node, replacer)
 	case *AlterTableSpaceStmt:
@@ -232,6 +234,8 @@ func (a *application) rewriteNode(parent Node, node Node, replacer replacerFunc)
 		return a.rewriteRefOfCreateSubscriptionStmt(parent, node, replacer)
 	case *CreateTableAsStmt:
 		return a.rewriteRefOfCreateTableAsStmt(parent, node, replacer)
+	case *CreateTableGroupStmt:
+		return a.rewriteRefOfCreateTableGroupStmt(parent, node, replacer)
 	case *CreateTableSpaceStmt:
 		return a.rewriteRefOfCreateTableSpaceStmt(parent, node, replacer)
 	case *CreateTransformStmt:
@@ -2094,6 +2098,45 @@ func (a *application) rewriteRefOfAlterTableCmd(parent Node, node *AlterTableCmd
 	}
 	if !a.rewriteNode(node, node.Def, func(newNode, parent Node) {
 		parent.(*AlterTableCmd).Def = newNode.(Node)
+	}) {
+		return false
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfAlterTableGroupStmt(parent Node, node *AlterTableGroupStmt, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if !a.rewriteRefOfNodeList(node, node.Sources, func(newNode, parent Node) {
+		parent.(*AlterTableGroupStmt).Sources = newNode.(*NodeList)
+	}) {
+		return false
+	}
+	if !a.rewriteRefOfNodeList(node, node.Targets, func(newNode, parent Node) {
+		parent.(*AlterTableGroupStmt).Targets = newNode.(*NodeList)
 	}) {
 		return false
 	}
@@ -4713,6 +4756,40 @@ func (a *application) rewriteRefOfCreateTableAsStmt(parent Node, node *CreateTab
 	}
 	if !a.rewriteRefOfIntoClause(node, node.Into, func(newNode, parent Node) {
 		parent.(*CreateTableAsStmt).Into = newNode.(*IntoClause)
+	}) {
+		return false
+	}
+	if a.post != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		if !a.post(&a.cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// Function Generation Source: PtrToStructMethod
+func (a *application) rewriteRefOfCreateTableGroupStmt(parent Node, node *CreateTableGroupStmt, replacer replacerFunc) bool {
+	if node == nil {
+		return true
+	}
+	if a.pre != nil {
+		a.cur.replacer = replacer
+		a.cur.parent = parent
+		a.cur.node = node
+		kontinue := !a.pre(&a.cur)
+		if a.cur.revisit {
+			a.cur.revisit = false
+			return a.rewriteNode(parent, a.cur.node, replacer)
+		}
+		if kontinue {
+			return true
+		}
+	}
+	if !a.rewriteRefOfNodeList(node, node.Shards, func(newNode, parent Node) {
+		parent.(*CreateTableGroupStmt).Shards = newNode.(*NodeList)
 	}) {
 		return false
 	}
@@ -11048,6 +11125,8 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return a.rewriteRefOfAlterTSConfigurationStmt(parent, node, replacer)
 	case *AlterTSDictionaryStmt:
 		return a.rewriteRefOfAlterTSDictionaryStmt(parent, node, replacer)
+	case *AlterTableGroupStmt:
+		return a.rewriteRefOfAlterTableGroupStmt(parent, node, replacer)
 	case *AlterTableMoveAllStmt:
 		return a.rewriteRefOfAlterTableMoveAllStmt(parent, node, replacer)
 	case *AlterTableSpaceStmt:
@@ -11130,6 +11209,8 @@ func (a *application) rewriteStmt(parent Node, node Stmt, replacer replacerFunc)
 		return a.rewriteRefOfCreateSubscriptionStmt(parent, node, replacer)
 	case *CreateTableAsStmt:
 		return a.rewriteRefOfCreateTableAsStmt(parent, node, replacer)
+	case *CreateTableGroupStmt:
+		return a.rewriteRefOfCreateTableGroupStmt(parent, node, replacer)
 	case *CreateTableSpaceStmt:
 		return a.rewriteRefOfCreateTableSpaceStmt(parent, node, replacer)
 	case *CreateTransformStmt:

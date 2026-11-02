@@ -55,6 +55,29 @@ jobs:
       - name: Set up test environment
         run: .github/scripts/setup-test-environment.sh
 
+      # The ubuntu-24.04 runner image ships the PGDG apt repository
+      # (apt.postgresql.org, suite noble-pgdg) preconfigured, and PGDG serves
+      # newer GEOS/GDAL/PROJ/SFCGAL builds than the Ubuntu archive, rebuilt
+      # against each other whenever upstream releases. PostGIS is built in this
+      # job against whatever those packages resolve to, so a PGDG upload can
+      # change its regress results overnight: on 2026-10-30 PGDG replaced GEOS
+      # 3.14.1 with 3.15.0 and PostGIS 3.6.3's brin tests started failing and
+      # regress/core/wrapx crashed the primary, taking every later external
+      # suite down with it. Pin the geo stack to the Ubuntu archive so the job
+      # installs noble's GEOS 3.12.1 / GDAL 3.8.4 / PROJ 9.4.0 / SFCGAL 1.5.1,
+      # which only change on an Ubuntu security rebuild. The pin is by origin,
+      # not by version string, so such rebuilds still install. GEOS and GDAL
+      # must be pinned together: PGDG's libgdal39 depends on libgeos-c1t64
+      # (>= 3.14.0), so pinning GEOS alone is unresolvable. Everything else in
+      # the step (notably libpq) keeps coming from PGDG.
+      - name: Pin PostGIS geo libraries to the Ubuntu archive
+        run: |
+          sudo tee /etc/apt/preferences.d/postgis-geo-libs >/dev/null <<'EOF'
+          Package: libgeos* libgdal* gdal-* libproj* proj-* libsfcgal*
+          Pin: release o=Ubuntu
+          Pin-Priority: 1001
+          EOF
+
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -79,6 +102,7 @@ jobs:
             cmake \
             libgdal-dev libjson-c-dev libprotobuf-c-dev \
             protobuf-c-compiler libsfcgal-dev
+          dpkg-query -W -f='${Package} ${Version}\n' libgeos-c1t64 libgdal-dev libproj-dev libsfcgal-dev
 
       - name: Build
         run: make build
