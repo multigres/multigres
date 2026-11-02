@@ -31,7 +31,9 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 )
 
@@ -336,4 +338,64 @@ func TestServer_NotificationStreamEndsWithCallerContext(t *testing.T) {
 	cancel()
 	_, err = stream.Recv()
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// stalledPoolManager is a pool manager whose connections never come: the
+// listener's first subscribe blocks until the listener stops, as a LISTEN
+// does when PostgreSQL does not answer.
+type stalledPoolManager struct {
+	connpoolmanager.PoolManager
+}
+
+func (stalledPoolManager) PgUser() string { return "postgres" }
+
+func (stalledPoolManager) NewReservedConn(ctx context.Context, _ map[string]string, _ string, _, _ []byte, _ ...reserved.ReservedConnOption) (*reserved.Conn, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+// TestServer_NotificationStreamCallerCancelWhileLoopBlocked checks that a
+// caller giving up on a stream whose loop is blocked on a subscribe (the
+// gateway's ready timeout) is released at once, as a gRPC client stream is:
+// Recv and Send return its ctx error instead of waiting on the loop.
+func TestServer_NotificationStreamCallerCancelWhileLoopBlocked(t *testing.T) {
+	s, _ := newRegisteredServer(t)
+	l := pubsub.NewListener(stalledPoolManager{}, slog.New(slog.DiscardHandler), nil)
+	l.Start(context.Background())
+	t.Cleanup(l.Stop)
+	s.pooler.SetPubSubListener(l)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	stream, err := s.NotificationStream(ctx)
+	require.NoError(t, err)
+	require.NoError(t, stream.Send(&multipoolerpb.NotificationStreamRequest{SubscribeChannels: []string{"ch"}}))
+
+	recvErr := make(chan error, 1)
+	go func() {
+		_, err := stream.Recv()
+		recvErr <- err
+	}()
+	select {
+	case err := <-recvErr:
+		t.Fatalf("Recv returned while the subscribe was blocked: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	cancel()
+	select {
+	case err := <-recvErr:
+		assert.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Recv stayed blocked after the caller cancelled")
+	}
+	sendErr := make(chan error, 1)
+	go func() {
+		sendErr <- stream.Send(&multipoolerpb.NotificationStreamRequest{SubscribeChannels: []string{"other"}})
+	}()
+	select {
+	case err := <-sendErr:
+		assert.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Send stayed blocked after the caller cancelled")
+	}
 }

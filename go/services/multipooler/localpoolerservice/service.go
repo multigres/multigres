@@ -363,9 +363,13 @@ func (s *Server) NotificationStream(ctx context.Context) (queryservice.Notificat
 	return p, nil
 }
 
-// notificationPipe is the caller's end of a direct notification stream.
+// notificationPipe is the caller's end of a direct notification stream. Like a
+// gRPC client stream, its Send and Recv return as soon as the caller's ctx
+// ends, even while the loop is blocked (for example on a LISTEN PostgreSQL has
+// not answered), so a caller that gives up on the stream is not held by it.
 type notificationPipe struct {
-	// ctx is the caller's context, to tell its own end from the stream's.
+	// ctx is the caller's context: its end ends Send and Recv, and tells the
+	// caller's own end of the stream from the loop's.
 	ctx   context.Context
 	reqs  chan *multipoolerpb.NotificationStreamRequest
 	resps chan *multipoolerpb.NotificationStreamResponse
@@ -382,6 +386,8 @@ func (p *notificationPipe) Send(req *multipoolerpb.NotificationStreamRequest) er
 		return nil
 	case <-p.done:
 		return io.EOF
+	case <-p.ctx.Done():
+		return p.ctx.Err()
 	}
 }
 
@@ -398,5 +404,7 @@ func (p *notificationPipe) Recv() (*multipoolerpb.NotificationStreamResponse, er
 			return nil, p.err
 		}
 		return nil, streamEnded(p.ctx)
+	case <-p.ctx.Done():
+		return nil, p.ctx.Err()
 	}
 }
