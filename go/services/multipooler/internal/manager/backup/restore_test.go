@@ -26,6 +26,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // TestShellQuoteSingle round-trips values through an actual shell (not just
@@ -102,7 +104,10 @@ func TestRestore_InProgressMetrics(t *testing.T) {
 		{name: "cancellation", cancel: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			_, reader := setupMetrics(t)
+			setup := telemetry.SetupTestTelemetry(t)
+			require.NoError(t, setup.Telemetry.InitTelemetry(t.Context(), "test-service"))
+			t.Cleanup(func() { _ = setup.Telemetry.ShutdownTelemetry(context.Background()) })
+			reader := setup.MetricReader
 			poolerDir := t.TempDir()
 			started := filepath.Join(poolerDir, "started")
 			release := filepath.Join(poolerDir, "release")
