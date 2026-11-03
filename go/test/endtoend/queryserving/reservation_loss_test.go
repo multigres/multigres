@@ -308,3 +308,39 @@ func requireSessionEnded(t *testing.T, ctx context.Context, conn *pgx.Conn, err 
 	require.Error(t, utils.PgxExec(ctx, conn, "SELECT 1"), "the gateway must close the connection after the FATAL")
 	require.True(t, conn.IsClosed())
 }
+
+// TestReservationLoss_PortalSuspendedOutsideTransaction suspends a portal
+// outside a transaction, as asyncpg's fetchval does, then loses the backend
+// that ran it. PostgreSQL already closed the portal at Sync, so the session
+// lost no state and must stay open.
+func TestReservationLoss_PortalSuspendedOutsideTransaction(t *testing.T) {
+	skipIfNoRealPostgres(t)
+	setup := getSharedSetup(t)
+	ctx := utils.WithTimeout(t, time.Minute)
+
+	a := openReservationLossConn(t, ctx, setup, pgx.QueryExecModeSimpleProtocol)
+	frontend := a.PgConn().Frontend()
+	frontend.Send(&pgproto3.Parse{Query: fmt.Sprintf("SELECT pg_backend_pid(), %d FROM generate_series(1, 3)", time.Now().UnixNano())})
+	frontend.Send(&pgproto3.Bind{})
+	frontend.Send(&pgproto3.Execute{MaxRows: 1})
+	frontend.Send(&pgproto3.Sync{})
+	require.NoError(t, frontend.Flush())
+	var pid int
+	for done := false; !done; {
+		msg, err := a.PgConn().ReceiveMessage(ctx)
+		require.NoError(t, err)
+		switch m := msg.(type) {
+		case *pgproto3.ErrorResponse:
+			require.Failf(t, "portal failed", "%s: %s", m.Code, m.Message)
+		case *pgproto3.DataRow:
+			_, err = fmt.Sscan(string(m.Values[0]), &pid)
+			require.NoError(t, err)
+		case *pgproto3.ReadyForQuery:
+			done = true
+		}
+	}
+
+	terminateBackend(t, ctx, setup, pid)
+
+	utils.RequirePgxExec(t, ctx, a, "SELECT pg_backend_pid()")
+}

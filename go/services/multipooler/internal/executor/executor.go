@@ -1147,7 +1147,9 @@ func (e *Executor) portalExecuteWithReserved(
 	// continuation. Do NOT probe advisory locks here: the extended-protocol
 	// portal is mid-Execute, so issuing a simple probe query would corrupt the
 	// protocol state on this backend.
-	if !completed {
+	//
+	// Outside a transaction, the Sync after Execute already closed the portal.
+	if !completed && reservedConn.IsInTransaction() {
 		reservedConn.ReserveForPortal(portal.Name)
 		return e.buildReservedState(reservedConn), nil
 	}
