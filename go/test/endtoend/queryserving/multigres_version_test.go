@@ -370,11 +370,47 @@ func TestMultigateway_MultigresVersionStatements(t *testing.T) {
 		queryVersion(t, "SELECT version FROM mv_ctas LIMIT 1")
 	})
 
-	t.Run("CREATE VIEW", func(t *testing.T) {
-		_, err := conn.Exec(ctx, "CREATE VIEW mv_view AS SELECT * FROM multigres.version()")
+	// A definition PostgreSQL stores would keep the folded version after an
+	// upgrade, so the gateway rejects it before it reaches the backend.
+	t.Run("stored definitions are rejected", func(t *testing.T) {
+		requireRejected := func(t *testing.T, err error) {
+			t.Helper()
+			var pgErr *pgconn.PgError
+			require.True(t, errors.As(err, &pgErr), "expected a PostgreSQL error, got %v", err)
+			assert.Equal(t, "0A000", pgErr.Code)
+		}
+		for _, mode := range []pgx.QueryExecMode{pgx.QueryExecModeSimpleProtocol, pgx.QueryExecModeDescribeExec} {
+			for _, sql := range []string{
+				"CREATE VIEW mv_view AS SELECT * FROM multigres.version()",
+				"CREATE MATERIALIZED VIEW mv_view AS SELECT multigres.version()",
+				"CREATE TABLE mv_view (v text DEFAULT multigres.version())",
+				"CREATE TABLE mv_view (v text GENERATED ALWAYS AS (multigres.version()) STORED)",
+				"CREATE FUNCTION mv_view() RETURNS text RETURN multigres.version()",
+			} {
+				t.Run(mode.String()+"/"+sql, func(t *testing.T) {
+					_, err := conn.Exec(ctx, sql, mode)
+					requireRejected(t, err)
+					var exists bool
+					require.NoError(t, conn.QueryRow(ctx,
+						"SELECT to_regclass('mv_view') IS NOT NULL OR to_regprocedure('mv_view()') IS NOT NULL").Scan(&exists))
+					assert.False(t, exists, "rejected statement reached the backend")
+				})
+			}
+		}
+
+		// Inside a transaction the rejection aborts it, as an error would on
+		// PostgreSQL.
+		tx, err := conn.Begin(ctx)
 		require.NoError(t, err)
-		defer func() { _, _ = conn.Exec(context.Background(), "DROP VIEW IF EXISTS mv_view") }()
-		queryVersion(t, "SELECT version FROM mv_view")
+		defer func() { _ = tx.Rollback(context.Background()) }()
+		_, err = tx.Exec(ctx, "CREATE VIEW mv_view AS SELECT multigres.version()")
+		requireRejected(t, err)
+		_, err = tx.Exec(ctx, "SELECT 1")
+		var pgErr *pgconn.PgError
+		require.True(t, errors.As(err, &pgErr), "expected a PostgreSQL error, got %v", err)
+		assert.Equal(t, "25P02", pgErr.Code)
+		require.NoError(t, tx.Rollback(ctx))
+		queryVersion(t, "SELECT multigres.version()")
 	})
 
 	t.Run("COPY TO STDOUT", func(t *testing.T) {

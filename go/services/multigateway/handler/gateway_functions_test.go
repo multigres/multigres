@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 )
 
@@ -179,11 +180,6 @@ func TestFoldMultigresVersion(t *testing.T) {
 
 		// Other statements.
 		{
-			name: "CREATE VIEW",
-			sql:  "CREATE VIEW vv AS SELECT * FROM multigres.version()",
-			want: "CREATE VIEW vv AS SELECT * FROM " + foldedFrom,
-		},
-		{
 			name: "CREATE TABLE AS",
 			sql:  "CREATE TABLE tt AS SELECT * FROM multigres.version()",
 			want: "CREATE TABLE tt AS SELECT * FROM " + foldedFrom,
@@ -250,15 +246,93 @@ func TestFoldGatewayFunctionsInStatements(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, stmts, 2)
 
-		assert.True(t, foldGatewayFunctionsInStatements(stmts))
+		changed, err := foldGatewayFunctionsInStatements(stmts)
+		require.NoError(t, err)
+		assert.True(t, changed)
 		assert.NotContains(t, renderStatements(stmts), "multigres.version")
 	})
 
 	t.Run("no change when absent", func(t *testing.T) {
 		stmts, err := parser.ParseSQL("SELECT 1; SELECT version()")
 		require.NoError(t, err)
-		assert.False(t, foldGatewayFunctionsInStatements(stmts))
+		changed, err := foldGatewayFunctionsInStatements(stmts)
+		require.NoError(t, err)
+		assert.False(t, changed)
 	})
+}
+
+// TestFoldGatewayFunctions_StoredDefinitions checks the statement allowlist:
+// multigres.version() folds only where PostgreSQL evaluates the call when the
+// statement runs, and is rejected wherever PostgreSQL would store it.
+func TestFoldGatewayFunctions_StoredDefinitions(t *testing.T) {
+	allowed := []string{
+		"SELECT multigres.version()",
+		"SELECT multigres.version() INTO TEMP tt",
+		"VALUES (multigres.version())",
+		"WITH c AS (INSERT INTO t VALUES (multigres.version()) RETURNING *) SELECT * FROM c",
+		"INSERT INTO t VALUES (multigres.version())",
+		"UPDATE t SET v = multigres.version()",
+		"DELETE FROM t WHERE v = multigres.version()",
+		"MERGE INTO t USING s ON t.v = s.v WHEN NOT MATCHED THEN INSERT VALUES (multigres.version())",
+		"CALL p(multigres.version())",
+		"EXECUTE p(multigres.version())",
+		"COPY (SELECT multigres.version()) TO STDOUT",
+		"COPY t FROM STDIN WHERE v = multigres.version()",
+		"CREATE TABLE tt AS SELECT multigres.version()",
+		"EXPLAIN SELECT multigres.version()",
+		"EXPLAIN ANALYZE CREATE TABLE tt AS SELECT multigres.version()",
+		"PREPARE p AS SELECT * FROM multigres.version()",
+		"DECLARE c CURSOR WITH HOLD FOR SELECT multigres.version()",
+	}
+	for _, sql := range allowed {
+		t.Run("allowed/"+sql, func(t *testing.T) {
+			got, err := foldGatewayFunctions(sql)
+			require.NoError(t, err)
+			assert.NotContains(t, got, "multigres.version")
+		})
+	}
+
+	rejected := []string{
+		"CREATE VIEW vv AS SELECT multigres.version()",
+		"CREATE VIEW vv AS SELECT * FROM multigres.version()",
+		"CREATE MATERIALIZED VIEW mv AS SELECT multigres.version()",
+		"EXPLAIN ANALYZE CREATE MATERIALIZED VIEW mv AS SELECT multigres.version()",
+		"CREATE TABLE t (v text DEFAULT multigres.version())",
+		"CREATE TABLE t (v text GENERATED ALWAYS AS (multigres.version()) STORED)",
+		"CREATE TABLE t (v text CHECK (v <> multigres.version()))",
+		"ALTER TABLE t ALTER COLUMN v SET DEFAULT multigres.version()",
+		"ALTER TABLE t ADD COLUMN w text DEFAULT multigres.version()",
+		"CREATE INDEX ON t ((v || multigres.version()))",
+		"CREATE FUNCTION f() RETURNS text RETURN multigres.version()",
+		"CREATE FUNCTION f() RETURNS text BEGIN ATOMIC SELECT multigres.version(); END",
+		"CREATE POLICY pol ON t USING (v = multigres.version())",
+		"CREATE RULE r AS ON INSERT TO t DO ALSO INSERT INTO u VALUES (multigres.version())",
+		"CREATE TRIGGER trg BEFORE INSERT ON t FOR EACH ROW WHEN (NEW.v = multigres.version()) EXECUTE FUNCTION tf()",
+		"CREATE DOMAIN d AS text DEFAULT multigres.version()",
+		// One stored definition rejects the whole batch.
+		"SELECT multigres.version(); CREATE VIEW vv AS SELECT multigres.version()",
+	}
+	for _, sql := range rejected {
+		t.Run("rejected/"+sql, func(t *testing.T) {
+			_, err := foldGatewayFunctions(sql)
+			var rej *mterrors.GatewayRejection
+			require.ErrorAs(t, err, &rej)
+			assert.Equal(t, "0A000", rej.Code)
+		})
+	}
+
+	// Bodies PostgreSQL keeps as a string never reach the fold, so they are
+	// neither folded nor rejected; calling them fails on the backend.
+	for _, sql := range []string{
+		"CREATE FUNCTION f() RETURNS text LANGUAGE sql AS $$ SELECT multigres.version() $$",
+		"DO $$ BEGIN PERFORM multigres.version(); END $$",
+	} {
+		t.Run("string body/"+sql, func(t *testing.T) {
+			got, err := foldGatewayFunctions(sql)
+			require.NoError(t, err)
+			assert.Equal(t, sql, got)
+		})
+	}
 }
 
 // TestFoldGatewayFunctions covers the string-level entry point, including the
@@ -266,16 +340,21 @@ func TestFoldGatewayFunctionsInStatements(t *testing.T) {
 func TestFoldGatewayFunctions(t *testing.T) {
 	t.Run("query without the schema is returned unchanged (no parse)", func(t *testing.T) {
 		sql := "SELECT id FROM t WHERE name = 'x'"
-		assert.Equal(t, sql, foldGatewayFunctions(sql))
+		got, err := foldGatewayFunctions(sql)
+		require.NoError(t, err)
+		assert.Equal(t, sql, got)
 	})
 
 	t.Run("unparsable input is returned unchanged", func(t *testing.T) {
 		sql := "SELECT multigres.version() FROM" // trailing FROM → syntax error
-		assert.Equal(t, sql, foldGatewayFunctions(sql))
+		got, err := foldGatewayFunctions(sql)
+		require.NoError(t, err)
+		assert.Equal(t, sql, got)
 	})
 
 	t.Run("folds the real function", func(t *testing.T) {
-		got := foldGatewayFunctions("SELECT multigres.version()")
+		got, err := foldGatewayFunctions("SELECT multigres.version()")
+		require.NoError(t, err)
 		assert.NotContains(t, got, "multigres.version")
 		assert.Contains(t, got, "AS version")
 	})

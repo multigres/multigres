@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/servenv"
@@ -49,34 +50,83 @@ func containsGatewayFunction(sql string) bool {
 // statements, returning whether anything changed. Used by the simple-query path
 // to fold without re-parsing. Callers should gate on containsGatewayFunction to
 // skip the walk when no gateway function can be present.
-func foldGatewayFunctionsInStatements(stmts []ast.Stmt) bool {
+//
+// It fails, without sending anything to the backend, when a statement that is
+// not evaluatedWhenRun calls one: the fold would store this gateway's version in
+// a definition PostgreSQL keeps (see errVersionInStoredDefinition).
+func foldGatewayFunctionsInStatements(stmts []ast.Stmt) (bool, error) {
 	version := servenv.AppVersion()
 	changed := false
 	for _, stmt := range stmts {
 		if foldMultigresVersion(stmt, version) {
+			if !evaluatedWhenRun(stmt) {
+				return false, errVersionInStoredDefinition()
+			}
 			changed = true
 		}
 	}
-	return changed
+	return changed, nil
 }
 
 // foldGatewayFunctions folds gateway functions in a raw SQL string, returning the
 // rewritten SQL (or the input unchanged). Used where only the string is
 // available — the extended-protocol Parse path. It returns sql unchanged when it
 // contains no gateway function (detected before any parse) or does not parse (the
-// normal path then reports the syntax error with the correct position).
-func foldGatewayFunctions(sql string) string {
+// normal path then reports the syntax error with the correct position), and the
+// error of foldGatewayFunctionsInStatements otherwise.
+func foldGatewayFunctions(sql string) (string, error) {
 	if !containsGatewayFunction(sql) {
-		return sql
+		return sql, nil
 	}
 	stmts, err := parser.ParseSQL(sql)
 	if err != nil || len(stmts) == 0 {
-		return sql
+		return sql, nil //nolint:nilerr // the normal parse reports the syntax error
 	}
-	if !foldGatewayFunctionsInStatements(stmts) {
-		return sql
+	changed, err := foldGatewayFunctionsInStatements(stmts)
+	if err != nil || !changed {
+		return sql, err
 	}
-	return renderStatements(stmts)
+	return renderStatements(stmts), nil
+}
+
+// evaluatedWhenRun reports whether PostgreSQL evaluates stmt's expressions when
+// the statement runs, so that a folded constant gives the result version() would.
+// It is an allowlist: any statement not named here (CREATE VIEW, CREATE TABLE
+// with a DEFAULT or generated column, CREATE FUNCTION with a SQL-standard body,
+// CREATE INDEX, CREATE POLICY, CREATE RULE, CREATE TRIGGER, ALTER TABLE, CREATE
+// DOMAIN, and any statement added to the grammar later) may store the expression
+// and evaluate it later, so it is rejected rather than folded.
+func evaluatedWhenRun(stmt ast.Node) bool {
+	switch s := stmt.(type) {
+	case *ast.SelectStmt, *ast.InsertStmt, *ast.UpdateStmt, *ast.DeleteStmt, *ast.MergeStmt,
+		*ast.CallStmt, *ast.ExecuteStmt, *ast.CopyStmt:
+		return true
+	case *ast.CreateTableAsStmt:
+		// CREATE TABLE AS evaluates its query once, as PostgreSQL would; a
+		// materialized view evaluates it again on every REFRESH.
+		return s.ObjType != ast.OBJECT_MATVIEW
+	case *ast.ExplainStmt:
+		return evaluatedWhenRun(s.Query)
+	case *ast.PrepareStmt:
+		// The statement is evaluated on each EXECUTE in this session, which this
+		// gateway serves for its whole life, so the version cannot change.
+		return evaluatedWhenRun(s.Query)
+	case *ast.DeclareCursorStmt:
+		return evaluatedWhenRun(s.Query)
+	}
+	return false
+}
+
+// errVersionInStoredDefinition rejects multigres.version() in a statement that is
+// not evaluatedWhenRun. PostgreSQL would store the call and evaluate it each time
+// the definition is used; the fold would store this gateway's version instead,
+// which silently goes stale after an upgrade. A generated column or index
+// expression would also be accepted where PostgreSQL rejects version(), which is
+// not immutable.
+func errVersionInStoredDefinition() error {
+	err := mterrors.NewFeatureNotSupported("multigres.version() can only be used in queries and data-modifying statements")
+	err.Detail = "The gateway replaces multigres.version() with its version string, so a definition PostgreSQL stores (a view, default, constraint, index, or function body) would keep this version after an upgrade."
+	return err
 }
 
 // renderStatements re-renders parsed statements back to a single SQL string,

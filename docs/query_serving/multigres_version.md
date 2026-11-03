@@ -44,7 +44,7 @@ SELECT multigres.version();
 SELECT id FROM t WHERE created_by = multigres.version();
 SELECT length(multigres.version());
 SELECT * FROM multigres.version();
-SELECT * FROM multigres.version() AS v(x) WITH ORDINALITY;
+SELECT * FROM multigres.version() WITH ORDINALITY AS v(x);
 ```
 
 The cast matters: a bare literal has type `unknown`, so `pg_typeof` and operator
@@ -70,12 +70,30 @@ as for `version()`. Replacing the call with `pg_catalog.unnest(ARRAY[...])` plus
 an injected alias was rejected: inside a multi-function `ROWS FROM`, PostgreSQL
 names columns after the functions, so that column would be labelled `unnest`.
 
-Because the version is folded into the statement text, a view or table built
-from it (`CREATE VIEW ... AS SELECT * FROM multigres.version()`, `CREATE TABLE
-... AS`, `INSERT ... SELECT`) stores the version of the gateway that ran the
-statement, not the version of whichever gateway later reads it. `CALL
+The fold is only correct where PostgreSQL evaluates the call when the statement
+runs: queries and data-modifying statements (`SELECT`, `VALUES`, `INSERT`,
+`UPDATE`, `DELETE`, `MERGE`, `CALL` arguments, `EXECUTE` parameters, `COPY`,
+`CREATE TABLE ... AS`, and `EXPLAIN`, `PREPARE` or `DECLARE` of one of those).
+`CREATE TABLE ... AS` and `INSERT ... SELECT` store the version of the gateway
+that ran them, exactly as PostgreSQL stores the result of `version()`.
+
+Anywhere else, PostgreSQL stores the call and evaluates it later — a view, a
+materialized view (on `REFRESH`), a column `DEFAULT`, a `CHECK` constraint, a
+policy, a rule, a trigger `WHEN`, a domain, or a SQL-standard function body
+(`RETURN ...` / `BEGIN ATOMIC`). A folded constant would keep this gateway's
+version after an upgrade, and a generated column or index expression would be
+accepted where PostgreSQL rejects `version()`, which is not immutable. So the
+gateway rejects `multigres.version()` in every other statement with
+`feature_not_supported` (`0A000`), before anything reaches the backend. The
+check is an allowlist, so a statement type not listed above is rejected rather
+than folded. A rejected statement in a simple-protocol batch rejects the whole
+batch, so statements before it do not run.
+
+A function body written as a string (`AS $$ ... $$`, or a `DO` block) is not
+parsed by the gateway, so the call in it is neither folded nor rejected; calling
+the function fails on the backend, which has no `multigres.version()`. `CALL
 multigres.version()` names a procedure rather than evaluating an expression, so
-it is not folded and PostgreSQL rejects it.
+it is not folded either, and PostgreSQL rejects it.
 
 The fold runs in the handler (`handler/gateway_functions.go`), applied once the
 query is parsed so that the planner, the plan cache, and the extended protocol's
