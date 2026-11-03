@@ -343,15 +343,6 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 		return callback(ctx, nil)
 	}
 
-	// Fold gateway-provided functions (e.g. multigres.version()) into constants
-	// in the statements we just parsed — reusing the parse rather than re-parsing.
-	// The batch execution paths re-render each statement via SqlString, so the
-	// rewritten AST flows through; only the single-statement path below sends
-	// queryStr, so refresh it from the rewritten AST when a fold happened.
-	if containsGatewayFunction(queryStr) && foldGatewayFunctionsInStatements(asts) {
-		queryStr = renderStatements(asts)
-	}
-
 	// TODO: For multi-statement batches, this only captures the first statement's
 	// operation name. Consider recording per-statement metrics or using "MULTI" as
 	// the operation name when len(asts) > 1.
@@ -369,6 +360,26 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 			h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, 0, time.Since(queryStart), 0, nil, errAbortedTransaction)
 			recordSpanError(span, errAbortedTransaction, mterrors.ExtractSQLSTATE(errAbortedTransaction))
 			return errAbortedTransaction
+		}
+	}
+
+	// Fold gateway-provided functions (e.g. multigres.version()) into constants
+	// in the statements we just parsed — reusing the parse rather than re-parsing.
+	// The batch execution paths re-render each statement via SqlString, so the
+	// rewritten AST flows through; only the single-statement path below sends
+	// queryStr, so refresh it from the rewritten AST when a fold happened.
+	if containsGatewayFunction(queryStr) {
+		changed, err := foldGatewayFunctionsInStatements(asts)
+		if err != nil {
+			if conn.TxnStatus() == protocol.TxnStatusInBlock && h.abortsTransactionOnError(err) {
+				conn.SetTxnStatus(protocol.TxnStatusFailed)
+			}
+			h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, 0, time.Since(queryStart), 0, nil, err)
+			recordSpanError(span, err, mterrors.ExtractSQLSTATE(err))
+			return err
+		}
+		if changed {
+			queryStr = renderStatements(asts)
 		}
 	}
 
@@ -507,7 +518,13 @@ func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 	// before storing or eagerly parsing the prepared statement, so the folded
 	// text is what Describe and Execute later forward to the backend. A no-op for
 	// queries that don't use one.
-	queryStr = foldGatewayFunctions(queryStr)
+	queryStr, err := foldGatewayFunctions(queryStr)
+	if err != nil {
+		if conn.TxnStatus() == protocol.TxnStatusInBlock && h.abortsTransactionOnError(err) {
+			conn.SetTxnStatus(protocol.TxnStatusFailed)
+		}
+		return err
+	}
 
 	// PostgreSQL sends Parse/PREPARE to the backend immediately inside an explicit
 	// transaction. That parse takes transaction-scoped AccessShareLocks and raises
