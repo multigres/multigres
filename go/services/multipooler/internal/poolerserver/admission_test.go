@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package grpcpoolerservice
+package poolerserver
 
 import (
 	"testing"
@@ -21,11 +21,10 @@ import (
 
 	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 )
 
 // TestAdmissionKind locks the request classification used by every query
-// handler. The scenarios are labelled by the handler input that produces them,
+// method of the pooler's query service. The scenarios are labelled by the handler input that produces them,
 // so this doubles as documentation of each handler's intended mapping:
 //
 //   - id > 0          → ExistingReserved (ConcludeTransaction, DiscardTempTables,
@@ -40,16 +39,16 @@ func TestAdmissionKind(t *testing.T) {
 		name     string
 		connID   uint64
 		reserves bool
-		want     poolerserver.RequestKind
+		want     RequestKind
 	}{
-		{"existing reserved ignores reserves=false", 42, false, poolerserver.RequestExistingReserved},
-		{"existing reserved ignores reserves=true", 42, true, poolerserver.RequestExistingReserved},
-		{"fresh request that reserves → new reservation", 0, true, poolerserver.RequestNewReservation},
-		{"fresh request that does not reserve → single query", 0, false, poolerserver.RequestSingleQuery},
+		{"existing reserved ignores reserves=false", 42, false, RequestExistingReserved},
+		{"existing reserved ignores reserves=true", 42, true, RequestExistingReserved},
+		{"fresh request that reserves → new reservation", 0, true, RequestNewReservation},
+		{"fresh request that does not reserve → single query", 0, false, RequestSingleQuery},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, admissionKind(tt.connID, tt.reserves))
+			assert.Equal(t, tt.want, AdmissionKind(tt.connID, tt.reserves))
 		})
 	}
 }
@@ -78,7 +77,7 @@ func TestPortalReserves(t *testing.T) {
 			if tt.reasons != 0 {
 				ro = &query.ReservationOptions{Reasons: tt.reasons}
 			}
-			assert.Equal(t, tt.want, portalReserves(opts, ro))
+			assert.Equal(t, tt.want, PortalReserves(opts, ro))
 		})
 	}
 }

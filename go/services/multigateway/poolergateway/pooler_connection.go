@@ -200,8 +200,12 @@ func newPoolerConnection(
 	// health stream goroutine. This ensures proper shutdown propagation.
 	ctx, cancel := context.WithCancel(ctx)
 
-	// Create QueryService wrapper
+	// Create QueryService wrapper: direct calls to a pooler in this process
+	// that offers them, gRPC otherwise.
 	queryService := newGRPCQueryService(conn, poolerID, logger)
+	if local != nil && local.QueryService != nil {
+		queryService = newDirectQueryService(local.QueryService, queryService)
+	}
 
 	// Initialize health state to DISABLED until the health stream provides data.
 	// Shard identity is available via poolerInfo; the gateway derives role from
