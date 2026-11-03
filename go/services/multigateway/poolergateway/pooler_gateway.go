@@ -167,11 +167,11 @@ type LocalPooler struct {
 	// topology: the fields it uses (ID, shard) never change, and role and
 	// serving status come from the health stream. Optional.
 	Record func() *clustermetadatapb.Multipooler
-	// QueryService, when set, is the pooler's query service, which the
-	// gateway then calls directly instead of over DialOptions. The connection
-	// still dials for everything else (auth, health, notifications,
-	// replication). Optional.
-	QueryService queryservice.QueryService
+	// Service, when set, is the pooler's query service, credential lookup and
+	// health, which the gateway then calls directly instead of over
+	// DialOptions. The connection still dials for notifications and
+	// replication. Optional.
+	Service queryservice.Pooler
 }
 
 // isLocal reports whether pooler is the local pooler.
@@ -706,9 +706,7 @@ func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoole
 	var resp *multipoolerpb.GetAuthCredentialsResponse
 	err := pg.withBuffering(ctx, target, false, false, func(conn *poolerConnection) error {
 		var err error
-		resp, err = conn.ServiceClient().GetAuthCredentials(ctx, req)
-		// Convert gRPC error so classifyError can read the PgDiagnostic SQLSTATE.
-		err = mterrors.FromGRPC(err)
+		resp, err = conn.pooler.GetAuthCredentials(ctx, req)
 		// Authentication has no query side effects. A generic UNAVAILABLE from
 		// the selected pooler is therefore safe to turn into the same typed
 		// pre-execution signal used by query connection acquisition.

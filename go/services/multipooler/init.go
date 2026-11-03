@@ -144,8 +144,8 @@ type Multipooler struct {
 	grpcServer *servenv.GrpcServer
 	// queryGrpcServer serves the query service (ProcessResources.QueryGrpcServer).
 	queryGrpcServer *servenv.GrpcServer
-	// localServer serves the query service to callers in this process
-	// (minigres's gateway) without gRPC; see LocalQueryService.
+	// localServer serves the pooler to callers in this process (minigres's
+	// gateway) without gRPC; see LocalPoolerService.
 	localServer *localpoolerservice.Server
 	// Senv is the serving environment
 	senv      *servenv.ServEnv
@@ -648,11 +648,12 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	return nil
 }
 
-// LocalQueryService returns the pooler's query service for callers in this
-// process, such as minigres's gateway: the same admission and executor the
-// gRPC query service uses, called directly. Calls are refused as unavailable
-// before the pooler registers its services and once shutdown begins.
-func (mp *Multipooler) LocalQueryService() queryservice.QueryService {
+// LocalPoolerService returns the pooler for callers in this process, such as
+// minigres's gateway: its query service, credential lookup and health, the
+// same code the gRPC service uses, called directly. Calls are refused as
+// unavailable before the pooler registers its services and once shutdown
+// begins.
+func (mp *Multipooler) LocalPoolerService() queryservice.Pooler {
 	return mp.localServer
 }
 

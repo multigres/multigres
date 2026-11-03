@@ -61,14 +61,14 @@ type grpcQueryService struct {
 	copyStreams map[uint64]multipoolerservice.MultipoolerService_CopyBidiExecuteClient
 }
 
-// newGRPCQueryService creates a new QueryService that uses gRPC to communicate
+// newGRPCQueryService creates a new Pooler that uses gRPC to communicate
 // with a multipooler instance. Reusable streams are always enabled; the stream
 // pool selects dedicated RPCs only when per-call semantics require it.
 func newGRPCQueryService(
 	conn *grpc.ClientConn,
 	poolerID topoclient.ComponentID,
 	logger *slog.Logger,
-) queryservice.QueryService {
+) queryservice.Pooler {
 	client := multipoolerservice.NewMultipoolerServiceClient(conn)
 	return &grpcQueryService{
 		executeStreams: newStreamPool(client, conn),
@@ -1158,3 +1158,30 @@ func (g *grpcQueryService) CopyOutStream(
 
 // Ensure grpcQueryService implements queryservice.QueryService
 var _ queryservice.QueryService = (*grpcQueryService)(nil)
+
+// GetAuthCredentials fetches a role's credentials. FromGRPC restores any
+// *PgDiagnostic attached by the multipooler so the gateway can read its
+// SQLSTATE.
+func (g *grpcQueryService) GetAuthCredentials(ctx context.Context, req *multipoolerservice.GetAuthCredentialsRequest) (*multipoolerservice.GetAuthCredentialsResponse, error) {
+	resp, err := g.client.GetAuthCredentials(ctx, req)
+	return resp, mterrors.FromGRPC(err)
+}
+
+// SubscribeHealth opens the pooler's health stream.
+func (g *grpcQueryService) SubscribeHealth(ctx context.Context) (func() (*multipoolerservice.StreamPoolerHealthResponse, error), error) {
+	stream, err := g.client.StreamPoolerHealth(ctx, &multipoolerservice.StreamPoolerHealthRequest{})
+	if err != nil {
+		return nil, err
+	}
+	return stream.Recv, nil
+}
+
+// NotificationStream opens the pooler's LISTEN/NOTIFY stream; the gRPC stream
+// is itself a queryservice.NotificationStream.
+func (g *grpcQueryService) NotificationStream(ctx context.Context) (queryservice.NotificationStream, error) {
+	stream, err := g.client.NotificationStream(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return stream, nil
+}

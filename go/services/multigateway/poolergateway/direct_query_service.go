@@ -26,12 +26,13 @@ import (
 	querypb "github.com/multigres/multigres/go/pb/query"
 )
 
-// directQueryService implements queryservice.QueryService by calling the
-// pooler in the same process (LocalPooler.QueryService) directly: the same
-// admission and executor the pooler's gRPC handler calls, in the caller's
-// goroutine and ctx, with nothing marshalled. Errors are returned as the
-// pooler made them, except that the caller's deadline or cancellation becomes
-// the client error the gRPC path gives (mterrors.FromContext).
+// directQueryService implements queryservice.Pooler by calling the pooler in
+// the same process (LocalPooler.Service) directly: the same admission,
+// executor, credential lookup, health and notifications the pooler's gRPC
+// handler calls, in
+// the caller's goroutine and ctx, with nothing marshalled. Errors are returned
+// as the pooler made them, except that the caller's deadline or cancellation
+// becomes the client error the gRPC path gives (mterrors.FromContext).
 //
 // The caller's identity goes on the current span (callerid.AnnotateSpan) in
 // the methods where the pooler's gRPC handler puts it on its operation span,
@@ -41,13 +42,13 @@ import (
 // the in-memory gRPC query service, which also owns the connection Close
 // closes.
 type directQueryService struct {
-	local queryservice.QueryService
-	grpc  queryservice.QueryService
+	local queryservice.Pooler
+	grpc  queryservice.Pooler
 }
 
-var _ queryservice.QueryService = (*directQueryService)(nil)
+var _ queryservice.Pooler = (*directQueryService)(nil)
 
-func newDirectQueryService(local, grpc queryservice.QueryService) queryservice.QueryService {
+func newDirectQueryService(local, grpc queryservice.Pooler) queryservice.Pooler {
 	return &directQueryService{local: local, grpc: grpc}
 }
 
@@ -132,4 +133,17 @@ func (d *directQueryService) ReleaseReservedConnection(ctx context.Context, targ
 
 func (d *directQueryService) StreamReplication(ctx context.Context, init *multipoolerservice.StreamReplicationInit) (multipoolerservice.MultipoolerService_StreamReplicationClient, error) {
 	return d.grpc.StreamReplication(ctx, init)
+}
+
+func (d *directQueryService) GetAuthCredentials(ctx context.Context, req *multipoolerservice.GetAuthCredentialsRequest) (*multipoolerservice.GetAuthCredentialsResponse, error) {
+	resp, err := d.local.GetAuthCredentials(ctx, req)
+	return resp, mterrors.FromContext(ctx, err)
+}
+
+func (d *directQueryService) SubscribeHealth(ctx context.Context) (func() (*multipoolerservice.StreamPoolerHealthResponse, error), error) {
+	return d.local.SubscribeHealth(ctx)
+}
+
+func (d *directQueryService) NotificationStream(ctx context.Context) (queryservice.NotificationStream, error) {
+	return d.local.NotificationStream(ctx)
 }
