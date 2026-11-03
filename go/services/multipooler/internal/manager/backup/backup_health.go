@@ -49,7 +49,7 @@ const (
 	ReadyReasonDisabled = "disabled"
 )
 
-// HealthTracker holds the latest backup-health snapshot, refreshed by the
+// HealthTracker holds the latest backup/restore-health snapshot, refreshed by the
 // poller and read by OTel gauge callbacks + the status page. All fields are
 // guarded by mu; the poller does its pgbackrest/SQL I/O OUTSIDE the lock and
 // only takes mu to copy results in, so callbacks never block on I/O.
@@ -85,6 +85,10 @@ type HealthTracker struct {
 	inProgressStart      time.Time // zero when no backup running
 	leaseHeld            bool
 
+	// Updated around the actual pgBackRest restore command, excluding manager
+	// setup and PostgreSQL startup/reopening after the restore.
+	restoreInProgressStart time.Time // zero when no restore command running
+
 	// Last failure detail for the status page.
 	lastFailErr string
 	lastFailAt  time.Time
@@ -103,23 +107,24 @@ func NewHealthTracker() *HealthTracker {
 // callback and the status page. Ages are derived from the timestamps at read
 // time so they stay accurate between polls.
 type Snapshot struct {
-	LastSuccessStop      time.Time // zero if no COMPLETE backup
-	CompleteCount        int64
-	Ready                bool
-	Reason               string
-	ArchiverOnPrimary    bool      // true once the archiver was read on a primary
-	LastArchived         time.Time // zero if unknown / not primary
-	OldestPending        time.Time // ready-time of oldest unarchived segment; zero if caught up
-	PendingCount         int64     // completed segments awaiting archive; 0 if caught up
-	ArchiveLagSeconds    float64   // backlog as measured at ArchiverRefreshedAt
-	ArchivingFailing     bool      // the most recent archive attempt failed
-	ArchiverRefreshedAt  time.Time // last successful archiver read; zero before the first one
-	FailuresSinceSuccess int64
-	InProgressStart      time.Time // zero when no backup running
-	LeaseHeld            bool
-	LastFailErr          string
-	LastFailAt           time.Time
-	LastRefresh          time.Time // when the poller last refreshed; zero before first poll
+	LastSuccessStop        time.Time // zero if no COMPLETE backup
+	CompleteCount          int64
+	Ready                  bool
+	Reason                 string
+	ArchiverOnPrimary      bool      // true once the archiver was read on a primary
+	LastArchived           time.Time // zero if unknown / not primary
+	OldestPending          time.Time // ready-time of oldest unarchived segment; zero if caught up
+	PendingCount           int64     // completed segments awaiting archive; 0 if caught up
+	ArchiveLagSeconds      float64   // backlog as measured at ArchiverRefreshedAt
+	ArchivingFailing       bool      // the most recent archive attempt failed
+	ArchiverRefreshedAt    time.Time // last successful archiver read; zero before the first one
+	FailuresSinceSuccess   int64
+	InProgressStart        time.Time // zero when no backup running
+	RestoreInProgressStart time.Time // zero when no restore command running
+	LeaseHeld              bool
+	LastFailErr            string
+	LastFailAt             time.Time
+	LastRefresh            time.Time // when the poller last refreshed; zero before first poll
 }
 
 // ArchiverFresh reports whether the archiver reading is recent enough to act on.
@@ -139,23 +144,24 @@ func (t *HealthTracker) Snapshot() Snapshot {
 		reason = ReadyReasonUnknown
 	}
 	return Snapshot{
-		LastSuccessStop:      t.lastSuccessStop,
-		CompleteCount:        t.completeCount,
-		Ready:                t.ready,
-		Reason:               reason,
-		ArchiverOnPrimary:    t.archiverOnPrimary,
-		LastArchived:         t.lastArchived,
-		OldestPending:        t.oldestPending,
-		PendingCount:         t.pendingCount,
-		ArchiveLagSeconds:    t.archiveLagSeconds,
-		ArchivingFailing:     t.archivingFailing,
-		ArchiverRefreshedAt:  t.archiverRefreshedAt,
-		FailuresSinceSuccess: t.failuresSinceSuccess,
-		InProgressStart:      t.inProgressStart,
-		LeaseHeld:            t.leaseHeld,
-		LastFailErr:          t.lastFailErr,
-		LastFailAt:           t.lastFailAt,
-		LastRefresh:          t.lastRefresh,
+		LastSuccessStop:        t.lastSuccessStop,
+		CompleteCount:          t.completeCount,
+		Ready:                  t.ready,
+		Reason:                 reason,
+		ArchiverOnPrimary:      t.archiverOnPrimary,
+		LastArchived:           t.lastArchived,
+		OldestPending:          t.oldestPending,
+		PendingCount:           t.pendingCount,
+		ArchiveLagSeconds:      t.archiveLagSeconds,
+		ArchivingFailing:       t.archivingFailing,
+		ArchiverRefreshedAt:    t.archiverRefreshedAt,
+		FailuresSinceSuccess:   t.failuresSinceSuccess,
+		InProgressStart:        t.inProgressStart,
+		RestoreInProgressStart: t.restoreInProgressStart,
+		LeaseHeld:              t.leaseHeld,
+		LastFailErr:            t.lastFailErr,
+		LastFailAt:             t.lastFailAt,
+		LastRefresh:            t.lastRefresh,
 	}
 }
 
@@ -225,6 +231,20 @@ func (t *HealthTracker) BackupStarted() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.inProgressStart = time.Now()
+}
+
+// RestoreStarted records that the pgBackRest restore command is running.
+func (t *HealthTracker) RestoreStarted() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.restoreInProgressStart = time.Now()
+}
+
+// RestoreFinished clears the restore timer on either success or failure.
+func (t *HealthTracker) RestoreFinished() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.restoreInProgressStart = time.Time{}
 }
 
 // BackupSucceeded records a successful backup: clears the in-progress timer and
