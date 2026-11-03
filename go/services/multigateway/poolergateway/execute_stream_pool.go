@@ -30,6 +30,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/queryrpc"
 	pb "github.com/multigres/multigres/go/pb/multipoolerservice"
+	"github.com/multigres/multigres/go/tools/latencydiag"
 )
 
 // Retention policy. Fixed constants until a deployment shows it needs tuning.
@@ -203,15 +204,17 @@ func (p *streamPool) put(l *streamLease) {
 // streamResponses exposes the same receive contract as the old server-streaming RPC.
 // A completion frame is translated to EOF or its original gRPC status/details.
 type streamResponses struct {
-	lease     *streamLease
-	done      bool
-	stop      func() bool
-	pool      *streamPool
-	ctx       context.Context
-	released  bool
-	operation pb.ExecuteStreamOperation
-	invalid   bool
-	retire    bool
+	diagnostic    *latencydiag.Span
+	diagnosticErr error
+	lease         *streamLease
+	done          bool
+	stop          func() bool
+	pool          *streamPool
+	ctx           context.Context
+	released      bool
+	operation     pb.ExecuteStreamOperation
+	invalid       bool
+	retire        bool
 }
 
 func (r *streamResponses) Recv() (*pb.StreamExecuteResponse, error) {
@@ -225,11 +228,18 @@ func (r *streamResponses) protocolError(message string) error {
 
 // recv validates framing and operation identity before exposing a response.
 // Handler status/details are passed through unchanged, including unary errors.
-func (r *streamResponses) recv() (proto.Message, error) {
+func (r *streamResponses) recv() (_ proto.Message, resultErr error) {
+	defer func() {
+		if resultErr != nil && !errors.Is(resultErr, io.EOF) {
+			r.diagnosticErr = resultErr
+		}
+	}()
 	if r.done || r.released {
 		return nil, io.EOF
 	}
+	_, receiveSpan := latencydiag.Start(r.ctx, "rpc.operation.receive")
 	f, err := r.lease.stream.Recv()
+	receiveSpan.End(err, 0)
 	if err != nil {
 		return nil, r.incomplete(err)
 	}
@@ -260,6 +270,7 @@ func (r *streamResponses) Release() {
 		return
 	}
 	r.released = true
+	r.diagnostic.End(r.diagnosticErr, 0)
 	p := r.pool
 	p.m.active.Add(p.ctx, -1)
 	// stop reports false once the caller's cancellation callback has started;
@@ -290,7 +301,14 @@ func (p *streamPool) Open(ctx context.Context, req *pb.StreamExecuteRequest) (*s
 // open handles all typed operations with the same exclusive lease and retry
 // boundary. Dedicated RPCs are selected only for per-call metadata/authorization
 // or propagation that cannot be carried by the operation envelope.
-func (p *streamPool) open(ctx context.Context, frame *pb.ExecuteStreamRequest) (*streamResponses, bool, error) {
+func (p *streamPool) open(ctx context.Context, frame *pb.ExecuteStreamRequest) (_ *streamResponses, _ bool, resultErr error) {
+	ctx, diagnosticSpan := latencydiag.StartAsync(ctx, "rpc.operation.client")
+	transferred := false
+	defer func() {
+		if !transferred {
+			diagnosticSpan.End(resultErr, 0)
+		}
+	}()
 	operation := queryrpc.Operation(frame)
 	if operation == pb.ExecuteStreamOperation_EXECUTE_STREAM_OPERATION_UNSPECIFIED {
 		return nil, false, status.Error(codes.InvalidArgument, "missing execute stream operation")
@@ -373,15 +391,20 @@ func (p *streamPool) open(ctx context.Context, frame *pb.ExecuteStreamRequest) (
 	l.requests++
 	p.m.operations.Add(p.ctx, 1, transport)
 	p.m.active.Add(p.ctx, 1)
-	r := &streamResponses{lease: l, stop: stop, pool: p, ctx: ctx, operation: operation}
+	r := &streamResponses{diagnostic: diagnosticSpan, lease: l, stop: stop, pool: p, ctx: ctx, operation: operation}
 	frame.Propagation = carrier
 	if deadline, ok := ctx.Deadline(); ok {
 		frame.TimeoutNanos = max(1, int64(time.Until(deadline)))
 	}
-	if err := l.stream.Send(frame); err != nil {
+	_, sendSpan := latencydiag.Start(ctx, "rpc.operation.send")
+	sendErr := l.stream.Send(frame)
+	sendSpan.End(sendErr, 0)
+	if err := sendErr; err != nil {
+		r.diagnosticErr = err
 		r.Release()
 		return nil, true, r.incomplete(err)
 	}
+	transferred = true
 	return r, true, nil
 }
 

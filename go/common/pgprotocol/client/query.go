@@ -28,6 +28,8 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/multigres/multigres/go/tools/latencydiag"
+
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
@@ -172,7 +174,13 @@ func (c *Conn) Query(ctx context.Context, queryStr string) ([]*sqltypes.Result, 
 //
 // A span is always created for query execution with database semantic conventions.
 // Use WithQueryTracing to customize the span (operation name, include SQL text).
-func (c *Conn) QueryStreaming(ctx context.Context, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+func (c *Conn) QueryStreaming(ctx context.Context, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) (err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		ctx, diagnosticSpan = latencydiag.Start(ctx, "postgres.QueryStreaming")
+		defer func() { diagnosticSpan.End(err, 0) }()
+	}
+
 	// Create span for query execution
 	config := getQueryTracingConfig(ctx)
 	opName := config.OperationName
@@ -203,7 +211,7 @@ func (c *Conn) QueryStreaming(ctx context.Context, queryStr string, callback fun
 	}
 
 	// Process responses.
-	err := c.processQueryResponses(ctx, callback)
+	err = c.processQueryResponses(ctx, callback)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "query failed")
@@ -446,7 +454,15 @@ func (b *resultBatcher) final(tag string) *sqltypes.Result {
 // in a clean state. Callback errors are captured but do not stop message processing.
 // Context cancellation should be handled by the caller (e.g., by killing the query
 // on the server side) rather than here, to avoid leaving unread messages on the wire.
-func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+func (c *Conn) processQueryResponses(ctx context.Context, callback func(ctx context.Context, result *sqltypes.Result) error) (err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		ctx, diagnosticSpan = latencydiag.Start(ctx, "postgres.response")
+		defer func() { diagnosticSpan.End(err, 0) }()
+		latencydiag.ObserveBackendSocket(diagnosticSpan, c.ProcessID(), c.conn)
+		callback = diagnosticCallback(callback)
+	}
+
 	batcher := &resultBatcher{c: c}
 
 	// Track the first error encountered. We continue processing messages to drain

@@ -26,13 +26,20 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/tools/latencydiag"
 )
 
 // Parse sends a Parse message to prepare a statement.
 // name is the statement name (empty for unnamed statement).
 // queryStr is the SQL query.
 // paramTypes are the OIDs of parameter types (0 for unspecified).
-func (c *Conn) Parse(ctx context.Context, name, queryStr string, paramTypes []uint32) error {
+func (c *Conn) Parse(ctx context.Context, name, queryStr string, paramTypes []uint32) (err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		ctx, diagnosticSpan = latencydiag.Start(ctx, "postgres.Parse")
+		defer func() { diagnosticSpan.End(err, 0) }()
+	}
+
 	c.bufMu.Lock()
 	defer c.bufMu.Unlock()
 
@@ -64,6 +71,12 @@ func (c *Conn) Parse(ctx context.Context, name, queryStr string, paramTypes []ui
 // maxRows is the maximum number of rows to return (0 for unlimited).
 // Returns true if the execution completed (CommandComplete), false if suspended (PortalSuspended).
 func (c *Conn) BindAndExecute(ctx context.Context, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		ctx, diagnosticSpan = latencydiag.Start(ctx, "postgres.BindAndExecute")
+		defer func() { diagnosticSpan.End(err, 0) }()
+	}
+
 	c.bufMu.Lock()
 	defer c.bufMu.Unlock()
 
@@ -99,7 +112,13 @@ func (c *Conn) BindAndExecute(ctx context.Context, portalName, stmtName string, 
 // the backend's RowDescription (or nil from NoData), exactly as Describe('P')
 // would have set them. Returns the same completion bool as BindAndExecute —
 // true for CommandComplete, false for PortalSuspended.
-func (c *Conn) BindDescribeAndExecute(ctx context.Context, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (bool, error) {
+func (c *Conn) BindDescribeAndExecute(ctx context.Context, portalName, stmtName string, params [][]byte, paramFormats, resultFormats []int16, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		ctx, diagnosticSpan = latencydiag.Start(ctx, "postgres.BindDescribeAndExecute")
+		defer func() { diagnosticSpan.End(err, 0) }()
+	}
+
 	c.bufMu.Lock()
 	defer c.bufMu.Unlock()
 
@@ -132,7 +151,13 @@ func (c *Conn) BindDescribeAndExecute(ctx context.Context, portalName, stmtName 
 // params are the parameter values.
 // paramFormats are format codes for parameters (0=text, 1=binary).
 // resultFormats are format codes for result columns (0=text, 1=binary).
-func (c *Conn) BindAndDescribe(ctx context.Context, stmtName string, params [][]byte, paramFormats, resultFormats []int16) (*query.StatementDescription, error) {
+func (c *Conn) BindAndDescribe(ctx context.Context, stmtName string, params [][]byte, paramFormats, resultFormats []int16) (description *query.StatementDescription, err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		ctx, diagnosticSpan = latencydiag.Start(ctx, "postgres.BindAndDescribe")
+		defer func() { diagnosticSpan.End(err, 0) }()
+	}
+
 	c.bufMu.Lock()
 	defer c.bufMu.Unlock()
 
@@ -160,7 +185,13 @@ func (c *Conn) BindAndDescribe(ctx context.Context, stmtName string, params [][]
 // DescribePrepared describes a prepared statement.
 // This sends Describe('S') → Sync.
 // name is the prepared statement name (empty for unnamed statement).
-func (c *Conn) DescribePrepared(ctx context.Context, name string) (*query.StatementDescription, error) {
+func (c *Conn) DescribePrepared(ctx context.Context, name string) (description *query.StatementDescription, err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		ctx, diagnosticSpan = latencydiag.Start(ctx, "postgres.DescribePrepared")
+		defer func() { diagnosticSpan.End(err, 0) }()
+	}
+
 	c.bufMu.Lock()
 	defer c.bufMu.Unlock()
 
@@ -191,7 +222,13 @@ func (c *Conn) ClosePortal(ctx context.Context, name string) error {
 }
 
 // closeTarget sends a Close message for a statement or portal.
-func (c *Conn) closeTarget(ctx context.Context, typ byte, name string) error {
+func (c *Conn) closeTarget(ctx context.Context, typ byte, name string) (err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		ctx, diagnosticSpan = latencydiag.Start(ctx, "postgres.closeTarget")
+		defer func() { diagnosticSpan.End(err, 0) }()
+	}
+
 	c.bufMu.Lock()
 	defer c.bufMu.Unlock()
 
@@ -213,7 +250,13 @@ func (c *Conn) closeTarget(ctx context.Context, typ byte, name string) error {
 }
 
 // Sync sends a Sync message to synchronize the extended query protocol.
-func (c *Conn) Sync(ctx context.Context) error {
+func (c *Conn) Sync(ctx context.Context) (err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		ctx, diagnosticSpan = latencydiag.Start(ctx, "postgres.Sync")
+		defer func() { diagnosticSpan.End(err, 0) }()
+	}
+
 	c.bufMu.Lock()
 	defer c.bufMu.Unlock()
 
@@ -230,7 +273,13 @@ func (c *Conn) Sync(ctx context.Context) error {
 }
 
 // Flush sends a Flush message to request the server to flush its output buffer.
-func (c *Conn) Flush(ctx context.Context) error {
+func (c *Conn) Flush(ctx context.Context) (err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		_, diagnosticSpan = latencydiag.Start(ctx, "postgres.Flush")
+		defer func() { diagnosticSpan.End(err, 0) }()
+	}
+
 	c.bufMu.Lock()
 	defer c.bufMu.Unlock()
 
@@ -245,7 +294,13 @@ func (c *Conn) Flush(ctx context.Context) error {
 // This performs Parse, Bind, Execute, and Sync in a single round trip.
 // name is the statement/portal name (use "" for unnamed, which is cleared after Sync).
 // A named statement persists until explicitly closed or the session ends.
-func (c *Conn) PrepareAndExecute(ctx context.Context, name, queryStr string, params [][]byte, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+func (c *Conn) PrepareAndExecute(ctx context.Context, name, queryStr string, params [][]byte, callback func(ctx context.Context, result *sqltypes.Result) error) (err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		ctx, diagnosticSpan = latencydiag.Start(ctx, "postgres.PrepareAndExecute")
+		defer func() { diagnosticSpan.End(err, 0) }()
+	}
+
 	c.bufMu.Lock()
 	defer c.bufMu.Unlock()
 
@@ -329,6 +384,12 @@ func (c *Conn) QueryArgs(ctx context.Context, queryStr string, args ...any) ([]*
 // maxRows is the maximum number of rows to return (0 for unlimited).
 // Returns true if the portal completed (CommandComplete), false if suspended (PortalSuspended).
 func (c *Conn) Execute(ctx context.Context, portalName string, maxRows int32, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		ctx, diagnosticSpan = latencydiag.Start(ctx, "postgres.Execute")
+		defer func() { diagnosticSpan.End(err, 0) }()
+	}
+
 	c.bufMu.Lock()
 	defer c.bufMu.Unlock()
 
@@ -440,6 +501,14 @@ func encodeStringArray(elems []string) string {
 // IMPORTANT: This function always reads until ReadyForQuery to keep the connection
 // in a clean state. Errors are captured but do not stop message processing.
 func (c *Conn) processExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		ctx, diagnosticSpan = latencydiag.Start(ctx, "postgres.response")
+		defer func() { diagnosticSpan.End(err, 0) }()
+		latencydiag.ObserveBackendSocket(diagnosticSpan, c.ProcessID(), c.conn)
+		callback = diagnosticCallback(callback)
+	}
+
 	batcher := &resultBatcher{c: c}
 	var firstErr error
 
@@ -635,7 +704,14 @@ func (c *Conn) writeFlush() error {
 
 // waitForParseComplete waits for ParseComplete and ReadyForQuery.
 // Always reads until ReadyForQuery to keep the connection in a clean state.
-func (c *Conn) waitForParseComplete(_ context.Context) error {
+func (c *Conn) waitForParseComplete(ctx context.Context) (err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		_, diagnosticSpan = latencydiag.Start(ctx, "postgres.response")
+		defer func() { diagnosticSpan.End(err, 0) }()
+		latencydiag.ObserveBackendSocket(diagnosticSpan, c.ProcessID(), c.conn)
+	}
+
 	gotParseComplete := false
 	var firstErr error
 
@@ -683,7 +759,14 @@ func (c *Conn) waitForParseComplete(_ context.Context) error {
 
 // waitForCloseComplete waits for CloseComplete and ReadyForQuery.
 // Always reads until ReadyForQuery to keep the connection in a clean state.
-func (c *Conn) waitForCloseComplete(_ context.Context) error {
+func (c *Conn) waitForCloseComplete(ctx context.Context) (err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		_, diagnosticSpan = latencydiag.Start(ctx, "postgres.response")
+		defer func() { diagnosticSpan.End(err, 0) }()
+		latencydiag.ObserveBackendSocket(diagnosticSpan, c.ProcessID(), c.conn)
+	}
+
 	gotCloseComplete := false
 	var firstErr error
 
@@ -731,7 +814,14 @@ func (c *Conn) waitForCloseComplete(_ context.Context) error {
 
 // waitForReadyForQuery waits for ReadyForQuery.
 // Always reads until ReadyForQuery to keep the connection in a clean state.
-func (c *Conn) waitForReadyForQuery(_ context.Context) error {
+func (c *Conn) waitForReadyForQuery(ctx context.Context) (err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		_, diagnosticSpan = latencydiag.Start(ctx, "postgres.response")
+		defer func() { diagnosticSpan.End(err, 0) }()
+		latencydiag.ObserveBackendSocket(diagnosticSpan, c.ProcessID(), c.conn)
+	}
+
 	var firstErr error
 
 	for {
@@ -770,7 +860,14 @@ func (c *Conn) waitForReadyForQuery(_ context.Context) error {
 // processDescribeResponses processes responses to a Describe('S') command.
 // This only expects ParameterDescription and RowDescription (no BindComplete).
 // Always reads until ReadyForQuery to keep the connection in a clean state.
-func (c *Conn) processDescribeResponses(_ context.Context) (*query.StatementDescription, error) {
+func (c *Conn) processDescribeResponses(ctx context.Context) (description *query.StatementDescription, err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		_, diagnosticSpan = latencydiag.Start(ctx, "postgres.response")
+		defer func() { diagnosticSpan.End(err, 0) }()
+		latencydiag.ObserveBackendSocket(diagnosticSpan, c.ProcessID(), c.conn)
+	}
+
 	desc := &query.StatementDescription{}
 	var firstErr error
 
@@ -842,6 +939,14 @@ func (c *Conn) processDescribeResponses(_ context.Context) (*query.StatementDesc
 // Returns true if the execution completed (CommandComplete), false if suspended (PortalSuspended).
 // Always reads until ReadyForQuery to keep the connection in a clean state.
 func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		ctx, diagnosticSpan = latencydiag.Start(ctx, "postgres.response")
+		defer func() { diagnosticSpan.End(err, 0) }()
+		latencydiag.ObserveBackendSocket(diagnosticSpan, c.ProcessID(), c.conn)
+		callback = diagnosticCallback(callback)
+	}
+
 	gotBindComplete := false
 	batcher := &resultBatcher{c: c}
 	var firstErr error
@@ -961,7 +1066,14 @@ func (c *Conn) processBindAndExecuteResponses(ctx context.Context, callback func
 // Expects: BindComplete, then describe results (RowDescription or NoData), then ReadyForQuery.
 // Note: Describe('P') for a portal does NOT return ParameterDescription, only RowDescription/NoData.
 // Always reads until ReadyForQuery to keep the connection in a clean state.
-func (c *Conn) processBindAndDescribeResponses(_ context.Context) (*query.StatementDescription, error) {
+func (c *Conn) processBindAndDescribeResponses(ctx context.Context) (description *query.StatementDescription, err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		_, diagnosticSpan = latencydiag.Start(ctx, "postgres.response")
+		defer func() { diagnosticSpan.End(err, 0) }()
+		latencydiag.ObserveBackendSocket(diagnosticSpan, c.ProcessID(), c.conn)
+	}
+
 	gotBindComplete := false
 	desc := &query.StatementDescription{}
 	var firstErr error
@@ -1050,7 +1162,15 @@ func (c *Conn) parseParameterDescription(body []byte) ([]*query.ParameterDescrip
 // - On CommandComplete: remaining rows + CommandTag sent together (signals end of result set)
 // For small result sets, this means a single callback with Fields, Rows, and CommandTag.
 // Always reads until ReadyForQuery to keep the connection in a clean state.
-func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *sqltypes.Result) error) error {
+func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *sqltypes.Result) error) (err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		ctx, diagnosticSpan = latencydiag.Start(ctx, "postgres.response")
+		defer func() { diagnosticSpan.End(err, 0) }()
+		latencydiag.ObserveBackendSocket(diagnosticSpan, c.ProcessID(), c.conn)
+		callback = diagnosticCallback(callback)
+	}
+
 	gotParseComplete := false
 	gotBindComplete := false
 	batcher := &resultBatcher{c: c}
@@ -1172,11 +1292,19 @@ func (c *Conn) processPrepareAndExecuteResponses(ctx context.Context, callback f
 // the first chunk that carries data or the CommandTag, so callers receive
 // the same Fields they would have gotten from a standalone Describe('P').
 // NoData leaves currentFields nil and produces a Result with Fields == nil.
-func (c *Conn) processBindDescribeAndExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *sqltypes.Result) error) (bool, error) {
+func (c *Conn) processBindDescribeAndExecuteResponses(ctx context.Context, callback func(ctx context.Context, result *sqltypes.Result) error) (completed bool, err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		ctx, diagnosticSpan = latencydiag.Start(ctx, "postgres.response")
+		defer func() { diagnosticSpan.End(err, 0) }()
+		latencydiag.ObserveBackendSocket(diagnosticSpan, c.ProcessID(), c.conn)
+		callback = diagnosticCallback(callback)
+	}
+
 	gotBindComplete := false
 	batcher := &resultBatcher{c: c}
 	var firstErr error
-	completed := false
+	completed = false
 
 	flushBatch := func() {
 		if result := batcher.flush(); result != nil && callback != nil && firstErr == nil {

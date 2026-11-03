@@ -31,6 +31,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+	"github.com/multigres/multigres/go/tools/latencydiag"
 )
 
 const (
@@ -212,7 +213,13 @@ func Connect(ctx context.Context, poolCtx context.Context, config *Config) (*Con
 //
 // The caller is responsible for re-applying any session state (settings,
 // prepared statements) after a successful reconnect.
-func (c *Conn) Reconnect(ctx context.Context) error {
+func (c *Conn) Reconnect(ctx context.Context) (err error) {
+	if latencydiag.Selected(ctx) {
+		var diagnosticSpan *latencydiag.Span
+		ctx, diagnosticSpan = latencydiag.Start(ctx, "postgres.Reconnect")
+		defer func() { diagnosticSpan.End(err, 0) }()
+	}
+
 	// Close the raw socket. Best-effort since the connection may already be broken.
 	// We intentionally don't call c.Close() because that cancels the lifetime
 	// context (derived from poolCtx) which we want to keep alive.

@@ -29,23 +29,20 @@ import (
 	"time"
 
 	grpcmiddleware "github.com/grpc-ecosystem/go-grpc-middleware"
-
-	healthpb "google.golang.org/grpc/health/grpc_health_v1"
-
-	"github.com/multigres/multigres/go/tools/grpccommon"
-	"github.com/multigres/multigres/go/tools/viperutil"
-
 	"github.com/spf13/pflag"
-
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/test/bufconn"
+
+	"github.com/multigres/multigres/go/tools/grpccommon"
+	"github.com/multigres/multigres/go/tools/latencydiag/grpcdiag"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
 // This file handles gRPC server, on its own port.
@@ -658,6 +655,9 @@ func (g *GrpcServer) interceptors() []grpc.ServerOption {
 		)
 	}
 
+	if g.sv != nil && g.sv.latencyDiagnostics.Get() {
+		interceptors.Add(grpcdiag.StreamServer, grpcdiag.UnaryServer)
+	}
 	return interceptors.Build()
 }
 

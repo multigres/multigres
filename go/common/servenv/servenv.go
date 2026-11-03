@@ -28,6 +28,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+
 	"github.com/multigres/multigres/go/common/mterrors"
 	viperdebug "github.com/multigres/multigres/go/common/servenv/viperdebug"
 	"github.com/multigres/multigres/go/tools/event"
@@ -36,9 +39,6 @@ import (
 	"github.com/multigres/multigres/go/tools/stringutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
-
-	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 )
 
 // ServiceIdentity holds service identification for telemetry and topology registration.
@@ -76,20 +76,21 @@ type ServEnv struct {
 	reg *viperutil.Registry
 
 	// Configuration
-	httpPort       viperutil.Value[int]
-	bindAddress    viperutil.Value[string]
-	hostname       viperutil.Value[string]
-	lameduckPeriod viperutil.Value[time.Duration]
-	onTermTimeout  viperutil.Value[time.Duration]
-	onCloseTimeout viperutil.Value[time.Duration]
-	pidFile        viperutil.Value[string]
-	httpPprof      viperutil.Value[bool]
-	pprofFlag      viperutil.Value[[]string]
-	serviceMapFlag viperutil.Value[[]string]
-	catchSigpipe   bool
-	maxStackSize   int
-	initStartTime  time.Time
-	vc             *viperutil.ViperConfig
+	httpPort           viperutil.Value[int]
+	bindAddress        viperutil.Value[string]
+	hostname           viperutil.Value[string]
+	lameduckPeriod     viperutil.Value[time.Duration]
+	onTermTimeout      viperutil.Value[time.Duration]
+	onCloseTimeout     viperutil.Value[time.Duration]
+	pidFile            viperutil.Value[string]
+	httpPprof          viperutil.Value[bool]
+	latencyDiagnostics viperutil.Value[bool]
+	pprofFlag          viperutil.Value[[]string]
+	serviceMapFlag     viperutil.Value[[]string]
+	catchSigpipe       bool
+	maxStackSize       int
+	initStartTime      time.Time
+	vc                 *viperutil.ViperConfig
 
 	// Hooks
 	onInitHooks     event.Hooks
@@ -267,6 +268,7 @@ func NewServEnvWithConfig(reg *viperutil.Registry, lg *Logger, vc *viperutil.Vip
 			FlagName: "pid-file",
 			Dynamic:  false,
 		}),
+		latencyDiagnostics: viperutil.Configure(reg, "latency-diagnostics", viperutil.Options[bool]{Default: false, FlagName: "latency-diagnostics", Dynamic: false}),
 		httpPprof: viperutil.Configure(reg, "pprof-http", viperutil.Options[bool]{
 			Default:  true,
 			FlagName: "pprof-http",
@@ -541,6 +543,7 @@ func (se *ServEnv) registerFlags(fs *pflag.FlagSet, includeLoggerAndConfig bool)
 	fs.Int("http-port", se.httpPort.Default(), "HTTP port for the server")
 	fs.String("bind-address", se.bindAddress.Default(), "Bind address for the server. If empty, the server will listen on all available unicast and anycast IP addresses of the local system.")
 	fs.String("hostname", se.hostname.Default(), "Hostname to use for service registration. If not set, will auto-detect using FQDN or os.Hostname()")
+	fs.Bool("latency-diagnostics", se.latencyDiagnostics.Default(), "enable bounded latency capture on the private diagnostic HTTP listener (requires pprof-http)")
 	fs.Bool("pprof-http", se.httpPprof.Default(), "enable pprof http endpoints")
 	fs.StringSlice("pprof", se.pprofFlag.Default(), "enable profiling")
 	fs.StringSlice("service-map", se.serviceMapFlag.Default(), "comma separated list of services to enable (or disable if prefixed with '-') Example: grpc-queryservice")
@@ -555,7 +558,7 @@ func (se *ServEnv) registerFlags(fs *pflag.FlagSet, includeLoggerAndConfig bool)
 	fs.Duration("onclose-timeout", se.onCloseTimeout.Default(), "wait no more than this for OnClose handlers before stopping")
 	fs.String("pid-file", se.pidFile.Default(), "If set, the process will write its pid to the named file, and delete it on graceful shutdown.")
 
-	viperutil.BindFlags(fs, se.httpPort, se.bindAddress, se.hostname, se.lameduckPeriod, se.onTermTimeout, se.onCloseTimeout, se.pidFile, se.httpPprof, se.pprofFlag, se.serviceMapFlag, se.tlsCert, se.tlsKey, se.tlsCA, se.httpAuthMtlsAllowedSubjects)
+	viperutil.BindFlags(fs, se.httpPort, se.bindAddress, se.hostname, se.lameduckPeriod, se.onTermTimeout, se.onCloseTimeout, se.pidFile, se.httpPprof, se.latencyDiagnostics, se.pprofFlag, se.serviceMapFlag, se.tlsCert, se.tlsKey, se.tlsCA, se.httpAuthMtlsAllowedSubjects)
 
 	// Server auth flags
 	for _, fn := range grpcAuthServerFlagHooks {

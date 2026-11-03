@@ -29,6 +29,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/multigres/multigres/go/tools/grpccommon"
+	"github.com/multigres/multigres/go/tools/latencydiag"
 )
 
 // HTTPHandle registers the given handler for the internal servenv mux.
@@ -110,6 +111,9 @@ func (sv *ServEnv) HTTPRegisterPprofProfile() {
 		return
 	}
 
+	if sv.latencyDiagnostics.Get() {
+		sv.HTTPHandleFunc("/debug/latency", RequireBearerAuth(sv.resolveAuthPlugin, latencydiag.Handler))
+	}
 	sv.HTTPHandleFunc("/debug/pprof/", RequireBearerAuth(sv.resolveAuthPlugin, pprof.Index))
 	sv.HTTPHandleFunc("/debug/pprof/cmdline", RequireBearerAuth(sv.resolveAuthPlugin, pprof.Cmdline))
 	sv.HTTPHandleFunc("/debug/pprof/profile", RequireBearerAuth(sv.resolveAuthPlugin, pprof.Profile))

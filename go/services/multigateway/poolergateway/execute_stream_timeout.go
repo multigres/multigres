@@ -79,6 +79,9 @@ func dedicatedTimeoutError(ctx context.Context, err error) error {
 // finish also covers callbacks that stop consuming results at the deadline.
 // Release alone cancels the transport and cannot establish backend readiness.
 func (r *streamResponses) finish(err error) error {
+	if err != nil {
+		r.diagnosticErr = err
+	}
 	defer r.Release()
 	if !errors.Is(r.ctx.Err(), context.DeadlineExceeded) || r.done {
 		return err
@@ -94,6 +97,9 @@ func (r *streamResponses) finish(err error) error {
 // Public query-service callbacks return application errors, not gRPC statuses.
 // Preserve their identity unless timeout recovery supplies a new outcome.
 func (r *streamResponses) finishQuery(err error) error {
+	if err != nil {
+		r.diagnosticErr = err
+	}
 	if !errors.Is(r.ctx.Err(), context.DeadlineExceeded) || r.done {
 		r.Release()
 		return err

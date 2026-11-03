@@ -34,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	"github.com/multigres/multigres/go/tools/latencydiag"
 )
 
 const (
@@ -62,6 +63,12 @@ var errAuthenticationTimeout = errors.New("authentication timeout")
 type Conn struct {
 	// conn is the underlying network connection.
 	conn net.Conn
+
+	// Diagnostic context is published atomically for asynchronous reply writers.
+	diagnostic         atomic.Pointer[latencydiag.Span]
+	diagnosticSequence uint64
+	diagnosticCycle    uint64
+	diagnosticIO       diagnosticTransport
 
 	// bufferedReader is used for reading from the connection.
 	bufferedReader *bufio.Reader
@@ -293,9 +300,11 @@ func newConn(netConn net.Conn, listener *Listener, connectionID uint32) *Conn {
 		state:          nil, // Handler will initialize its own state
 	}
 
+	c.diagnosticIO.owner = c
+
 	// Use pooled readers.
 	c.bufferedReader = listener.readersPool.Get().(*bufio.Reader)
-	c.bufferedReader.Reset(netConn)
+	c.bufferedReader.Reset(&c.diagnosticIO)
 
 	return c
 }
@@ -551,7 +560,7 @@ func (c *Conn) BeginQueryCancel() context.Context {
 	c.queryCancelMu.Lock()
 	defer c.queryCancelMu.Unlock()
 
-	queryCtx, cancel := context.WithCancelCause(c.ctx)
+	queryCtx, cancel := context.WithCancelCause(c.diagnosticContext())
 	c.queryCancelFunc = cancel
 	return queryCtx
 }
@@ -621,12 +630,15 @@ func (c *Conn) startWriterBuffering() {
 
 	if c.bufferedWriter == nil {
 		c.bufferedWriter = c.listener.writersPool.Get().(*bufio.Writer)
-		c.bufferedWriter.Reset(c.conn)
+		if c.diagnosticIO.owner == nil {
+			c.diagnosticIO.owner = c
+		}
+		c.bufferedWriter.Reset(&c.diagnosticIO)
 	}
 }
 
 // flush flushes any buffered writes.
-func (c *Conn) flush() error {
+func (c *Conn) flushUntraced() error {
 	c.bufMu.Lock()
 	defer c.bufMu.Unlock()
 
@@ -648,7 +660,7 @@ func (c *Conn) Flush() error {
 // timeout, etc.) so callers in the serve() loop can propagate it for
 // connection-level cleanup; the writer is still detached and pooled
 // even when Flush fails, so the connection state is consistent.
-func (c *Conn) endWriterBuffering() error {
+func (c *Conn) endWriterBufferingUntraced() error {
 	c.bufMu.Lock()
 	defer c.bufMu.Unlock()
 
@@ -729,7 +741,7 @@ func generateBackendKey() uint32 {
 // pipelined batches at one buffer / one flush, while still returning
 // the writer to the pool when the connection genuinely idles between
 // batches.
-func (c *Conn) serve() error {
+func (c *Conn) serve() (serveErr error) {
 	// Bound the startup phase (SSL/GSS negotiation, StartupMessage, SCRAM
 	// exchange) — equivalent to PostgreSQL's authentication_timeout. A
 	// stalled or malicious client cannot pin this goroutine past the
@@ -849,10 +861,22 @@ func (c *Conn) serve() error {
 	// protocol, only Sync completes that cycle and returns to ReadyForQuery;
 	// Parse/Bind/Execute/Flush/etc. remain within the same cycle.
 	waitingForCommand := true
+	var message *latencydiag.Span
+	defer func() { message.End(serveErr, 0); c.diagnostic.Store(nil) }()
 	for {
 		// Check if connection is closed.
 		if c.closed.Load() {
 			return nil
+		}
+
+		if waitingForCommand {
+			c.diagnosticCycle++
+		}
+		c.diagnosticSequence++
+		message = latencydiag.Message(c.ctx, c.connectionID, c.diagnosticSequence)
+		if message != nil {
+			c.diagnostic.Store(message)
+			latencydiag.ObserveSocket(message, c.connectionID, c.conn)
 		}
 
 		// Read the message type (1 byte). If the handler manages
@@ -866,6 +890,7 @@ func (c *Conn) serve() error {
 			return err
 		}
 		msgType, err := c.ReadMessageType()
+		message.Protocol(msgType, byte(c.txnStatus))
 		if err == nil && idleDeadlineArmed {
 			if clearErr := c.conn.SetReadDeadline(time.Time{}); clearErr != nil {
 				c.logger.Error("failed to clear idle_session_timeout read deadline", "error", clearErr)
@@ -962,6 +987,12 @@ func (c *Conn) serve() error {
 			}
 			waitingForCommand = true
 		}
+		if message != nil {
+			message.Boundary(c.diagnosticCycle, byte(c.txnStatus))
+			message.End(nil, 0)
+			message = nil
+			c.diagnostic.Store(nil)
+		}
 	}
 }
 
@@ -1029,7 +1060,7 @@ func (c *Conn) handleIdleSessionTimeout() error {
 // and proceeds to handleSync (which emits the ReadyForQuery the client is
 // waiting on). This matches PostgreSQL's documented behavior and prevents
 // the post-error frames (notably CloseComplete) that crash strict drivers.
-func (c *Conn) handleMessage(msgType byte) error {
+func (c *Conn) handleMessageUntraced(msgType byte) error {
 	if handled, err := c.maybeDispatchDrain(msgType); handled {
 		return err
 	}
@@ -1161,7 +1192,9 @@ func (c *Conn) handleQuery() error {
 	// The callback will be invoked multiple times for:
 	// 1. Large result sets (streamed in chunks)
 	// 2. Multiple statements in a single query (each potentially with large result sets)
-	err = c.handler.HandleQuery(queryCtx, c, queryStr, func(ctx context.Context, result *sqltypes.Result) error {
+	err = c.handler.HandleQuery(queryCtx, c, queryStr, func(ctx context.Context, result *sqltypes.Result) (callbackErr error) {
+		_, diagnosticSpan := latencydiag.Start(ctx, "frontend.encode_result")
+		defer func() { diagnosticSpan.End(callbackErr, 0) }()
 		// Handle empty query (nil result signals empty query).
 		if result == nil {
 			return c.writeEmptyQueryResponse()
@@ -1349,7 +1382,7 @@ func (c *Conn) handleParse() error {
 
 	// Call the handler to validate and prepare the statement.
 	// The handler is responsible for storing any state it needs.
-	if err := c.handler.HandleParse(c.ctx, c, stmtName, queryStr, paramTypes); err != nil {
+	if err := c.handler.HandleParse(c.diagnosticContext(), c, stmtName, queryStr, paramTypes); err != nil {
 		// Do NOT send ReadyForQuery here. In the extended query protocol, the client
 		// pipelines Parse + Describe + Sync (or Parse + Bind + Execute + Sync).
 		// ReadyForQuery must only be sent in response to Sync. Sending it here would
@@ -1468,7 +1501,7 @@ func (c *Conn) handleBind() error {
 	c.logger.Debug("bind", "portal", portalName, "statement", stmtName, "param_count", len(params))
 
 	// Call the handler to create and bind the portal with parameters.
-	if err := c.handler.HandleBind(c.ctx, c, portalName, stmtName, params, paramFormats, resultFormats); err != nil {
+	if err := c.handler.HandleBind(c.diagnosticContext(), c, portalName, stmtName, params, paramFormats, resultFormats); err != nil {
 		// Do NOT send ReadyForQuery here — same reasoning as handleParse.
 		// ReadyForQuery is sent only in response to Sync.
 		// writeExtendedQueryError flushes the error packet immediately —
@@ -1560,7 +1593,9 @@ func (c *Conn) handleExecute() error {
 
 	// Call the handler to execute the portal with streaming callback.
 	// The handler is responsible for retrieving the portal and executing it.
-	err = c.handler.HandleExecute(queryCtx, c, portalName, maxRows, includeDescribe, func(ctx context.Context, result *sqltypes.Result) error {
+	err = c.handler.HandleExecute(queryCtx, c, portalName, maxRows, includeDescribe, func(ctx context.Context, result *sqltypes.Result) (callbackErr error) {
+		_, diagnosticSpan := latencydiag.Start(ctx, "frontend.encode_result")
+		defer func() { diagnosticSpan.End(callbackErr, 0) }()
 		// A nil result signals an empty / comment-only query, mirroring the
 		// simple-query path. PostgreSQL answers Execute of an empty-string
 		// portal with EmptyQueryResponse. If a Describe('P') was folded into
@@ -1697,7 +1732,7 @@ func (c *Conn) handleDescribe() error {
 
 	// Statement describe ('S') — call handler synchronously. Any prior
 	// Describe('P') was already flushed by handleMessage before this call.
-	desc, err := c.handler.HandleDescribe(c.ctx, c, typ, name)
+	desc, err := c.handler.HandleDescribe(c.diagnosticContext(), c, typ, name)
 	if err != nil {
 		// Preserve a structured diagnostic — 26000 for an unknown prepared
 		// statement, 34000 for an unknown portal — so the two cases stay
@@ -1741,7 +1776,7 @@ func (c *Conn) resolveDeferredPortalDescribe() error {
 	name := c.deferredPortalDescribeName
 	c.deferredPortalDescribe = false
 	c.deferredPortalDescribeName = ""
-	desc, err := c.handler.HandleDescribe(c.ctx, c, 'P', name)
+	desc, err := c.handler.HandleDescribe(c.diagnosticContext(), c, 'P', name)
 	if err != nil {
 		// Preserve a structured diagnostic (34000 for an unknown portal); only
 		// opaque errors become MTD06. See preserveExtendedQueryError.
@@ -1788,7 +1823,7 @@ func (c *Conn) handleClose() error {
 	c.logger.Debug("close", "type", string(typ), "name", name)
 
 	// Call the handler.
-	if err := c.handler.HandleClose(c.ctx, c, typ, name); err != nil {
+	if err := c.handler.HandleClose(c.diagnosticContext(), c, typ, name); err != nil {
 		return c.writeExtendedQueryError(mterrors.MTD07.NewWithDetail(err.Error()))
 	}
 
@@ -1960,7 +1995,7 @@ func (c *Conn) handleSync() error {
 	c.logger.Debug("sync")
 
 	// Call the handler.
-	if err := c.handler.HandleSync(c.ctx, c); err != nil {
+	if err := c.handler.HandleSync(c.diagnosticContext(), c); err != nil {
 		// Even if handler returns error, we still send ReadyForQuery after Sync.
 		if writeErr := c.writeError(mterrors.MTD08.NewWithDetail(err.Error())); writeErr != nil {
 			return writeErr

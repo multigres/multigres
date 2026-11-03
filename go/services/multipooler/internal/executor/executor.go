@@ -41,6 +41,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 	"github.com/multigres/multigres/go/tools/ctxutil"
+	"github.com/multigres/multigres/go/tools/latencydiag"
 )
 
 // preExecutionUnavailableError marks connection failures that occurred while
@@ -202,9 +203,12 @@ func (e *Executor) ExecuteQuery(ctx context.Context, target *query.Target, sql s
 
 	// Get a connection from the pool for this user
 	clientKey, serverKey := scramKeysFromOptions(options)
+	acquisitionCtx, acquisitionSpan := latencydiag.Start(ctx, "pool.acquire")
 	acqStart := time.Now()
-	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
-	e.metrics.recordPoolAcquire(ctx, poolTypeRegular, time.Since(acqStart), err)
+	conn, err := e.poolManager.GetRegularConnWithSettings(acquisitionCtx, settings, user, clientKey, serverKey)
+	acqDuration := time.Since(acqStart)
+	acquisitionSpan.End(err, 0)
+	e.metrics.recordPoolAcquire(ctx, poolTypeRegular, acqDuration, err)
 	if err != nil {
 		return nil, nil, preExecutionUnavailableError(fmt.Errorf("failed to get connection for user %s: %w", user, err))
 	}
@@ -319,9 +323,12 @@ func (e *Executor) StreamExecute(
 
 	// Get a connection from the pool for this user
 	clientKey, serverKey := scramKeysFromOptions(options)
+	acquisitionCtx, acquisitionSpan := latencydiag.Start(ctx, "pool.acquire")
 	acqStart := time.Now()
-	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
-	e.metrics.recordPoolAcquire(ctx, poolTypeRegular, time.Since(acqStart), err)
+	conn, err := e.poolManager.GetRegularConnWithSettings(acquisitionCtx, settings, user, clientKey, serverKey)
+	acqDuration := time.Since(acqStart)
+	acquisitionSpan.End(err, 0)
+	e.metrics.recordPoolAcquire(ctx, poolTypeRegular, acqDuration, err)
 	if err != nil {
 		return nil, preExecutionUnavailableError(fmt.Errorf("failed to get connection for user %s: %w", user, err))
 	}
@@ -415,9 +422,12 @@ func (e *Executor) reserveAndStreamExecute(
 
 	// Create a reserved connection
 	clientKey, serverKey := scramKeysFromOptions(options)
+	acquisitionCtx, acquisitionSpan := latencydiag.Start(ctx, "pool.acquire")
 	acqStart := time.Now()
-	reservedConn, err := e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, e.reservedConnOptions(reservedOpts...)...)
-	e.metrics.recordPoolAcquire(ctx, poolTypeReserved, time.Since(acqStart), err)
+	reservedConn, err := e.poolManager.NewReservedConn(acquisitionCtx, settings, user, clientKey, serverKey, e.reservedConnOptions(reservedOpts...)...)
+	acqDuration := time.Since(acqStart)
+	acquisitionSpan.End(err, 0)
+	e.metrics.recordPoolAcquire(ctx, poolTypeReserved, acqDuration, err)
 	if err != nil {
 		return nil, preExecutionUnavailableError(fmt.Errorf("failed to create reserved connection: %w", err))
 	}
@@ -1052,12 +1062,15 @@ func (e *Executor) portalExecuteWithReserved(
 		// the validate hook (before any BEGIN below) is safe; the prepared
 		// statement persists into the transaction.
 		clientKey, serverKey := scramKeysFromOptions(options)
+		acquisitionCtx, acquisitionSpan := latencydiag.Start(ctx, "pool.acquire")
 		acqStart := time.Now()
-		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, e.reservedConnOptions(reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
+		reservedConn, err = e.poolManager.NewReservedConn(acquisitionCtx, settings, user, clientKey, serverKey, e.reservedConnOptions(reserved.WithValidate(func(ctx context.Context, conn *regular.Conn) error {
 			_, err := e.ensurePrepared(ctx, conn, preparedStatement)
 			return err
 		}))...)
-		e.metrics.recordPoolAcquire(ctx, poolTypeReserved, time.Since(acqStart), err)
+		acqDuration := time.Since(acqStart)
+		acquisitionSpan.End(err, 0)
+		e.metrics.recordPoolAcquire(ctx, poolTypeReserved, acqDuration, err)
 		if err != nil {
 			return nil, preExecutionUnavailableError(fmt.Errorf("failed to create reserved connection for user %s: %w", user, err))
 		}
@@ -1300,9 +1313,12 @@ func (e *Executor) portalExecuteWithRegular(
 	options *query.ExecuteOptions,
 	callback func(context.Context, *sqltypes.Result) error,
 ) (*query.ReservedState, error) {
+	acquisitionCtx, acquisitionSpan := latencydiag.Start(ctx, "pool.acquire")
 	acqStart := time.Now()
-	conn, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
-	e.metrics.recordPoolAcquire(ctx, poolTypeRegular, time.Since(acqStart), err)
+	conn, err := e.poolManager.GetRegularConnWithSettings(acquisitionCtx, settings, user, clientKey, serverKey)
+	acqDuration := time.Since(acqStart)
+	acquisitionSpan.End(err, 0)
+	e.metrics.recordPoolAcquire(ctx, poolTypeRegular, acqDuration, err)
 	if err != nil {
 		return nil, preExecutionUnavailableError(fmt.Errorf("failed to get connection for user %s: %w", user, err))
 	}
@@ -1456,7 +1472,9 @@ func (e *Executor) Describe(
 		conn = reservedConn.Conn()
 	} else {
 		clientKey, serverKey := scramKeysFromOptions(options)
-		pooled, err := e.poolManager.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
+		acquisitionCtx, acquisitionSpan := latencydiag.Start(ctx, "pool.acquire")
+		pooled, err := e.poolManager.GetRegularConnWithSettings(acquisitionCtx, settings, user, clientKey, serverKey)
+		acquisitionSpan.End(err, 0)
 		if err != nil {
 			return nil, preExecutionUnavailableError(fmt.Errorf("failed to get connection for user %s: %w", user, err))
 		}
@@ -1653,7 +1671,9 @@ func (e *Executor) CopyReady(
 		}
 
 		clientKey, serverKey := scramKeysFromOptions(options)
-		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, e.reservedConnOptions(reserved.WithValidate(validate))...)
+		acquisitionCtx, acquisitionSpan := latencydiag.Start(ctx, "pool.acquire")
+		reservedConn, err = e.poolManager.NewReservedConn(acquisitionCtx, settings, user, clientKey, serverKey, e.reservedConnOptions(reserved.WithValidate(validate))...)
+		acquisitionSpan.End(err, 0)
 		if err != nil {
 			return 0, nil, nil, preExecutionUnavailableError(fmt.Errorf("failed to create reserved connection for COPY: %w", err))
 		}
@@ -1994,7 +2014,9 @@ func (e *Executor) CopyOutReady(
 		}
 
 		clientKey, serverKey := scramKeysFromOptions(options)
-		reservedConn, err = e.poolManager.NewReservedConn(ctx, settings, user, clientKey, serverKey, e.reservedConnOptions(reserved.WithValidate(validate))...)
+		acquisitionCtx, acquisitionSpan := latencydiag.Start(ctx, "pool.acquire")
+		reservedConn, err = e.poolManager.NewReservedConn(acquisitionCtx, settings, user, clientKey, serverKey, e.reservedConnOptions(reserved.WithValidate(validate))...)
+		acquisitionSpan.End(err, 0)
 		if err != nil {
 			return 0, nil, notices, nil, preExecutionUnavailableError(fmt.Errorf("failed to create reserved connection for COPY OUT: %w", err))
 		}
