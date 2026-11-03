@@ -1,0 +1,79 @@
+# Known divergence (by design): file_fdw's explain_filter helper is a PL/pgSQL
+# function whose body runs `execute $1` — a dynamic EXECUTE of a bare parameter
+# that the gateway's body analysis cannot vet, so its CREATE FUNCTION is
+# rejected and the four EXPLAIN checks that call it report "does not exist".
+# Everything else in the suite (server, user mappings, foreign tables over
+# CSV/text files, privileges, constraint exclusion, DML refusal) matches
+# upstream. See docs/query_serving/unsafe_statement_rejection.md (Tier 1).
+--- a
++++ b
+@@ -27,6 +27,7 @@
+ end loop;
+ end;
+ $$;
++ERROR: EXECUTE of a runtime-built statement inside a PL/pgSQL body is not supported: the statement text is not a constant, so it cannot be checked for unsafe session-state changes
+ -- regress_file_fdw_superuser owns fdw-related objects
+ SET ROLE regress_file_fdw_superuser;
+ CREATE SERVER file_server FOREIGN DATA WRAPPER file_fdw;
+@@ -213,10 +214,10 @@
+ -- misc query tests
+ \t on
+ SELECT explain_filter('EXPLAIN (VERBOSE, COSTS FALSE) SELECT * FROM agg_csv');
+-Foreign Scan on public.agg_csv
+-Output: a, b
+-Foreign File: .../agg.csv
+-
++ERROR: function explain_filter(unknown) does not exist
++LINE 1: SELECT explain_filter('EXPLAIN (VERBOSE, COSTS FALSE) SELECT...
++^
++HINT: No function matches the given name and argument types. You might need to add explicit type casts.
+ \t off
+ PREPARE st(int) AS SELECT * FROM agg_csv WHERE a = $1;
+ EXECUTE st(100);
+@@ -265,11 +266,10 @@
+ -- constraint exclusion tests
+ \t on
+ SELECT explain_filter('EXPLAIN (VERBOSE, COSTS FALSE) SELECT * FROM agg_csv WHERE a < 0');
+-Foreign Scan on public.agg_csv
+-Output: a, b
+-Filter: (agg_csv.a < 0)
+-Foreign File: .../agg.csv
+-
++ERROR: function explain_filter(unknown) does not exist
++LINE 1: SELECT explain_filter('EXPLAIN (VERBOSE, COSTS FALSE) SELECT...
++^
++HINT: No function matches the given name and argument types. You might need to add explicit type casts.
+ \t off
+ SELECT * FROM agg_csv WHERE a < 0;
+ a | b
+@@ -279,10 +279,10 @@
+ SET constraint_exclusion = 'on';
+ \t on
+ SELECT explain_filter('EXPLAIN (VERBOSE, COSTS FALSE) SELECT * FROM agg_csv WHERE a < 0');
+-Result
+-Output: a, b
+-One-Time Filter: false
+-
++ERROR: function explain_filter(unknown) does not exist
++LINE 1: SELECT explain_filter('EXPLAIN (VERBOSE, COSTS FALSE) SELECT...
++^
++HINT: No function matches the given name and argument types. You might need to add explicit type casts.
+ \t off
+ SELECT * FROM agg_csv WHERE a < 0;
+ a | b
+@@ -472,11 +472,10 @@
+ SET ROLE regress_file_fdw_user;
+ \t on
+ SELECT explain_filter('EXPLAIN (VERBOSE, COSTS FALSE) SELECT * FROM agg_text WHERE a > 0');
+-Foreign Scan on public.agg_text
+-Output: a, b
+-Filter: (agg_text.a > 0)
+-Foreign File: .../agg.data
+-
++ERROR: function explain_filter(unknown) does not exist
++LINE 1: SELECT explain_filter('EXPLAIN (VERBOSE, COSTS FALSE) SELECT...
++^
++HINT: No function matches the given name and argument types. You might need to add explicit type casts.
+ \t off
+ -- file FDW allows foreign tables to be accessed without user mapping
+ DROP USER MAPPING FOR regress_file_fdw_user SERVER file_server;

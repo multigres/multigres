@@ -350,6 +350,14 @@ const (
 	T_BitString // Bit string literal - postgres/src/include/nodes/value.h:71-77
 	T_Null      // NULL literal
 
+	// Multigres-specific migration/connection statements, not part of PostgreSQL.
+	T_CreateConnectionStmt
+	T_DropConnectionStmt
+	T_ShowConnectionsStmt
+	T_CreateMigrationStmt
+	T_AlterMigrationStmt
+	T_DropMigrationStmt
+
 	// Multigres tablegroup DDL (go/common/parser/ast/sharding.go)
 	T_CreateTableGroupStmt
 	T_AlterTableGroupStmt
@@ -918,6 +926,18 @@ func (nt NodeTag) String() string {
 		return "T_CreateTableGroupStmt"
 	case T_AlterTableGroupStmt:
 		return "T_AlterTableGroupStmt"
+	case T_CreateConnectionStmt:
+		return "T_CreateConnectionStmt"
+	case T_DropConnectionStmt:
+		return "T_DropConnectionStmt"
+	case T_ShowConnectionsStmt:
+		return "T_ShowConnectionsStmt"
+	case T_CreateMigrationStmt:
+		return "T_CreateMigrationStmt"
+	case T_AlterMigrationStmt:
+		return "T_AlterMigrationStmt"
+	case T_DropMigrationStmt:
+		return "T_DropMigrationStmt"
 	default:
 		return fmt.Sprintf("NodeTag(%d)", int(nt))
 	}

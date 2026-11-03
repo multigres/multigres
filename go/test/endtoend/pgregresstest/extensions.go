@@ -89,8 +89,9 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"btree_gist", KindContrib, StatusCovered, ""},
 	{"citext", KindContrib, StatusCovered, ""},
 	{"cube", KindContrib, StatusCovered, ""},
-	{"dblink", KindContrib, StatusUnsupported, "pooler blocks outbound connections"},
+	{"dblink", KindContrib, StatusUnsupported, "the gateway's expression filter rejects the dblink* functions (ad-hoc conninfo in the query); see docs/query_serving/unsafe_statement_rejection.md"},
 	{"earthdistance", KindContrib, StatusCovered, "depends on cube"},
+	{"file_fdw", KindContrib, StatusCovered, "server-side flat-file FDW; stock contrib installcheck suite. Its explain_filter helper runs a bare-parameter dynamic EXECUTE the gateway's body analysis rejects, so the EXPLAIN checks that go through it diverge — captured in a per-module patch"},
 	{"fuzzystrmatch", KindContrib, StatusCovered, ""},
 	{"hstore", KindContrib, StatusCovered, ""},
 	{"http", KindExternal, StatusCovered, "pgsql-http (needs libcurl to build); suite runs in its upstream/autocommit shape against the harness's local httpbin-compatible server on :9080 (NeedsHTTPBin); live TLS probes still hit upstream's https://postgis.net; the only patch is timeout cancellation wording"},
@@ -112,7 +113,7 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"pgjwt", KindExternal, StatusCovered, "pure-SQL JWT extension; pgTAP suite (single BEGIN…ROLLBACK-wrapped test.sql) run via psql. Depends on pgcrypto (contrib) and pgtap; upstream never tags releases, so it is pinned to a commit"},
 	{"pgmq", KindExternal, StatusCovered, "tembo-io/pgmq; pure-SQL queue built as a PGXS module from pgmq-extension/; partitioned-queue tests depend on pg_partman"},
 	{"pgsodium", KindExternal, StatusCovered, "libsodium crypto wrapper (needs libsodium via pkg-config to build); pgTAP suite (single BEGIN…ROLLBACK-wrapped test.sql) run via psql in keyless mode — server-key/TCE tests self-skip via \\if :serverkeys since pgsodium is not in shared_preload_libraries"},
-	{"pgstattuple", KindContrib, StatusCovered, "tuple-level statistics; stock contrib installcheck suite. The foreign-data-wrapper section of its test diverges — multigateway blocks CREATE FOREIGN DATA WRAPPER / CREATE SERVER by design (see unsafe_stmt.go), so those statements and the dependent foreign-table checks fail with multigres-specific errors — captured in a per-module patch"},
+	{"pgstattuple", KindContrib, StatusCovered, "tuple-level statistics; stock contrib installcheck suite"},
 	{"pgtap", KindExternal, StatusCovered, "runs its own pg_regress suite (every test wrapped in BEGIN…ROLLBACK by test/setup.sql); extension.sql needs contrib citext/isn/ltree installed (ContribDeps). Also the test dependency of pg_partman, pgjwt, and pgsodium"},
 	{"plpgsql", KindContrib, StatusUnsupported, "built-in PL; exercised by the core regression suite, not contrib"},
 	{"plpgsql_check", KindExternal, StatusCovered, "plpgsql linter/profiler; needs shared_preload_libraries (PreloadLibraries) so the passive-mode hooks and shared-memory profiler work on every pooled backend; the gateway-blocked LOAD statements its tests open with are patched"},
@@ -120,12 +121,12 @@ var ExtensionCatalog = []ExtensionInfo{
 	{"postgis_raster", KindExternal, StatusCovered, "PostGIS raster component; covered by the PostGIS regress runner when GDAL support is built"},
 	{"postgis_sfcgal", KindExternal, StatusCovered, "PostGIS SFCGAL component; covered by the PostGIS regress runner when SFCGAL support is built"},
 	{"postgis_topology", KindExternal, StatusCovered, "PostGIS topology component; covered by the PostGIS regress runner"},
-	{"postgres_fdw", KindContrib, StatusUnsupported, "pooler blocks CREATE SERVER / outbound connections"},
+	{"postgres_fdw", KindContrib, StatusUnsupported, "FDW DDL is allowed through the gateway (covered by the queryserving e2e), but the upstream suite creates its loopback servers inside a DO block with a raw || dynamic EXECUTE that the gateway's body analysis rejects, so the whole suite would be fallout"},
 	{"supabase_vault", KindExternal, StatusCovered, "Supabase Vault; PGXS module using libsodium. The harness preloads supabase_vault with a generated test getkey script and runs an in-repo SQL suite because the pinned tag's default_version needs an explicit 0.3.0 install then UPDATE to 0.3.1"},
 	{"unaccent", KindContrib, StatusCovered, ""},
 	{"uuid-ossp", KindContrib, StatusCovered, "needs --with-uuid"},
 	{"vector", KindExternal, StatusCovered, "pgvector; built as a PGXS module from externalSpecs"},
-	{"wrappers", KindExternal, StatusBuildOnly, "Supabase Wrappers; Rust/pgrx build with the lightweight helloworld_fdw feature, smoke-loaded with CREATE EXTENSION. Full FDW usability still needs a guarded policy for CREATE FOREIGN DATA WRAPPER / CREATE SERVER, which the gateway blocks by default"},
+	{"wrappers", KindExternal, StatusBuildOnly, "Supabase Wrappers; Rust/pgrx build with the lightweight helloworld_fdw feature. The smoke harness loads the extension and then runs the full wrapper DDL (CREATE FOREIGN DATA WRAPPER / SERVER / FOREIGN TABLE) plus a SELECT through multigateway. The other wrappers need per-service emulators, so their upstream pgrx tests stay in the wrappers repo"},
 }
 
 // contribRegressTests holds the explicit pg_regress test list for covered
@@ -283,6 +284,12 @@ type ExternalExtension struct {
 	// the pg_regress path relies on resetContribState clearing public before the
 	// next extension.
 	PreCreateExtensions []ExtensionInstall
+
+	// SmokeSQL lists statements the smoke harness (HarnessSmoke) runs through
+	// multigateway after the extension is loaded, each reported as its own
+	// test. Use it to prove an extension's core objects work end to end when
+	// its upstream suite cannot run (e.g. wrappers' helloworld FDW).
+	SmokeSQL []string
 
 	// TestSubdir is the directory within the checkout that holds the shipped
 	// pg_regress fixtures (sql/ + expected/), relative to the clone root.
@@ -543,9 +550,7 @@ var externalSpecs = map[string]ExternalExtension{
 		// state the pooler cannot track; the p_force_parellel_mode case). With that
 		// helper's CREATE rejected and the missing-helper call aborting the wrapping
 		// transaction at the top of the file, zero of its 372 table_privs_are
-		// assertions run, so a patch would delete the whole file. The FDW-tail
-		// files (aretap/hastap/ownership) are NOT excluded: they reject late, so the
-		// bulk of each file runs and a bounded tail patch documents the rest.
+		// assertions run, so a patch would delete the whole file.
 		ExcludeGlobs: []string{
 			"sql/performs_ok.sql",
 			"sql/performs_within.sql",
@@ -808,9 +813,11 @@ var externalSpecs = map[string]ExternalExtension{
 	},
 	// Wrappers is a pgrx workspace. Build only the demo helloworld_fdw feature so
 	// the extension itself is installable without pulling native clients for every
-	// supported remote service. The gateway still blocks CREATE FOREIGN DATA
-	// WRAPPER / CREATE SERVER by default, so this is a build/load smoke check until
-	// a narrow wrappers allowlist policy exists.
+	// supported remote service. Every wrapper is installed with the same three
+	// statements (the handler just names a different function in the same
+	// library), so the helloworld DDL + SELECT below is the gateway-relevant
+	// surface for all of them; per-service behavior is the wrappers repo's own
+	// pgrx test suite, which needs its emulator containers.
 	"wrappers": {
 		Name: "wrappers", Repo: "https://github.com/supabase/wrappers", Tag: "v0.6.2",
 		BuildSubdir:         "wrappers",
@@ -819,6 +826,15 @@ var externalSpecs = map[string]ExternalExtension{
 		PgrxFeatures:        []string{"helloworld_fdw"},
 		Harness:             HarnessSmoke,
 		PreCreateExtensions: []ExtensionInstall{{Name: "wrappers"}},
+		SmokeSQL: []string{
+			// Idempotent start so a rerun on the same cluster is clean.
+			"DROP FOREIGN DATA WRAPPER IF EXISTS helloworld_wrapper CASCADE",
+			"CREATE FOREIGN DATA WRAPPER helloworld_wrapper HANDLER hello_world_fdw_handler VALIDATOR hello_world_fdw_validator",
+			"CREATE SERVER hello_server FOREIGN DATA WRAPPER helloworld_wrapper",
+			"CREATE FOREIGN TABLE hello (id bigint, col text) SERVER hello_server OPTIONS (foo 'bar')",
+			"SELECT id, col FROM hello",
+			"DROP FOREIGN DATA WRAPPER helloworld_wrapper CASCADE",
+		},
 	},
 }
 

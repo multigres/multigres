@@ -314,7 +314,7 @@ func TestGetAuthCredentials_InfrastructureFailureCarriesCannotConnectNow(t *test
 			require.NotNil(t, conn)
 			conn.cancel()
 			<-conn.checkConnDone
-			conn.client = &mockMultipoolerServiceClient{authErr: tt.authErr}
+			conn.pooler = newTestGRPCQueryService(&mockMultipoolerServiceClient{authErr: tt.authErr})
 			setLeaderForTest(t, lb, constants.DefaultPostgresDatabase, constants.DefaultTableGroup, constants.DefaultShard,
 				primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
 
@@ -343,7 +343,7 @@ func TestGetAuthCredentials_FailoverBufferTimeoutCarriesCannotConnectNow(t *test
 	require.NotNil(t, conn)
 	conn.cancel()
 	<-conn.checkConnDone
-	conn.client = &mockMultipoolerServiceClient{authErr: status.Error(codes.Unavailable, "failed to get admin connection")}
+	conn.pooler = newTestGRPCQueryService(&mockMultipoolerServiceClient{authErr: status.Error(codes.Unavailable, "failed to get admin connection")})
 	setLeaderForTest(t, lb, constants.DefaultPostgresDatabase, constants.DefaultTableGroup, constants.DefaultShard,
 		primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
 
@@ -493,10 +493,10 @@ func TestRetryReadOnlyError(t *testing.T) {
 
 // fakeStreamReplicationQueryService records the init passed to
 // StreamReplication and returns a canned stream/error. It embeds
-// queryservice.QueryService so the other (unused) methods satisfy the
-// interface without explicit stubs.
+// queryservice.Pooler so the other (unused) methods satisfy the interface
+// without explicit stubs.
 type fakeStreamReplicationQueryService struct {
-	queryservice.QueryService
+	queryservice.Pooler
 
 	gotInit *multipoolerpb.StreamReplicationInit
 	stream  multipoolerpb.MultipoolerService_StreamReplicationClient
@@ -514,6 +514,15 @@ func (f *fakeStreamReplicationQueryService) StreamReplication(
 // Close overrides the embedded (nil) QueryService so the cache's OnGone
 // Shutdown does not panic on cleanup.
 func (f *fakeStreamReplicationQueryService) Close() error { return nil }
+
+// SubscribeHealth sends nothing until ctx ends, so the connection's health
+// loop stays quiet.
+func (f *fakeStreamReplicationQueryService) SubscribeHealth(ctx context.Context) (func() (*multipoolerpb.StreamPoolerHealthResponse, error), error) {
+	return func() (*multipoolerpb.StreamPoolerHealthResponse, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}, nil
+}
 
 // TestPoolerGateway_StreamReplication_RoutesToPrimary verifies that the
 // gateway forces PRIMARY routing for replication, resolves the leader's
@@ -535,7 +544,14 @@ func TestPoolerGateway_StreamReplication_RoutesToPrimary(t *testing.T) {
 	require.NotNil(t, conn)
 	wantStream := multipoolerpb.MultipoolerService_StreamReplicationClient(nil)
 	fake := &fakeStreamReplicationQueryService{stream: wantStream}
-	conn.queryService = fake
+	// Stop the connection's health loop first: it reads the field being
+	// swapped. Ending it marks the pooler unhealthy, so observe the leader
+	// again.
+	conn.cancel()
+	<-conn.checkConnDone
+	conn.pooler = fake
+	setLeaderForTest(t, lb, constants.DefaultPostgresDatabase, constants.DefaultTableGroup, "0",
+		primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
 
 	// The caller's target carries a follower-eligible mode; the gateway must
 	// force leader (WRITABLE) routing without mutating the caller's proto.

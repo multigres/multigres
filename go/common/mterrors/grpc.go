@@ -16,6 +16,7 @@
 package mterrors
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -112,9 +113,9 @@ func FromGRPC(err error) error {
 	// PgDiagnostic directly.
 	switch st.Code() {
 	case codes.DeadlineExceeded:
-		return NewStatementTimeout()
+		return interruptedStatement(true)
 	case codes.Canceled:
-		return NewQueryCanceled()
+		return interruptedStatement(false)
 	}
 
 	// Check for RPCError in status details.
@@ -133,4 +134,38 @@ func FromGRPC(err error) error {
 
 	// No RPCError details, fall back to basic conversion
 	return New(mtrpcpb.Code(st.Code()), st.Message())
+}
+
+// FromContext gives an error from a call made in-process under ctx the meaning
+// a PostgreSQL client expects, as FromGRPC does for one that crossed gRPC: a
+// call that ended because ctx's deadline passed is a statement timeout, and one
+// that ended because ctx was cancelled is a cancelled query. A FATAL error is
+// kept either way: the session has ended, and reporting a recoverable timeout
+// or cancellation would let the client go on using it. Other errors are
+// returned as they are.
+func FromContext(ctx context.Context, err error) error {
+	if err == nil {
+		return nil
+	}
+	var diag *PgDiagnostic
+	if errors.As(err, &diag) && diag.IsFatal() {
+		return err
+	}
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded):
+		return interruptedStatement(true)
+	case errors.Is(ctx.Err(), context.Canceled) || errors.Is(err, context.Canceled):
+		return interruptedStatement(false)
+	}
+	return err
+}
+
+// interruptedStatement is the PostgreSQL error for a statement a deadline
+// (statement_timeout) or a cancellation interrupted, for FromGRPC and
+// FromContext alike.
+func interruptedStatement(deadline bool) *PgDiagnostic {
+	if deadline {
+		return NewStatementTimeout()
+	}
+	return NewQueryCanceled()
 }
