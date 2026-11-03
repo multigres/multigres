@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerservice "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -95,7 +96,7 @@ type Executor interface {
 	// returns the live bidi stream the handler tunnels raw replication bytes
 	// through. The init's User/UserAuth/Mode are populated by the caller; the
 	// executor fills in the routing Target.
-	StreamReplication(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, init *multipoolerservice.StreamReplicationInit) (multipoolerservice.MultipoolerService_StreamReplicationClient, error)
+	StreamReplication(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, init *multipoolerservice.StreamReplicationInit) (queryservice.ReplicationStream, error)
 }
 
 // MultigatewayHandler implements the pgprotocol Handler interface for multigateway.

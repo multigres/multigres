@@ -66,7 +66,7 @@ func (f *fakeLocalQueryService) Close() error {
 	return nil
 }
 
-func (f *fakeLocalQueryService) StreamReplication(context.Context, *multipoolerservice.StreamReplicationInit) (multipoolerservice.MultipoolerService_StreamReplicationClient, error) {
+func (f *fakeLocalQueryService) StreamReplication(context.Context, *multipoolerservice.StreamReplicationInit) (queryservice.ReplicationStream, error) {
 	f.replication = true
 	return nil, nil
 }
@@ -108,10 +108,12 @@ func TestDirectQueryService_PassesThrough(t *testing.T) {
 	})
 	assert.ErrorIs(t, err, callbackErr)
 
-	// Replication and Close go to the gRPC query service, not the pooler's.
+	// Replication goes to the pooler directly; Close closes the gRPC
+	// connection, not the pooler.
 	_, err = qs.StreamReplication(t.Context(), &multipoolerservice.StreamReplicationInit{})
 	require.NoError(t, err)
-	assert.True(t, grpcQS.replication)
+	assert.True(t, local.replication)
+	assert.False(t, grpcQS.replication)
 	require.NoError(t, qs.Close())
 	assert.True(t, grpcQS.closed)
 	assert.False(t, local.closed)

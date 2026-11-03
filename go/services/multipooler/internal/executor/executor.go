@@ -2517,7 +2517,7 @@ func (e *Executor) ReleaseReservedConnection(
 func (e *Executor) StreamReplication(
 	_ context.Context,
 	_ *multipoolerpb.StreamReplicationInit,
-) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+) (queryservice.ReplicationStream, error) {
 	return nil, mterrors.New(mtrpcpb.Code_UNIMPLEMENTED, "StreamReplication is not served via the executor")
 }
 

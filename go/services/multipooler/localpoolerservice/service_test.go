@@ -35,6 +35,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 )
 
 // blockingQueryService answers ExecuteQuery once release is closed, reporting
@@ -398,4 +399,125 @@ func TestServer_NotificationStreamCallerCancelWhileLoopBlocked(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Send stayed blocked after the caller cancelled")
 	}
+}
+
+// TestPipe_RecvDrainsBufferedBeforeEnd checks that messages the loop sent
+// before ending are still delivered, in order, before the end is reported:
+// a buffered pipe must not lose a final structured error.
+func TestPipe_RecvDrainsBufferedBeforeEnd(t *testing.T) {
+	p := newPipe[int, int](t.Context(), 4)
+	send := p.serverSend(t.Context())
+	require.NoError(t, send(1))
+	require.NoError(t, send(2))
+	loopErr := mterrors.New(mtrpcpb.Code_INTERNAL, "tunnel failed")
+	p.finish(loopErr)
+
+	for _, want := range []int{1, 2} {
+		got, err := p.Recv()
+		require.NoError(t, err)
+		assert.Equal(t, want, got)
+	}
+	_, err := p.Recv()
+	assert.ErrorIs(t, err, loopErr)
+	assert.ErrorIs(t, p.Send(3), io.EOF, "Send after the loop ended")
+}
+
+// TestPipe_EndOfStream checks how a loop's end reaches the caller: a clean or
+// cancelled end is io.EOF, the caller's own cancellation its ctx error.
+func TestPipe_EndOfStream(t *testing.T) {
+	clean := newPipe[int, int](t.Context(), 0)
+	clean.finish(nil)
+	_, err := clean.Recv()
+	assert.ErrorIs(t, err, io.EOF)
+
+	cancelled := newPipe[int, int](t.Context(), 0)
+	cancelled.finish(context.Canceled)
+	_, err = cancelled.Recv()
+	assert.ErrorIs(t, err, io.EOF, "the loop ended by Stop or the pooler, not by the caller")
+
+	ctx, cancel := context.WithCancel(t.Context())
+	byCaller := newPipe[int, int](ctx, 0)
+	cancel()
+	_, err = byCaller.Recv()
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.ErrorIs(t, byCaller.Send(1), context.Canceled)
+}
+
+// TestCopyingData checks that a replication data message handed to the pipe
+// keeps its bytes when the sender reuses its buffer, as the tunnel does once
+// send returns.
+func TestCopyingData(t *testing.T) {
+	var got *multipoolerpb.StreamReplicationResponse
+	send := copyingData(func(resp *multipoolerpb.StreamReplicationResponse) error {
+		got = resp
+		return nil
+	})
+	buf := []byte("wal-1")
+	require.NoError(t, send(&multipoolerpb.StreamReplicationResponse{
+		Msg: &multipoolerpb.StreamReplicationResponse_Data{Data: buf},
+	}))
+	copy(buf, "XXXXX") // the tunnel reads the next chunk into the same buffer
+	assert.Equal(t, "wal-1", string(got.GetData()))
+}
+
+// failingReplPoolManager fails to open the replication backend.
+type failingReplPoolManager struct {
+	connpoolmanager.PoolManager
+	err error
+}
+
+func (f failingReplPoolManager) NewLogicalReplicationConn(context.Context, string, []byte, []byte) (*reserved.Conn, error) {
+	return nil, f.err
+}
+
+// newServingServer registers a server whose pooler is SERVING with pm.
+func newServingServer(t *testing.T, pm connpoolmanager.PoolManager) *Server {
+	t.Helper()
+	p := poolerserver.NewQueryPoolerServer(slog.New(slog.DiscardHandler), pm, &clustermetadatapb.ID{Name: "p"}, "", "", nil, 0, false)
+	require.NoError(t, p.OnStateChange(t.Context(), servingstate.State{
+		Routing:       servingstate.RoutingState{Role: servingstate.RoutingRoleReplica},
+		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+	}))
+	s := NewServer()
+	s.register(p)
+	return s
+}
+
+func replicationInit() *multipoolerpb.StreamReplicationInit {
+	return &multipoolerpb.StreamReplicationInit{Mode: multipoolerpb.ReplicationMode_REPLICATION_MODE_DATABASE, User: "u"}
+}
+
+func TestServer_StreamReplicationRefusedWhenNotServing(t *testing.T) {
+	_, err := NewServer().StreamReplication(t.Context(), replicationInit())
+	requireNotServing(t, err)
+
+	s := newServingServer(t, failingReplPoolManager{})
+	s.Stop()
+	_, err = s.StreamReplication(t.Context(), replicationInit())
+	requireNotServing(t, err)
+}
+
+// TestServer_StreamReplicationBackendOpenError checks that a backend that
+// cannot be opened reaches the caller through the pipe as its PostgreSQL
+// diagnostic, as over gRPC, so the gateway re-emits it verbatim.
+func TestServer_StreamReplicationBackendOpenError(t *testing.T) {
+	diag := mterrors.NewPgError("FATAL", mterrors.PgSSAuthFailed, `password authentication failed for user "u"`, "")
+	s := newServingServer(t, failingReplPoolManager{err: diag})
+
+	_, err := s.StreamReplication(t.Context(), replicationInit())
+	var got *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &got)
+	assert.Equal(t, diag.Code, got.Code)
+	assert.Equal(t, diag.Message, got.Message)
+}
+
+// TestServer_StreamReplicationInvalidInit checks that the pooler's init checks
+// apply on the direct path: an unsupported mode is refused as invalid.
+func TestServer_StreamReplicationInvalidInit(t *testing.T) {
+	s := newServingServer(t, failingReplPoolManager{})
+	init := replicationInit()
+	init.Mode = multipoolerpb.ReplicationMode_REPLICATION_MODE_UNSPECIFIED
+
+	_, err := s.StreamReplication(t.Context(), init)
+	assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err), "got %v", err)
 }

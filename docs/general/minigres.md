@@ -12,15 +12,14 @@ Minigres evolves.
 ## What runs
 
 - **One process** with one servenv, one HTTP server and one etcd connection,
-  shared by both halves, and two gRPC servers: an in-memory one for the
-  calls between the halves that are not direct, and a TCP one for the admin
-  services.
+  shared by both halves, and two gRPC servers: a TCP one for the admin
+  services, and an in-memory one that serves the pooler's gRPC query service
+  but that the halves no longer call (to be removed).
 - **The multipooler as a static leader.** It is the only pooler of its shard, so
   it leads without consensus and without Multiorch.
 - **The multigateway reaches the pooler in memory.** Queries, credential
-  lookups, the health subscription and LISTEN/NOTIFY are plain Go calls into
-  the pooler; logical replication goes over the in-memory gRPC server.
-  None leave the process. The gateway learns of the pooler from the pooler
+  lookups, the health subscription, LISTEN/NOTIFY and logical replication are
+  plain Go calls into the pooler. None leave the process. The gateway learns of the pooler from the pooler
   itself, not from etcd, so it never sees other instances' poolers.
 - **pgctld runs as its own process**, as in Multigres.
 
@@ -202,10 +201,15 @@ in the topology.
   gRPC. At shutdown the pooler ends health subscriptions and notification
   streams instead of waiting for them, as a gRPC stream ends at the server's
   graceful stop.
-- **Replication connects in memory.** The pooler serves its gRPC query service
-  (`MultipoolerService`) only on an in-memory gRPC server, and the gateway
-  connects there, without TLS, for logical replication (`StreamReplication`)
-  only.
+- **Logical replication is direct too.** A `replication=database` session's
+  tunnel runs the pooler's replication code in-process (the same code its gRPC
+  `StreamReplication` handler runs): the same open handshake, admission,
+  backend, byte tunnel, metrics and errors, joined to the gateway by Go
+  channels that copy each chunk of data, as gRPC does when it marshals. At
+  shutdown the pooler ends replication tunnels instead of waiting for them.
+- **The in-memory server is unused.** The pooler still serves its gRPC query
+  service (`MultipoolerService`) only on an in-memory gRPC server, but the
+  gateway no longer calls it; removing it is planned.
 - **Observability differs on the query path.** The direct path has no
   pooler-side operation span and no transport metrics: traces go from the
   gateway's spans straight to the pooler's internal spans, and the gateway's

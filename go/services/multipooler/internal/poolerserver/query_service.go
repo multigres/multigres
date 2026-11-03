@@ -228,7 +228,7 @@ func (a *admittedQueryService) ReleaseReservedConnection(ctx context.Context, ta
 
 // StreamReplication is not served by the executor: the gRPC handler opens the
 // replication tunnel itself.
-func (a *admittedQueryService) StreamReplication(ctx context.Context, init *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+func (a *admittedQueryService) StreamReplication(ctx context.Context, init *multipoolerpb.StreamReplicationInit) (queryservice.ReplicationStream, error) {
 	exec, err := a.s.Executor()
 	if err != nil {
 		return nil, err

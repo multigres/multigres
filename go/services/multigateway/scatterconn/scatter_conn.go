@@ -1207,7 +1207,7 @@ func (sc *ScatterConn) StreamReplication(
 	shard string,
 	state *handler.MultigatewayConnectionState,
 	init *multipoolerpb.StreamReplicationInit,
-) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+) (queryservice.ReplicationStream, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "shard.stream_replication",
 		trace.WithAttributes(
 			attribute.String("tablegroup", tableGroup),

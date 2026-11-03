@@ -63,7 +63,7 @@ type Gateway interface {
 	// for the init's target, sends the Init, awaits Ready, and returns the live
 	// bidi stream. Unlike the query path it is not buffered across failover: a
 	// replication stream is pinned to one pooler for its lifetime.
-	StreamReplication(ctx context.Context, init *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error)
+	StreamReplication(ctx context.Context, init *multipoolerpb.StreamReplicationInit) (queryservice.ReplicationStream, error)
 }
 
 // modeRequiresLeader reports whether a mode must route to the consensus
@@ -908,7 +908,7 @@ func (pg *PoolerGateway) ReleaseReservedConnection(
 func (pg *PoolerGateway) StreamReplication(
 	ctx context.Context,
 	init *multipoolerpb.StreamReplicationInit,
-) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+) (queryservice.ReplicationStream, error) {
 	target, _ := proto.Clone(init.GetTarget()).(*query.Target)
 	if target == nil {
 		target = &query.Target{}
