@@ -107,10 +107,10 @@ func TestMinigres_ServesQueries(t *testing.T) {
 	assert.Equal(t, setup.GatewayLogFile(), setup.PoolerLogFile(t), "minigres writes both halves to one log")
 }
 
-// TestMinigres_QueriesStayInProcess checks that the query service is served
-// only in memory: the external gRPC port answers the admin services but not
+// TestMinigres_QueriesStayInProcess checks that the query service is not
+// served over gRPC: the external gRPC port answers the admin services but not
 // MultipoolerService, while queries through the client port still reach the
-// multipooler, which they now can only do without leaving the process.
+// multipooler, which the gateway calls directly in the same process.
 func TestMinigres_QueriesStayInProcess(t *testing.T) {
 	skipIfShort(t)
 	setup := setupManager.Get(t)

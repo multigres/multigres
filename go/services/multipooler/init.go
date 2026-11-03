@@ -142,7 +142,9 @@ type Multipooler struct {
 	reg *viperutil.Registry
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
-	// queryGrpcServer serves the query service (ProcessResources.QueryGrpcServer).
+	// queryGrpcServer serves the query service over gRPC
+	// (ProcessResources.QueryGrpcServer). Nil in minigres, where it is served
+	// only in-process, through localServer.
 	queryGrpcServer *servenv.GrpcServer
 	// localServer serves the pooler to callers in this process (minigres's
 	// gateway) without gRPC; see LocalPoolerService.
@@ -601,7 +603,9 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	if consensusEnabled {
 		grpcconsensusservice.RegisterConsensusServices(mp.senv, mp.grpcServer)
 	}
-	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.queryGrpcServer)
+	if mp.queryGrpcServer != nil {
+		grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.queryGrpcServer)
+	}
 	localpoolerservice.RegisterPoolerServices(mp.senv, mp.localServer)
 	grpcmigrationservice.RegisterMigrationServices(mp.senv, mp.grpcServer)
 

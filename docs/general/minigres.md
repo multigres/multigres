@@ -12,12 +12,11 @@ Minigres evolves.
 ## What runs
 
 - **One process** with one servenv, one HTTP server and one etcd connection,
-  shared by both halves, and two gRPC servers: a TCP one for the admin
-  services, and an in-memory one that serves the pooler's gRPC query service
-  but that the halves no longer call (to be removed).
+  shared by both halves, and one gRPC server, on a TCP port, for the admin
+  services. The pooler's query service is not served over gRPC.
 - **The multipooler as a static leader.** It is the only pooler of its shard, so
   it leads without consensus and without Multiorch.
-- **The multigateway reaches the pooler in memory.** Queries, credential
+- **The multigateway calls the pooler directly.** Queries, credential
   lookups, the health subscription, LISTEN/NOTIFY and logical replication are
   plain Go calls into the pooler. None leave the process. The gateway learns of the pooler from the pooler
   itself, not from etcd, so it never sees other instances' poolers.
@@ -146,24 +145,21 @@ file's rules are in `cmd/minigres/config.go`.
 then runs the pooler's `Init`, the gateway's `Init`, and the serving loop.
 
 `ProcessResources` also names the server the pooler serves its query service
-(`MultipoolerService`) on, `QueryGrpcServer`. The Multigres binaries set it to
-their one gRPC server. `cmd/minigres` sets it to an in-memory server
-(`servenv.NewInMemoryGrpcServer`), which nothing outside the process can reach:
-no port, no TLS and no auth, and the external server's limits. The serving loop
-starts both servers (`RunDefault(grpcServer, queryGrpcServer)`). `cmd/minigres`
-also gives the gateway its pooler (`poolergateway.LocalPooler`): the pooler's ID
-the in-memory server's dial options (`DialOptions`) and the pooler's record
-(`Record`), and the pooler itself (`Service`, from
-`Multipooler.LocalPoolerService`: its query service, credential lookup, health
-and notifications). The gateway then reads that pooler's record in memory instead of
-watching etcd, keeps only that pooler (the pooler cache's filter), and connects
-to it in memory; the Multigres binaries pass none and use every pooler
-in the topology.
+(`MultipoolerService`) on over gRPC, `QueryGrpcServer`. The Multigres binaries
+set it to their one gRPC server. `cmd/minigres` leaves it unset, so the pooler
+does not serve its query service over gRPC at all. `cmd/minigres` instead gives
+the gateway its pooler (`poolergateway.LocalPooler`): the pooler's ID, its
+record (`Record`), and the pooler itself (`Service`, from
+`Multipooler.LocalPoolerService`: its query service, credential lookup, health,
+notifications and replication). The gateway then reads that pooler's record in
+memory instead of watching etcd, keeps only that pooler (the pooler cache's
+filter), and calls it directly, opening no gRPC connection to it; the Multigres
+binaries pass none and use every pooler in the topology.
 
 ## The process
 
-- **One servenv, initialized once.** `main` creates the servenv, both gRPC
-  servers and the etcd connection for both halves, and calls `servenv.Init`
+- **One servenv, initialized once.** `main` creates the servenv, the gRPC
+  server and the etcd connection for both halves, and calls `servenv.Init`
   once (a second call is fatal).
 - **One identity.** The process reports the service name `minigres` with the
   pooler's cell, service ID, database and shard, so it appears once in logs,
@@ -207,9 +203,6 @@ in the topology.
   backend, byte tunnel, metrics and errors, joined to the gateway by Go
   channels that copy each chunk of data, as gRPC does when it marshals. At
   shutdown the pooler ends replication tunnels instead of waiting for them.
-- **The in-memory server is unused.** The pooler still serves its gRPC query
-  service (`MultipoolerService`) only on an in-memory gRPC server, but the
-  gateway no longer calls it; removing it is planned.
 - **Observability differs on the query path.** The direct path has no
   pooler-side operation span and no transport metrics: traces go from the
   gateway's spans straight to the pooler's internal spans, and the gateway's
@@ -233,7 +226,7 @@ can turn them on, and their flags are rejected as unknown.
 | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Replica reads (`--pg-replica-port`, `--low-replication-lag-ms`, `--high-replication-lag-tolerance-ms`) | There are no replicas                                                                                                                                                                                                                             |
 | Failover buffering (`--buffer-*`)                                                                      | There is no failover: the static leader is never switched over, and nothing promotes another pooler                                                                                                                                               |
-| Multipooler gRPC TLS (`--multipooler-grpc-*`)                                                          | The gateway reaches its pooler in memory, and the settings otherwise secure only cancel forwarding                                                                                                                                                |
+| Multipooler gRPC TLS (`--multipooler-grpc-*`)                                                          | The gateway calls its pooler directly, and the settings otherwise secure only cancel forwarding                                                                                                                                                   |
 | Cross-gateway cancel forwarding                                                                        | A client sends its cancel request to the address it connected to, which is this gateway. The gateway cancels its own connections and ignores a cancel request for any other, instead of forwarding it to another instance through the shared etcd |
 
 Without cancel forwarding the gateway claims no connection-ID prefix: connection

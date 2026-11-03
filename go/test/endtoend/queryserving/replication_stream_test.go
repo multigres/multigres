@@ -32,9 +32,9 @@ import (
 // TestMultigateway_LogicalReplicationStream drives a logical replication
 // client through the gateway on either topology: the gateway tunnels the
 // replication=database connection to its pooler (StreamReplication). In
-// Minigres that call still goes over the in-memory gRPC server while queries
-// are direct calls, so this checks replication keeps working there. The
-// Multigres-only suite in shardsetup covers the tunnel in depth.
+// Minigres that is a direct call into the pooler's tunnel, joined to the
+// gateway by an in-process pipe, so this checks replication works over both
+// paths. The Multigres-only suite in shardsetup covers the tunnel in depth.
 func TestMultigateway_LogicalReplicationStream(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping replication stream test in short mode")

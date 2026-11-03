@@ -53,14 +53,13 @@ type minigres struct {
 	// reg is the process registry. It holds the settings of the shared
 	// servenv, gRPC server and topology configuration, and, through a view
 	// per half, each half's settings behind the half's name (see config.go).
-	reg        *viperutil.Registry
-	senv       *servenv.ServEnv
+	reg  *viperutil.Registry
+	senv *servenv.ServEnv
+	// grpcServer, on the TCP port, carries only the admin services. The
+	// query service is not served over gRPC: the gateway calls the pooler
+	// directly.
 	grpcServer *servenv.GrpcServer
 	topoConfig *topoclient.TopoConfig
-
-	// queryGrpcServer serves the query service in memory;
-	// grpcServer, on the TCP port, carries only the admin services.
-	queryGrpcServer *servenv.GrpcServer
 
 	gateway *multigateway.Multigateway
 	pooler  *multipooler.Multipooler
@@ -82,12 +81,12 @@ func newMinigres() *minigres {
 		topoConfig:  topoclient.NewTopoConfig(reg),
 		poolerFlags: pflag.NewFlagSet(constants.ServiceMultipooler, pflag.ContinueOnError),
 	}
-	m.queryGrpcServer = servenv.NewInMemoryGrpcServer(m.grpcServer)
 	// One value for both halves, so they cannot be given different servers.
+	// No QueryGrpcServer: the pooler's query service is served only to the
+	// gateway in this process.
 	resources := servenv.ProcessResources{
-		ServEnv:         m.senv,
-		GrpcServer:      m.grpcServer,
-		QueryGrpcServer: m.queryGrpcServer,
+		ServEnv:    m.senv,
+		GrpcServer: m.grpcServer,
 	}
 	// The only pooler of its shard leads it without consensus.
 	// Each half configures its settings on a view of the process registry
@@ -96,15 +95,13 @@ func newMinigres() *minigres {
 	// multipooler.pg-port.
 	m.pooler = multipooler.NewMultipooler(tel, reg.WithPrefix(constants.ServiceMultipooler), resources, "/"+constants.ServiceMultipooler, true)
 	// The multigateway uses only the multipooler in this process: it reads the
-	// pooler's record in memory instead of through the topology, calls its
-	// query service, credential lookup and health directly, and reaches it
-	// through the in-memory server for the rest. It is the only gateway in front of the only pooler, so what
-	// needs several of either is turned off.
+	// pooler's record in memory instead of through the topology, and calls the
+	// pooler directly, with no gRPC in between. It is the only gateway in front
+	// of the only pooler, so what needs several of either is turned off.
 	localPooler := &poolergateway.LocalPooler{
-		ID:          m.poolerID,
-		DialOptions: m.queryGrpcServer.DialOptions(),
-		Record:      m.pooler.Record,
-		Service:     m.pooler.LocalPoolerService(),
+		ID:      m.poolerID,
+		Record:  m.pooler.Record,
+		Service: m.pooler.LocalPoolerService(),
 	}
 	m.gateway = multigateway.NewMultigateway(reg.WithPrefix(constants.ServiceMultigateway), resources, "/"+constants.ServiceMultigateway, localPooler)
 	return m
@@ -233,7 +230,7 @@ func (m *minigres) run(ctx context.Context) error {
 		return err
 	}
 	m.senv.HTTPHandleFunc("/", handleIndex)
-	return m.senv.RunDefault(m.grpcServer, m.queryGrpcServer)
+	return m.senv.RunDefault(m.grpcServer)
 }
 
 // poolerID is the multipooler's topology ID, as it registers itself.

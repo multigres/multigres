@@ -109,10 +109,11 @@ type poolerConnection struct {
 	// Accessed atomically to avoid data races between UpdatePoolerInfo and readers.
 	poolerInfo atomic.Pointer[topoclient.MultipoolerInfo]
 
-	// conn is the underlying gRPC connection. Production code reaches the
-	// connection only via pooler (which owns its lifecycle: Shutdown
-	// calls pooler.Close()). The field is retained so telemetry tests
-	// can inspect the dial's OpenTelemetry attributes directly.
+	// conn is the underlying gRPC connection; nil for a LocalPooler, which is
+	// called directly. Production code reaches the connection only via pooler
+	// (which owns its lifecycle: Shutdown calls pooler.Close()). The field is
+	// retained so telemetry tests can inspect the dial's OpenTelemetry
+	// attributes directly.
 	conn *grpc.ClientConn
 
 	// pooler is the pooler's query service, credential lookup, health and
@@ -150,10 +151,6 @@ type poolerConnection struct {
 	onHealthUpdate func(*poolerConnection)
 }
 
-// localPoolerTarget is the gRPC target for a LocalPooler; its dial options
-// ignore it.
-const localPoolerTarget = "passthrough:///local-multipooler"
-
 // newPoolerConnection creates a new connection to a multipooler instance and
 // starts health streaming automatically.
 //
@@ -173,37 +170,34 @@ func newPoolerConnection(
 	poolerInfo := &topoclient.MultipoolerInfo{Multipooler: pooler}
 	poolerID := topoclient.ComponentIDString(pooler.Id)
 	addr := poolerInfo.Addr()
-	dialOpts := []grpc.DialOption{grpcDialOpt}
-	if local != nil {
-		// The pooler is in this process; its topology address is not used.
-		addr = localPoolerTarget
-		dialOpts = local.DialOptions
-	}
 
 	logger.DebugContext(ctx, "creating pooler connection",
 		"pooler_id", poolerID,
 		"addr", addr,
+		"local", local != nil,
 		"is_leader", pooler.GetRoutingState() != nil)
 
-	// Create gRPC connection with telemetry attributes
-	conn, err := grpccommon.NewClient(addr,
-		grpccommon.WithAttributes(rpcclient.PoolerSpanAttributes(pooler.Id)...),
-		grpccommon.WithDialOptions(dialOpts...),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create gRPC client for pooler %s at %s: %w", poolerID, addr, err)
+	// Call the pooler directly when it is in this process, over gRPC
+	// otherwise.
+	var conn *grpc.ClientConn
+	var service queryservice.Pooler
+	if local != nil {
+		service = newDirectQueryService(local.Service)
+	} else {
+		var err error
+		conn, err = grpccommon.NewClient(addr,
+			grpccommon.WithAttributes(rpcclient.PoolerSpanAttributes(pooler.Id)...),
+			grpccommon.WithDialOptions(grpcDialOpt),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create gRPC client for pooler %s at %s: %w", poolerID, addr, err)
+		}
+		service = newGRPCQueryService(conn, poolerID, logger)
 	}
 
 	// Derive a cancellable context from the service-lifetime context for the
 	// health stream goroutine. This ensures proper shutdown propagation.
 	ctx, cancel := context.WithCancel(ctx)
-
-	// Reach the pooler by direct calls when it is in this process and offers
-	// them, over gRPC otherwise.
-	service := newGRPCQueryService(conn, poolerID, logger)
-	if local != nil && local.Service != nil {
-		service = newDirectQueryService(local.Service, service)
-	}
 
 	// Initialize health state to DISABLED until the health stream provides data.
 	// Shard identity is available via poolerInfo; the gateway derives role from
