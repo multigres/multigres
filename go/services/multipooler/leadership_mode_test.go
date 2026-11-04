@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
@@ -306,4 +307,27 @@ func TestInitRefusesAShardItCannotServeBeforeFetchingTheBackingConnection(t *tes
 			require.Zero(t, source.fetches)
 		})
 	}
+}
+
+// TestAPoolerRefusesABackingConnectionThatServesAnotherDatabase: the pooler advertises
+// --database to the cluster and dials the connection's, so the two must agree, and a pooler
+// whose connection serves another database refuses to start.
+func TestAPoolerRefusesABackingConnectionThatServesAnotherDatabase(t *testing.T) {
+	backend := &manager.ExternalBackend{Host: "db.example.com", Port: 5432, Database: "other"}
+	require.NoError(t, checkBackingDatabase("src", backend, "other"))
+	require.EqualError(t, checkBackingDatabase("src", backend, "db"),
+		`backing connection "src" serves database "other", which does not match --database "db"`)
+
+	ts, _ := memorytopo.NewServerAndFactory(t.Context(), "zone1")
+	t.Cleanup(func() { _ = ts.Close() })
+	mp := newTestMultipooler()
+	mp.connections = fakeSource{conn: &backingConnection{Name: "src", Host: "db.example.com", Port: 5432, Database: "other", User: "u"}}
+	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	mp.RegisterFlags(flags)
+	require.NoError(t, flags.Parse([]string{
+		"--backing-connection=src", "--database=db", "--cell=zone1", "--service-id=ext",
+		"--table-group=migrateTG", "--shard=0-inf",
+	}))
+	err := mp.Init(t.Context(), ts)
+	require.EqualError(t, err, `backing connection "src" serves database "other", which does not match --database "db"`)
 }

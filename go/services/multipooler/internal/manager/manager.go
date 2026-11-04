@@ -363,7 +363,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 	// The external backend is what an unmanaged pooler dials and probes, and only an
 	// unmanaged pooler has one: deciding it here keeps the mode the one thing that says
 	// which kind of pooler this is.
-	if err := validateExternalBackend(unmanaged, config.ExternalBackend); err != nil {
+	if err := validateUnmanagedConfig(unmanaged, multipooler.GetShardRef().GetDatabase(), config); err != nil {
 		return nil, err
 	}
 	// Fail fast on a tablegroup/shard this pooler cannot serve.
@@ -770,6 +770,13 @@ func (pm *MultipoolerManager) ShutdownForTest(ctx context.Context) {
 
 	pm.pgMonitor.Stop()
 	pm.closeLocked(lockCtx, "shutdown")
+
+	// A manager that was never opened still owns the context the constructor made, and
+	// anything started on it before Open (the migration reconcile poller) runs until it is
+	// cancelled. Cancelling is idempotent, so it is safe after a close that already did.
+	pm.mu.Lock()
+	pm.cancel()
+	pm.mu.Unlock()
 }
 
 // closeLocked performs the actual close operation. Returns true if the manager

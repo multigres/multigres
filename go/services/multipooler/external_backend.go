@@ -24,6 +24,7 @@ import (
 	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/manager"
 )
 
 // backingConnection is the resolved configuration of the external PostgreSQL an
@@ -45,6 +46,15 @@ type backingConnection struct {
 // primary applies to the connections it serves (backingconn.Validate).
 func (c *backingConnection) Validate() error {
 	return backingconn.Validate(c.Host, c.Port, c.Database, c.User)
+}
+
+// checkBackingDatabase refuses a backing connection that serves another database than the
+// pooler's own: the pooler advertises --database to the cluster and dials the connection's.
+func checkBackingDatabase(name string, backend *manager.ExternalBackend, database string) error {
+	if backend.Database != database {
+		return fmt.Errorf("backing connection %q serves database %q, which does not match --database %q", name, backend.Database, database)
+	}
+	return nil
 }
 
 // connectionSource gives a pooler the configuration of the external PostgreSQL it

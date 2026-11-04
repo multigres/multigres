@@ -559,12 +559,15 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		if err != nil {
 			return fmt.Errorf("resolve backing connection: %w", err)
 		}
-		mp.connPoolConfig.SetBackingCredentials(backing.User, backing.Password, backing.SSLMode, backing.SSLRootCert, backing.SSLNegotiation)
 
 		// The endpoint of an unmanaged pooler is set here and nowhere else: the record
 		// publishes its port, the TLS validation below checks its host, and the manager
 		// dials, probes and serves from it, so they can never disagree.
 		externalBackend = &manager.ExternalBackend{Host: backing.Host, Port: backing.Port, Database: backing.Database}
+		if err := checkBackingDatabase(mp.backingConnection.Get(), externalBackend, mp.database.Get()); err != nil {
+			return err
+		}
+		mp.connPoolConfig.SetBackingCredentials(backing.User, backing.Password, backing.SSLMode, backing.SSLRootCert, backing.SSLNegotiation)
 		multipooler.PortMap["postgres"] = int32(externalBackend.Port)
 	} else {
 		if err := mp.connPoolConfig.ResolvePgPassword(); err != nil {
@@ -626,12 +629,6 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	// An unmanaged pooler never takes part in consensus.
 	consensusEnabled := mp.consensusEnabled() && !unmanaged
 
-	// An unmanaged pooler has no pgctld to talk to.
-	pgctldAddr := mp.pgctldAddr.Get()
-	if unmanaged {
-		pgctldAddr = ""
-	}
-
 	logger.InfoContext(startCtx, "initializing MultipoolerManager")
 	poolerManager, err := manager.NewMultipoolerManager(logger, multipooler, &manager.Config{
 		SocketFilePath:                 socketFilePath,
@@ -641,7 +638,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		MigrationTargetAdvertiseHost:   mp.migrationTargetAdvertiseHost.Get(),
 		MigrationTargetAdvertisePort:   mp.migrationTargetAdvertisePort.Get(),
 		ReplicationStatsPollIntervalMs: mp.replicationStatsPollIntervalMs.Get(),
-		PgctldAddr:                     pgctldAddr,
+		PgctldAddr:                     mp.pgctldAddr.Get(),
 		ConsensusEnabled:               consensusEnabled,
 		ConnPoolConfig:                 mp.connPoolConfig,
 		BackendVpidTrackingEnabled:     mp.backendVpidTrackingEnabled.Get() && !unmanaged,

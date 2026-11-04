@@ -15,10 +15,7 @@
 package grpcmanagerservice
 
 import (
-	"context"
-	"log/slog"
 	"net"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -27,33 +24,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
-	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadata "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager"
-	"github.com/multigres/multigres/go/tools/viperutil"
 )
-
-func newTestManager(t *testing.T, mode clustermetadata.LeadershipMode, tablegroup string) *manager.MultipoolerManager {
-	t.Helper()
-	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
-	t.Cleanup(func() { _ = ts.Close() })
-	cfg := &manager.Config{TopoClient: ts, ConnPoolConfig: connpoolmanager.NewConfig(viperutil.NewRegistry())}
-	if mode == clustermetadata.LeadershipMode_LEADERSHIP_MODE_UNMANAGED {
-		cfg.ExternalBackend = &manager.ExternalBackend{Host: "db.example.com", Port: 5432, Database: "db"}
-	}
-	pm, err := manager.NewMultipoolerManager(slog.New(slog.NewTextHandler(os.Stderr, nil)), &clustermetadata.Multipooler{
-		Id:             &clustermetadata.ID{Component: clustermetadata.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler"},
-		ShardRef:       &clustermetadata.ShardRef{Database: "db", TableGroup: tablegroup, Shard: "0-inf"},
-		LeadershipMode: mode,
-	}, cfg)
-	require.NoError(t, err)
-	t.Cleanup(func() { pm.ShutdownForTest(ctx) })
-	return pm
-}
 
 // TestManagerServiceIsNotRegisteredOnAnUnmanagedPooler: an unmanaged pooler has no lifecycle
 // RPCs. The service is not registered at all, so every method, any added later included,
@@ -70,7 +45,7 @@ func TestManagerServiceIsNotRegisteredOnAnUnmanagedPooler(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			server := grpc.NewServer()
-			registerManagerService(server, newTestManager(t, tc.mode, tc.tablegroup))
+			registerManagerService(server, manager.NewManagerForTesting(t, tc.mode, tc.tablegroup))
 			_, registered := server.GetServiceInfo()[service]
 			require.Equal(t, tc.registered, registered)
 

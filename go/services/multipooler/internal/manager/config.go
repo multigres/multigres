@@ -16,6 +16,7 @@
 package manager
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/multigres/multigres/go/common/backup"
@@ -111,14 +112,21 @@ type ExternalBackend struct {
 	Database string
 }
 
-// validateExternalBackend checks that a pooler has an external backend exactly when it is
-// unmanaged, and that the backend names an endpoint.
-func validateExternalBackend(unmanaged bool, backend *ExternalBackend) error {
+// validateUnmanagedConfig checks that a pooler has an external backend exactly when it is
+// unmanaged, that the backend names an endpoint and the pooler's own database, and that an
+// unmanaged pooler is not also a static leader: a static leader is a pooler multigres
+// manages, and an external database has no one to lead it.
+func validateUnmanagedConfig(unmanaged bool, database string, config *Config) error {
+	backend := config.ExternalBackend
 	switch {
 	case unmanaged && backend == nil:
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "an unmanaged pooler requires an external backend")
 	case unmanaged && (backend.Host == "" || backend.Port < 1 || backend.Database == ""):
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "the external backend of an unmanaged pooler requires a host, a port and a database")
+	case unmanaged && backend.Database != database:
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, fmt.Sprintf("the external backend serves database %q, which does not match the pooler's database %q", backend.Database, database))
+	case unmanaged && config.StaticLeader:
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "a static leader cannot be unmanaged")
 	case !unmanaged && backend != nil:
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "a managed pooler cannot have an external backend")
 	}
