@@ -521,3 +521,145 @@ func TestServer_StreamReplicationInvalidInit(t *testing.T) {
 	_, err := s.StreamReplication(t.Context(), init)
 	assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err), "got %v", err)
 }
+
+// TestServer_StreamReplicationAdmissionRejected checks that a registered pooler
+// that is not serving refuses a replication stream at admission on the direct
+// path, before opening any backend, as over gRPC.
+func TestServer_StreamReplicationAdmissionRejected(t *testing.T) {
+	pm := newStalledReplPoolManager(nil)
+	// The pooler starts NOT_SERVING.
+	p := poolerserver.NewQueryPoolerServer(slog.New(slog.DiscardHandler), pm, &clustermetadatapb.ID{Name: "p"}, "", "", nil, 0, false)
+	s := NewServer()
+	s.register(p)
+
+	_, err := s.StreamReplication(t.Context(), replicationInit())
+	require.Error(t, err)
+	select {
+	case <-pm.entered:
+		t.Fatal("a backend was opened for a stream admission should have refused")
+	default:
+	}
+}
+
+// TestServer_StreamReplicationNilPoolManager checks that a serving pooler with
+// no pool manager reports unavailable on the direct path instead of panicking,
+// as over gRPC.
+func TestServer_StreamReplicationNilPoolManager(t *testing.T) {
+	s := newServingServer(t, nil)
+
+	_, err := s.StreamReplication(t.Context(), replicationInit())
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "got %v", err)
+}
+
+// TestServer_StreamReplicationBackendOpenInfraError checks that a backend
+// that cannot be opened for a reason that is not a PostgreSQL error reaches the
+// caller as that error, not as a generic one.
+func TestServer_StreamReplicationBackendOpenInfraError(t *testing.T) {
+	cause := mterrors.New(mtrpcpb.Code_UNAVAILABLE, "pool wait timeout")
+	s := newServingServer(t, failingReplPoolManager{err: cause})
+
+	_, err := s.StreamReplication(t.Context(), replicationInit())
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "got %v", err)
+	assert.Contains(t, err.Error(), "pool wait timeout")
+}
+
+// stalledReplPoolManager opens no replication backend: NewLogicalReplicationConn
+// reports on entered, then waits for release, or for its ctx to end when
+// release is nil, and takes a moment more to return, as tearing down a
+// backend does. returned is closed once it has.
+type stalledReplPoolManager struct {
+	connpoolmanager.PoolManager
+	entered  chan struct{}
+	release  chan struct{}
+	returned chan struct{}
+}
+
+func newStalledReplPoolManager(release chan struct{}) *stalledReplPoolManager {
+	return &stalledReplPoolManager{entered: make(chan struct{}), release: release, returned: make(chan struct{})}
+}
+
+func (m *stalledReplPoolManager) NewLogicalReplicationConn(ctx context.Context, _ string, _, _ []byte) (*reserved.Conn, error) {
+	defer close(m.returned)
+	close(m.entered)
+	if m.release != nil {
+		<-m.release
+	} else {
+		<-ctx.Done()
+	}
+	time.Sleep(50 * time.Millisecond)
+	return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "backend not opened")
+}
+
+// TestServer_StopEndsReplicationStreams checks that Stop ends an opening
+// replication stream and waits for its loop to return, so nothing the loop
+// holds outlives Stop.
+func TestServer_StopEndsReplicationStreams(t *testing.T) {
+	pm := newStalledReplPoolManager(nil)
+	s := newServingServer(t, pm)
+
+	openErr := make(chan error, 1)
+	go func() {
+		_, err := s.StreamReplication(t.Context(), replicationInit())
+		openErr <- err
+	}()
+	<-pm.entered
+
+	stopped := make(chan struct{})
+	go func() {
+		s.Stop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop did not end the replication stream")
+	}
+	select {
+	case <-pm.returned:
+	default:
+		t.Fatal("Stop returned before the replication loop did")
+	}
+	select {
+	case err := <-openErr:
+		require.Error(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the caller was not released after Stop")
+	}
+}
+
+// TestServer_StreamReplicationCallerCancelWhileLoopBlocked checks that a
+// caller giving up on a replication stream whose loop is blocked opening the
+// backend is released at once, as a gRPC client stream is, instead of waiting
+// on the loop.
+func TestServer_StreamReplicationCallerCancelWhileLoopBlocked(t *testing.T) {
+	release := make(chan struct{})
+	pm := newStalledReplPoolManager(release)
+	s := newServingServer(t, pm)
+	t.Cleanup(func() {
+		close(release)
+		<-pm.returned
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	openErr := make(chan error, 1)
+	go func() {
+		_, err := s.StreamReplication(ctx, replicationInit())
+		openErr <- err
+	}()
+	<-pm.entered
+	select {
+	case err := <-openErr:
+		t.Fatalf("StreamReplication returned while the backend was opening: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	cancel()
+	select {
+	case err := <-openErr:
+		assert.ErrorIs(t, err, context.Canceled)
+	case <-time.After(5 * time.Second):
+		t.Fatal("StreamReplication stayed blocked after the caller cancelled")
+	}
+}

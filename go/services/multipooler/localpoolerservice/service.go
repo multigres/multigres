@@ -48,10 +48,15 @@ type Server struct {
 	stopped  bool
 	inFlight sync.WaitGroup
 	// streams ends each running long-lived stream (health subscriptions,
-	// notification streams). A stream lasts as long as its caller wants, so
-	// Stop ends them rather than waiting.
+	// notification and replication streams). A stream lasts as long as its
+	// caller wants, so Stop ends them rather than waiting.
 	streams    map[uint64]context.CancelFunc
 	nextStream uint64
+	// loops counts the running stream loops (ServeNotifications,
+	// ServeReplication): once Stop ends their streams it waits for them to
+	// return and release what they hold, as a gRPC server's graceful stop
+	// waits for its stream handlers.
+	loops sync.WaitGroup
 }
 
 // NewServer returns a Server that refuses calls until it is registered with
@@ -80,7 +85,7 @@ func (s *Server) register(p *poolerserver.QueryPoolerServer) {
 }
 
 // Stop refuses new calls, ends long-lived streams, and waits for running calls
-// to return.
+// and the ended streams' loops to return.
 func (s *Server) Stop() {
 	s.mu.Lock()
 	s.stopped = true
@@ -91,6 +96,7 @@ func (s *Server) Stop() {
 		cancel()
 	}
 	s.inFlight.Wait()
+	s.loops.Wait()
 }
 
 // notServing is the error for a call before the pooler registers its services
@@ -252,6 +258,25 @@ func (s *Server) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetA
 func (s *Server) beginStream(ctx context.Context) (context.Context, context.CancelFunc, *poolerserver.QueryPoolerServer, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.beginStreamLocked(ctx)
+}
+
+// beginLoop admits a stream served by one of the pooler's stream loops, run in
+// a goroutine, like beginStream, and counts the loop so Stop waits for it. The
+// goroutine calls loopDone when the loop has returned.
+func (s *Server) beginLoop(ctx context.Context) (streamCtx context.Context, cancel context.CancelFunc, pooler *poolerserver.QueryPoolerServer, loopDone func(), err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	streamCtx, cancel, pooler, err = s.beginStreamLocked(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	s.loops.Add(1)
+	return streamCtx, cancel, pooler, s.loops.Done, nil
+}
+
+// beginStreamLocked is beginStream with s.mu held.
+func (s *Server) beginStreamLocked(ctx context.Context) (context.Context, context.CancelFunc, *poolerserver.QueryPoolerServer, error) {
 	if s.stopped || s.pooler == nil {
 		return nil, nil, nil, notServing()
 	}
@@ -319,14 +344,16 @@ func (s *Server) SubscribeHealth(ctx context.Context) (func() (*multipoolerpb.St
 // pooler's notification loop (ServeNotifications, as the gRPC handler runs it)
 // in a goroutine, joined to the caller by a pipe. Like a health subscription
 // it is not counted as a running call; it ends when ctx ends, when the loop
-// ends (the pubsub listener stopped), or at Stop.
+// ends (the pubsub listener stopped), or at Stop, which waits for the loop to
+// return.
 func (s *Server) NotificationStream(ctx context.Context) (queryservice.NotificationStream, error) {
-	streamCtx, cancel, pooler, err := s.beginStream(ctx)
+	streamCtx, cancel, pooler, loopDone, err := s.beginLoop(ctx)
 	if err != nil {
 		return nil, err
 	}
 	p := newPipe[*multipoolerpb.NotificationStreamRequest, *multipoolerpb.NotificationStreamResponse](ctx, 0)
 	go func() {
+		defer loopDone()
 		defer cancel()
 		p.finish(pooler.ServeNotifications(streamCtx, p.serverRecv(streamCtx), p.serverSend(streamCtx)))
 	}()
@@ -343,15 +370,17 @@ const replicationPipeBuffer = 16
 // (ServeReplication, as the gRPC handler runs it) in a goroutine, joined to the
 // caller by a pipe, after the same open handshake as over gRPC. Like a
 // notification stream it is not counted as a running call; it ends when ctx
-// ends, when the tunnel ends, or at Stop.
+// ends, when the tunnel ends, or at Stop, which waits for the tunnel to return
+// and release its backend.
 func (s *Server) StreamReplication(ctx context.Context, init *multipoolerpb.StreamReplicationInit) (queryservice.ReplicationStream, error) {
-	streamCtx, cancel, pooler, err := s.beginStream(ctx)
+	streamCtx, cancel, pooler, loopDone, err := s.beginLoop(ctx)
 	if err != nil {
 		return nil, err
 	}
 	p := newPipe[*multipoolerpb.StreamReplicationRequest, *multipoolerpb.StreamReplicationResponse](ctx, replicationPipeBuffer)
 	send := p.serverSend(streamCtx)
 	go func() {
+		defer loopDone()
 		defer cancel()
 		p.finish(pooler.ServeReplication(streamCtx, p.serverRecv(streamCtx), copyingData(send)))
 	}()

@@ -202,16 +202,11 @@ func runReplicationTunnel(
 // StreamReplicationResponse (distinct from a PG ErrorResponse, which flows as
 // opaque data). The diagnostic is set when err carries a PostgreSQL one.
 func replicationErrorResponse(err error) *multipoolerpb.StreamReplicationResponse {
-	resp := &multipoolerpb.StreamReplicationResponse{
+	return &multipoolerpb.StreamReplicationResponse{
 		Msg: &multipoolerpb.StreamReplicationResponse_Error{
-			Error: &multipoolerpb.StreamReplicationError{},
+			Error: &multipoolerpb.StreamReplicationError{Diagnostic: mterrors.PgDiagnosticProtoFromError(err)},
 		},
 	}
-	var diag *mterrors.PgDiagnostic
-	if errors.As(err, &diag) {
-		resp.GetError().Diagnostic = mterrors.PgDiagnosticToProto(diag)
-	}
-	return resp
 }
 
 // terminationReason classifies a tunnel exit for the terminations metric.

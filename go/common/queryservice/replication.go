@@ -15,6 +15,9 @@
 package queryservice
 
 import (
+	"errors"
+	"io"
+
 	"github.com/multigres/multigres/go/common/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -35,7 +38,8 @@ type ReplicationStream interface {
 // whatever the transport: it sends init, which must be the first message,
 // then waits for the pooler to open the backend. A structured backend error is
 // returned as its *mterrors.PgDiagnostic, so the caller can re-emit it
-// verbatim as an ErrorResponse. convert, when set, turns the transport's
+// verbatim as an ErrorResponse; any other backend error as the error the
+// pooler ended the stream with. convert, when set, turns the transport's
 // errors into mterrors errors (mterrors.FromGRPC for gRPC).
 func OpenReplication(stream ReplicationStream, init *multipoolerpb.StreamReplicationInit, convert func(error) error) error {
 	if convert == nil {
@@ -55,6 +59,12 @@ func OpenReplication(stream ReplicationStream, init *multipoolerpb.StreamReplica
 	if replErr := resp.GetError(); replErr != nil {
 		if diag := replErr.GetDiagnostic(); diag != nil {
 			return mterrors.PgDiagnosticFromProto(diag)
+		}
+		// The pooler ends the stream right after a handshake error, so the
+		// stream's end carries the cause (for example a pool wait timeout or a
+		// dial failure) and this Recv does not block.
+		if _, err := stream.Recv(); err != nil && !errors.Is(err, io.EOF) {
+			return mterrors.Wrapf(convert(err), "replication open failed")
 		}
 		return mterrors.New(mtrpcpb.Code_INTERNAL, "replication stream returned an error without a diagnostic")
 	}

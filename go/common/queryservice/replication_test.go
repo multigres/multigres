@@ -16,6 +16,7 @@ package queryservice
 
 import (
 	"errors"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,13 +27,15 @@ import (
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
 
-// scriptedReplicationStream records what is sent and answers Recv with a
-// fixed reply or error.
+// scriptedReplicationStream records what is sent and answers the first Recv
+// with a fixed reply or error, and later ones with endErr (io.EOF if unset).
 type scriptedReplicationStream struct {
 	sent    []*multipoolerpb.StreamReplicationRequest
 	sendErr error
 	resp    *multipoolerpb.StreamReplicationResponse
 	recvErr error
+	endErr  error
+	recvs   int
 }
 
 func (s *scriptedReplicationStream) Send(req *multipoolerpb.StreamReplicationRequest) error {
@@ -41,7 +44,14 @@ func (s *scriptedReplicationStream) Send(req *multipoolerpb.StreamReplicationReq
 }
 
 func (s *scriptedReplicationStream) Recv() (*multipoolerpb.StreamReplicationResponse, error) {
-	return s.resp, s.recvErr
+	s.recvs++
+	if s.recvs == 1 {
+		return s.resp, s.recvErr
+	}
+	if s.endErr != nil {
+		return nil, s.endErr
+	}
+	return nil, io.EOF
 }
 
 func TestOpenReplication(t *testing.T) {
@@ -70,10 +80,24 @@ func TestOpenReplication(t *testing.T) {
 		assert.Equal(t, diag.Message, got.Message)
 	})
 
-	t.Run("error without diagnostic", func(t *testing.T) {
-		s := &scriptedReplicationStream{resp: &multipoolerpb.StreamReplicationResponse{
-			Msg: &multipoolerpb.StreamReplicationResponse_Error{Error: &multipoolerpb.StreamReplicationError{}},
-		}}
+	noDiagnostic := &multipoolerpb.StreamReplicationResponse{
+		Msg: &multipoolerpb.StreamReplicationResponse_Error{Error: &multipoolerpb.StreamReplicationError{}},
+	}
+
+	t.Run("error without diagnostic is the stream's end error", func(t *testing.T) {
+		cause := mterrors.New(mtrpcpb.Code_UNAVAILABLE, "pool wait timeout")
+		converted := 0
+		convert := func(err error) error { converted++; return err }
+		s := &scriptedReplicationStream{resp: noDiagnostic, endErr: cause}
+		err := OpenReplication(s, init, convert)
+		assert.ErrorIs(t, err, cause)
+		assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
+		assert.Contains(t, err.Error(), "pool wait timeout")
+		assert.Equal(t, 1, converted, "the end error goes through convert")
+	})
+
+	t.Run("error without diagnostic and a clean end", func(t *testing.T) {
+		s := &scriptedReplicationStream{resp: noDiagnostic}
 		assert.Equal(t, mtrpcpb.Code_INTERNAL, mterrors.Code(OpenReplication(s, init, nil)))
 	})
 
