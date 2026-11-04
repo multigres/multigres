@@ -17,7 +17,10 @@ package s3mock
 
 import (
 	"crypto/tls"
+	"crypto/x509"
+	"net/http"
 	"testing"
+	"time"
 )
 
 func TestGenerateTLSConfig(t *testing.T) {
@@ -39,6 +42,28 @@ func TestGenerateTLSConfig(t *testing.T) {
 	}
 }
 
+func TestGenerateTLSConfig_Validity(t *testing.T) {
+	cfg, err := generateTLSConfig()
+	if err != nil {
+		t.Fatalf("generateTLSConfig() failed: %v", err)
+	}
+	cert, err := x509.ParseCertificate(cfg.Certificates[0].Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if left := time.Until(cert.NotAfter); left < 24*time.Hour {
+		t.Fatalf("certificate valid for only %v, want at least 24h", left)
+	}
+	if !cert.NotBefore.Before(time.Now()) {
+		t.Fatalf("NotBefore %v is not in the past", cert.NotBefore)
+	}
+	for _, host := range []string{"127.0.0.1", "::1", "localhost"} {
+		if err := cert.VerifyHostname(host); err != nil {
+			t.Errorf("certificate does not cover %s: %v", host, err)
+		}
+	}
+}
+
 func TestTLSConfigHandshake(t *testing.T) {
 	cfg, err := generateTLSConfig()
 	if err != nil {
@@ -53,4 +78,42 @@ func TestTLSConfigHandshake(t *testing.T) {
 	defer listener.Close()
 
 	// If we get here, config is valid for TLS server
+}
+
+func TestCertPEM_ClientTrust(t *testing.T) {
+	srv, err := NewServer(0)
+	if err != nil {
+		t.Fatalf("NewServer() failed: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Stop() })
+
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(srv.CertPEM()) {
+		t.Fatal("CertPEM() is not a parseable PEM certificate")
+	}
+	trusting := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}}
+	resp, err := trusting.Get(srv.Endpoint() + "/")
+	if err != nil {
+		t.Fatalf("client trusting CertPEM failed: %v", err)
+	}
+	resp.Body.Close()
+
+	plain := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}}
+	if resp, err := plain.Get(srv.Endpoint() + "/"); err == nil {
+		resp.Body.Close()
+		t.Fatal("client without the cert must fail verification")
+	}
+}
+
+func TestCertPEM_ReturnsCopy(t *testing.T) {
+	srv, err := NewServer(0)
+	if err != nil {
+		t.Fatalf("NewServer() failed: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Stop() })
+	first := srv.CertPEM()
+	first[0] ^= 0xff
+	if srv.CertPEM()[0] == first[0] {
+		t.Fatal("CertPEM() must not expose internal storage")
+	}
 }
