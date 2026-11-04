@@ -18,6 +18,7 @@ package s3mock
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"net/http"
 	"testing"
 	"time"
 )
@@ -95,4 +96,42 @@ func TestTLSConfigHandshake(t *testing.T) {
 	defer listener.Close()
 
 	// If we get here, config is valid for TLS server
+}
+
+func TestCertPEM_ClientTrust(t *testing.T) {
+	srv, err := NewServer(0)
+	if err != nil {
+		t.Fatalf("NewServer() failed: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Stop() })
+
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(srv.CertPEM()) {
+		t.Fatal("CertPEM() is not a parseable PEM certificate")
+	}
+	trusting := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}}
+	resp, err := trusting.Get(srv.Endpoint() + "/")
+	if err != nil {
+		t.Fatalf("client trusting CertPEM failed: %v", err)
+	}
+	resp.Body.Close()
+
+	plain := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}}}
+	if resp, err := plain.Get(srv.Endpoint() + "/"); err == nil {
+		resp.Body.Close()
+		t.Fatal("client without the cert must fail verification")
+	}
+}
+
+func TestCertPEM_ReturnsCopy(t *testing.T) {
+	srv, err := NewServer(0)
+	if err != nil {
+		t.Fatalf("NewServer() failed: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Stop() })
+	first := srv.CertPEM()
+	first[0] ^= 0xff
+	if srv.CertPEM()[0] == first[0] {
+		t.Fatal("CertPEM() must not expose internal storage")
+	}
 }

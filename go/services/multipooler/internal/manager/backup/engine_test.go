@@ -332,32 +332,6 @@ func TestEngineAccessors(t *testing.T) {
 	assert.NotNil(t, e.Metrics())
 }
 
-func TestIOTimeoutArgs(t *testing.T) {
-	withTimeout := func(d time.Duration) context.Context {
-		ctx, cancel := context.WithTimeout(context.Background(), d)
-		t.Cleanup(cancel)
-		return ctx
-	}
-
-	tests := []struct {
-		name string
-		ctx  context.Context
-		want []string
-	}{
-		{name: "no deadline leaves pgbackrest's default", ctx: context.Background()},
-		{name: "30s context gets two thirds", ctx: withTimeout(30 * time.Second), want: []string{"--io-timeout=19"}},
-		{name: "5s context gets a few seconds", ctx: withTimeout(5 * time.Second), want: []string{"--io-timeout=3"}},
-		{name: "sub-second context is raised to one second", ctx: withTimeout(500 * time.Millisecond), want: []string{"--io-timeout=1"}},
-		{name: "expired context is raised to one second", ctx: withTimeout(-time.Second), want: []string{"--io-timeout=1"}},
-		{name: "context longer than the default needs no override", ctx: withTimeout(2 * time.Minute)},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, ioTimeoutArgs(tt.ctx))
-		})
-	}
-}
-
 // TestPgbackrestCmd_IOTimeout checks --io-timeout reaches repository commands
 // and not start and stop, which reject it.
 func TestPgbackrestCmd_IOTimeout(t *testing.T) {

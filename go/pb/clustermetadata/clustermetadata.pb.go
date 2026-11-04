@@ -1159,8 +1159,20 @@ type S3Backup struct {
 	// If false, use automatic credential detection via repo1-s3-key-type=auto
 	// (IRSA, EC2 metadata, etc.). This will only work when running on AWS.
 	UseEnvCredentials bool `protobuf:"varint,5,opt,name=use_env_credentials,json=useEnvCredentials,proto3" json:"use_env_credentials,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Optional: path of a PEM file with the certificate authorities that verify
+	// the endpoint's TLS certificate, in place of the system trust store. For a
+	// self-hosted S3 service (MinIO, Garage, RustFS, Ceph RGW) behind a private
+	// CA. The file may hold several certificates, and a self-signed server
+	// certificate works as its own CA. The path is read by the pgbackrestd
+	// sidecar, in its own filesystem.
+	CaFile string `protobuf:"bytes,6,opt,name=ca_file,json=caFile,proto3" json:"ca_file,omitempty"`
+	// If true, the endpoint's TLS certificate is not verified at all. Anyone
+	// who can intercept the connection can then read and replace backups and
+	// WAL. False, the default, verifies. It is never turned on implicitly, and
+	// it cannot be combined with ca_file.
+	SkipTlsVerify bool `protobuf:"varint,7,opt,name=skip_tls_verify,json=skipTlsVerify,proto3" json:"skip_tls_verify,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *S3Backup) Reset() {
@@ -1224,6 +1236,20 @@ func (x *S3Backup) GetKeyPrefix() string {
 func (x *S3Backup) GetUseEnvCredentials() bool {
 	if x != nil {
 		return x.UseEnvCredentials
+	}
+	return false
+}
+
+func (x *S3Backup) GetCaFile() string {
+	if x != nil {
+		return x.CaFile
+	}
+	return ""
+}
+
+func (x *S3Backup) GetSkipTlsVerify() bool {
+	if x != nil {
+		return x.SkipTlsVerify
 	}
 	return false
 }
@@ -3220,14 +3246,16 @@ const file_clustermetadata_proto_rawDesc = "" +
 	"\n" +
 	"\blocation\"&\n" +
 	"\x10FilesystemBackup\x12\x12\n" +
-	"\x04path\x18\x01 \x01(\tR\x04path\"\xa5\x01\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\"\xe6\x01\n" +
 	"\bS3Backup\x12\x16\n" +
 	"\x06bucket\x18\x01 \x01(\tR\x06bucket\x12\x16\n" +
 	"\x06region\x18\x02 \x01(\tR\x06region\x12\x1a\n" +
 	"\bendpoint\x18\x03 \x01(\tR\bendpoint\x12\x1d\n" +
 	"\n" +
 	"key_prefix\x18\x04 \x01(\tR\tkeyPrefix\x12.\n" +
-	"\x13use_env_credentials\x18\x05 \x01(\bR\x11useEnvCredentials\"m\n" +
+	"\x13use_env_credentials\x18\x05 \x01(\bR\x11useEnvCredentials\x12\x17\n" +
+	"\aca_file\x18\x06 \x01(\tR\x06caFile\x12&\n" +
+	"\x0fskip_tls_verify\x18\a \x01(\bR\rskipTlsVerify\"m\n" +
 	"\rPoolerAddress\x12#\n" +
 	"\x02id\x18\x01 \x01(\v2\x13.clustermetadata.IDR\x02id\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12#\n" +

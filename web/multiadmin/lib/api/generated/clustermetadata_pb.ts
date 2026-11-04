@@ -902,6 +902,28 @@ export class S3Backup extends Message<S3Backup> {
    */
   useEnvCredentials = false;
 
+  /**
+   * Optional: path of a PEM file with the certificate authorities that verify
+   * the endpoint's TLS certificate, in place of the system trust store. For a
+   * self-hosted S3 service (MinIO, Garage, RustFS, Ceph RGW) behind a private
+   * CA. The file may hold several certificates, and a self-signed server
+   * certificate works as its own CA. The path is read by the pgbackrestd
+   * sidecar, in its own filesystem.
+   *
+   * @generated from field: string ca_file = 6;
+   */
+  caFile = "";
+
+  /**
+   * If true, the endpoint's TLS certificate is not verified at all. Anyone
+   * who can intercept the connection can then read and replace backups and
+   * WAL. False, the default, verifies. It is never turned on implicitly, and
+   * it cannot be combined with ca_file.
+   *
+   * @generated from field: bool skip_tls_verify = 7;
+   */
+  skipTlsVerify = false;
+
   constructor(data?: PartialMessage<S3Backup>) {
     super();
     proto3.util.initPartial(data, this);
@@ -915,6 +937,8 @@ export class S3Backup extends Message<S3Backup> {
     { no: 3, name: "endpoint", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 4, name: "key_prefix", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 5, name: "use_env_credentials", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 6, name: "ca_file", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 7, name: "skip_tls_verify", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): S3Backup {

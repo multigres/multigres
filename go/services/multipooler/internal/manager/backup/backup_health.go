@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	commonbackup "github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
@@ -414,7 +415,7 @@ func (e *Engine) refreshFromRepo(ctx context.Context) (reachable bool, reason st
 		return false, ReadyReasonRepoUnreachable
 	}
 
-	infoData, err := decodeInfo(output)
+	infoData, err := commonbackup.DecodeInfo(output)
 	if err != nil {
 		e.logger.DebugContext(ctx, "backup health: failed to parse pgbackrest info; keeping cached age/count", "error", err)
 		return false, ReadyReasonRepoUnreachable
@@ -425,7 +426,7 @@ func (e *Engine) refreshFromRepo(ctx context.Context) (reachable bool, reason st
 	// when it doesn't). The failure still shows up as backup:[] with no decode
 	// error, so it must not be read as "zero backups" — that would report
 	// readiness as reachable for a repo we actually can't read.
-	if err := repoStatusError(infoData); err != nil {
+	if err := commonbackup.RepoStatusError(infoData); err != nil {
 		e.logger.DebugContext(ctx, "backup health: repo status error; keeping cached age/count", "error", err)
 		return false, ReadyReasonRepoUnreachable
 	}
