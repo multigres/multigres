@@ -13,6 +13,8 @@ in the `go/` directory. The repository contains multiple components including:
 - **multipooler** - Connection pooling service
 - **pgctld** - PostgreSQL control daemon
 - **multiadmin** - Administrative API server (gRPC, Connect, and REST)
+- **pgbackrestd** - pgBackRest sidecar for shard pods (installed in the
+  `multigres` image at `/multigres/bin/pgbackrestd`)
 - **multigres** - Main CLI tool
 - **minigres** - Multigateway and multipooler in one process, for a database
   served by a single pooler (see [Minigres](./general/minigres.md))
@@ -28,10 +30,20 @@ Multigres requires the following on your `$PATH` before running `multigres clust
 
 - Go (version 1.26 or later, as required by `go.mod`)
 - **PostgreSQL 17.x** — `postgres --version` must report `(PostgreSQL) 17.x`. PG 14, 15, 16, 18+ are rejected.
-- **pgBackRest ≥ 2.57** — `pgbackrest --version` must report `pgBackRest 2.57` or newer.
+- **pgBackRest ≥ 2.59**: `pgbackrest --version` must report `pgBackRest 2.59` or newer.
+  Every pgBackRest command runs in the pgbackrestd sidecar, which confines it with Landlock.
+  It needs Landlock ABI 3 or later, which upstream Linux has had since 6.2. The kernel version alone does not
+  settle it: a distribution kernel can carry a backport, and Landlock can be compiled in but left out of the
+  boot-time LSM list. `cat /sys/kernel/security/lsm` must list `landlock`. The ABI number is not in any file;
+  the sidecar asks the kernel for it at startup, and when it cannot confine it says why, for example
+  `kernel ABI 2 is below the minimum 3` or `Landlock is disabled at boot (EOPNOTSUPP)`.
+  `--sandbox` (env `MULTIGRES_PGBACKREST_SANDBOX`) chooses what happens without it:
+  `required` (default) refuses to start, `auto` runs unconfined when the host reports Landlock unsupported,
+  `off` never uses it. On macOS use `auto` or `off`, or run inside a Linux VM such as OrbStack.
 - **etcd** — required for topology.
 
-`multigres cluster start` validates these before bootstrapping the cluster and fails fast with a clear error if anything is missing or wrong.
+`multigres cluster start` validates these before bootstrapping the cluster and
+fails fast with a clear error if anything is missing or wrong.
 
 Most other build dependencies (like protoc) are automatically installed by the
 make script.
@@ -82,6 +94,41 @@ multigres cluster stop
 Add `--clean` to also delete the cluster's data. See
 [Local cluster and the multigres CLI](./local-cluster.md) for what the cluster
 contains and the other commands.
+
+### A sidecar that refuses to start after a crash
+
+Each pooler's pgbackrestd keeps its state in
+`<cluster>/data/pgbackrestd-pooler_<id>/state`. While a pgBackRest command
+runs, the sidecar holds a marker file `worker-<id>.pending` there and removes
+it once the command and every process it started are gone. The pgBackRest
+server on port 8432 is such a command and runs for as long as the sidecar
+does, so a running sidecar always holds at least one marker. If the sidecar is
+killed (`kill -9`, a power loss) at any time, a marker therefore stays, and
+the next sidecar refuses to start, because a pgBackRest process from the old
+one may still be writing to the repository or to the data directory:
+
+```text
+worker quiescence was not recorded; prior process domain is not proven ended
+```
+
+In a pod the sidecar is PID 1 of its container, a restart ends every process
+of the old container, and the new sidecar clears the marker itself. That
+holds only when pgbackrestd is the container's first process (no init wrapper,
+no shared process namespace) and the pod's hostname is the same before and
+after. The local provisioner starts each sidecar in a session of its own, so
+a Ctrl-C during `multigres cluster start` does not reach it, but a local
+sidecar that is killed has no such proof. Clear the marker by hand:
+
+1. Make sure no pgBackRest process of that sidecar is left. Their command
+   lines name the state directory:
+   `pgrep -fl "pgbackrest.*pgbackrestd-pooler_<id>/state"`. Stop any that
+   remain and wait for them to exit.
+2. Remove the markers:
+   `rm <cluster>/data/pgbackrestd-pooler_<id>/state/worker-*.pending`.
+3. Run `multigres cluster start` again.
+
+The same message with `cannot read` or `invalid` in it means a marker file is
+damaged; the steps are the same.
 
 ## Testing
 

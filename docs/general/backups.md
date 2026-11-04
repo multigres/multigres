@@ -252,6 +252,108 @@ In production environments, the pgBackRest repository typically resides
 in an object store, such as AWS S3. These tend to provide encryption at
 rest for further security.
 
+## S3 endpoint verification
+
+pgBackRest verifies the S3 endpoint's TLS certificate against the system
+trust store. Two fields of the S3 backup location change that, and each
+pgbackrestd is started with the matching flag:
+
+| Location field    | pgbackrestd flag       | pgBackRest option              |
+| ----------------- | ---------------------- | ------------------------------ |
+| `ca_file`         | `--s3-ca-file`         | `repoN-storage-ca-file=<file>` |
+| `skip_tls_verify` | `--s3-skip-tls-verify` | `repoN-storage-verify-tls=n`   |
+
+`ca_file` is a PEM file of the certificate authorities that verify the
+endpoint, for a self-hosted S3 service behind a private CA. It may hold
+several certificates, and a self-signed server certificate works as its own
+CA. The sidecar requires an absolute path that is outside the data volume
+after symbolic links are resolved and a regular file that holds a
+certificate, and adds read access to that one file for the pgBackRest
+commands that open the repository. That is a statement about the added
+access only: every pgBackRest command can already read `/etc` and the system
+trust stores, so a CA file kept there is readable by all of them. pgBackRest
+reads the file for every command, so new
+content at the same path applies from the next command on. To rotate the
+CA, put the old and the new one in the file, switch the endpoint's
+certificate, then remove the old one: a command that started before a change
+keeps the file it read, and fails and is retried if the endpoint's
+certificate stops matching it.
+
+OpenSSL finds a trust anchor by subject name. If the file holds two
+self-signed certificates with the same subject and no key identifiers (an old
+and a new server certificate, both `CN=s3.internal.example`), only the first
+is tried, so put the one in use first.
+
+`skip_tls_verify` turns verification off. It is never set implicitly and
+cannot be combined with `ca_file`. A sidecar started with it:
+
+- logs a warning (`TLS certificate verification of the S3 endpoint is OFF`)
+  when it starts and for every Configure it applies,
+- reports `s3_tls_verify_disabled: true` in its `Status` response,
+- exports the gauge `pgbackrest.s3.tls_verify_disabled` with value 1.
+
+Both settings are part of the location fingerprint that multipooler compares
+with its sidecar's: a sidecar that verifies differently from the topology's
+backup location is refused until it is restarted with matching flags. That
+holds for a sidecar restarted on its own while multipooler keeps running: it
+does not load the configuration an instance with other settings saved, it
+refuses a Configure that names another fingerprint, and multipooler does not
+configure it, so it archives nothing until its flags match again. They
+are not part of the repository's identity, so changing the CA of an existing
+repository does not make it a different repository.
+
+### Changing a location setting
+
+To change the CA file path or the verification setting of a running shard,
+change the database record's backup location and restart each sidecar with
+the matching flags, in either order:
+
+- A sidecar restarted first reports a fingerprint the record does not name.
+  Multipooler reads the record again on every sync pass (10 seconds) and
+  leaves the sidecar unconfigured until the record names what the sidecar
+  serves. It then configures the sidecar without being restarted. WAL queues
+  in postgres meanwhile.
+- A multipooler that starts while its sidecar still runs with the old
+  settings does not become ready and does not start postgres. It reads the
+  record and the sidecar again every sync interval, and exits with
+  `pgbackrest sidecar location does not match topology` if they still differ
+  when its topology load timeout ends.
+
+Changing the record alone stops nothing: a multipooler and a sidecar that both
+run with the old settings keep archiving with them until the sidecar is
+restarted.
+
+### A sidecar that stays unconfigured
+
+A sidecar that does not load its saved configuration (it was saved under
+another fingerprint, by a build that recorded none, or the file is damaged)
+moves the file to `state/generations.json.bad*`, logs
+`persisted generations could not be loaded`, reports the reason as
+`state_error` in `Status`, and waits for multipooler's Configure. It refuses
+any revision below the one the file held. Multipooler and pgbackrestd must be
+the same build: the sidecar refuses a Configure that names no fingerprint.
+
+The first start after an upgrade from a build whose saved configuration has no
+fingerprint takes this path once per pod. The sidecar offers the list from the
+file it set aside (`set_aside_repos` in `Status`) and multipooler sends it
+back at the same revision, so the sidecar is configured within one sync
+interval and needs no database for it.
+
+If the file is damaged the sidecar has no list to offer, and multipooler's
+copy on the data volume may be older than the revision the sidecar refuses
+below. Multipooler then logs `pgbackrest sidecar is not configured and refused
+this pooler's copy of the generation list` with both revisions. It resolves on
+its own once multipooler can read that revision from the generation table,
+which needs postgres on that pod to answer queries. A standby that cannot
+start without WAL from the archive never gets there. To recover it, remove
+`generations.json.bad*` from that sidecar's state directory and restart the
+sidecar: with no revision to refuse below, it accepts multipooler's copy. That
+is safe while the copy's list is current, which it always is while only the
+initial repository generation exists.
+
+For the local provisioner, see
+[Self-hosted S3](../local-cluster.md#self-hosted-s3).
+
 ## No in-place restores
 
 Restore is guarded so it can only run against a data directory that is

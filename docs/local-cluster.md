@@ -47,6 +47,52 @@ exactly the services whose `path` is set in its `cells` entry.
 | `--backup-path`            | Local backup directory. Defaults to `<config dir>/data/backups`.                    |
 | `--backup-url`, `--region` | Use an S3 repository (`s3://bucket/prefix`). Credentials come from the environment. |
 | `--encrypt-backups`        | Encrypt backups client-side.                                                        |
+| `--s3-endpoint`            | Endpoint URL of a self-hosted S3 service. Default: AWS S3.                          |
+| `--s3-ca-file`             | PEM file of the CAs that verify the S3 endpoint's TLS certificate.                  |
+| `--s3-skip-tls-verify`     | Do not verify the S3 endpoint's TLS certificate. Insecure.                          |
+
+#### Self-hosted S3
+
+A self-hosted S3 service (MinIO, Garage, RustFS, Ceph RGW) usually has a TLS
+certificate signed by a private CA, or a self-signed one. Name the CA file at
+`init`:
+
+```bash
+export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=...
+multigres cluster init \
+  --backup-url=s3://multigres-backups/dev --region=us-east-1 \
+  --s3-endpoint=https://s3.internal.example:9000 \
+  --s3-ca-file=/etc/ssl/private-ca.pem
+```
+
+The endpoint must be an `https://` URL. The requests are signed and may carry
+a session token, so `init` and `cluster start` refuse any other scheme, also
+together with `--s3-skip-tls-verify`. `init` checks access to the bucket
+through that endpoint, verifying its certificate with the file, and writes:
+
+```yaml
+backup:
+  type: s3
+  s3:
+    bucket: multigres-backups
+    region: us-east-1
+    endpoint: https://s3.internal.example:9000
+    key-prefix: dev/20261126-101500/
+    use-env-credentials: true
+    ca-file: /etc/ssl/private-ca.pem
+```
+
+The file is PEM and may hold several certificates. A self-signed server
+certificate works as its own CA. The path must be absolute and outside every
+pooler's directory under `data/`, which postgres can write, and the file must
+stay in place: pgBackRest reads it for every command.
+
+`--s3-skip-tls-verify` (`skip-tls-verify: true`) turns verification off
+instead. Anyone who can intercept the connection can then read and replace
+backups and WAL, so use it only where `--s3-ca-file` cannot work. It cannot be
+combined with a CA file and nothing sets it implicitly. See
+[Backups](./general/backups.md#s3-endpoint-verification) for how a running
+cluster reports it.
 
 See [Backups](./general/backups.md) and [Minigres](./general/minigres.md).
 
