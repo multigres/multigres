@@ -157,6 +157,9 @@ func (r *poolerRecord) ShardRef() *clustermetadatapb.ShardRef { return r.desired
 // PoolerDir returns the on-disk pooler directory. Effectively immutable.
 func (r *poolerRecord) PoolerDir() string { return r.desired.Load().PoolerDir }
 
+// TableGroupID is the catalog id of this pooler's tablegroup, 0 when unknown.
+func (r *poolerRecord) TableGroupID() int64 { return r.desired.Load().TablegroupId }
+
 // PgDataDir returns the PostgreSQL data directory. Effectively immutable.
 func (r *poolerRecord) PgDataDir() string { return r.desired.Load().PgDataDir }
 
