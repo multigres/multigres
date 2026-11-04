@@ -159,18 +159,14 @@ type LocalPooler struct {
 	// ID returns the pooler's topology ID. It is read when poolers are
 	// discovered, after flags are parsed.
 	ID func() *clustermetadatapb.ID
-	// DialOptions connect to the pooler's query service in the same process,
-	// replacing the topology address and DialOpt.
-	DialOptions []grpc.DialOption
 	// Record, when set, returns the pooler's record, read when the gateway
 	// starts. The gateway then learns of its pooler from it instead of the
 	// topology: the fields it uses (ID, shard) never change, and role and
 	// serving status come from the health stream. Optional.
 	Record func() *clustermetadatapb.Multipooler
-	// Service, when set, is the pooler's query service, credential lookup and
-	// health, which the gateway then calls directly instead of over
-	// DialOptions. The connection still dials for notifications and
-	// replication. Optional.
+	// Service is the pooler's query service, credential lookup, health,
+	// notifications and replication, which the gateway calls directly: it
+	// opens no gRPC connection to the local pooler.
 	Service queryservice.Pooler
 }
 

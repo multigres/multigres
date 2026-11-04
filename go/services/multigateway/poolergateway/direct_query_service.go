@@ -37,18 +37,14 @@ import (
 // The caller's identity goes on the current span (callerid.AnnotateSpan) in
 // the methods where the pooler's gRPC handler puts it on its operation span,
 // so traces attribute a query to its caller on both paths.
-//
-// grpc is the in-memory gRPC query service, which owns the connection Close
-// closes.
 type directQueryService struct {
 	local queryservice.Pooler
-	grpc  queryservice.Pooler
 }
 
 var _ queryservice.Pooler = (*directQueryService)(nil)
 
-func newDirectQueryService(local, grpc queryservice.Pooler) queryservice.Pooler {
-	return &directQueryService{local: local, grpc: grpc}
+func newDirectQueryService(local queryservice.Pooler) queryservice.Pooler {
+	return &directQueryService{local: local}
 }
 
 func (d *directQueryService) ExecuteQuery(ctx context.Context, target *querypb.Target, sql string, options *querypb.ExecuteOptions) (*sqltypes.Result, *querypb.ReservedState, error) {
@@ -75,10 +71,10 @@ func (d *directQueryService) Describe(ctx context.Context, target *querypb.Targe
 	return description, mterrors.FromContext(ctx, err)
 }
 
-// Close closes the in-memory gRPC connection; the pooler's query service
+// Close does nothing: there is no connection, and the pooler's query service
 // belongs to the pooler.
 func (d *directQueryService) Close() error {
-	return d.grpc.Close()
+	return nil
 }
 
 func (d *directQueryService) CopyReady(ctx context.Context, target *querypb.Target, copyQuery string, options *querypb.ExecuteOptions, reservationOptions *querypb.ReservationOptions) (int16, []int16, *querypb.ReservedState, error) {

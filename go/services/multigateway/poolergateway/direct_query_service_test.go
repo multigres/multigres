@@ -84,8 +84,7 @@ func TestDirectQueryService_PassesThrough(t *testing.T) {
 			return &querypb.ReservedState{ReservedConnectionId: 8}, nil
 		},
 	}
-	grpcQS := &fakeLocalQueryService{}
-	qs := newDirectQueryService(local, grpcQS)
+	qs := newDirectQueryService(local)
 
 	result, state, err := qs.ExecuteQuery(t.Context(), &querypb.Target{}, "select 1", nil)
 	require.NoError(t, err)
@@ -108,14 +107,11 @@ func TestDirectQueryService_PassesThrough(t *testing.T) {
 	})
 	assert.ErrorIs(t, err, callbackErr)
 
-	// Replication goes to the pooler directly; Close closes the gRPC
-	// connection, not the pooler.
+	// Replication goes to the pooler directly; Close leaves the pooler open.
 	_, err = qs.StreamReplication(t.Context(), &multipoolerservice.StreamReplicationInit{})
 	require.NoError(t, err)
 	assert.True(t, local.replication)
-	assert.False(t, grpcQS.replication)
 	require.NoError(t, qs.Close())
-	assert.True(t, grpcQS.closed)
 	assert.False(t, local.closed)
 }
 
@@ -233,7 +229,7 @@ func TestDirectQueryService_SameClientErrorAsGRPC(t *testing.T) {
 
 			_, _, grpcErr := grpcQS.ExecuteQuery(ctx(), &querypb.Target{}, "select 1", nil)
 			require.Error(t, grpcErr)
-			_, _, directErr := newDirectQueryService(local, grpcQS).ExecuteQuery(ctx(), &querypb.Target{}, "select 1", nil)
+			_, _, directErr := newDirectQueryService(local).ExecuteQuery(ctx(), &querypb.Target{}, "select 1", nil)
 			require.Error(t, directErr)
 
 			assert.Equal(t, clientErrorOf(grpcErr), clientErrorOf(directErr), "gRPC: %v\ndirect: %v", grpcErr, directErr)
@@ -253,7 +249,7 @@ func TestDirectQueryService_AnnotatesCaller(t *testing.T) {
 	local := &fakeLocalQueryService{executeQuery: func(context.Context, string) (*sqltypes.Result, *querypb.ReservedState, error) {
 		return &sqltypes.Result{}, nil, nil
 	}}
-	qs := newDirectQueryService(local, &fakeLocalQueryService{})
+	qs := newDirectQueryService(local)
 
 	ctx := callerid.NewContext(t.Context(), callerid.New("alice", "checkout-service"))
 	ctx, span := tp.Tracer("test").Start(ctx, "Route.StreamExecute")
@@ -297,7 +293,7 @@ func TestDirectQueryService_SameAuthErrorAsGRPC(t *testing.T) {
 
 			_, grpcErr := grpcQS.GetAuthCredentials(t.Context(), req)
 			require.Error(t, grpcErr)
-			_, directErr := newDirectQueryService(local, grpcQS).GetAuthCredentials(t.Context(), req)
+			_, directErr := newDirectQueryService(local).GetAuthCredentials(t.Context(), req)
 			require.Error(t, directErr)
 
 			assert.Equal(t, clientErrorOf(grpcErr), clientErrorOf(directErr), "gRPC: %v\ndirect: %v", grpcErr, directErr)
