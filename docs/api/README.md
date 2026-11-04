@@ -193,6 +193,7 @@ Orchestrator discovery is grouped under `cells` because it is scoped by cells.
 | GET    | `/api/v1/databases/{name}`                                                                     | GetDatabase                | databases |
 | GET    | `/api/v1/cells`                                                                                | GetCellNames               | cells     |
 | GET    | `/api/v1/databases`                                                                            | GetDatabaseNames           | databases |
+| GET    | `/api/v1/databases/{database}/tablegroups`                                                     | ListDesiredTableGroups     | databases |
 | GET    | `/api/v1/gateways`                                                                             | GetGateways                | gateways  |
 | GET    | `/api/v1/poolers`                                                                              | GetPoolers                 | poolers   |
 | GET    | `/api/v1/orchs`                                                                                | GetOrchs                   | cells     |
