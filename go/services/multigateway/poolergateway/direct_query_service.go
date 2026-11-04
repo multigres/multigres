@@ -38,8 +38,7 @@ import (
 // the methods where the pooler's gRPC handler puts it on its operation span,
 // so traces attribute a query to its caller on both paths.
 //
-// StreamReplication returns a gRPC stream, so it goes to the pooler over grpc,
-// the in-memory gRPC query service, which also owns the connection Close
+// grpc is the in-memory gRPC query service, which owns the connection Close
 // closes.
 type directQueryService struct {
 	local queryservice.Pooler
@@ -131,8 +130,13 @@ func (d *directQueryService) ReleaseReservedConnection(ctx context.Context, targ
 	return state, mterrors.FromContext(ctx, err)
 }
 
-func (d *directQueryService) StreamReplication(ctx context.Context, init *multipoolerservice.StreamReplicationInit) (multipoolerservice.MultipoolerService_StreamReplicationClient, error) {
-	return d.grpc.StreamReplication(ctx, init)
+func (d *directQueryService) StreamReplication(ctx context.Context, init *multipoolerservice.StreamReplicationInit) (queryservice.ReplicationStream, error) {
+	init.CallerId = callerid.FromContext(ctx)
+	stream, err := d.local.StreamReplication(ctx, init)
+	if err != nil {
+		return nil, mterrors.FromContext(ctx, err)
+	}
+	return stream, nil
 }
 
 func (d *directQueryService) GetAuthCredentials(ctx context.Context, req *multipoolerservice.GetAuthCredentialsRequest) (*multipoolerservice.GetAuthCredentialsResponse, error) {

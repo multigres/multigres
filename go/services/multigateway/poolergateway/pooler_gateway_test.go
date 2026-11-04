@@ -499,14 +499,14 @@ type fakeStreamReplicationQueryService struct {
 	queryservice.Pooler
 
 	gotInit *multipoolerpb.StreamReplicationInit
-	stream  multipoolerpb.MultipoolerService_StreamReplicationClient
+	stream  queryservice.ReplicationStream
 	err     error
 }
 
 func (f *fakeStreamReplicationQueryService) StreamReplication(
 	_ context.Context,
 	init *multipoolerpb.StreamReplicationInit,
-) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+) (queryservice.ReplicationStream, error) {
 	f.gotInit = init
 	return f.stream, f.err
 }
@@ -542,7 +542,7 @@ func TestPoolerGateway_StreamReplication_RoutesToPrimary(t *testing.T) {
 	// Swap the cached connection's QueryService for a fake that records the init.
 	conn := connForTest(t, lb, primary)
 	require.NotNil(t, conn)
-	wantStream := multipoolerpb.MultipoolerService_StreamReplicationClient(nil)
+	wantStream := queryservice.ReplicationStream(nil)
 	fake := &fakeStreamReplicationQueryService{stream: wantStream}
 	// Stop the connection's health loop first: it reads the field being
 	// swapped. Ending it marks the pooler unhealthy, so observe the leader
@@ -591,7 +591,7 @@ func TestPoolerGateway_StreamReplication_NilTargetDoesNotPanic(t *testing.T) {
 
 	init := &multipoolerpb.StreamReplicationInit{}
 
-	var stream multipoolerpb.MultipoolerService_StreamReplicationClient
+	var stream queryservice.ReplicationStream
 	var err error
 	assert.NotPanics(t, func() {
 		stream, err = pg.StreamReplication(t.Context(), init)

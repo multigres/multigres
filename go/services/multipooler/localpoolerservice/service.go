@@ -18,6 +18,7 @@
 package localpoolerservice
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -47,10 +48,15 @@ type Server struct {
 	stopped  bool
 	inFlight sync.WaitGroup
 	// streams ends each running long-lived stream (health subscriptions,
-	// notification streams). A stream lasts as long as its caller wants, so
-	// Stop ends them rather than waiting.
+	// notification and replication streams). A stream lasts as long as its
+	// caller wants, so Stop ends them rather than waiting.
 	streams    map[uint64]context.CancelFunc
 	nextStream uint64
+	// loops counts the running stream loops (ServeNotifications,
+	// ServeReplication): once Stop ends their streams it waits for them to
+	// return and release what they hold, as a gRPC server's graceful stop
+	// waits for its stream handlers.
+	loops sync.WaitGroup
 }
 
 // NewServer returns a Server that refuses calls until it is registered with
@@ -79,7 +85,7 @@ func (s *Server) register(p *poolerserver.QueryPoolerServer) {
 }
 
 // Stop refuses new calls, ends long-lived streams, and waits for running calls
-// to return.
+// and the ended streams' loops to return.
 func (s *Server) Stop() {
 	s.mu.Lock()
 	s.stopped = true
@@ -90,6 +96,7 @@ func (s *Server) Stop() {
 		cancel()
 	}
 	s.inFlight.Wait()
+	s.loops.Wait()
 }
 
 // notServing is the error for a call before the pooler registers its services
@@ -235,15 +242,6 @@ func (s *Server) ReleaseReservedConnection(ctx context.Context, target *query.Ta
 	return qs.ReleaseReservedConnection(ctx, target, options, keepStickyReservations)
 }
 
-func (s *Server) StreamReplication(ctx context.Context, init *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
-	qs, done, err := s.begin()
-	if err != nil {
-		return nil, err
-	}
-	defer done()
-	return qs.StreamReplication(ctx, init)
-}
-
 // GetAuthCredentials looks up a role's credentials, counted like a query call.
 func (s *Server) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
 	_, done, err := s.begin()
@@ -260,6 +258,25 @@ func (s *Server) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetA
 func (s *Server) beginStream(ctx context.Context) (context.Context, context.CancelFunc, *poolerserver.QueryPoolerServer, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.beginStreamLocked(ctx)
+}
+
+// beginLoop admits a stream served by one of the pooler's stream loops, run in
+// a goroutine, like beginStream, and counts the loop so Stop waits for it. The
+// goroutine calls loopDone when the loop has returned.
+func (s *Server) beginLoop(ctx context.Context) (streamCtx context.Context, cancel context.CancelFunc, pooler *poolerserver.QueryPoolerServer, loopDone func(), err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	streamCtx, cancel, pooler, err = s.beginStreamLocked(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	s.loops.Add(1)
+	return streamCtx, cancel, pooler, s.loops.Done, nil
+}
+
+// beginStreamLocked is beginStream with s.mu held.
+func (s *Server) beginStreamLocked(ctx context.Context) (context.Context, context.CancelFunc, *poolerserver.QueryPoolerServer, error) {
 	if s.stopped || s.pooler == nil {
 		return nil, nil, nil, notServing()
 	}
@@ -325,62 +342,137 @@ func (s *Server) SubscribeHealth(ctx context.Context) (func() (*multipoolerpb.St
 
 // NotificationStream opens a client session's LISTEN/NOTIFY stream: the
 // pooler's notification loop (ServeNotifications, as the gRPC handler runs it)
-// in a goroutine, joined to the caller by two channels. Like a health
-// subscription it is not counted as a running call; it ends when ctx ends,
-// when the loop ends (the pubsub listener stopped), or at Stop.
+// in a goroutine, joined to the caller by a pipe. Like a health subscription
+// it is not counted as a running call; it ends when ctx ends, when the loop
+// ends (the pubsub listener stopped), or at Stop, which waits for the loop to
+// return.
 func (s *Server) NotificationStream(ctx context.Context) (queryservice.NotificationStream, error) {
-	streamCtx, cancel, pooler, err := s.beginStream(ctx)
+	streamCtx, cancel, pooler, loopDone, err := s.beginLoop(ctx)
 	if err != nil {
 		return nil, err
 	}
-	p := &notificationPipe{
-		ctx:   ctx,
-		reqs:  make(chan *multipoolerpb.NotificationStreamRequest),
-		resps: make(chan *multipoolerpb.NotificationStreamResponse),
-		done:  make(chan struct{}),
-	}
+	p := newPipe[*multipoolerpb.NotificationStreamRequest, *multipoolerpb.NotificationStreamResponse](ctx, 0)
 	go func() {
+		defer loopDone()
 		defer cancel()
-		defer close(p.done)
-		p.err = pooler.ServeNotifications(streamCtx,
-			func() (*multipoolerpb.NotificationStreamRequest, error) {
-				select {
-				case req := <-p.reqs:
-					return req, nil
-				case <-streamCtx.Done():
-					return nil, io.EOF
-				}
-			},
-			func(resp *multipoolerpb.NotificationStreamResponse) error {
-				select {
-				case p.resps <- resp:
-					return nil
-				case <-streamCtx.Done():
-					return streamCtx.Err()
-				}
-			})
+		p.finish(pooler.ServeNotifications(streamCtx, p.serverRecv(streamCtx), p.serverSend(streamCtx)))
 	}()
 	return p, nil
 }
 
-// notificationPipe is the caller's end of a direct notification stream. Like a
-// gRPC client stream, its Send and Recv return as soon as the caller's ctx
+// replicationPipeBuffer is how many messages a replication stream's pipe holds
+// in each direction, so WAL streaming can pipeline a little, as a gRPC
+// stream's flow-control window allows, while a slow side still holds the
+// other back.
+const replicationPipeBuffer = 16
+
+// StreamReplication opens a replication tunnel: the pooler's replication code
+// (ServeReplication, as the gRPC handler runs it) in a goroutine, joined to the
+// caller by a pipe, after the same open handshake as over gRPC. Like a
+// notification stream it is not counted as a running call; it ends when ctx
+// ends, when the tunnel ends, or at Stop, which waits for the tunnel to return
+// and release its backend.
+func (s *Server) StreamReplication(ctx context.Context, init *multipoolerpb.StreamReplicationInit) (queryservice.ReplicationStream, error) {
+	streamCtx, cancel, pooler, loopDone, err := s.beginLoop(ctx)
+	if err != nil {
+		return nil, err
+	}
+	p := newPipe[*multipoolerpb.StreamReplicationRequest, *multipoolerpb.StreamReplicationResponse](ctx, replicationPipeBuffer)
+	send := p.serverSend(streamCtx)
+	go func() {
+		defer loopDone()
+		defer cancel()
+		p.finish(pooler.ServeReplication(streamCtx, p.serverRecv(streamCtx), copyingData(send)))
+	}()
+	if err := queryservice.OpenReplication(p, init, nil); err != nil {
+		cancel()
+		return nil, err
+	}
+	return p, nil
+}
+
+// copyingData returns send with each data message's bytes copied first. The
+// replication tunnel reuses its read buffer once send returns; gRPC copies the
+// bytes when it marshals, a pipe hands over the slice itself.
+func copyingData(send func(*multipoolerpb.StreamReplicationResponse) error) func(*multipoolerpb.StreamReplicationResponse) error {
+	return func(resp *multipoolerpb.StreamReplicationResponse) error {
+		if data, ok := resp.GetMsg().(*multipoolerpb.StreamReplicationResponse_Data); ok {
+			data.Data = bytes.Clone(data.Data)
+		}
+		return send(resp)
+	}
+}
+
+// pipe is an in-process stream between a caller and one of the pooler's
+// stream loops (ServeNotifications, ServeReplication), run in a goroutine: the
+// caller's Send and Recv on one end, the loop's recv and send on the other.
+// Like a gRPC client stream, Send and Recv return as soon as the caller's ctx
 // ends, even while the loop is blocked (for example on a LISTEN PostgreSQL has
 // not answered), so a caller that gives up on the stream is not held by it.
-type notificationPipe struct {
+type pipe[Req, Resp any] struct {
 	// ctx is the caller's context: its end ends Send and Recv, and tells the
 	// caller's own end of the stream from the loop's.
 	ctx   context.Context
-	reqs  chan *multipoolerpb.NotificationStreamRequest
-	resps chan *multipoolerpb.NotificationStreamResponse
-	// done is closed when the loop has returned, with err its result.
+	reqs  chan Req
+	resps chan Resp
+	// done is closed by finish when the loop has returned, with err its result.
 	done chan struct{}
 	err  error
 }
 
-// Send hands a subscription update to the loop; io.EOF once the loop has
-// ended, as a gRPC client stream's Send reports a stream the server ended.
-func (p *notificationPipe) Send(req *multipoolerpb.NotificationStreamRequest) error {
+// newPipe returns a pipe for a caller with ctx, holding buffer messages in each
+// direction (0: each hand-over waits for the other side).
+func newPipe[Req, Resp any](ctx context.Context, buffer int) *pipe[Req, Resp] {
+	return &pipe[Req, Resp]{
+		ctx:   ctx,
+		reqs:  make(chan Req, buffer),
+		resps: make(chan Resp, buffer),
+		done:  make(chan struct{}),
+	}
+}
+
+// serverRecv is the loop's recv: the caller's next message, or io.EOF once the
+// stream's context (streamCtx) ends.
+func (p *pipe[Req, Resp]) serverRecv(streamCtx context.Context) func() (Req, error) {
+	return func() (Req, error) {
+		select {
+		case req := <-p.reqs:
+			return req, nil
+		case <-streamCtx.Done():
+			var zero Req
+			return zero, io.EOF
+		}
+	}
+}
+
+// serverSend is the loop's send: hands resp to the caller, or fails once the
+// stream's context (streamCtx) ends.
+func (p *pipe[Req, Resp]) serverSend(streamCtx context.Context) func(Resp) error {
+	return func(resp Resp) error {
+		select {
+		case p.resps <- resp:
+			return nil
+		case <-streamCtx.Done():
+			return streamCtx.Err()
+		}
+	}
+}
+
+// finish records the loop's result and ends the stream for the caller.
+func (p *pipe[Req, Resp]) finish(err error) {
+	p.err = err
+	close(p.done)
+}
+
+// Send hands a message to the loop; io.EOF once the loop has ended, as a gRPC
+// client stream's Send reports a stream the server ended. The end is checked
+// first: a buffered pipe would otherwise accept a message no one will read.
+func (p *pipe[Req, Resp]) Send(req Req) error {
+	select {
+	case <-p.done:
+		return io.EOF
+	default:
+	}
 	select {
 	case p.reqs <- req:
 		return nil
@@ -391,20 +483,26 @@ func (p *notificationPipe) Send(req *multipoolerpb.NotificationStreamRequest) er
 	}
 }
 
-// Recv returns the loop's next reply. Replies are handed over unbuffered, so
-// none is pending once the loop has ended; then it returns the loop's error,
-// or the stream's end (streamEnded) when the loop ended cleanly or by
-// cancellation.
-func (p *notificationPipe) Recv() (*multipoolerpb.NotificationStreamResponse, error) {
+// Recv returns the loop's next message. Once the loop has ended it first hands
+// out messages still buffered, then returns the loop's error, or the stream's
+// end (streamEnded) when the loop ended cleanly or by cancellation.
+func (p *pipe[Req, Resp]) Recv() (Resp, error) {
 	select {
 	case resp := <-p.resps:
 		return resp, nil
 	case <-p.done:
-		if p.err != nil && !errors.Is(p.err, context.Canceled) {
-			return nil, p.err
+		select {
+		case resp := <-p.resps:
+			return resp, nil
+		default:
 		}
-		return nil, streamEnded(p.ctx)
+		var zero Resp
+		if p.err != nil && !errors.Is(p.err, context.Canceled) {
+			return zero, p.err
+		}
+		return zero, streamEnded(p.ctx)
 	case <-p.ctx.Done():
-		return nil, p.ctx.Err()
+		var zero Resp
+		return zero, p.ctx.Err()
 	}
 }

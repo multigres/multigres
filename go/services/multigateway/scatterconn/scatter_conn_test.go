@@ -200,7 +200,7 @@ func (m *mockGateway) DiscardTempTables(ctx context.Context, target *querypb.Tar
 	return nil, nil, m.discardTempTablesErr
 }
 
-func (m *mockGateway) StreamReplication(_ context.Context, init *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+func (m *mockGateway) StreamReplication(_ context.Context, init *multipoolerpb.StreamReplicationInit) (queryservice.ReplicationStream, error) {
 	m.streamReplicationInit = init
 	return m.streamReplicationStream, m.streamReplicationErr
 }

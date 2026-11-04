@@ -380,7 +380,7 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultipoolerService_
 		errResp := &multipoolerpb.CopyBidiExecuteResponse{
 			Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
 			Error:           err.Error(),
-			ErrorDiagnostic: pgDiagnosticFromError(err),
+			ErrorDiagnostic: mterrors.PgDiagnosticProtoFromError(err),
 			ReservedState:   reservedState,
 		}
 		_ = stream.Send(errResp)
@@ -455,7 +455,7 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultipoolerService_
 				errorResp := &multipoolerpb.CopyBidiExecuteResponse{
 					Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
 					Error:           err.Error(),
-					ErrorDiagnostic: pgDiagnosticFromError(err),
+					ErrorDiagnostic: mterrors.PgDiagnosticProtoFromError(err),
 					ReservedState:   abortState,
 				}
 				_ = stream.Send(errorResp)
@@ -484,7 +484,7 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultipoolerService_
 				errorResp := &multipoolerpb.CopyBidiExecuteResponse{
 					Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
 					Error:           err.Error(),
-					ErrorDiagnostic: pgDiagnosticFromError(err),
+					ErrorDiagnostic: mterrors.PgDiagnosticProtoFromError(err),
 					ReservedState:   reservedState,
 					Notices:         errNotices,
 				}
@@ -545,19 +545,6 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultipoolerService_
 	}
 }
 
-// pgDiagnosticFromError returns the proto representation of a PG diagnostic
-// extracted from err, or nil when err is not a *mterrors.PgDiagnostic (e.g.
-// an infrastructure error). Callers attach the result to
-// CopyBidiExecuteResponse.error_diagnostic so the gateway can re-emit a
-// verbatim ErrorResponse rather than wrapping the message text.
-func pgDiagnosticFromError(err error) *query.PgDiagnostic {
-	var diag *mterrors.PgDiagnostic
-	if errors.As(err, &diag) {
-		return mterrors.PgDiagnosticToProto(diag)
-	}
-	return nil
-}
-
 // noticesToProto converts a slice of mterrors notices to their proto form
 // for forwarding through CopyBidiExecuteResponse.notices.
 func noticesToProto(notices []*mterrors.PgDiagnostic) []*query.PgDiagnostic {
@@ -591,7 +578,7 @@ func (s *poolerService) copyBidiExecuteToStdout(
 		errResp := &multipoolerpb.CopyBidiExecuteResponse{
 			Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
 			Error:           err.Error(),
-			ErrorDiagnostic: pgDiagnosticFromError(err),
+			ErrorDiagnostic: mterrors.PgDiagnosticProtoFromError(err),
 			ReservedState:   reservedState,
 			Notices:         noticesToProto(initNotices),
 		}
@@ -649,7 +636,7 @@ func (s *poolerService) copyBidiExecuteToStdout(
 		errResp := &multipoolerpb.CopyBidiExecuteResponse{
 			Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
 			Error:           err.Error(),
-			ErrorDiagnostic: pgDiagnosticFromError(err),
+			ErrorDiagnostic: mterrors.PgDiagnosticProtoFromError(err),
 			ReservedState:   finalState,
 		}
 		_ = stream.Send(errResp)
