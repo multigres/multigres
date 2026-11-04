@@ -272,7 +272,8 @@ func (c *Conn) completeTLSHandshake(transport net.Conn, baseCfg *tls.Config, neg
 	// falls back to c.conn directly — after this swap, writes go
 	// through TLS.
 	c.conn = tlsConn
-	c.bufferedReader.Reset(tlsConn)
+	c.diagnosticIO.owner = c
+	c.bufferedReader.Reset(&c.diagnosticIO)
 	c.tlsHandshakeComplete = true
 
 	// Static-cert fallback: when the deployment only populates Certificates,

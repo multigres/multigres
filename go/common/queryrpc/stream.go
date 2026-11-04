@@ -36,6 +36,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	pb "github.com/multigres/multigres/go/pb/multipoolerservice"
+	"github.com/multigres/multigres/go/tools/latencydiag"
 )
 
 // Propagation captures only the standard tracing/baggage headers. A custom
@@ -43,6 +44,18 @@ import (
 func Propagation(ctx context.Context) (map[string]string, bool) {
 	carrier := propagation.MapCarrier{}
 	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	if latencydiag.Selected(ctx) {
+		original, hadBaggage := carrier["baggage"]
+		latencydiag.InjectCarrier(ctx, carrier)
+		if !ValidPropagation(carrier) {
+			if hadBaggage {
+				carrier["baggage"] = original
+			} else {
+				delete(carrier, "baggage")
+			}
+			latencydiag.PropagationDropped(ctx)
+		}
+	}
 	return carrier, ValidPropagation(carrier)
 }
 
@@ -114,6 +127,7 @@ func Serve(stream pb.MultipoolerService_ExecuteStreamServer, service Service) er
 		// The enclosing RPC has no SQL session identity. Reconstruct each
 		// operation's telemetry context independently; never inherit a prior one.
 		ctx := otel.GetTextMapPropagator().Extract(baseCtx, propagation.MapCarrier(req.Propagation))
+		ctx, diagnosticSpan := latencydiag.ExtractCarrier(ctx, req.Propagation)
 		ctx, span := tracer.Start(ctx, operationName(Operation(req)), trace.WithSpanKind(trace.SpanKindServer))
 		var cancel context.CancelFunc
 		if req.TimeoutNanos > 0 {
@@ -125,6 +139,7 @@ func Serve(stream pb.MultipoolerService_ExecuteStreamServer, service Service) er
 			cancel()
 		}
 		span.End()
+		diagnosticSpan.End(err, 0)
 		if adapter.recvErr != nil {
 			return adapter.recvErr
 		}

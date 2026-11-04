@@ -32,7 +32,7 @@ var errFrontendMessageTooLarge = errors.New("frontend message too large")
 // dispatch) so the compiler can prove nothing escapes — vs the
 // previous io.ReadFull(io.Reader, []byte) shape, which forced the
 // stack-local slice header to the heap on every call.
-func (c *Conn) ReadMessageType() (byte, error) {
+func (c *Conn) readMessageTypeUntraced() (byte, error) {
 	return c.bufferedReader.ReadByte()
 }
 
@@ -45,7 +45,7 @@ func (c *Conn) ReadMessageType() (byte, error) {
 // reason as ReadMessageType. Peek returns a slice into bufio's
 // storage; we read it before Discarding the bytes so the buffer
 // can reuse the space.
-func (c *Conn) ReadMessageLength() (int, error) {
+func (c *Conn) readMessageLengthUntraced() (int, error) {
 	hdr, err := c.bufferedReader.Peek(4)
 	if err != nil {
 		return 0, err
@@ -78,7 +78,7 @@ func (c *Conn) ReadMessageLength() (int, error) {
 // caller's defer hasn't fired, or readAndDispatchStartup recursed
 // through SSL/GSS negotiation between calls), it is returned to the
 // pool first to prevent a leak.
-func (c *Conn) readMessageBody(length int) ([]byte, error) {
+func (c *Conn) readMessageBodyUntraced(length int) ([]byte, error) {
 	if length == 0 {
 		return nil, nil
 	}
@@ -263,7 +263,7 @@ func (c *Conn) writePacket(buf []byte, pos int) error {
 	if c.bufferedWriter != nil {
 		_, err = c.bufferedWriter.Write(buf)
 	} else {
-		_, err = c.conn.Write(buf)
+		_, err = (&diagnosticTransport{owner: c}).Write(buf)
 	}
 	return err
 }
@@ -324,7 +324,7 @@ func (c *Conn) writeRawByte(b byte) error {
 	if c.bufferedWriter != nil {
 		return c.bufferedWriter.WriteByte(b)
 	}
-	_, err := c.conn.Write([]byte{b})
+	_, err := (&diagnosticTransport{owner: c}).Write([]byte{b})
 	return err
 }
 
@@ -344,7 +344,7 @@ func (c *Conn) WriteRawMessage(raw []byte) error {
 		_, err := c.bufferedWriter.Write(raw)
 		return err
 	}
-	_, err := c.conn.Write(raw)
+	_, err := (&diagnosticTransport{owner: c}).Write(raw)
 	return err
 }
 

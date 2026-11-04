@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc"
 
 	pb "github.com/multigres/multigres/go/pb/multipoolerservice"
+	"github.com/multigres/multigres/go/tools/latencydiag"
 )
 
 // Service is the query-service subset eligible for sequential stream reuse.
@@ -67,7 +68,9 @@ type operationStream struct {
 func (s *operationStream) Context() context.Context { return s.ctx }
 func (s *operationStream) send(response *pb.ExecuteStreamResponse) error {
 	if s.sendErr == nil {
+		_, span := latencydiag.Start(s.ctx, "rpc.operation.send")
 		s.sendErr = s.stream.Send(response)
+		span.End(s.sendErr, 0)
 	}
 	return s.sendErr
 }

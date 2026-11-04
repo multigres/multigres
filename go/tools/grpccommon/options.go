@@ -22,6 +22,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/multigres/multigres/go/tools/latencydiag/grpcdiag"
 )
 
 var (
@@ -159,6 +161,8 @@ func NewClient(target string, opts ...ClientOption) (*grpc.ClientConn, error) {
 	// pooler to the gateway) fails with RESOURCE_EXHAUSTED "received message larger
 	// than max".
 	allOpts := []grpc.DialOption{
+		grpc.WithChainUnaryInterceptor(grpcdiag.UnaryClient),
+		grpc.WithChainStreamInterceptor(grpcdiag.StreamClient),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(maxMessageSize),
 			grpc.MaxCallSendMsgSize(maxMessageSize),

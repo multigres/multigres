@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
+	"github.com/multigres/multigres/go/tools/latencydiag"
 )
 
 // TransactionPrimitive handles transaction control statements (BEGIN, COMMIT, ROLLBACK).
@@ -713,6 +714,9 @@ func (t *TransactionPrimitive) recordTxnMetrics(
 		return
 	}
 	txnDuration := time.Since(state.TxnStartTime)
+	if latencydiag.Active() {
+		latencydiag.Since(ctx, "transaction."+outcome, state.TxnStartTime, nil)
+	}
 	state.TxnStartTime = time.Time{}
 	t.metrics.RecordCompletion(ctx, txnDuration.Seconds(), conn.Database(), outcome)
 }

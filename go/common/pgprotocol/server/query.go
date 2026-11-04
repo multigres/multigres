@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/tools/latencydiag"
 )
 
 // readQueryMessage reads a 'Q' (Query) message from the connection.
@@ -304,6 +305,11 @@ func (c *Conn) WriteNotice(diag *mterrors.PgDiagnostic) error {
 // The msgType should be MsgErrorResponse ('E') or MsgNoticeResponse ('N').
 // This unified function handles all 14 PostgreSQL diagnostic fields.
 func (c *Conn) writePgDiagnosticResponse(msgType byte, diag *mterrors.PgDiagnostic) error {
+	if msgType == protocol.MsgErrorResponse {
+		_, span := latencydiag.Start(c.diagnosticContext(), "frontend.error_response")
+		span.ErrorCode(diag.Code)
+		span.End(diag, 0)
+	}
 	fields := make(map[byte]string)
 	fields[protocol.FieldSeverity] = diag.Severity
 	fields[protocol.FieldSeverityV] = diag.Severity

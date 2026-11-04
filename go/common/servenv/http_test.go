@@ -134,3 +134,20 @@ func TestConfigEndpoint_GatedByAuthPlugin(t *testing.T) {
 		require.Equal(t, http.StatusOK, request(se, "/version", ""))
 	})
 }
+
+func TestLatencyEndpointRequiresOptInAndUsesExistingAuth(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		se := NewServEnv(viperutil.NewRegistry())
+		se.latencyDiagnostics.Set(enabled)
+		// An auth plugin without bearer verification fails closed.
+		se.SetAuthPlugin(func() Authenticator { return &servenvtest.AuthenticatorWithoutVerify{} })
+		se.HTTPRegisterPprofProfile()
+		w := httptest.NewRecorder()
+		se.mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/debug/latency?seconds=0", nil))
+		if enabled {
+			require.Equal(t, http.StatusUnauthorized, w.Code)
+		} else {
+			require.Equal(t, http.StatusNotFound, w.Code)
+		}
+	}
+}
