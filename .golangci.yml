@@ -99,9 +99,21 @@ linters:
             - $gostd
             - github.com/multigres/multigres/go/common/constants
             - github.com/multigres/multigres/go/common/topoclient
+            # Shared filesystem lifecycle protocol, not daemon/service logic.
+            - github.com/multigres/multigres/go/common/pgbackreststate
             - github.com/multigres/multigres/go/tools
             - github.com/multigres/multigres/go/pb
             - github.com/multigres/multigres/go/provisioner
+        pgbackreststate-isolation:
+          list-mode: lax
+          files:
+            - "**/go/common/pgbackreststate/**"
+          deny:
+            - pkg: "github.com/multigres/multigres/go"
+              desc: "the shared supervision-state protocol must not depend on daemon or application logic"
+          allow:
+            - $gostd
+            - github.com/multigres/multigres/go/common/pgbackreststate
         parser-isolation:
           list-mode: lax
           files:

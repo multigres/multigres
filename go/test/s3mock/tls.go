@@ -26,8 +26,16 @@ import (
 	"time"
 )
 
+// certValidity is deliberately far beyond any test run. NotBefore is backdated
+// by certSkew so a client whose clock trails the server's still accepts it.
+const (
+	certValidity = 48 * time.Hour
+	certSkew     = 5 * time.Minute
+)
+
 // generateTLSConfig creates an ephemeral self-signed TLS certificate for the mock server.
-// The certificate is valid for 1 hour and supports localhost/127.0.0.1.
+// The certificate covers localhost, 127.0.0.1 and ::1 and stays valid for
+// certValidity, so a verifying client in a long run does not hit expiry.
 func generateTLSConfig() (*tls.Config, error) {
 	// Generate 2048-bit RSA private key
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -35,14 +43,15 @@ func generateTLSConfig() (*tls.Config, error) {
 		return nil, err
 	}
 
+	now := time.Now()
 	// Create certificate template
 	template := x509.Certificate{
 		SerialNumber: big.NewInt(1),
 		Subject: pkix.Name{
 			CommonName: "localhost",
 		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(1 * time.Hour),
+		NotBefore:             now.Add(-certSkew),
+		NotAfter:              now.Add(certValidity),
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
