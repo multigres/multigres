@@ -38,6 +38,12 @@ const (
 	// golang.org/x/mod/semver. Keep in sync with docs/building.md.
 	MinPgBackrestVersion = "v2.57.0"
 
+	// SidecarHostRequirement is what --sandbox=required demands of a host,
+	// shown wherever a binary or the local provisioner refuses to start without
+	// it. Landlock exists only on Linux; the other modes run the children
+	// unconfined where it is unavailable.
+	SidecarHostRequirement = "pgbackrestd needs Linux with Landlock under --sandbox=required (env MULTIGRES_PGBACKREST_SANDBOX); use --sandbox=auto or --sandbox=off, or run in a Linux VM such as OrbStack"
+
 	// RequiredPostgresMajor is the only supported PostgreSQL major version.
 	// Keep in sync with docs/building.md.
 	RequiredPostgresMajor = 17
