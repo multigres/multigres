@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	pb "github.com/multigres/multigres/go/pb/pgbackrestdservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
@@ -108,6 +109,10 @@ func newTestManagerWithMock(t *testing.T, tableGroup, shard string) (*Multipoole
 		),
 	}
 
+	// The sidecar is not optional; a fake that answers Status stands in for it.
+	pm.sidecar = newSidecarClient(serveFakeSidecar(t, &fakeSidecarServer{status: &pb.StatusResponse{}}))
+	t.Cleanup(pm.sidecar.Close)
+
 	return pm, mockQueryService
 }
 
@@ -168,6 +173,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos_meta", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
@@ -261,6 +267,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				addShardRefEnsure(m, nil)
 				addMigrationTableCreate(m)
 				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos_meta", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("pg_advisory_xact_lock", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce(catalogStatePresentPattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{false}}))
 				m.AddQueryPatternOnceWithError("^DROP TABLE IF EXISTS multigres.shard", errors.New("drop failed"))
@@ -275,6 +282,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos_meta", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
@@ -294,6 +302,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos_meta", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))

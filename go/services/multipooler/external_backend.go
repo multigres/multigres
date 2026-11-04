@@ -112,24 +112,21 @@ func leadershipModeFor(backingConnection string, staticLeader bool) (clustermeta
 	}
 }
 
-// The flags that describe a postgres managed through pgctld. A managed pooler adopts the first
-// two groups from pgctld's Status unless they are set (adoptPgctldValues); an unmanaged pooler
+// The flags that describe a postgres managed through pgctld. A managed pooler adopts its
+// identity from pgctld's Status unless set (adoptPgctldValues); an unmanaged pooler
 // fronts an external postgres that has no pgctld, no pgBackRest and no data directory of its own,
 // so it refuses every one of them (validateBackendFlags).
 var (
 	// pgctldRequiredFlags are the identity of the postgres pgctld runs: Init fails when pgctld
 	// is unreachable and these are not set.
 	pgctldRequiredFlags = []string{"pg-port", "pooler-dir"}
-	// pgctldOptionalFlags have workable defaults: Init starts degraded when pgctld is
-	// unreachable and these are not set.
-	pgctldOptionalFlags = []string{"pgbackrest-port", "pgbackrest-cert-file", "pgbackrest-key-file", "pgbackrest-ca-file"}
 	// managedOnlyFlags are never adopted from pgctld and still mean nothing without it.
-	managedOnlyFlags = []string{"socket-file", "pgctld-addr", "pgbackrest-cipher-key-file"}
+	managedOnlyFlags = []string{"socket-file", "pgctld-addr", "pgbackrest-control-socket", "pgbackrest-wal-socket", "data-volume-root", "data-volume-anchor"}
 )
 
 // managedPostgresFlags returns every flag that belongs to pgctld or to a postgres it manages.
 func managedPostgresFlags() []string {
-	return slices.Concat(pgctldRequiredFlags, pgctldOptionalFlags, managedOnlyFlags)
+	return slices.Concat(pgctldRequiredFlags, managedOnlyFlags)
 }
 
 // validateBackendFlags rejects flags that describe a pgctld-managed local

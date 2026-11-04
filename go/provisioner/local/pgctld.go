@@ -28,6 +28,7 @@ import (
 	pb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/provisioner/local/ports"
 	"github.com/multigres/multigres/go/tools/executil"
+	"github.com/multigres/multigres/go/tools/fileutil"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 )
 
@@ -110,10 +111,15 @@ func (p *localProvisioner) stopPostgreSQLViaPgctld(ctx context.Context, address 
 		return fmt.Errorf("failed to get pgctld status: %w", err)
 	}
 
-	// If not running, nothing to stop
-	if statusResp.GetStatus() != pb.ServerStatus_RUNNING {
+	// Only definitive stopped/uninitialized states establish quiescence.
+	// UNKNOWN/STARTING/STOPPING must never authorize destructive cleanup.
+	switch statusResp.GetStatus() {
+	case pb.ServerStatus_STOPPED, pb.ServerStatus_NOT_INITIALIZED:
 		fmt.Printf(" PostgreSQL already stopped")
 		return nil
+	case pb.ServerStatus_RUNNING:
+	default:
+		return fmt.Errorf("PostgreSQL is not confirmed stopped (status %s)", statusResp.GetStatus())
 	}
 
 	// Stop PostgreSQL with fast mode
@@ -143,7 +149,7 @@ func (p *localProvisioner) stopPostgreSQLViaPgctld(ctx context.Context, address 
 }
 
 // provisionPgctld provisions a pgctld instance for a multipooler with the new directory structure
-func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGroup, serviceID, cell string) (*PgctldProvisionResult, error) {
+func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGroup, serviceID, cell string) (result *PgctldProvisionResult, resultErr error) {
 	// Create unique pgctld service ID using multipooler's service ID
 	pgctldServiceID := "pgctld-" + serviceID
 
@@ -159,14 +165,21 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	if !ok || poolerDir == "" {
 		return nil, errors.New("pooler_dir not found in config")
 	}
+	ctx, releaseOuter, err := p.enterSidecarLifecycle(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, releaseOuter()) }()
+	lifecycle, err := NewPgBackRestdPaths(poolerDir).lockFile("lifecycle.lock")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, lifecycle.Close()) }()
 	pgPassword, ok := pgctldConfig["password"].(string)
 	if !ok || pgPassword == "" {
 		return nil, fmt.Errorf("pgctld password not configured for cell %s: set pg-password in the local provisioner config", cell)
 	}
-	pgPasswordFile, err := writePostgresPasswordFile(poolerDir, pgPassword)
-	if err != nil {
-		return nil, fmt.Errorf("failed to materialize postgres password file: %w", err)
-	}
+	pgPasswordFile := filepath.Join(poolerDir, "postgres-password")
 
 	// Check if pgctld is already running for this service combination
 	existingService, err := p.findRunningDbService("pgctld", dbName, cell)
@@ -186,6 +199,23 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 		}
 
 		fmt.Printf(" ✓\n")
+		// archive_command dials the sidecar, so a sidecar that died while
+		// pgctld lived has to come back before anything archives.
+		// Always verify sidecar identity and health, independently of pgctld.
+		newPID, _, err := p.startSidecarForPooler(ctx, pgctldConfig, poolerDir, pgPassword, serviceID, dbName)
+		if err != nil {
+			return nil, err
+		}
+		if existingService.Metadata == nil {
+			existingService.Metadata = map[string]any{}
+		}
+		if _, err := writePostgresPasswordFile(poolerDir, pgPassword); err != nil {
+			return nil, err
+		}
+		existingService.Metadata["pgbackrestd_pid"] = newPID
+		if err := p.saveServiceState(existingService, dbName); err != nil {
+			return nil, fmt.Errorf("failed to save pgctld service state: %w", err)
+		}
 		return &PgctldProvisionResult{
 			Address:      fmt.Sprintf("localhost:%d", existingService.Ports["grpc_port"]),
 			Port:         existingService.Ports["grpc_port"],
@@ -260,6 +290,14 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	// the cluster. Multiorch needs to control initialization to properly set up
 	// primary/standby replication across zones.
 
+	// pgbackrestd starts first: postgres's archive_command dials its socket as
+	// soon as postgres runs.
+	provisioned := false
+	pgbackrestdPID, adoptedSidecar, err := p.startSidecarForPooler(ctx, pgctldConfig, poolerDir, pgPassword, serviceID, dbName)
+	if err != nil {
+		return nil, err
+	}
+
 	// Start pgctld server
 	fmt.Printf("▶️  - Starting pgctld server (gRPC:%d, HTTP:%d)...", grpcPort, httpPort)
 
@@ -281,21 +319,7 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 		serverArgs = append(serverArgs, "--grpc-socket-file", socketFile)
 	}
 
-	// Add pgBackRest configuration if certificates are available
-	if p.pgBackRestCertPaths != nil {
-		// Get pgbackrest port from config or use default
-		pgbackrestPort := ports.DefaultPgbackRestPort
-		if port, ok := pgctldConfig["pgbackrest_port"].(int); ok && port > 0 {
-			pgbackrestPort = port
-		}
-
-		serverArgs = append(serverArgs,
-			"--pgbackrest-port", strconv.Itoa(pgbackrestPort),
-			"--pgbackrest-cert-dir", p.certDir(),
-		)
-	}
-
-	pgctldCmd := executil.Command(ctx, pgctldBinary, serverArgs...)
+	pgctldCmd := executil.Command(context.WithoutCancel(ctx), pgctldBinary, serverArgs...)
 
 	// On macOS, ensure a valid locale is set for pgctld and its children (initdb, pg_ctl).
 	// Without LC_ALL or LANG, initdb fails with "invalid locale settings".
@@ -312,8 +336,42 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	// for its admin pool.
 	pgctldCmd.AddEnv(constants.PgPasswordFileEnvVar + "=" + pgPasswordFile)
 
+	if _, err := writePostgresPasswordFile(poolerDir, pgPassword); err != nil {
+		return nil, err
+	}
 	if err := pgctldCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start pgctld server: %w", err)
+	}
+
+	defer func() {
+		if !provisioned {
+			// Rollback must outlive request cancellation, but retains its values and a bounded deadline.
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+			defer cancel()
+			resultErr = errors.Join(resultErr, p.rollbackPgctld(cleanup, pgctldCmd, NewPgBackRestdPaths(poolerDir), adoptedSidecar, fmt.Sprintf("localhost:%d", grpcPort)))
+		}
+	}()
+
+	go func() { _ = pgctldCmd.Wait() }()
+
+	// Persist ownership before readiness so partial provisioning is recoverable.
+	service := &LocalProvisionedService{
+		ID:         pgctldServiceID,
+		Service:    "pgctld",
+		PID:        pgctldCmd.Process.Pid,
+		BinaryPath: pgctldBinary,
+		Ports:      map[string]int{"grpc_port": grpcPort},
+		FQDN:       "localhost",
+		LogFile:    pgctldLogFile,
+		StartedAt:  time.Now(),
+		DataDir:    poolerDir,
+		Metadata:   map[string]any{"cell": cell, "database": dbName, "table_group": tableGroup, "service_id": serviceID, "multipooler_service_id": serviceID},
+	}
+	service.Metadata["pgbackrestd_pid"] = pgbackrestdPID
+
+	// Save pgctld service state to disk
+	if err := p.saveServiceState(service, dbName); err != nil {
+		return nil, fmt.Errorf("failed to save pgctld service state: %w", err)
 	}
 
 	// Validate process is running
@@ -337,24 +395,7 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 
 	fmt.Printf(" ready ✓\n")
 
-	// Create provision state for pgctld
-	service := &LocalProvisionedService{
-		ID:         pgctldServiceID,
-		Service:    "pgctld",
-		PID:        pgctldCmd.Process.Pid,
-		BinaryPath: pgctldBinary,
-		Ports:      map[string]int{"grpc_port": grpcPort},
-		FQDN:       "localhost",
-		LogFile:    pgctldLogFile,
-		StartedAt:  time.Now(),
-		DataDir:    poolerDir,
-		Metadata:   map[string]any{"cell": cell, "database": dbName, "table_group": tableGroup, "service_id": serviceID, "multipooler_service_id": serviceID},
-	}
-
-	// Save pgctld service state to disk
-	if err := p.saveServiceState(service, dbName); err != nil {
-		fmt.Printf("Warning: failed to save pgctld service state: %v\n", err)
-	}
+	provisioned = true
 
 	return &PgctldProvisionResult{
 		Address:      fmt.Sprintf("localhost:%d", grpcPort),
@@ -365,33 +406,121 @@ func (p *localProvisioner) provisionPgctld(ctx context.Context, dbName, tableGro
 	}, nil
 }
 
-// deprovisionPgctld stops PostgreSQL via gRPC and then stops the pgctld process
-func (p *localProvisioner) deprovisionPgctld(ctx context.Context, service *LocalProvisionedService) error {
+// rollbackPgctld preserves WAL service and all recovery records unless
+// PostgreSQL shutdown is confirmed. An adopted sidecar is never ours to undo.
+func (p *localProvisioner) rollbackPgctld(ctx context.Context, cmd *executil.Cmd, paths PgBackRestdPaths, adopted bool, address string) error {
+	// A configured TCP address is not proof this attempt owns its listener.
+	// Before successful Start, retain sidecar ownership and send NO RPC.
+	if cmd.Process == nil {
+		return nil
+	}
+	if err := p.stopPostgreSQLViaPgctld(ctx, address); err != nil {
+		return fmt.Errorf("rollback: PostgreSQL shutdown unknown; retaining pgctld and sidecar ownership: %w", err)
+	}
+	if cmd.Process != nil {
+		if err, stopped := cmd.Stop(ctx); !stopped {
+			return fmt.Errorf("rollback: pgctld stop failed; retaining sidecar: %w", errors.Join(err, ctx.Err(), errors.New("process still running")))
+		}
+	}
+	if adopted {
+		return nil
+	}
+	if err := paths.stopOwned(ctx); err != nil {
+		return fmt.Errorf("rollback sidecar stop: %w", err)
+	}
+	return nil
+}
+
+// deprovisionPgctldLocked requires the installation's lifecycle lock.
+func (p *localProvisioner) deprovisionPgctldLocked(ctx context.Context, service *LocalProvisionedService) error {
 	// First, try to gracefully stop PostgreSQL via pgctld gRPC
 	grpcPort := service.Ports["grpc_port"]
 	address := fmt.Sprintf("localhost:%d", grpcPort)
 
 	fmt.Printf("Stopping PostgreSQL via pgctld...")
 	if err := p.stopPostgreSQLViaPgctld(ctx, address); err != nil {
-		fmt.Printf("Warning: failed to stop PostgreSQL gracefully: %v\n", err)
+		return fmt.Errorf("failed to confirm PostgreSQL shutdown; retaining sidecar: %w", err)
 	}
 
 	// Then stop the pgctld process itself
 	fmt.Printf("Stopping pgctld process...")
+	var errs []error
 	if err := p.stopProcessByPID(ctx, service.Service, service.PID); err != nil {
-		return fmt.Errorf("failed to stop pgctld process: %w", err)
+		return fmt.Errorf("failed to stop pgctld process; retaining WAL sidecar: %w", err)
+	} else {
+		fmt.Printf(" pgctld stopped ✓\n")
 	}
 
-	// Clean up log file
-	if service.LogFile != "" {
-		fmt.Printf("Cleaning up pgctld log file...")
-		if err := os.Remove(service.LogFile); err != nil && !os.IsNotExist(err) {
-			fmt.Printf("Warning: failed to remove pgctld log file %s: %v\n", service.LogFile, err)
+	// pgbackrestd outlives postgres until here so a shutdown WAL segment can
+	// still be archived.
+	if service.DataDir != "" {
+		if err := NewPgBackRestdPaths(service.DataDir).stopOwned(ctx, service); err != nil {
+			errs = append(errs, fmt.Errorf("failed to stop pgbackrestd: %w", err))
 		}
 	}
+	return errors.Join(errs...)
+}
 
-	fmt.Printf(" pgctld stopped ✓\n")
-	return nil
+// startSidecarForPooler resolves everything pgbackrestd needs from the pgctld
+// config and starts it. The sidecar binary sits beside pgctld.
+func (p *localProvisioner) startSidecarForPooler(ctx context.Context, pgctldConfig map[string]any, poolerDir, pgPassword, serviceID, dbName string) (int, bool, error) {
+	pgctldBinary, err := p.findBinary("pgctld", pgctldConfig)
+	if err != nil {
+		return 0, false, fmt.Errorf("pgctld binary not found: %w", err)
+	}
+	pgbackrestdBinary, err := p.findBinary("pgbackrestd", map[string]any{"path": filepath.Join(filepath.Dir(pgctldBinary), "pgbackrestd")})
+	if err != nil {
+		return 0, false, fmt.Errorf("pgbackrestd binary not found: %w", err)
+	}
+	pgPort := ports.DefaultLocalPostgresPort
+	if port, ok := pgctldConfig["pg_port"].(int); ok && port > 0 {
+		pgPort = port
+	}
+	pgUser := constants.DefaultPostgresUser
+	if user, ok := pgctldConfig["pg_user"].(string); ok && user != "" {
+		pgUser = user
+	}
+	serverPort := ports.DefaultPgbackRestPort
+	if port, ok := pgctldConfig["pgbackrest_port"].(int); ok && port > 0 {
+		serverPort = port
+	}
+	logFile, err := p.createLogFile("pgbackrestd", serviceID, dbName)
+	if err != nil {
+		return 0, false, fmt.Errorf("failed to create pgbackrestd log file: %w", err)
+	}
+	// Do not log values from the pgctld config map, which also holds credentials.
+	fmt.Print("▶️  - Starting pgbackrestd...")
+	// Read saved ownership even when pgctld has died. Older state files only
+	// carried only a PID; without independent ownership it is refused, not migrated.
+	services, err := p.loadDbProvisionedServices(dbName)
+	if err != nil {
+		return 0, false, err
+	}
+	legacyPID := 0
+	for _, service := range services {
+		if service.ID == "pgctld-"+serviceID && service.DataDir == poolerDir {
+			if pid, ok := service.Metadata["pgbackrestd_pid"].(float64); ok {
+				legacyPID = int(pid)
+			}
+		}
+	}
+	previous, err := NewPgBackRestdPaths(poolerDir).loadOwner()
+	if err != nil {
+		return 0, false, err
+	}
+	previousPID := legacyPID
+	if previous != nil {
+		previousPID = previous.PID
+		if previous.RetiredStateDir != "" {
+			previousPID = 0 // A new launch is never adoption of a retired PID.
+		}
+	}
+	pid, err := p.startPgBackRestd(ctx, pgbackrestdBinary, poolerDir, pgUser, pgPassword, logFile, pgPort, serverPort, legacyPID)
+	if err != nil {
+		return 0, false, err
+	}
+	fmt.Printf(" ready ✓\n")
+	return pid, pid == previousPID, nil
 }
 
 // writePostgresPasswordFile materializes the postgres password into a 0600
@@ -405,7 +534,7 @@ func writePostgresPasswordFile(poolerDir, password string) (string, error) {
 		return "", fmt.Errorf("create pooler dir: %w", err)
 	}
 	path := filepath.Join(poolerDir, "postgres-password")
-	if err := os.WriteFile(path, []byte(password), 0o600); err != nil {
+	if err := fileutil.AtomicWriteFile(path, []byte(password), 0o600); err != nil {
 		return "", fmt.Errorf("write postgres password file: %w", err)
 	}
 	return path, nil

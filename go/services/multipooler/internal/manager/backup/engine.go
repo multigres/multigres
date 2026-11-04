@@ -28,10 +28,10 @@ import (
 
 	commonbackup "github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/sandbox"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
-	"github.com/multigres/multigres/go/tools/executil"
 )
 
 // stanzaName is the fixed pgBackRest stanza name used by multigres.
@@ -46,8 +46,6 @@ type Identity interface {
 // Settings are the static settings fixed at construction (from the pooler's
 // static config / environment).
 type Settings struct {
-	// PgpassPath, when set, is exported as PGPASSFILE for pgbackrest commands.
-	PgpassPath string
 	// PgDataDir is the PostgreSQL data directory (for archive-command config in
 	// postgresql.auto.conf).
 	PgDataDir string
@@ -55,12 +53,26 @@ type Settings struct {
 	// the pooler is a static leader, the only pooler of its shard, so its
 	// action lock already excludes every other backup.
 	NoBackupLease bool
+	// DataVolumeRoot is the mount root of a data volume shared with another
+	// container (postgres). Empty means the volume is not shared. When set,
+	// PgDataDir must lie beneath it and postgresql.auto.conf is reached through
+	// a mount-anchored safefs.Root.
+	DataVolumeRoot string
+	// DataVolumeAnchor selects how DataVolumeRoot is checked. The zero value
+	// requires a mount point; sandbox.AnchorDir is for tests and the local
+	// provisioner only.
+	DataVolumeAnchor sandbox.AnchorMode
+	// ArchiveCommand renders the archive_command written to postgresql.auto.conf.
+	ArchiveCommand func() string
+	// RestoreCommand renders the restore_command from the restore-wrapper
+	// pidfile.
+	RestoreCommand func(pidFile string) string
+	// Sidecar runs every pgBackRest command through the pgbackrestd sidecar.
+	Sidecar SidecarRunner
+	// Shutdown, when set, ends the wait for a sidecar restore at process
+	// shutdown, so the action lock is released for GracefulShutdown.
+	Shutdown context.Context
 }
-
-// RunFunc executes a (possibly long-running) command with progress logging. It
-// is injected (the manager's runLongCommand) so the engine doesn't own command
-// lifecycle/logging policy.
-type RunFunc func(ctx context.Context, cmd *executil.Cmd, operationName string) ([]byte, error)
 
 // RoleFunc reports the local PostgreSQL's physical recovery mode. It is injected
 // by the manager (which owns the pg connection) so the health poller can be
@@ -111,18 +123,14 @@ type PGSettingsFunc func(ctx context.Context) (PGSettings, error)
 type Engine struct {
 	listCache listCache
 	logger    *slog.Logger
-	run       RunFunc
 	metrics   *Metrics
 	health    *HealthTracker
 	id        Identity
 	settings  Settings
 
-	// mu guards the config resolved at runtime: the pgbackrest.conf path and
-	// pgpass file (resolved when topology loads), the repo config (resolved
-	// at DB-open), and the role provider. All may be re-set on reopen.
+	// mu guards the config resolved at runtime: the repo config (resolved at
+	// DB-open) and the providers. All may be re-set on reopen.
 	mu         sync.Mutex
-	configPath string
-	pgpassPath string
 	backupCfg  *commonbackup.Config
 	roleFn     RoleFunc
 	archiverFn ArchiverStatsFunc
@@ -134,14 +142,13 @@ type Engine struct {
 }
 
 // NewEngine constructs a backup engine and its metrics from the given fixed
-// dependencies. The pgbackrest.conf path and repo config are supplied later via
-// SetConfigPath / SetBackupConfig.
+// dependencies. The repo config is supplied later via SetBackupConfig.
 //
 // Metric registration is best-effort: NewMetrics always returns usable (no-op on
 // failure) counters, so a registration error is logged and a working engine is
 // still returned rather than failing construction (which previously left the
 // manager with a nil engine that panicked on first use).
-func NewEngine(logger *slog.Logger, run RunFunc, id Identity, settings Settings) *Engine {
+func NewEngine(logger *slog.Logger, id Identity, settings Settings) *Engine {
 	health := NewHealthTracker()
 	metrics, err := NewMetrics()
 	if err != nil {
@@ -150,16 +157,7 @@ func NewEngine(logger *slog.Logger, run RunFunc, id Identity, settings Settings)
 	if err := metrics.RegisterHealthCallback(health); err != nil {
 		logger.Warn("pgBackRest health gauge registration failed; backup health metrics may be missing", "error", err)
 	}
-	return &Engine{logger: logger, run: run, metrics: metrics, health: health, id: id, settings: settings, pgpassPath: settings.PgpassPath}
-}
-
-// SetConfigPath sets the path to this pooler's pgbackrest.conf, resolved once
-// topology is loaded (and again on reopen).
-func (e *Engine) SetConfigPath(path string) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.configPath = path
-	e.listCache.Invalidate()
+	return &Engine{logger: logger, metrics: metrics, health: health, id: id, settings: settings}
 }
 
 // SetBackupConfig sets (or replaces) the resolved pgBackRest repo config. The
@@ -168,16 +166,6 @@ func (e *Engine) SetBackupConfig(cfg *commonbackup.Config) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.backupCfg = cfg
-	e.listCache.Invalidate()
-}
-
-// SetPgpassPath sets (or replaces) the path to the libpq password file exported
-// as PGPASSFILE for pgbackrest commands. It is resolved alongside the config
-// path when topology loads (and again on reopen).
-func (e *Engine) SetPgpassPath(path string) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.pgpassPath = path
 	e.listCache.Invalidate()
 }
 
@@ -228,17 +216,6 @@ func (e *Engine) settingsProvider() PGSettingsFunc {
 	return e.settingsFn
 }
 
-// requireConfigPath returns the pgbackrest.conf path or an error if topology
-// has not been loaded yet.
-func (e *Engine) requireConfigPath() (string, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.configPath == "" {
-		return "", mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgbackrest config not yet generated (topology not loaded)")
-	}
-	return e.configPath, nil
-}
-
 // requireBackupConfig returns the repo config or an error if it has not been
 // resolved yet.
 func (e *Engine) requireBackupConfig() (*commonbackup.Config, error) {
@@ -250,17 +227,10 @@ func (e *Engine) requireBackupConfig() (*commonbackup.Config, error) {
 	return e.backupCfg, nil
 }
 
-// pgbackrestCmd builds a pgbackrest command, exporting PGPASSFILE when configured.
-func (e *Engine) pgbackrestCmd(ctx context.Context, args ...string) *executil.Cmd {
-	e.mu.Lock()
-	pgpassPath := e.pgpassPath
-	e.mu.Unlock()
-
-	cmd := executil.Command(ctx, "pgbackrest", args...)
-	if pgpassPath != "" {
-		cmd.AddEnv("PGPASSFILE=" + pgpassPath)
-	}
-	return cmd
+// pgbackrestCmd records one pgBackRest invocation; execute and output send it
+// to the sidecar.
+func (e *Engine) pgbackrestCmd(args ...string) *pgCmd {
+	return newSidecarCmd(args)
 }
 
 // shardID returns this pooler's shard identifier.

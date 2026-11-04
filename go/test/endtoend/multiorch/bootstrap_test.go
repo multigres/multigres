@@ -394,7 +394,7 @@ func TestBootstrapInitialization(t *testing.T) {
 	})
 
 	t.Run("verify archive_command config on all nodes", func(t *testing.T) {
-		// Verify each pooler has archive_command pointing to its own local pgbackrest.conf
+		// Verify each pooler has archive_command pointing to its own sidecar's WAL socket
 		for name, inst := range setup.Multipoolers {
 			// Read postgresql.auto.conf
 			autoConfPath := filepath.Join(inst.Pgctld.PoolerDir, "pg_data", "postgresql.auto.conf")
@@ -407,10 +407,10 @@ func TestBootstrapInitialization(t *testing.T) {
 			assert.Contains(t, autoConfStr, "archive_mode = 'on'",
 				"Node %s should have archive_mode enabled", name)
 
-			// Verify archive_command points to this pooler's local pgbackrest.conf
-			expectedConfigPath := filepath.Join(inst.Pgctld.PoolerDir, "pgbackrest", "pgbackrest.conf")
-			assert.Contains(t, autoConfStr, "--config="+expectedConfigPath,
-				"Node %s should have archive_command pointing to local pgbackrest.conf at %s", name, expectedConfigPath)
+			// Verify archive_command points to this pooler's sidecar
+			expectedSocket := inst.PgBackRestd.Paths.WALSocket
+			assert.Contains(t, autoConfStr, expectedSocket,
+				"Node %s should have archive_command pointing to its sidecar's WAL socket %s", name, expectedSocket)
 		}
 	})
 }

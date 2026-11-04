@@ -18,8 +18,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -36,6 +34,7 @@ import (
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/tools/pgutil"
@@ -1106,7 +1105,7 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		// archive_command). Patch them back to this pooler's paths before
 		// restart so postgres reads the corrected file. Best-effort: log and
 		// continue on error rather than abort the demote.
-		if err := pm.fixPgBackRestPaths(ctx); err != nil {
+		if err := pm.normalizeArchiveCommands(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "failed to fix pgbackrest paths after pg_rewind; WAL archiving may fail until next rewind", "error", err)
 		}
 		// pg_rewind copied the source's postgresql.auto.conf, which may carry a
@@ -1306,8 +1305,7 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 // resetRestoreCommand): pg_rewind only reads WAL to find the last common
 // checkpoint, and the caller removes the setting once the rewind ends.
 //
-// Returns nil, meaning rewind without -c, if no backup config is available or
-// the setting cannot be written.
+// Returns nil, meaning rewind without -c, if the setting cannot be written.
 func (pm *MultipoolerManager) prepareRewindRestoreSource(ctx context.Context) []string {
 	pm.mu.Lock()
 	poolerDir := pm.record.PoolerDir()
@@ -1316,21 +1314,13 @@ func (pm *MultipoolerManager) prepareRewindRestoreSource(ctx context.Context) []
 	if pm.backup == nil {
 		return nil
 	}
-	restoreCommand, err := pm.backup.RestoreCommand(poolerDir)
-	if err != nil {
-		pm.logger.InfoContext(ctx, "no backup config; running pg_rewind without --restore-target-wal", "reason", err.Error())
-		return nil
-	}
-	if err := pm.setAutoConfSetting(ctx, "restore_command", restoreCommand); err != nil {
+	if err := pm.setAutoConfSetting(ctx, "restore_command", pm.backup.RestoreCommand(poolerDir)); err != nil {
 		pm.logger.WarnContext(ctx, "failed to set restore_command for pg_rewind; running without --restore-target-wal", "error", err)
 		return nil
 	}
 	return []string{"--restore-target-wal"}
 }
 
-// fixPgBackRestPaths fixes the pgbackrest paths in postgresql.auto.conf
-// After pg_rewind, the restore_command and archive_command may have paths from another pooler
-// This function updates them to point to the current pooler's directories
 // dropRestoreCommandFromAutoConf removes any restore_command entry from
 // postgresql.auto.conf by editing the file directly. Used after pg_rewind, which
 // overwrites the target's postgresql.auto.conf with the source's copy — and the
@@ -1344,15 +1334,29 @@ func (pm *MultipoolerManager) dropRestoreCommandFromAutoConf(ctx context.Context
 	return pm.dropAutoConfSettings(ctx, "restore_command")
 }
 
+// testHookAutoConfBeforePerm runs between editAutoConf's read and its mode
+// lookup, so a test can plant a symlink in exactly that window.
+var testHookAutoConfBeforePerm func()
+
 // editAutoConf reads postgresql.auto.conf, applies transform, and writes the
 // result back only when transform reports a change. It edits the file directly,
 // so — unlike ALTER SYSTEM — it is safe to call while postgres is stopped (the
 // crash-recovery and rewind paths rely on that). Centralizing the read / write /
 // permissions here lets callers express only the content transform.
+//
+// The file lives on a volume postgres can plant symlinks on, and multipooler
+// holds secrets postgres must not reach, so access goes through safefs: a
+// symlink at the file or in any directory above it fails the edit instead of
+// being followed. The write is a temp file plus rename, never an in-place
+// truncate, so a postgres reading concurrently never sees a torn file.
 func (pm *MultipoolerManager) editAutoConf(ctx context.Context, transform func(content string) (string, bool)) error {
-	autoConfPath := filepath.Join(postgresDataDir(), "postgresql.auto.conf")
+	root, rel, err := backupengine.OpenAutoConf(postgresDataDir(), pm.dataVolumeRoot(), pm.dataVolumeAnchor())
+	if err != nil {
+		return mterrors.Wrap(err, "failed to open postgresql.auto.conf")
+	}
+	defer root.Close()
 
-	content, err := os.ReadFile(autoConfPath)
+	content, err := root.ReadFile(rel)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to read postgresql.auto.conf")
 	}
@@ -1362,9 +1366,17 @@ func (pm *MultipoolerManager) editAutoConf(ctx context.Context, transform func(c
 		return nil
 	}
 
-	pm.logger.InfoContext(ctx, "rewriting postgresql.auto.conf", "file", autoConfPath)
-	// #nosec G703 -- autoConfPath is postgresql.auto.conf under the pooler's own data dir, not external input.
-	if err := os.WriteFile(autoConfPath, []byte(updated), 0o600); err != nil {
+	pm.logger.InfoContext(ctx, "rewriting postgresql.auto.conf", "file", rel)
+	// Keep the existing mode: the rename gives the file a new inode, and postgres
+	// must still be able to read it.
+	if testHookAutoConfBeforePerm != nil {
+		testHookAutoConfBeforePerm()
+	}
+	perm, err := backupengine.AutoConfPerm(root, rel, 0o600)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to write postgresql.auto.conf")
+	}
+	if err := root.WriteFile(rel, []byte(updated), perm); err != nil {
 		return mterrors.Wrap(err, "failed to write postgresql.auto.conf")
 	}
 	return nil
@@ -1466,27 +1478,5 @@ func (pm *MultipoolerManager) setAutoConfSetting(ctx context.Context, name, valu
 			changed = true
 		}
 		return strings.Join(out, "\n"), changed
-	})
-}
-
-func (pm *MultipoolerManager) fixPgBackRestPaths(ctx context.Context) error {
-	pm.mu.Lock()
-	poolerDir := pm.record.PoolerDir()
-	pm.mu.Unlock()
-
-	if poolerDir == "" {
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pooler directory not set")
-	}
-
-	// Replace all occurrences of old pooler paths with current pooler paths.
-	// pgbackrest args (--config, --lock-path, --log-path, --pg1-path) follow the
-	// pattern /some/path/pooler-X/data/...; rewrite the pooler-X/data segment to
-	// this pooler's own dir. poolerDir is like /tmp/test_12345/pooler-1/data, so
-	// go up two levels for the base and match /base/pooler-<anything>/data.
-	baseDir := filepath.Dir(filepath.Dir(poolerDir))
-	re := regexp.MustCompile(regexp.QuoteMeta(baseDir) + `/pooler-[^/]+/data`)
-	return pm.editAutoConf(ctx, func(content string) (string, bool) {
-		updated := re.ReplaceAllString(content, poolerDir)
-		return updated, updated != content
 	})
 }

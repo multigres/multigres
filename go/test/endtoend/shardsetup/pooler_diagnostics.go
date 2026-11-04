@@ -153,8 +153,9 @@ func EventuallyPoolerCondition(
 
 // RequirePoolerCondition fetches status for each pooler once and immediately fails the
 // test if any pooler does not satisfy condition. Diagnostics for all failing poolers are
-// included in the failure message. Use this after RequireRecovery or similar operations
-// that guarantee the condition is already met — no polling needed.
+// included in the failure message. Use this only when a prior operation synchronously
+// guarantees this particular condition. RequireRecovery alone does not guarantee that
+// every pooler status observation has converged; use EventuallyPoolerCondition then.
 func RequirePoolerCondition(
 	t *testing.T,
 	poolers []*MultipoolerInstance,

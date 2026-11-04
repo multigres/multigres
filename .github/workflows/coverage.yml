@@ -95,6 +95,7 @@ jobs:
 
       - name: Run tests with coverage
         env:
+          TEST_PRINT_LOGS: "1"
           MULTIGRES_E2E_TOPOLOGY: ${{ matrix.topology }}
           TEST_PACKAGES: ${{ matrix.packages }}
           SKIP_PACKAGES: ${{ matrix.skip_packages }}
@@ -106,6 +107,7 @@ jobs:
       - name: Write timing summary
         if: ${{ !cancelled() }}
         run: go run ./go/tools/testtiming/summary coverage-test-results.jsonl
+      # Retain raw events if strict test-report parsing fails.
       - name: Upload coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
@@ -114,6 +116,7 @@ jobs:
           path: |
             coverage-direct.txt
             coverage-subprocess.txt
+            coverage-test-results.jsonl
           retention-days: 7
       - name: Test Report
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0

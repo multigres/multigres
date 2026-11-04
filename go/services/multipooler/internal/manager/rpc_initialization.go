@@ -94,6 +94,9 @@ func (pm *MultipoolerManager) setInitialized() error {
 // initialized, because replica initialization is not done until the restore
 // from backup completes. There is no other persistent way to determine this.
 func (pm *MultipoolerManager) writeInitializationMarker() error {
+	// Plain os access to the data volume: on the safefs-sweep backlog by plan. It
+	// follows symlinks postgres can plant, which can only redirect it within this
+	// project.
 	if err := os.MkdirAll(multigresDataDir(), 0o755); err != nil {
 		return fmt.Errorf("failed to create multigres directory: %w", err)
 	}
@@ -107,7 +110,12 @@ func (pm *MultipoolerManager) hasDataDirectory() bool {
 	// This prevents treating an empty directory (e.g., left behind by a failed initdb) as initialized.
 	pgVersionFile := filepath.Join(postgresDataDir(), "PG_VERSION")
 	_, err := os.Stat(pgVersionFile)
-	return err == nil
+	if err != nil {
+		return false
+	}
+	// The restore outlives the call that began it, and PG_VERSION appears while
+	// it is still running. Such a directory is not initialized.
+	return !pm.restoreDataDirUntrusted()
 }
 
 // isPostgresRunning checks if the PostgreSQL process exists, regardless of
