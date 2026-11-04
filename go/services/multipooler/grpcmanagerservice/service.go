@@ -354,3 +354,30 @@ func (s *managerService) sendManagerHealthSnapshot(
 
 	return stream.Send(response)
 }
+
+// CreateTableGroup records the intent to create a tablegroup in the catalog.
+func (s *managerService) CreateTableGroup(ctx context.Context, req *multipoolermanagerdatapb.CreateTableGroupRequest) (*multipoolermanagerdatapb.CreateTableGroupResponse, error) {
+	resp, err := s.manager.CreateTableGroup(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
+// GetOperation returns a catalog operation's current state.
+func (s *managerService) GetOperation(ctx context.Context, req *multipoolermanagerdatapb.GetOperationRequest) (*multipoolermanagerdatapb.GetOperationResponse, error) {
+	op, err := s.manager.GetOperation(ctx, req.GetOperationId())
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return &multipoolermanagerdatapb.GetOperationResponse{Operation: op}, nil
+}
+
+// ListTableGroups returns the tablegroups the provisioner should have.
+func (s *managerService) ListTableGroups(ctx context.Context, req *multipoolermanagerdatapb.ListTableGroupsRequest) (*multipoolermanagerdatapb.ListTableGroupsResponse, error) {
+	groups, err := s.manager.ListTableGroups(ctx)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return &multipoolermanagerdatapb.ListTableGroupsResponse{TableGroups: groups}, nil
+}

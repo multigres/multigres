@@ -3384,7 +3384,8 @@ type CreateTableGroupRequest struct {
 	// means a single 0-inf shard.
 	Shards []string `protobuf:"bytes,2,rep,name=shards,proto3" json:"shards,omitempty"`
 	// if_not_exists makes an already-active tablegroup of this name a no-op
-	// (already_exists is set on the response) instead of an error.
+	// (already_exists is set on the response) instead of an error, and joins a
+	// creation of this name already in flight whatever its layout.
 	IfNotExists   bool `protobuf:"varint,3,opt,name=if_not_exists,json=ifNotExists,proto3" json:"if_not_exists,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
