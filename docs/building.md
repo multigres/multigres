@@ -13,6 +13,8 @@ in the `go/` directory. The repository contains multiple components including:
 - **multipooler** - Connection pooling service
 - **pgctld** - PostgreSQL control daemon
 - **multiadmin** - Administrative API server (gRPC, Connect, and REST)
+- **pgbackrestd** - pgBackRest sidecar for shard pods (installed in the
+  `multigres` image at `/multigres/bin/pgbackrestd`)
 - **multigres** - Main CLI tool
 - **minigres** - Multigateway and multipooler in one process, for a database
   served by a single pooler (see [Minigres](./general/minigres.md))
@@ -28,10 +30,15 @@ Multigres requires the following on your `$PATH` before running `multigres clust
 
 - Go (version 1.26 or later, as required by `go.mod`)
 - **PostgreSQL 17.x** — `postgres --version` must report `(PostgreSQL) 17.x`. PG 14, 15, 16, 18+ are rejected.
-- **pgBackRest ≥ 2.57** — `pgbackrest --version` must report `pgBackRest 2.57` or newer.
+- **pgBackRest ≥ 2.59**: `pgbackrest --version` must report `pgBackRest 2.59` or newer.
+  Every pgBackRest command runs in the pgbackrestd sidecar, which confines it with Landlock (Linux 5.13 or later).
+  `--sandbox` (env `MULTIGRES_PGBACKREST_SANDBOX`) chooses what happens without it:
+  `required` (default) refuses to start, `auto` runs unconfined when the host reports Landlock unsupported,
+  `off` never uses it. On macOS use `auto` or `off`, or run inside a Linux VM such as OrbStack.
 - **etcd** — required for topology.
 
-`multigres cluster start` validates these before bootstrapping the cluster and fails fast with a clear error if anything is missing or wrong.
+`multigres cluster start` validates these before bootstrapping the cluster and
+fails fast with a clear error if anything is missing or wrong.
 
 Most other build dependencies (like protoc) are automatically installed by the
 make script.
