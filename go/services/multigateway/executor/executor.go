@@ -17,6 +17,7 @@ package executor
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -75,6 +76,12 @@ func (e *Executor) SetSlotBasedReplicationEnabled(enabled func() bool) {
 // planner.Planner.SetClusterViewSource.
 func (e *Executor) SetClusterViewSource(source engine.ClusterViewSource) {
 	e.planner.SetClusterViewSource(source)
+}
+
+// SetTableGroupAdmin enables CREATE and DROP TABLEGROUP; see
+// Planner.SetTableGroupAdmin.
+func (e *Executor) SetTableGroupAdmin(admin engine.TableGroupAdmin) {
+	e.planner.SetTableGroupAdmin(admin)
 }
 
 // InvalidatePlanCache discards every cached plan, so the next request for
@@ -405,6 +412,12 @@ func (e *Executor) Describe(
 		return engine.MultigresServerVersionShowDescription(), nil
 	}
 
+	// Tablegroup DDL is not PostgreSQL syntax, so the backend cannot describe
+	// it. It takes no parameters and returns no rows.
+	if stmt != nil && ast.IsTableGroupDDL(stmt) {
+		return &query.StatementDescription{}, nil
+	}
+
 	// A statement reading a cluster view (multigres.multipoolers, ...) names a
 	// relation the backend doesn't have. Describe the statement with each view
 	// folded to its empty, typed subquery instead: same columns, no data, and
@@ -505,11 +518,27 @@ func (e *Executor) PrepareInTransaction(
 			return err
 		}
 	}
+	// Tablegroup DDL is not PostgreSQL syntax and never runs on a backend;
+	// Execute rejects it inside a transaction block, as PostgreSQL rejects
+	// CREATE DATABASE, rather than failing the Parse with a syntax error.
+	if isTableGroupDDLText(queryStr) {
+		return nil
+	}
 	return e.exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", &query.PreparedStatement{
 		Query:        queryStr,
 		ParamTypes:   paramTypes,
 		ForceReparse: true,
 	}, state, engine.PlanExecInfo{}, false, func(context.Context, *sqltypes.Result) error { return nil })
+}
+
+// isTableGroupDDLText reports whether queryStr is a single tablegroup DDL
+// statement. The substring check skips the parse for everything else.
+func isTableGroupDDLText(queryStr string) bool {
+	if !strings.Contains(strings.ToLower(queryStr), "tablegroup") {
+		return false
+	}
+	stmts, err := parser.ParseSQL(queryStr)
+	return err == nil && len(stmts) == 1 && ast.IsTableGroupDDL(stmts[0])
 }
 
 // StreamReplication routes a logical-replication connection to the PRIMARY

@@ -19,8 +19,8 @@ import "strings"
 // Multigres tablegroup DDL: CREATE TABLEGROUP, ALTER TABLEGROUP and DROP
 // TABLEGROUP (the last is a DropStmt with OBJECT_TABLEGROUP). See
 // docs/sharding/ddl.md for the syntax. These statements are parsed and
-// deparsed only; the gateway rejects them until the tablegroup catalog
-// exists (IsTableGroupDDL below).
+// deparsed here; the gateway executes CREATE and DROP TABLEGROUP itself and
+// never forwards any of them to postgres (IsTableGroupDDL below).
 
 // CreateTableGroupStmt is CREATE TABLEGROUP [IF NOT EXISTS] name
 // [SHARDS ('range', ...)]. Shards is nil when the clause is omitted: a
@@ -103,9 +103,9 @@ func shardRangeListSql(l *NodeList) string {
 }
 
 // IsTableGroupDDL reports whether stmt is a CREATE, ALTER or DROP TABLEGROUP.
-// The gateway uses this to reject such statements until they are
-// implemented, instead of forwarding them to postgres where they would fail
-// with a syntax error.
+// None of them is PostgreSQL syntax, so the gateway handles every one itself
+// rather than forwarding it to postgres, where it would fail with a syntax
+// error.
 func IsTableGroupDDL(stmt Stmt) bool {
 	switch s := stmt.(type) {
 	case *CreateTableGroupStmt, *AlterTableGroupStmt:

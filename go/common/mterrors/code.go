@@ -52,6 +52,11 @@ const (
 	PgSSReadOnlyTransaction       = "25006" // read_only_sql_transaction
 	PgSSSerializationFailure      = "40001" // serialization_failure
 	PgSSObjectInUse               = "55006" // object_in_use
+
+	PgSSDuplicateObject              = "42710" // duplicate_object
+	PgSSObjectNotInPrerequisiteState = "55000" // object_not_in_prerequisite_state
+	PgSSOperatorIntervention         = "57000" // operator_intervention
+	PgSSSystemError                  = "58000" // system_error
 )
 
 // PostgreSQL data exceptions raised by scalar evaluation.
