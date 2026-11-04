@@ -637,6 +637,9 @@ func TestStoreMapsTheConnectionsForeignKey(t *testing.T) {
 	t.Run("delete: a reference written while deleting is in use", func(t *testing.T) {
 		require.ErrorIs(t, deleteWith(fk), ErrConnectionInUse)
 	})
+	t.Run("delete: a tablegroup bound to the connection is in use", func(t *testing.T) {
+		require.ErrorIs(t, deleteWith(foreignKeyViolation(tablegroupConnectionsFKey)), ErrConnectionInUse)
+	})
 	t.Run("insert: a connection deleted meanwhile is not found", func(t *testing.T) {
 		err := insertWith(fk)
 		require.ErrorIs(t, err, ErrConnectionNotFound)

@@ -32,11 +32,13 @@ import (
 // for the catalog schema ensure ("multigrs" in ASCII).
 const catalogSchemaLockKey int64 = 0x6d756c7469677273
 
-// catalogFormat1Columns are the catalog tables format 1 creates, each with its
-// columns in declaration order.
+// catalogFormat1Columns are the catalog tables of format 1, each with its columns in declaration
+// order: what a fresh catalog has, and what an upgraded one has after the appended statements
+// (an additive column such as tablegroup.backing_connection_id is added by an ALTER and comes
+// last, so a fresh and an upgraded catalog agree).
 var catalogFormat1Columns = map[string][]string{
 	"catalog_state":    {"singleton", "format_version", "routing_version", "plan_epoch"},
-	"tablegroup":       {"tablegroup_id", "name", "state", "created_at"},
+	"tablegroup":       {"tablegroup_id", "name", "state", "created_at", "backing_connection_id"},
 	"shard":            {"shard_id", "tablegroup_id", "shard_name", "range_start", "range_end", "state"},
 	"tablegroup_table": {"table_id", "schema_name", "table_name", "tablegroup_id"},
 	"shard_index":      {"shard_index_id", "name", "type", "params", "state"},
@@ -131,6 +133,18 @@ func requireCatalogFormat1(t *testing.T, db *sql.DB) {
 	// multigres.migration references the connections table by a foreign key, which the
 	// migrator's schema ensure adds on this (the catalog) shard, right after the catalog.
 	requireMigrationForeignKey(t, db)
+
+	// A tablegroup served by an external postgres is bound to its connection by a foreign key,
+	// which a fresh catalog and an upgraded one both have.
+	var tablegroupFK string
+	require.NoError(t, db.QueryRow(`SELECT pg_get_constraintdef(oid) FROM pg_constraint
+		WHERE conrelid = 'multigres.tablegroup'::regclass AND contype = 'f'
+		  AND conname = 'tablegroup_backing_connection_id_fkey'`).Scan(&tablegroupFK),
+		"multigres.tablegroup.backing_connection_id must reference multigres.connections")
+	assert.Equal(t, "FOREIGN KEY (backing_connection_id) REFERENCES multigres.connections(connection_id)", tablegroupFK)
+	var defaultBound bool
+	require.NoError(t, db.QueryRow(`SELECT backing_connection_id IS NOT NULL FROM multigres.tablegroup WHERE name = 'default'`).Scan(&defaultBound))
+	assert.False(t, defaultBound, "the default tablegroup is never bound")
 
 	var formatVersion int
 	var routingVersion, planEpoch int64

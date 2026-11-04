@@ -63,9 +63,9 @@ session that wants the statement to wait out provisioning sets
 shard is the only writer of the catalog tables, through its admin connection.
 It serves four RPCs on the pooler manager service:
 
-- `CreateTableGroup(name, shards, if_not_exists)` records the intent in one
-  transaction: a `multigres.tablegroup` row in state `creating`, one
-  `multigres.shard` row per shard in state `preparing`, and a
+- `CreateTableGroup(name, shards, if_not_exists, backing_connection)` records
+  the intent in one transaction: a `multigres.tablegroup` row in state
+  `creating`, one `multigres.shard` row per shard in state `preparing`, and a
   `multigres.operation` row of kind `create_tablegroup` in state `creating`.
   It returns the operation id and the tablegroup's catalog id.
 - `DropTableGroup(name, if_exists)` moves an active tablegroup to `dropping`
@@ -76,8 +76,8 @@ It serves four RPCs on the pooler manager service:
   topology at call time: `shards_serving` for a creation,
   `poolers_registered` for a drop.
 - `ListTableGroups()` returns every non-default tablegroup, in any state, with
-  its shard layout and catalog id: `creating` and `active` ones for the
-  provisioner to provision, `dropping` ones for it to remove.
+  its shard layout, catalog id and backing connection: `creating` and `active`
+  ones for the provisioner to provision, `dropping` ones for it to remove.
 
 All four need the elected primary of the catalog shard: postgres out of
 recovery and the pooler the active consensus leader, which is its routing
@@ -121,6 +121,9 @@ whose catalog lags can therefore delay a change, but never removes what should
 exist. The rule is that the one that owns the processes writes the record
 first and deletes it last.
 
+A tablegroup that lists a `backing_connection` is bound to an external
+PostgreSQL (see [External tablegroups](#external-tablegroups)).
+
 **Poolers and multiorch** are unchanged. A new pooler registers in topology
 with its database, tablegroup, shard, and tablegroup id. Multiorch bootstraps
 each shard and appoints a primary.
@@ -160,21 +163,47 @@ repository.
   duplicates (`keyrange.ValidateShardLayout`). It may be given in any order;
   the catalog stores it in canonical order. An empty list means one `0-inf`
   shard.
+- A `backing_connection` is not given for the default tablegroup, and a
+  tablegroup that has one has exactly the one shard `0-inf`: both are
+  `INVALID_ARGUMENT`. The connection must exist in `multigres.connections`
+  (`NOT_FOUND`), must be one the pooler would accept (a connection naming one
+  server with host, port, database and user, and carrying only the parameters
+  a backing connection carries), and must serve the database the cluster
+  serves (`FAILED_PRECONDITION` otherwise). Every pooler of the tablegroup
+  would refuse to start on any of these, so the creation refuses first.
 
 Idempotency on the name:
 
-| Existing row | `CreateTableGroup`                                                                               | `DropTableGroup`                             |
-| ------------ | ------------------------------------------------------------------------------------------------ | -------------------------------------------- |
-| none         | new tablegroup, shards, and operation                                                            | `NOT_FOUND`, or `not_found` with `if_exists` |
-| `creating`   | the existing operation if the layout matches or with `if_not_exists`, else `FAILED_PRECONDITION` | cancels the creation and returns it          |
-| `active`     | `ALREADY_EXISTS`, or `already_exists` with `if_not_exists`                                       | new drop operation                           |
-| `dropping`   | `FAILED_PRECONDITION`                                                                            | the existing drop operation                  |
+| Existing row | `CreateTableGroup`                                                                                                    | `DropTableGroup`                             |
+| ------------ | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| none         | new tablegroup, shards, and operation                                                                                 | `NOT_FOUND`, or `not_found` with `if_exists` |
+| `creating`   | the existing operation if the layout and backing connection match or with `if_not_exists`, else `FAILED_PRECONDITION` | cancels the creation and returns it          |
+| `active`     | `ALREADY_EXISTS`, or `already_exists` with `if_not_exists`                                                            | new drop operation                           |
+| `dropping`   | `FAILED_PRECONDITION`                                                                                                 | the existing drop operation                  |
+
+`if_not_exists` ignores a different shard layout, as `IF NOT EXISTS` does in
+PostgreSQL, but not a different backing connection: a request whose binding is
+not the one the tablegroup has, in the `creating` or the `active` state, is
+`FAILED_PRECONDITION` with or without it. A statement that reports a tablegroup
+as existing never leaves the caller believing it is served from another
+database than it is.
 
 `DropTableGroup` also refuses the default tablegroup, and any tablegroup that
 contains tables, with `FAILED_PRECONDITION`.
 
 The default tablegroup is seeded `active` at catalog creation, so creating it
 is `ALREADY_EXISTS` like any other active tablegroup.
+
+## External tablegroups
+
+A tablegroup can be bound to an external PostgreSQL that multigres does not
+manage: a database being migrated into the cluster, or one that stays where it
+is. Its `multigres.tablegroup` row carries `backing_connection_id`, a foreign
+key to the named connection in `multigres.connections`; NULL is a managed
+tablegroup. The binding is set when the tablegroup is created and never
+changed. A bound connection cannot be deleted while a tablegroup uses it.
+
+The tablegroup is one shard, `0-inf`.
 
 ## Completion
 

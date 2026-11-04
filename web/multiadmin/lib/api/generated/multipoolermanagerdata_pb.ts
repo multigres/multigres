@@ -2850,6 +2850,17 @@ export class CreateTableGroupRequest extends Message<CreateTableGroupRequest> {
    */
   ifNotExists = false;
 
+  /**
+   * backing_connection names the connection (in the catalog's connections
+   * table) of an external PostgreSQL that the tablegroup is bound to instead of
+   * multigres-managed shards. Empty means a managed tablegroup. The binding is
+   * fixed at creation. An external tablegroup has exactly one shard, 0-inf,
+   * and the default tablegroup never has a binding.
+   *
+   * @generated from field: string backing_connection = 4;
+   */
+  backingConnection = "";
+
   constructor(data?: PartialMessage<CreateTableGroupRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -2861,6 +2872,7 @@ export class CreateTableGroupRequest extends Message<CreateTableGroupRequest> {
     { no: 1, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "shards", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 3, name: "if_not_exists", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 4, name: "backing_connection", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateTableGroupRequest {
@@ -3387,6 +3399,14 @@ export class TableGroup extends Message<TableGroup> {
    */
   shards: string[] = [];
 
+  /**
+   * backing_connection is the name of the connection of the external
+   * PostgreSQL that the tablegroup is bound to. Empty for a managed tablegroup.
+   *
+   * @generated from field: string backing_connection = 5;
+   */
+  backingConnection = "";
+
   constructor(data?: PartialMessage<TableGroup>) {
     super();
     proto3.util.initPartial(data, this);
@@ -3399,6 +3419,7 @@ export class TableGroup extends Message<TableGroup> {
     { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "state", kind: "enum", T: proto3.getEnumType(TableGroupState) },
     { no: 4, name: "shards", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+    { no: 5, name: "backing_connection", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): TableGroup {
