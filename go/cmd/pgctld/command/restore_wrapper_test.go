@@ -120,3 +120,86 @@ func TestRestoreWrapperSIGTERMExitsCleanly(t *testing.T) {
 		return err != nil || process.Signal(syscall.Signal(0)) != nil
 	}, time.Second, 10*time.Millisecond, "wrapped process %d is still running", childPID)
 }
+
+func TestRestoreWrapper_RenameOnSuccess(t *testing.T) {
+	dir := t.TempDir()
+	tmp, dest := filepath.Join(dir, "seg.fetch"), filepath.Join(dir, "seg")
+
+	err := runRestoreWrapper(nil, []string{
+		filepath.Join(dir, "w.pid"), "--rename", tmp, dest, "--",
+		"sh", "-c", `printf wal > "$1"`, "sh", tmp,
+	})
+	require.NoError(t, err)
+
+	got, err := os.ReadFile(dest)
+	require.NoError(t, err)
+	assert.Equal(t, "wal", string(got))
+	assert.NoFileExists(t, tmp)
+}
+
+func TestRestoreWrapper_RemoveTmpOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	tmp, dest := filepath.Join(dir, "seg.fetch"), filepath.Join(dir, "seg")
+
+	err := runRestoreWrapper(nil, []string{
+		filepath.Join(dir, "w.pid"), "--rename", tmp, dest, "--",
+		"sh", "-c", `printf partial > "$1"; exit 22`, "sh", tmp,
+	})
+	require.Error(t, err)
+
+	assert.NoFileExists(t, tmp)
+	assert.NoFileExists(t, dest, "a failed fetch must not publish the destination")
+}
+
+func TestRestoreWrapper_RemoveTmpOnSignalAndExit0(t *testing.T) {
+	const helperEnv = "MULTIGRES_RESTORE_WRAPPER_RENAME_TEST_HELPER"
+	if os.Getenv(helperEnv) == "1" {
+		err := runRestoreWrapper(nil, []string{
+			os.Getenv("MULTIGRES_RESTORE_WRAPPER_PIDFILE"),
+			"--rename", os.Getenv("MULTIGRES_RESTORE_WRAPPER_TMP"), os.Getenv("MULTIGRES_RESTORE_WRAPPER_DEST"), "--",
+			"sh", "-c", `printf partial > "$1"; while :; do sleep 1; done`, "sh", os.Getenv("MULTIGRES_RESTORE_WRAPPER_TMP"),
+		})
+		require.NoError(t, err)
+		return
+	}
+
+	dir := t.TempDir()
+	pidfile := filepath.Join(dir, "wrapper.pid")
+	tmp, dest := filepath.Join(dir, "seg.fetch"), filepath.Join(dir, "seg")
+	helper := exec.Command(os.Args[0], "-test.run=^TestRestoreWrapper_RemoveTmpOnSignalAndExit0$")
+	helper.Env = append(os.Environ(),
+		helperEnv+"=1",
+		"MULTIGRES_RESTORE_WRAPPER_PIDFILE="+pidfile,
+		"MULTIGRES_RESTORE_WRAPPER_TMP="+tmp,
+		"MULTIGRES_RESTORE_WRAPPER_DEST="+dest,
+	)
+	helper.Stdout = os.Stdout
+	helper.Stderr = os.Stderr
+	require.NoError(t, helper.Start())
+	t.Cleanup(func() { _ = syscall.Kill(helper.Process.Pid, syscall.SIGKILL) })
+
+	// The partial file exists only once the child is running, so waiting for it
+	// proves the signal arrives mid-fetch.
+	require.Eventually(t, func() bool {
+		data, err := os.ReadFile(tmp)
+		return err == nil && string(data) == "partial"
+	}, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, syscall.Kill(helper.Process.Pid, syscall.SIGTERM))
+
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- helper.Wait() }()
+	select {
+	case err := <-waitCh:
+		require.NoError(t, err, "wrapper must exit 0 after a forwarded signal")
+	case <-time.After(5 * time.Second):
+		t.Fatal("wrapper did not exit after SIGTERM")
+	}
+
+	assert.NoFileExists(t, tmp)
+	assert.NoFileExists(t, dest)
+}
+
+func TestRestoreWrapper_RenameUsage(t *testing.T) {
+	err := runRestoreWrapper(nil, []string{"pid", "--rename", "only-one"})
+	require.ErrorIs(t, err, errUsage)
+}

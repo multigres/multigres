@@ -56,26 +56,20 @@ type VerifyResult struct {
 // it still trips the stanza "status: error" check, such a run returns an error
 // and the caller should retry.
 func (e *Engine) Verify(ctx context.Context) (*VerifyResult, error) {
-	configPath, err := e.requireConfigPath()
-	if err != nil {
-		return nil, mterrors.Wrap(err, "pgbackrest config not found")
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, commonbackup.StanzaVerifyTimeout)
 	defer cancel()
 
 	args := []string{
 		"--stanza=" + stanzaName,
-		"--config=" + configPath,
 		"verify",
 	}
-	cmd := e.pgbackrestCmd(ctx, args...)
+	cmd := e.pgbackrestCmd(args...)
 
 	start := time.Now()
 	var output []byte
-	err = telemetry.WithSpan(ctx, "verify-backups", func(ctx context.Context) error {
+	err := telemetry.WithSpan(ctx, "verify-backups", func(ctx context.Context) error {
 		var runErr error
-		output, runErr = e.run(ctx, cmd, "pgbackrest verify")
+		output, runErr = e.execute(ctx, cmd, "pgbackrest verify")
 		return runErr
 	})
 	duration := time.Since(start)

@@ -29,6 +29,7 @@ import (
 
 // LocalProvisionedService represents a service instance that has been provisioned
 type LocalProvisionedService struct {
+	statePath  string         // Set only by strict teardown discovery, never serialized.
 	ID         string         `json:"id"`                    // Unique instance ID
 	Service    string         `json:"service"`               // Service name (etcd, multigateway, etc.)
 	PID        int            `json:"pid,omitempty"`         // For binary processes
@@ -79,26 +80,6 @@ func (p *localProvisioner) createLogFile(serviceName, serviceID, databaseName st
 	return logFile, nil
 }
 
-// cleanupLogFile removes a log file if it exists
-func (p *localProvisioner) cleanupLogFile(logFilePath string) error {
-	if logFilePath == "" {
-		return nil
-	}
-
-	// Check if log file exists
-	if _, err := os.Stat(logFilePath); os.IsNotExist(err) {
-		return nil // File doesn't exist, nothing to clean up
-	}
-
-	// Remove the log file
-	if err := os.Remove(logFilePath); err != nil {
-		return fmt.Errorf("failed to remove log file %s: %w", logFilePath, err)
-	}
-
-	fmt.Printf("Cleaned up log file: %s\n", logFilePath)
-	return nil
-}
-
 // saveServiceState saves the provisioned service state to disk
 func (p *localProvisioner) saveServiceState(service *LocalProvisionedService, databaseName string) error {
 	stateDir := p.getStateDir()
@@ -127,29 +108,6 @@ func (p *localProvisioner) saveServiceState(service *LocalProvisionedService, da
 
 	if err := os.WriteFile(filePath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write service state file %s: %w", filePath, err)
-	}
-
-	return nil
-}
-
-// removeServiceState removes a service state file from disk
-func (p *localProvisioner) removeServiceState(serviceID, serviceName, databaseName string) error {
-	stateDir := p.getStateDir()
-	var targetDir string
-
-	if databaseName != "" {
-		// For database services: state/dbs/dbname
-		targetDir = filepath.Join(stateDir, "dbs", databaseName)
-	} else {
-		// For non-database services (like etcd): state/
-		targetDir = stateDir
-	}
-
-	fileName := fmt.Sprintf("%s_%s.json", serviceName, serviceID)
-	filePath := filepath.Join(targetDir, fileName)
-
-	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove state file %s: %w", filePath, err)
 	}
 
 	return nil
@@ -319,6 +277,12 @@ func (p *localProvisioner) findRunningDbService(serviceName, databaseName, cell 
 		if service.Service == serviceName {
 			// Check if the service matches the cell
 			if serviceCell, ok := service.Metadata["cell"].(string); ok && serviceCell == cell {
+				if service.Metadata["shutdown_complete"] == true {
+					continue
+				}
+				if service.Metadata["shutdown_attempted"] == true {
+					return nil, errors.New("previous service shutdown outcome is unknown; explicit recovery required")
+				}
 				// Check if the service is actually still running
 				if service.PID > 0 {
 					if err := p.validateProcessRunning(service.PID); err == nil {
@@ -428,6 +392,12 @@ func (p *localProvisioner) findRunningEtcdService() (*LocalProvisionedService, e
 
 	for _, service := range services {
 		if service.Service == "etcd" {
+			if service.Metadata["shutdown_complete"] == true {
+				continue
+			}
+			if service.Metadata["shutdown_attempted"] == true {
+				return nil, errors.New("previous service shutdown outcome is unknown; explicit recovery required")
+			}
 			// Check if the service is actually still running
 			if service.PID > 0 {
 				if err := p.validateProcessRunning(service.PID); err == nil {
@@ -458,6 +428,12 @@ func (p *localProvisioner) findRunningService(serviceName string) (*LocalProvisi
 
 	for _, service := range services {
 		if service.Service == serviceName {
+			if service.Metadata["shutdown_complete"] == true {
+				continue
+			}
+			if service.Metadata["shutdown_attempted"] == true {
+				return nil, errors.New("previous service shutdown outcome is unknown; explicit recovery required")
+			}
 			// Check if the service is actually still running
 			if service.PID > 0 {
 				if err := p.validateProcessRunning(service.PID); err == nil {

@@ -105,7 +105,7 @@ func TestRestoreSentinelCrashRecovery(t *testing.T) {
 
 	data, err := os.ReadFile(joiner.Multipooler.LogFile)
 	require.NoError(t, err)
-	assert.Contains(t, string(data), "restore sentinel from an interrupted restore detected",
+	assert.Contains(t, string(data), "an incomplete restore marker exists; the data directory is not treated as initialized",
 		"the restore should go through the sentinel path")
 	assert.NotContains(t, string(data), "PostgreSQL initialized but not running",
 		"postgres must not be started on the partial data directory")

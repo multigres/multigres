@@ -38,7 +38,6 @@ func TestExpire_NoExpirations(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(json))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	lock := actionlock.NewActionLock()
 	ctx, err := lock.Acquire(context.Background(), "expire-test")

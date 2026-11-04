@@ -71,7 +71,7 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	}
 
 	// Refuse to run on an already-initialized data directory. This node is already initialized
-	if pm.hasDataDirectory() {
+	if pm.dataDirPresentOrUntrusted() {
 		return false, false, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"data directory already exists; cannot create first backup on an initialized node")
 	}
@@ -94,7 +94,11 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	if err != nil {
 		return false, false, mterrors.Wrap(err, "failed to load database record")
 	}
-	if err := requireInitialRepoEncryptionError(db.BackupLocation, pm.config.BackupCipherKeys); err != nil {
+	keys, err := pm.cipherKeys(ctx)
+	if err != nil {
+		return false, false, mterrors.Wrap(err, "failed to read cipher keys")
+	}
+	if err := requireInitialRepoEncryptionError(db.BackupLocation, keys); err != nil {
 		return false, false, mterrors.Wrap(err, "refusing to bootstrap")
 	}
 
@@ -103,14 +107,6 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// (not PGDATA), so it is not captured by pgBackRest backups.
 	if err := pm.bootstrapSentinel().write(); err != nil {
 		return false, false, mterrors.Wrap(err, "failed to write bootstrap sentinel")
-	}
-
-	// A restore sentinel left by an interrupted restore would make pgctld refuse
-	// the start below. Bootstrap rebuilds the data directory from scratch, and the
-	// bootstrap sentinel written above now guards whatever is on disk, so the
-	// restore sentinel can go.
-	if err := pm.restoreSentinel().remove(); err != nil {
-		return false, false, mterrors.Wrap(err, "failed to remove restore sentinel")
 	}
 
 	// Cleanup runs on every exit path. On success it tears down the local
@@ -182,6 +178,11 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 
 	if err := pm.insertInitialPgBackRestRepo(ctx); err != nil {
 		return false, false, err
+	}
+	// The seed has committed, so the PVC copy may follow it; a failure is
+	// logged because the sync loop writes it again.
+	if err := pm.refreshGenerationsCopy(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "failed to copy the seeded pgbackrest generation list to the PVC", "error", err)
 	}
 
 	// The initial row (term=0, empty cohort) was already inserted by

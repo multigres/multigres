@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/sandbox"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
@@ -1536,11 +1537,15 @@ func restartAsStandbyNoRewindForTest(t *testing.T, manager *MultipoolerManager, 
 	return err
 }
 
+// restartTestOption adjusts the config, mock pgctld or fixtures of
+// newRestartAsStandbyTestManager before the manager is built.
+type restartTestOption func(cfg *Config, mockPgctld *testutil.MockPgCtldService, poolerDir string)
+
 // newRestartAsStandbyTestManager builds the manager + mock pgctld boilerplate
 // shared by the pre-start conninfo file-write tests: a REPLICA pooler with a
 // seeded postgresql.auto.conf and a RestartFunc snapshot capturing the file
 // content at the moment pgctld is asked to restart postgres.
-func newRestartAsStandbyTestManager(t *testing.T, mockQueryService *mock.QueryService, seedAutoConf string) (manager *MultipoolerManager, autoConfPath string, autoConfAtRestart *string) {
+func newRestartAsStandbyTestManager(t *testing.T, mockQueryService *mock.QueryService, seedAutoConf string, opts ...restartTestOption) (manager *MultipoolerManager, autoConfPath string, autoConfAtRestart *string) {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
@@ -1565,10 +1570,15 @@ func newRestartAsStandbyTestManager(t *testing.T, mockQueryService *mock.QuerySe
 	}
 
 	mockPgctld := &testutil.MockPgCtldService{}
+	cfg := &Config{TopoClient: ts}
+	for _, opt := range opts {
+		opt(cfg, mockPgctld, poolerDir)
+	}
 	pgctldAddr, cleanupPgctld := testutil.StartMockPgctldServer(t, mockPgctld)
 	t.Cleanup(cleanupPgctld)
+	cfg.PgctldAddr = pgctldAddr
 
-	manager, err := NewMultipoolerManagerForTesting(t, logger, multipooler, &Config{TopoClient: ts, PgctldAddr: pgctldAddr},
+	manager, err := NewMultipoolerManagerForTesting(t, logger, multipooler, cfg,
 		withMockController(&mockPoolerController{queryService: mockQueryService}))
 	require.NoError(t, err)
 	t.Cleanup(func() { manager.ShutdownForTest(t.Context()) })
@@ -1648,8 +1658,11 @@ func TestRestartAsStandby_FileWriteFailureFallsBackToSQL(t *testing.T) {
 	const stale = "primary_conninfo = 'host=old-leader port=5432 user=postgres application_name=stale'\n"
 	manager, autoConfPath, autoConfAtRestart := newRestartAsStandbyTestManager(t, mockQueryService, stale)
 
-	// Make the file unwritable so the pre-start write fails (logged, not fatal).
-	require.NoError(t, os.Chmod(autoConfPath, 0o400))
+	// Make the directory unwritable so the pre-start write fails (logged, not
+	// fatal). The write is a temp file plus rename, so the file's own mode no
+	// longer matters.
+	require.NoError(t, os.Chmod(filepath.Dir(autoConfPath), 0o500))
+	t.Cleanup(func() { _ = os.Chmod(filepath.Dir(autoConfPath), 0o700) })
 
 	err := restartAsStandbyNoRewindForTest(t, manager, "source-host", 5433)
 	require.NoError(t, err, "restart must succeed despite the failed file write")
@@ -1674,7 +1687,7 @@ func TestSetAutoConfSetting(t *testing.T) {
 		t.Setenv(constants.PgDataDirEnvVar, dir)
 		autoConfPath = filepath.Join(dir, "postgresql.auto.conf")
 		require.NoError(t, os.WriteFile(autoConfPath, []byte(content), 0o600))
-		return &MultipoolerManager{logger: slog.Default()}, autoConfPath
+		return &MultipoolerManager{logger: slog.Default(), config: &Config{DataVolumeRoot: dir, DataVolumeAnchor: sandbox.AnchorDir}}, autoConfPath
 	}
 	read := func(t *testing.T, path string) string {
 		t.Helper()

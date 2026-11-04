@@ -166,7 +166,7 @@ func TestPgCtldServiceStart(t *testing.T) {
 				t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 			}
 
-			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost")
 			require.NoError(t, err)
 
 			resp, err := service.Start(context.Background(), tt.request)
@@ -259,7 +259,7 @@ func TestPgCtldServiceStart_AsPrimaryCrashRecoveryMatrix(t *testing.T) {
 			require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16\n"), 0o644))
 			require.NoError(t, os.WriteFile(filepath.Join(dataDir, constants.StandbySignalFile), []byte(""), 0o644))
 
-			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost")
 			require.NoError(t, err)
 			defer service.Close()
 
@@ -323,7 +323,7 @@ func TestPgCtldServiceStart_RestoreSentinelLeavesDataDirUntouched(t *testing.T) 
 				require.NoError(t, os.WriteFile(signalPath, nil, 0o644))
 			}
 
-			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost")
 			require.NoError(t, err)
 			defer service.Close()
 
@@ -368,7 +368,7 @@ func TestPgCtldServiceStart_StandbySignalError(t *testing.T) {
 			require.NoError(t, os.MkdirAll(signalDir, 0o755))
 			require.NoError(t, os.WriteFile(filepath.Join(signalDir, "child"), []byte(""), 0o644))
 
-			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost")
 			require.NoError(t, err)
 			defer service.Close()
 
@@ -382,7 +382,7 @@ func TestPgCtldServiceStart_StandbySignalError(t *testing.T) {
 
 func TestPgCtldServiceStart_MissingPoolerDir(t *testing.T) {
 	t.Run("missing pooler-dir", func(t *testing.T) {
-		_, err := NewPgCtldService(testLogger(), PgCtldServiceConfig{}, 0, "", "", 0, "")
+		_, err := NewPgCtldService(testLogger(), PgCtldServiceConfig{}, 0, "", "")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "pooler-dir needs to be set")
 	})
@@ -447,7 +447,7 @@ func TestPgCtldServiceStop(t *testing.T) {
 				t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 			}
 
-			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost")
 			require.NoError(t, err)
 
 			resp, err := service.Stop(context.Background(), tt.request)
@@ -539,7 +539,7 @@ func TestPgCtldServiceStatus(t *testing.T) {
 
 			_ = tt.setupDataDir(baseDir)
 
-			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost")
 			require.NoError(t, err)
 
 			resp, err := service.Status(context.Background(), tt.request)
@@ -568,7 +568,7 @@ func TestPgCtldServiceRestart(t *testing.T) {
 
 		poolerDir := baseDir
 
-		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost")
 		require.NoError(t, err)
 
 		request := &pb.RestartRequest{
@@ -597,7 +597,7 @@ func TestPgCtldServiceRestart(t *testing.T) {
 		testutil.CreateMockPostgreSQLBinaries(t, binDir)
 		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
-		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost")
 		require.NoError(t, err)
 
 		// AsStandby is how the demote and rewind paths restart, and the variant
@@ -634,7 +634,7 @@ func TestPgCtldServiceReloadConfig(t *testing.T) {
 		dataDir := testutil.CreateDataDir(t, baseDir, true)
 		testutil.CreatePIDFile(t, dataDir, 12345)
 
-		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost")
 		require.NoError(t, err)
 
 		request := &pb.ReloadConfigRequest{}
@@ -655,7 +655,7 @@ func TestPgCtldServiceReloadConfig(t *testing.T) {
 		testutil.CreateDataDir(t, baseDir, true)
 		// No PID file = not running
 
-		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost")
 		require.NoError(t, err)
 
 		request := &pb.ReloadConfigRequest{}
@@ -679,7 +679,7 @@ func TestPgCtldServiceVersion(t *testing.T) {
 
 		poolerDir := baseDir
 		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(poolerDir, "pg_data"))
-		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost")
 		require.NoError(t, err)
 
 		request := &pb.VersionRequest{
@@ -708,7 +708,7 @@ func TestPgCtldServiceInitDataDir(t *testing.T) {
 
 		poolerDir := baseDir
 		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(poolerDir, "pg_data"))
-		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost")
 		require.NoError(t, err)
 
 		request := &pb.InitDataDirRequest{
@@ -730,7 +730,7 @@ func TestPgCtldServiceInitDataDir(t *testing.T) {
 		_ = testutil.CreateDataDir(t, baseDir, true)
 
 		poolerDir := baseDir
-		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost")
 		require.NoError(t, err)
 
 		request := &pb.InitDataDirRequest{}
@@ -774,119 +774,6 @@ func TestGetPoolerDir(t *testing.T) {
 	assert.Equal(t, "", result, "GetPoolerDir should return empty string when not configured")
 }
 
-func TestPgCtldService_PgBackRestFields(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	tmpDir := t.TempDir()
-	t.Setenv(constants.PgDataDirEnvVar, tmpDir+"/pg_data")
-
-	service, err := NewPgCtldService(logger, testServiceConfig, 60, tmpDir, "localhost", 0, "")
-	require.NoError(t, err)
-
-	// Verify service has pgBackRest management fields
-	assert.NotNil(t, service.ctx, "service should have context")
-	assert.NotNil(t, service.cancel, "service should have cancel func")
-}
-
-func TestPgCtldService_StatusMethods(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	tmpDir := t.TempDir()
-	t.Setenv(constants.PgDataDirEnvVar, tmpDir+"/pg_data")
-	service, err := NewPgCtldService(logger, testServiceConfig, 60, tmpDir, "localhost", 0, "")
-	require.NoError(t, err)
-	defer service.Close()
-
-	// Test initial status
-	status := service.getPgBackRestStatus()
-	assert.False(t, status.Running)
-	assert.Empty(t, status.ErrorMessage)
-
-	// Test setting status
-	service.setPgBackRestStatus(true, "", false)
-	status = service.getPgBackRestStatus()
-	assert.True(t, status.Running)
-
-	// Test with error and increment restart count to 3
-	service.setPgBackRestStatus(false, "", true)           // 1
-	service.setPgBackRestStatus(false, "", true)           // 2
-	service.setPgBackRestStatus(false, "test error", true) // 3
-	status = service.getPgBackRestStatus()
-	assert.False(t, status.Running)
-	assert.Equal(t, "test error", status.ErrorMessage)
-	assert.Equal(t, int32(3), status.RestartCount)
-}
-
-func TestPgCtldService_StartPgBackRest_ValidationErrors(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	tmpDir := t.TempDir()
-	t.Setenv(constants.PgDataDirEnvVar, tmpDir+"/pg_data")
-
-	service, err := NewPgCtldService(logger, testServiceConfig, 60, tmpDir, "localhost", 0, "")
-	require.NoError(t, err)
-	defer service.Close()
-
-	// Should fail when config doesn't exist
-	_, err = service.startPgBackRest(context.Background())
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "pgbackrest-server.conf not found")
-}
-
-func TestPgCtldService_ManagePgBackRest_Lifecycle(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	tmpDir := t.TempDir()
-	t.Setenv(constants.PgDataDirEnvVar, tmpDir+"/pg_data")
-
-	service, err := NewPgCtldService(logger, testServiceConfig, 60, tmpDir, "localhost", 0, "")
-	require.NoError(t, err)
-
-	// Create minimal config to prevent immediate failure
-	pgbackrestDir := filepath.Join(tmpDir, "pgbackrest")
-	require.NoError(t, os.MkdirAll(pgbackrestDir, 0o755))
-	configPath := filepath.Join(pgbackrestDir, "pgbackrest-server.conf")
-	require.NoError(t, os.WriteFile(configPath, []byte("[global]\n"), 0o644))
-
-	// Start management goroutine
-	service.StartPgBackRestManagement()
-
-	// Give it time to attempt startup
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify status is updated
-	status := service.getPgBackRestStatus()
-	assert.NotNil(t, status)
-	// It will fail to start (invalid config), but should have tried
-
-	// Close and verify cleanup
-	service.Close()
-
-	// Verify goroutine exited
-	assert.True(t, true, "should complete without hanging")
-}
-
-func TestPgCtldService_Status_IncludesPgBackRest(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-	tmpDir := t.TempDir()
-	t.Setenv(constants.PgDataDirEnvVar, tmpDir+"/pg_data")
-
-	service, err := NewPgCtldService(logger, testServiceConfig, 60, tmpDir, "localhost", 0, "")
-	require.NoError(t, err)
-	defer service.Close()
-
-	// Set a known status with restart count of 5
-	for range 5 {
-		service.setPgBackRestStatus(false, "", true)
-	}
-	service.setPgBackRestStatus(true, "", false)
-
-	// Call Status RPC
-	resp, err := service.Status(context.Background(), &pb.StatusRequest{})
-	require.NoError(t, err)
-
-	// Verify pgBackRest status is included
-	require.NotNil(t, resp.PgbackrestStatus)
-	assert.True(t, resp.PgbackrestStatus.Running)
-	assert.Equal(t, int32(5), resp.PgbackrestStatus.RestartCount)
-}
-
 // TestPgCtldService_StopRewindStart verifies the stop→pg_rewind→start lifecycle.
 // This is a regression test for a bug where the pgctld service would fail to start
 // postgres after a stop+pg_rewind sequence. The fix ensures that the pgctld RPC
@@ -912,7 +799,7 @@ func TestPgCtldService_StopRewindStart(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dataDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16\n"), 0o644))
 
-	service, err := NewPgCtldService(logger, testServiceConfig, 30, poolerDir, "localhost", 0, "")
+	service, err := NewPgCtldService(logger, testServiceConfig, 30, poolerDir, "localhost")
 	require.NoError(t, err)
 	defer service.Close()
 
@@ -964,7 +851,7 @@ func TestPgCtldServiceStopRestoreCommand(t *testing.T) {
 		defer cleanup()
 		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
 
-		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost")
 		require.NoError(t, err)
 
 		resp, err := service.StopRestoreCommand(context.Background(), &pb.StopRestoreCommandRequest{})
@@ -986,7 +873,7 @@ func TestPgCtldServiceStopRestoreCommand(t *testing.T) {
 
 		require.NoError(t, os.WriteFile(pgctld.RestoreCommandPIDFile(baseDir), []byte(strconv.Itoa(stalePID)), 0o644))
 
-		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost")
 		require.NoError(t, err)
 
 		resp, err := service.StopRestoreCommand(context.Background(), &pb.StopRestoreCommandRequest{})
@@ -1013,7 +900,7 @@ func TestPgCtldServiceStopRestoreCommand(t *testing.T) {
 
 		require.NoError(t, os.WriteFile(pgctld.RestoreCommandPIDFile(baseDir), []byte(strconv.Itoa(cmd.Process.Pid)), 0o644))
 
-		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost")
 		require.NoError(t, err)
 
 		resp, err := service.StopRestoreCommand(context.Background(), &pb.StopRestoreCommandRequest{})

@@ -77,8 +77,8 @@ func TestValidateBackendFlags(t *testing.T) {
 		require.ErrorContains(t, validateBackendFlags("src", only(name)), "--"+name, name)
 	}
 	require.ElementsMatch(t, []string{
-		"socket-file", "pooler-dir", "pg-port", "pgctld-addr", "pgbackrest-port",
-		"pgbackrest-cert-file", "pgbackrest-key-file", "pgbackrest-ca-file", "pgbackrest-cipher-key-file",
+		"socket-file", "pooler-dir", "pg-port", "pgctld-addr", "pgbackrest-control-socket",
+		"pgbackrest-wal-socket", "data-volume-root", "data-volume-anchor",
 	}, managedPostgresFlags())
 }
 
@@ -186,9 +186,9 @@ func TestResolveLeadershipMode(t *testing.T) {
 		{name: "pooler dir", args: []string{"--backing-connection=src", "--pooler-dir=/tmp/p"}, wantErr: "--pooler-dir"},
 		{name: "pg port", args: []string{"--backing-connection=src", "--pg-port=5432"}, wantErr: "--pg-port"},
 		{name: "pgctld address", args: []string{"--backing-connection=src", "--pgctld-addr=localhost:1"}, wantErr: "--pgctld-addr"},
-		{name: "pgbackrest port", args: []string{"--backing-connection=src", "--pgbackrest-port=8432"}, wantErr: "--pgbackrest-port"},
-		{name: "pgbackrest cipher key file", args: []string{"--backing-connection=src", "--pgbackrest-cipher-key-file=/tmp/k"}, wantErr: "--pgbackrest-cipher-key-file"},
-		{name: "managed keeps pgbackrest flags", args: []string{"--pgbackrest-port=8432", "--pgctld-addr=localhost:1"}, want: clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_CONSENSUS},
+		{name: "pgbackrest control socket", args: []string{"--backing-connection=src", "--pgbackrest-control-socket=/tmp/control.sock"}, wantErr: "--pgbackrest-control-socket"},
+		{name: "pgbackrest WAL socket", args: []string{"--backing-connection=src", "--pgbackrest-wal-socket=/tmp/wal.sock"}, wantErr: "--pgbackrest-wal-socket"},
+		{name: "managed keeps pgbackrest flags", args: []string{"--pgbackrest-control-socket=/tmp/control.sock", "--pgctld-addr=localhost:1"}, want: clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_CONSENSUS},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mp := newTestMultipooler()
