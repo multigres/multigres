@@ -203,3 +203,55 @@ func TestValidateTableGroupAndShard(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateShardLayout(t *testing.T) {
+	tests := []struct {
+		name   string
+		shards []string
+		want   []string // canonical order
+	}{
+		{name: "single full range", shards: []string{"0-inf"}, want: []string{"0-inf"}},
+		{name: "two halves", shards: []string{"0-80", "80-inf"}, want: []string{"0-80", "80-inf"}},
+		{name: "unordered input is sorted", shards: []string{"80-inf", "0-80"}, want: []string{"0-80", "80-inf"}},
+		{name: "four quarters", shards: []string{"c0-inf", "40-80", "0-40", "80-c0"}, want: []string{"0-40", "40-80", "80-c0", "c0-inf"}},
+		{name: "mixed bound widths", shards: []string{"0-80", "80-8040", "8040-inf"}, want: []string{"0-80", "80-8040", "8040-inf"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ranges, err := ValidateShardLayout(tt.shards)
+			require.NoError(t, err)
+			got := make([]string, len(ranges))
+			for i, kr := range ranges {
+				got[i] = ShardName(kr)
+			}
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestValidateShardLayout_Rejects(t *testing.T) {
+	tests := []struct {
+		name        string
+		shards      []string
+		errContains string
+	}{
+		{name: "empty", shards: nil, errContains: "at least one shard"},
+		{name: "bad name", shards: []string{"0-80", "80"}, errContains: "expected <start>-<end>"},
+		{name: "noncanonical bound", shards: []string{"0-8000", "8000-inf"}, errContains: "zero byte"},
+		{name: "duplicate", shards: []string{"0-80", "0-80", "80-inf"}, errContains: `duplicate shard "0-80"`},
+		{name: "missing start", shards: []string{"40-80", "80-inf"}, errContains: "start of the keyspace"},
+		{name: "missing end", shards: []string{"0-40", "40-80"}, errContains: "end of the keyspace"},
+		{name: "gap", shards: []string{"0-40", "80-inf"}, errContains: `gap in shard layout between "0-40" and "80-inf"`},
+		{name: "overlap", shards: []string{"0-80", "40-inf"}, errContains: `shards "0-80" and "40-inf" overlap`},
+		{name: "full range plus another", shards: []string{"0-inf", "80-inf"}, errContains: `shards "0-inf" and "80-inf" overlap`},
+		{name: "two full ranges", shards: []string{"0-inf", "0-inf"}, errContains: "duplicate"},
+		{name: "contained range", shards: []string{"0-inf", "40-80"}, errContains: "overlap"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ValidateShardLayout(tt.shards)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errContains)
+		})
+	}
+}

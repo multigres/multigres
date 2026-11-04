@@ -2874,7 +2874,8 @@ export class CreateTableGroupRequest extends Message<CreateTableGroupRequest> {
 
   /**
    * if_not_exists makes an already-active tablegroup of this name a no-op
-   * (already_exists is set on the response) instead of an error.
+   * (already_exists is set on the response) instead of an error, and joins a
+   * creation of this name already in flight whatever its layout.
    *
    * @generated from field: bool if_not_exists = 3;
    */

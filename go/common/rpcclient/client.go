@@ -216,6 +216,13 @@ type MultipoolerClient interface {
 	SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error)
 
 	//
+	// Manager Service Methods - Tablegroup operations (catalog primary only)
+	//
+
+	// ListTableGroups returns the tablegroups a provisioner should have provisioned.
+	ListTableGroups(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ListTableGroupsRequest) (*multipoolermanagerdatapb.ListTableGroupsResponse, error)
+
+	//
 	// Manager Service Methods - PostgreSQL Configuration Reload
 	//
 

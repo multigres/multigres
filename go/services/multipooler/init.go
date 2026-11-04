@@ -99,6 +99,7 @@ type Multipooler struct {
 	cell                viperutil.Value[string]
 	database            viperutil.Value[string]
 	tableGroup          viperutil.Value[string]
+	tableGroupID        viperutil.Value[int64]
 	shard               viperutil.Value[string]
 	serviceID           viperutil.Value[string]
 	socketFilePath      viperutil.Value[string]
@@ -227,6 +228,11 @@ func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, res
 		shard: viperutil.Configure(reg, "shard", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "shard",
+			Dynamic:  false,
+		}),
+		tableGroupID: viperutil.Configure(reg, "tablegroup-id", viperutil.Options[int64]{
+			Default:  0,
+			FlagName: "tablegroup-id",
 			Dynamic:  false,
 		}),
 		serviceID: viperutil.Configure(reg, "service-id", viperutil.Options[string]{
@@ -370,6 +376,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("database", mp.database.Default(), "database name this multipooler serves (overrides "+constants.PgDatabaseEnvVar+" env var)")
 	flags.String("table-group", mp.tableGroup.Default(), "table group this multipooler serves (required)")
 	flags.String("shard", mp.shard.Default(), "shard this multipooler serves (required)")
+	flags.Int64("tablegroup-id", mp.tableGroupID.Default(), "catalog id of the table group this multipooler serves, as reported by ListDesiredTableGroups; 0 when unknown (the default table group, or one configured outside the catalog)")
 	flags.String("service-id", mp.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
 	flags.String("socket-file", mp.socketFilePath.Default(), "PostgreSQL Unix socket file path. If unset, derived as <pooler-dir>/pg_sockets/.s.PGSQL.<pg-port> when --pooler-dir is set; set explicitly to empty (--socket-file='') to force a TCP connection")
 	flags.String("pooler-dir", mp.poolerDir.Default(), "pooler directory path")
@@ -396,6 +403,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.cell,
 		mp.database,
 		mp.tableGroup,
+		mp.tableGroupID,
 		mp.shard,
 		mp.serviceID,
 		mp.socketFilePath,
@@ -520,6 +528,9 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	if err := keyrange.ValidateTableGroupAndShard(tableGroup, shard); err != nil {
 		return err
 	}
+	if mp.tableGroupID.Get() < 0 {
+		return errors.New("tablegroup-id must not be negative")
+	}
 	// The shard name was validated above, so this should never fail.
 	keyRange, err := keyrange.ParseShardName(shard)
 	if err != nil {
@@ -540,6 +551,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		TableGroup: tableGroup,
 		Shard:      shard,
 	}
+	multipooler.TablegroupId = mp.tableGroupID.Get()
 	multipooler.KeyRange = keyRange
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	multipooler.LeadershipMode = mode
