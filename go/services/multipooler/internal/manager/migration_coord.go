@@ -252,6 +252,12 @@ func (pm *MultipoolerManager) migrationServingHold() bool {
 // mid-migration. It is a single count over a tiny table and never touches
 // the state-manager lock.
 func (pm *MultipoolerManager) refreshMigrationHold(ctx context.Context) {
+	if pm.IsUnmanaged() {
+		// An unmanaged pooler's database is external: no migration state of ours lives
+		// there, so nothing holds it, and it is never queried for that state.
+		pm.migrationImportHold.Store(int32(migrationHoldNotHeld))
+		return
+	}
 	qs := pm.internalQueryService()
 	if qs == nil {
 		// Connection pools not yet open at startup, or otherwise unavailable: the
