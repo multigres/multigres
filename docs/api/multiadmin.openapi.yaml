@@ -4111,9 +4111,9 @@ components:
           title: shards
           type: array
         state:
-          description: state is creating or active. Dropping tablegroups are not listed.
+          $ref: '#/components/schemas/multipoolermanagerdata.TableGroupState'
+          description: state is CREATING or ACTIVE. Tablegroups being dropped are not listed.
           title: state
-          type: string
         tablegroupId:
           description: |-
             tablegroup_id is the catalog identity. Provisioners pass it to the
@@ -4123,6 +4123,14 @@ components:
           type: string
       title: TableGroup
       type: object
+    multipoolermanagerdata.TableGroupState:
+      description: TableGroupState is the lifecycle state of a listed tablegroup.
+      enum:
+        - TABLE_GROUP_STATE_UNSPECIFIED
+        - TABLE_GROUP_STATE_CREATING
+        - TABLE_GROUP_STATE_ACTIVE
+      title: TableGroupState
+      type: string
   securitySchemes:
     BearerAuth:
       bearerFormat: JWT
