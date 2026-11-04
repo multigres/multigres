@@ -21,6 +21,31 @@ Desired state flows one way: catalog, then API, then provisioner, then pods.
 The provisioner reports nothing back. Multigres detects completion from its
 own topology.
 
+## The statements
+
+`CREATE TABLEGROUP` and `DROP TABLEGROUP` run in the gateway, which never
+sends them to postgres. They are off unless the gateway runs with
+`--enable-tablegroup-ddl`: only a cluster whose provisioner acts on the
+catalog can complete them. Without the flag the gateway rejects them with
+`feature_not_supported`.
+
+Each statement:
+
+1. Refuses to run inside a transaction block, like `CREATE DATABASE`.
+2. Checks that the caller's current role is a member of `multigres_topo`
+   (superusers always are), on the caller's own session.
+3. Records the intent through the catalog primary (below) and sends a
+   `NOTICE` naming the operation id.
+4. Waits, polling the operation every second, until it is `DONE` or
+   `FAILED`.
+
+Cancelling the statement, a statement timeout, or closing the connection only
+stops the wait. The operation is durable in the catalog and continues; the
+notice says so and names where to follow it. `statement_timeout` applies as
+it does to `CREATE DATABASE`, and the gateway's default is 30 seconds, so a
+session that wants the statement to wait out provisioning sets
+`statement_timeout = 0` first.
+
 ## Components
 
 **Catalog primary pooler.** The multipooler that is primary for the catalog

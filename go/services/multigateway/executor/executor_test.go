@@ -809,3 +809,30 @@ func TestStreamReplication_PropagatesError(t *testing.T) {
 	require.ErrorIs(t, err, wantErr)
 	assert.Nil(t, stream)
 }
+
+// Tablegroup DDL is not PostgreSQL syntax: the backend must never be asked to
+// prepare or describe it.
+func TestTableGroupDDL_NeverReachesTheBackendForParseOrDescribe(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+	state := handler.NewMultigatewayConnectionState()
+
+	for _, sql := range []string{"CREATE TABLEGROUP commerce SHARDS ('0-80', '80-inf')", "drop tablegroup if exists commerce"} {
+		require.NoError(t, exec.PrepareInTransaction(context.Background(), testConn(), state, sql, nil))
+		desc, err := exec.Describe(context.Background(), testConn(), state, makePortalInfo(t, sql), nil)
+		require.NoError(t, err)
+		require.NotNil(t, desc, "answered locally")
+		assert.Empty(t, desc.GetFields(), "no rows")
+		assert.Empty(t, desc.GetParameters(), "no parameters")
+	}
+	assert.Zero(t, mock.streamExecuteCalls.Load())
+
+	// Anything else still goes to the backend, including SQL that only
+	// mentions the word.
+	require.NoError(t, exec.PrepareInTransaction(context.Background(), testConn(), state, "SELECT tablegroup FROM t", nil))
+	assert.Equal(t, int32(1), mock.streamExecuteCalls.Load())
+	desc, err := exec.Describe(context.Background(), testConn(), state, makePortalInfo(t, "SELECT 1"), nil)
+	require.NoError(t, err)
+	assert.Nil(t, desc, "forwarded to the backend mock")
+}

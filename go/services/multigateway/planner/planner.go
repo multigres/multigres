@@ -56,6 +56,12 @@ type Planner struct {
 	// Set via SetClusterViewSource; nil (the default) keeps the views off, and
 	// every statement naming one is forwarded to the backend unchanged.
 	clusterViews engine.ClusterViewSource
+
+	// tableGroups executes CREATE and DROP TABLEGROUP against the catalog
+	// primary. Set via SetTableGroupAdmin; nil (the default) means the
+	// cluster has no provisioner for tablegroups, and the statements are
+	// rejected rather than recorded and left waiting forever.
+	tableGroups engine.TableGroupAdmin
 }
 
 // NewPlanner creates a new query planner.
@@ -82,6 +88,12 @@ func (p *Planner) SetSlotBasedReplicationEnabled(enabled func() bool) {
 // multigres.multipoolers is an ordinary unknown relation to the backend.
 func (p *Planner) SetClusterViewSource(source engine.ClusterViewSource) {
 	p.clusterViews = source
+}
+
+// SetTableGroupAdmin enables CREATE and DROP TABLEGROUP, executed through
+// admin. Must be called before connections are accepted.
+func (p *Planner) SetTableGroupAdmin(admin engine.TableGroupAdmin) {
+	p.tableGroups = admin
 }
 
 // ClusterViewsEnabled reports whether the gateway serves the cluster views.
@@ -365,6 +377,15 @@ func (p *Planner) Plan(
 
 	case ast.T_ClosePortalStmt:
 		return p.planClosePortalStmt(sql, stmt.(*ast.ClosePortalStmt))
+
+	case ast.T_CreateTableGroupStmt:
+		return p.planCreateTableGroup(sql, stmt.(*ast.CreateTableGroupStmt))
+
+	case ast.T_DropStmt:
+		if ds := stmt.(*ast.DropStmt); ds.RemoveType == ast.OBJECT_TABLEGROUP {
+			return p.planDropTableGroup(sql, ds)
+		}
+		plan, err = p.planDefault(sql, stmt, conn, opts)
 
 	default:
 		// Default: simple route to PostgreSQL
@@ -728,6 +749,8 @@ func primitiveName(p engine.Primitive) string {
 		return engine.PlanTypeListenNotify
 	case *engine.Sequence:
 		return engine.PlanTypeSequence
+	case *engine.TableGroupDDL:
+		return engine.PlanTypeTableGroupDDL
 	default:
 		return engine.PlanTypeUnknown
 	}

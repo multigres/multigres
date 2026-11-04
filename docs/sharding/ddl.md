@@ -6,12 +6,15 @@ document grows with the implementation: it currently covers tablegroups.
 Table placement and shard keys will be added when their syntax lands.
 
 **Status:** the syntax below is parsed and deparsed by `go/common/parser`
-(grammar in `postgres.y`, nodes in `ast/sharding.go`). Nothing executes yet:
-the gateway rejects every tablegroup statement with `feature_not_supported`
-(`ast.IsTableGroupDDL`) rather than forwarding it to postgres, where it would
+(grammar in `postgres.y`, nodes in `ast/sharding.go`). `CREATE TABLEGROUP` and
+`DROP TABLEGROUP` execute in the gateway when it runs with
+`--enable-tablegroup-ddl`; how they record intent, provision and complete is
+in [tablegroup-operations.md](tablegroup-operations.md). Without the flag,
+and for `ALTER TABLEGROUP`, the gateway rejects the statement with
+`feature_not_supported` rather than forwarding it to postgres, where it would
 fail with a syntax error. The rules below that go beyond syntax (coverage,
-contiguity, protected objects) are not enforced by the grammar; the
-implementation will own those errors.
+contiguity, protected objects) are not enforced by the grammar; the catalog
+primary enforces them.
 
 Square brackets mark optional clauses; braces with `|` mark alternatives.
 All existing PostgreSQL syntax remains available. The new keywords
@@ -41,6 +44,21 @@ DROP TABLEGROUP [IF EXISTS] group_name [RESTRICT | CASCADE];
 Without `SHARDS`, a tablegroup has a single shard, `0-inf`, and is unsharded.
 A tablegroup is sharded exactly when it has more than one shard.
 
+A tablegroup name is a lowercase DNS label: letters, digits and hyphens,
+starting and ending with a letter or digit, at most 25 characters. The name is
+reused as a Kubernetes resource name, a pooler flag and a backup path, so it is
+held to the strictest of their rules.
+
+`CREATE TABLEGROUP` and `DROP TABLEGROUP` require membership in
+`multigres_topo`, a role without login that the catalog shard creates;
+superusers are members of every role. Grant it to the roles allowed to change
+shard infrastructure: `GRANT multigres_topo TO some_role`. Like
+`CREATE DATABASE`, they cannot run inside a transaction block or a function
+body, and they return once the change is complete: for `CREATE`, every shard
+has a serving primary; for `DROP`, every shard has been torn down. Cancelling
+the statement only stops the wait; the change continues and is visible in
+`multigres.operations`.
+
 Ranges use `lower-upper` notation, with hexadecimal boundaries and an
 exclusive upper bound. `0-inf` covers the entire keyspace. A shard map must
 cover the keyspace without gaps or overlaps.
@@ -62,8 +80,10 @@ no-op with a notice instead of an error.
 
 `DROP TABLEGROUP` defaults to `RESTRICT`, requiring the tablegroup to be
 empty. `CASCADE` drops its contained objects and recursively follows their
-dependencies, using PostgreSQL dependency semantics. All applicable privilege
-and protected-object checks must pass before execution.
+dependencies, using PostgreSQL dependency semantics; the gateway rejects it
+with `feature_not_supported`. All applicable privilege and protected-object
+checks must pass before execution. Dropping a tablegroup that is still being
+created cancels the creation.
 
 The default tablegroup is protected: it cannot be renamed, resharded, or
 dropped. It houses the metadata tables and the database catalog (MUL-1783),
