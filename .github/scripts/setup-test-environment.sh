@@ -29,7 +29,20 @@ echo "Installing PostgreSQL 17 and pgBackRest from PGDG..."
 sudo apt-get update
 sudo apt-get install -y postgresql-common
 sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
-sudo apt-get install -y postgresql-17 postgresql-client-17 postgresql-contrib-17 pgbackrest
+# The live PGDG index keeps only the newest pgBackRest, so add the archive
+# source (same key) or the exact pin stops resolving once PGDG ships a newer one.
+echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt-archive.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg-archive main" | sudo tee /etc/apt/sources.list.d/pgdg-archive.list >/dev/null
+sudo apt-get update
+# pgBackRest is pinned exactly: a sidecar and a legacy pgctld in one shard must
+# speak the same remote protocol, and pgBackRest refuses a peer of another
+# version. The package suffix differs per distro, so resolve it from the repo.
+PGBACKREST_VERSION="2.60.0"
+PGBACKREST_PKG_VERSION="$(apt-cache madison pgbackrest | awk -v v="${PGBACKREST_VERSION}-" 'index($3, v) == 1 {print $3; exit}')"
+if [ -z "${PGBACKREST_PKG_VERSION}" ]; then
+  echo "ERROR: pgbackrest ${PGBACKREST_VERSION} not found in apt" >&2
+  exit 1
+fi
+sudo apt-get install -y postgresql-17 postgresql-client-17 postgresql-contrib-17 "pgbackrest=${PGBACKREST_PKG_VERSION}"
 pgbackrest version
 
 # Set up postgres user password for tests

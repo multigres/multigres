@@ -109,6 +109,8 @@ USER root
 # PG_MAJOR. Set PROVISION_PG_PACKAGES=false when building on a prebuilt base that
 # already ships these (often such bases are not Debian-based, so apt would not
 # work there anyway); the guardrail below asserts the base actually provides them.
+# The pgdg-archive source keeps the exact pgBackRest pin resolvable after the
+# live PGDG index (newest only) moves on.
 ARG PROVISION_PG_PACKAGES=true
 # Redeclare the global POSTGRES_IMAGE inside this stage so the guardrail's error
 # message can name the offending base image (global ARGs aren't visible to RUN).
@@ -123,9 +125,10 @@ RUN if [ "${PROVISION_PG_PACKAGES}" = "true" ]; then \
     lsb-release && \
     curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql-archive-keyring.gpg && \
     echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list && \
+    echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] https://apt-archive.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg-archive main" >> /etc/apt/sources.list.d/pgdg.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-    pgbackrest \
+    "pgbackrest=2.60.0-1.pgdg*" \
     "postgresql-${PG_MAJOR}-pgvector" \
     procps && \
     pgbackrest version && \
@@ -141,7 +144,7 @@ RUN if [ "${PROVISION_PG_PACKAGES}" = "true" ]; then \
 # pgbackrest -> shard init/first backup, pgvector -> CREATE EXTENSION vector).
 RUN if [ "${PROVISION_PG_PACKAGES}" != "true" ]; then \
       missing=""; \
-      command -v pgbackrest >/dev/null 2>&1 || missing="${missing} pgbackrest"; \
+      pgbackrest version 2>/dev/null | grep -qx 'pgBackRest 2.60.0' || missing="${missing} pgbackrest-2.60.0"; \
       command -v pgrep >/dev/null 2>&1 || missing="${missing} pgrep(procps)"; \
       ext_dir="$(pg_config --sharedir 2>/dev/null)/extension"; \
       [ -f "${ext_dir}/vector.control" ] || missing="${missing} pgvector"; \
