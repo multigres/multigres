@@ -259,9 +259,13 @@ func (pc *poolerConnection) Pooler() queryservice.Pooler {
 }
 
 // ManagerClient returns a pooler manager client over this connection's gRPC
-// channel, which serves the manager service alongside the query service.
-func (pc *poolerConnection) ManagerClient() multipoolermanagerpb.MultipoolerManagerClient {
-	return multipoolermanagerpb.NewMultipoolerManagerClient(pc.conn)
+// channel, which serves the manager service alongside the query service. The
+// local pooler is called in process, with no channel, and has none.
+func (pc *poolerConnection) ManagerClient() (multipoolermanagerpb.MultipoolerManagerClient, error) {
+	if pc.conn == nil {
+		return nil, fmt.Errorf("pooler %s has no gRPC connection for its manager service", pc.ID())
+	}
+	return multipoolermanagerpb.NewMultipoolerManagerClient(pc.conn), nil
 }
 
 // QueryService returns the query execution service for this connection.

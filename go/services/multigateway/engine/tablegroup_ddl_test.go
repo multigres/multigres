@@ -27,11 +27,13 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
@@ -90,11 +92,17 @@ func opIn(state multipoolermanagerdatapb.OperationState, lastError string) fakeO
 	return fakeOpAnswer{op: &multipoolermanagerdatapb.Operation{OperationId: testTableGroupOpID, State: state, LastError: lastError}}
 }
 
-// privilegeExec answers the privilege query with allowed and records every
-// routed query.
+// privilegeExec answers the privilege query for a read-write session with
+// allowed and records every routed query.
 func privilegeExec(allowed string) *capturingExec {
+	return sessionExec("off", allowed)
+}
+
+// sessionExec answers the privilege query with transaction_read_only and
+// allowed.
+func sessionExec(readOnly, allowed string) *capturingExec {
 	return &capturingExec{mockIExecute: mockIExecute{streamExecuteResult: &sqltypes.Result{
-		Rows: []*sqltypes.Row{{Values: []sqltypes.Value{sqltypes.Value(allowed)}}},
+		Rows: []*sqltypes.Row{{Values: []sqltypes.Value{sqltypes.Value(readOnly), sqltypes.Value(allowed)}}},
 	}}}
 }
 
@@ -123,11 +131,11 @@ func requirePgError(t *testing.T, err error, code string) *mterrors.PgDiagnostic
 }
 
 func newTestCreate(admin TableGroupAdmin, ifNotExists bool) *TableGroupDDL {
-	return NewCreateTableGroup(admin, "CREATE TABLEGROUP commerce", "default", "0-inf", "commerce", []string{"0-80", "80-inf"}, ifNotExists)
+	return NewCreateTableGroup(admin, "CREATE TABLEGROUP commerce", "commerce", []string{"0-80", "80-inf"}, ifNotExists)
 }
 
 func newTestDrop(admin TableGroupAdmin, ifExists bool) *TableGroupDDL {
-	return NewDropTableGroup(admin, "DROP TABLEGROUP commerce", "default", "0-inf", "commerce", ifExists)
+	return NewDropTableGroup(admin, "DROP TABLEGROUP commerce", "commerce", ifExists)
 }
 
 func TestTableGroupDDL_CreateWaitsForCompletion(t *testing.T) {
@@ -280,8 +288,104 @@ func TestTableGroupDDL_RefusedInTransactionBlock(t *testing.T) {
 		func(context.Context, *sqltypes.Result) error { return nil })
 	d := requirePgError(t, err, mterrors.PgSSActiveTransaction)
 	assert.Equal(t, "CREATE TABLEGROUP cannot run inside a transaction block", d.Message)
-	assert.Empty(t, exec.sqls)
 	assert.Empty(t, admin.databases)
+}
+
+func TestTableGroupDDL_ReadOnlyIsReportedBeforeTheTransactionBlock(t *testing.T) {
+	// As PostgreSQL does for CREATE DATABASE in BEGIN READ ONLY.
+	conn := server.NewTestConn(&bytes.Buffer{}).Conn
+	conn.SetTxnStatus(protocol.TxnStatusInBlock)
+	err := newTestCreate(&fakeTableGroupAdmin{}, false).StreamExecute(t.Context(), sessionExec("on", "t"), conn, handler.NewMultigatewayConnectionState(), nil, PlanExecInfo{},
+		func(context.Context, *sqltypes.Result) error { return nil })
+	d := requirePgError(t, err, mterrors.PgSSReadOnlyTransaction)
+	assert.Equal(t, "cannot execute CREATE TABLEGROUP in a read-only transaction", d.Message)
+}
+
+func TestTableGroupDDL_RefusedInAPipeline(t *testing.T) {
+	admin := &fakeTableGroupAdmin{}
+	exec := privilegeExec("t")
+	state := handler.NewMultigatewayConnectionState()
+	state.SetPipelining(true)
+	err := newTestDrop(admin, false).StreamExecute(t.Context(), exec, server.NewTestConn(&bytes.Buffer{}).Conn, state, nil, PlanExecInfo{},
+		func(context.Context, *sqltypes.Result) error { return nil })
+	d := requirePgError(t, err, mterrors.PgSSActiveTransaction)
+	assert.Equal(t, "DROP TABLEGROUP cannot be executed within a pipeline", d.Message)
+	assert.Empty(t, admin.databases)
+}
+
+func TestTableGroupDDL_RefusedInAReadOnlySession(t *testing.T) {
+	// On the replica-reads port the check runs on a standby, where
+	// transaction_read_only is always on.
+	for _, prim := range []*TableGroupDDL{newTestCreate(&fakeTableGroupAdmin{}, false), newTestDrop(&fakeTableGroupAdmin{}, false)} {
+		admin := prim.admin.(*fakeTableGroupAdmin)
+		_, err := runTableGroupDDL(t, t.Context(), prim, sessionExec("on", "t"))
+		d := requirePgError(t, err, mterrors.PgSSReadOnlyTransaction)
+		assert.Equal(t, "cannot execute "+prim.statementName()+" in a read-only transaction", d.Message)
+		assert.Empty(t, admin.databases, "the catalog is never called")
+	}
+}
+
+func TestTableGroupDDL_UnansweredSessionCheckIsRefused(t *testing.T) {
+	admin := &fakeTableGroupAdmin{}
+	exec := &capturingExec{mockIExecute: mockIExecute{streamExecuteResult: &sqltypes.Result{}}}
+	_, err := runTableGroupDDL(t, t.Context(), newTestCreate(admin, false), exec)
+	d := requirePgError(t, err, mterrors.PgSSInternalError)
+	assert.Equal(t, "the CREATE TABLEGROUP privilege check returned no row", d.Message)
+	assert.Empty(t, admin.databases)
+}
+
+// targetExec records the tablegroup and shard each query is routed to.
+type targetExec struct {
+	capturingExec
+	targets []string
+}
+
+func (e *targetExec) StreamExecute(ctx context.Context, conn *server.Conn, tableGroup, shard, sql string,
+	ps *query.PreparedStatement, state *handler.MultigatewayConnectionState, info PlanExecInfo,
+	keepStructured bool, callback func(context.Context, *sqltypes.Result) error,
+) error {
+	e.targets = append(e.targets, tableGroup+"/"+shard)
+	return e.capturingExec.StreamExecute(ctx, conn, tableGroup, shard, sql, ps, state, info, keepStructured, callback)
+}
+
+func TestTableGroupDDL_SessionCheckRunsOnTheCatalogShard(t *testing.T) {
+	admin := &fakeTableGroupAdmin{dropRes: []*multipoolermanagerdatapb.DropTableGroupResponse{{NotFound: true}}}
+	exec := &targetExec{capturingExec: *privilegeExec("t")}
+	_, err := runTableGroupDDL(t, t.Context(), newTestDrop(admin, true), exec)
+	require.NoError(t, err)
+	assert.Equal(t, []string{constants.DefaultTableGroup + "/" + constants.DefaultShard}, exec.targets)
+}
+
+func TestTableGroupDDL_UnknownOutcomeSaysHowToFindTheRequest(t *testing.T) {
+	t.Run("create", func(t *testing.T) {
+		admin := &fakeTableGroupAdmin{createErr: status.Error(codes.DeadlineExceeded, "context deadline exceeded")}
+		_, err := runTableGroupDDL(t, t.Context(), newTestCreate(admin, false), privilegeExec("t"))
+		d := requirePgError(t, err, mterrors.PgSSCannotConnectNow)
+		assert.Equal(t, "The request may have been recorded. Run the statement again with IF NOT EXISTS to wait for it, or check multigres.operations.", d.Hint)
+	})
+	t.Run("drop", func(t *testing.T) {
+		admin := &fakeTableGroupAdmin{dropErr: status.Error(codes.Unavailable, "connection reset")}
+		_, err := runTableGroupDDL(t, t.Context(), newTestDrop(admin, false), privilegeExec("t"))
+		d := requirePgError(t, err, mterrors.PgSSCannotConnectNow)
+		assert.Equal(t, "The request may have been recorded. Run the statement again with IF EXISTS to wait for it, or check multigres.operations.", d.Hint)
+	})
+	t.Run("a refusal has no hint", func(t *testing.T) {
+		admin := &fakeTableGroupAdmin{createErr: status.Error(codes.InvalidArgument, "shards overlap")}
+		_, err := runTableGroupDDL(t, t.Context(), newTestCreate(admin, false), privilegeExec("t"))
+		d := requirePgError(t, err, mterrors.PgSSInvalidParameterValue)
+		assert.Empty(t, d.Hint)
+	})
+	t.Run("a cancel during the request is noticed first", func(t *testing.T) {
+		admin := &fakeTableGroupAdmin{createErr: status.Error(codes.Canceled, "context canceled")}
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		results, err := runTableGroupDDL(t, ctx, newTestCreate(admin, false), privilegeExec("t"))
+		require.ErrorIs(t, err, context.Canceled, "the server reports a cancel as 57014")
+		require.Len(t, results, 1)
+		n := results[0].Notices[0]
+		assert.Equal(t, "the CREATE TABLEGROUP request may have been recorded before the statement ended", n.Message)
+		assert.Equal(t, "Run the statement again with IF NOT EXISTS to wait for it, or check multigres.operations.", n.Hint)
+	})
 }
 
 func TestTableGroupDDL_AdminErrorCodes(t *testing.T) {

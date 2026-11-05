@@ -184,6 +184,13 @@ type MultigatewayConnectionState struct {
 	// targetReplica is true when this connection arrived on the replica-reads
 	// listener port. Set once at connection initialization, never changed.
 	targetReplica bool
+
+	// pipelining is set once an extended-protocol Execute completes and
+	// cleared at the next Sync or when a simple query ends, like PostgreSQL's
+	// XACT_FLAGS_PIPELINING: the statements in between share one implicit
+	// transaction, so a statement that cannot run in a transaction block is
+	// refused there.
+	pipelining bool
 }
 
 // savepointFrame snapshots the SessionSettings map at the moment a savepoint
@@ -944,6 +951,22 @@ func (m *MultigatewayConnectionState) InitIdleSessionTimeout(defaultValue time.D
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.idleSessionTimeout = NewGatewayManagedVariable(defaultValue)
+}
+
+// Pipelining reports whether an earlier Execute of the current extended-protocol
+// pipeline has completed, so the next statement runs in its implicit
+// transaction.
+func (m *MultigatewayConnectionState) Pipelining() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pipelining
+}
+
+// SetPipelining sets or clears Pipelining.
+func (m *MultigatewayConnectionState) SetPipelining(pipelining bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pipelining = pipelining
 }
 
 // TargetReplica returns true if this connection targets a replica.

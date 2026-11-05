@@ -27,16 +27,25 @@ own topology.
 sends them to postgres. They are off unless the gateway runs with
 `--enable-tablegroup-ddl`: only a cluster whose provisioner acts on the
 catalog can complete them. Without the flag the gateway rejects them with
-`feature_not_supported`.
+`feature_not_supported`. Minigres has no such flag: a database served by one
+pooler cannot add shards.
 
 Each statement:
 
-1. Refuses to run inside a transaction block, like `CREATE DATABASE`.
-2. Checks that the caller's current role is a member of `multigres_topo`
-   (superusers always are), on the caller's own session.
-3. Records the intent through the catalog primary (below) and sends a
-   `NOTICE` naming the operation id.
-4. Waits, polling the operation every second, until it is `DONE` or
+1. Checks the caller's own session on the catalog shard and refuses, where
+   and in the order PostgreSQL refuses `CREATE DATABASE`: a read-only session
+   (`transaction_read_only`, always on for a session on the replica-reads
+   port, whose queries run on a standby), a transaction block, and a
+   statement after another of the same extended-protocol pipeline. Then the
+   caller's current role must be a member of `multigres_topo` (superusers
+   always are).
+2. Records the intent through the catalog primary (below) and sends a
+   `NOTICE` naming the operation id. If the call fails without an answer (a
+   timeout, an unreachable or failing-over primary, or the statement
+   cancelled), the intent may have been recorded anyway, and the error says
+   so: running the statement again with `IF NOT EXISTS` or `IF EXISTS` joins
+   the operation.
+3. Waits, polling the operation every second, until it is `DONE` or
    `FAILED`.
 
 Cancelling the statement, a statement timeout, or closing the connection only

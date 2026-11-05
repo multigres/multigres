@@ -15,7 +15,6 @@
 package planner
 
 import (
-	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
@@ -40,7 +39,7 @@ func (p *Planner) planCreateTableGroup(sql string, stmt *ast.CreateTableGroupStm
 			}
 		}
 	}
-	prim := engine.NewCreateTableGroup(p.tableGroups, sql, p.defaultTableGroup, constants.DefaultShard, stmt.Name, shards, stmt.IfNotExists)
+	prim := engine.NewCreateTableGroup(p.tableGroups, sql, stmt.Name, shards, stmt.IfNotExists)
 	return p.tableGroupPlan(sql, prim), nil
 }
 
@@ -55,7 +54,7 @@ func (p *Planner) planDropTableGroup(sql string, stmt *ast.DropStmt) (*engine.Pl
 	if !ok {
 		return nil, mterrors.NewFeatureNotSupported("DROP TABLEGROUP takes exactly one tablegroup name")
 	}
-	prim := engine.NewDropTableGroup(p.tableGroups, sql, p.defaultTableGroup, constants.DefaultShard, name, stmt.MissingOk)
+	prim := engine.NewDropTableGroup(p.tableGroups, sql, name, stmt.MissingOk)
 	return p.tableGroupPlan(sql, prim), nil
 }
 

@@ -84,6 +84,7 @@ type Multigateway struct {
 	// tableGroupDDLEnabled executes CREATE and DROP TABLEGROUP. Off by
 	// default: only a cluster whose provisioner creates tablegroups from the
 	// catalog can complete them, so elsewhere the statements are rejected.
+	// nil with a single pooler, which has no shards to add.
 	tableGroupDDLEnabled viperutil.Value[bool]
 	// poolerGateway manages connections to poolers and owns the lifecycle
 	// of the underlying pooler cache (topology watch + per-pooler health
@@ -206,8 +207,9 @@ func (mg *Multigateway) singlePooler() bool {
 // localPooler is the pooler in the same process, the only one the multigateway
 // then uses (minigres); nil uses every pooler in the topology (Multigres).
 // With a local pooler, what needs several poolers or gateways is off: replica
-// reads, failover buffering, the multipooler gRPC TLS settings and
-// cross-gateway cancel forwarding. Their flags are not registered.
+// reads, failover buffering, the multipooler gRPC TLS settings,
+// cross-gateway cancel forwarding and tablegroup DDL. Their flags are not
+// registered.
 func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string, localPooler *poolergateway.LocalPooler) *Multigateway {
 	if reg == nil {
 		panic("multigateway: reg is required")
@@ -317,12 +319,6 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 			Dynamic:  false,
 			EnvVars:  []string{"MT_ENABLE_CLUSTER_VIEWS"},
 		}),
-		tableGroupDDLEnabled: viperutil.Configure(reg, "enable-tablegroup-ddl", viperutil.Options[bool]{
-			Default:  false,
-			FlagName: "enable-tablegroup-ddl",
-			Dynamic:  false,
-			EnvVars:  []string{"MT_ENABLE_TABLEGROUP_DDL"},
-		}),
 		reg: reg,
 		serverStatus: Status{
 			Title: "Multigateway",
@@ -347,6 +343,12 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 		mg.replicaConfig = newReplicaConfig(reg)
 		mg.bufferConfig = buffer.NewConfig(reg)
 		mg.connConfig = rpcclient.NewConnConfig(reg)
+		mg.tableGroupDDLEnabled = viperutil.Configure(reg, "enable-tablegroup-ddl", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "enable-tablegroup-ddl",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_ENABLE_TABLEGROUP_DDL"},
+		})
 	}
 	mg.shutdownOnPrefixLoss = func() { mg.senv.InitiateShutdown() }
 
@@ -394,7 +396,6 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Bool("pg-require-ssl", mg.pgRequireSSL.Default(), "require TLS for all client PostgreSQL connections; multigateway fails to start if no cert/key is configured. CancelRequest still permitted over plaintext.")
 	fs.Bool("enable-slot-based-replication", mg.slotBasedReplicationEnabled.Default(), "admit non-temporary logical replication slots registered for failover (slot-based replication). Default off.")
 	fs.Bool("keep-transaction-on-gateway-rejection", mg.keepTransactionOnGatewayRejection.Default(), "leave an open explicit transaction in-block after a gateway policy rejection (feature_not_supported) instead of aborting it. Off by default so clients see PostgreSQL's contract that any wire error aborts the transaction; intended for pg_regress and compatibility test suites.")
-	fs.Bool("enable-tablegroup-ddl", mg.tableGroupDDLEnabled.Default(), "execute CREATE TABLEGROUP and DROP TABLEGROUP from this gateway. Enable only where a provisioner creates tablegroups from the sharding catalog (the Kubernetes operator); without one a creation can never complete. Default off; the statements are then rejected as not supported.")
 	fs.Bool("enable-cluster-views", mg.clusterViewsEnabled.Default(), "serve the read-only cluster views multigres.multigateways and multigres.multipoolers from this gateway. Default off; a reference to either name is then an unknown relation to the backend.")
 	fs.Int("plan-cache-memory", mg.planCacheMemory.Default(), "maximum memory in bytes for the query plan cache; 0 disables caching")
 	fs.Int("query-metrics-memory", mg.queryMetricsMemory.Default(), "memory budget (bytes) for per-query-shape metrics tracking; 0 disables per-query metrics and the registry RPC")
@@ -416,13 +417,16 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.slotBasedReplicationEnabled,
 		mg.keepTransactionOnGatewayRejection,
 		mg.clusterViewsEnabled,
-		mg.tableGroupDDLEnabled,
 		mg.planCacheMemory,
 		mg.queryMetricsMemory,
 		mg.queryMetricsSQLMaxBytes,
 		mg.queryLogSampleRate,
 	)
 	mg.replicaConfig.registerFlags(fs)
+	if mg.tableGroupDDLEnabled != nil {
+		fs.Bool("enable-tablegroup-ddl", mg.tableGroupDDLEnabled.Default(), "execute CREATE TABLEGROUP and DROP TABLEGROUP from this gateway. Enable only where a provisioner creates tablegroups from the sharding catalog (the Kubernetes operator); without one a creation can never complete. Default off; the statements are then rejected as not supported.")
+		viperutil.BindFlags(fs, mg.tableGroupDDLEnabled)
+	}
 	if mg.bufferConfig != nil {
 		mg.bufferConfig.RegisterFlags(fs)
 	}
@@ -530,7 +534,7 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 		mg.executor.SetClusterViewSource(mg)
 		logger.InfoContext(ctx, "cluster views enabled")
 	}
-	if mg.tableGroupDDLEnabled.Get() {
+	if mg.tableGroupDDLEnabled != nil && mg.tableGroupDDLEnabled.Get() {
 		mg.executor.SetTableGroupAdmin(newTableGroupAdmin(mg.poolerGateway))
 		logger.InfoContext(ctx, "tablegroup DDL enabled")
 	}
