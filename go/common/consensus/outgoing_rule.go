@@ -300,41 +300,80 @@ type finalizableOutgoingRule struct {
 //
 // Nothing is required for a decided outgoing rule, or when a cert revokes the
 // rule: the pooler then decides the proposal under the incoming policy instead.
+// A decided outgoing rule can still be undecided on the leader that is chosen;
+// see checkLeaderCanFinalizeProposal.
 func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal() (finalizableOutgoingRule, error) {
 	if r.transition.IsDecided() || r.basis.cert != nil {
 		return finalizableOutgoingRule{r}, nil
 	}
-	decision := r.transition.Decision()
+	if err := r.canFinalize(r.transition); err != nil {
+		return finalizableOutgoingRule{}, err
+	}
+	return finalizableOutgoingRule{r}, nil
+}
+
+// checkLeaderCanFinalizeProposal is checkRecruitsCanFinalizeProposal for the
+// rule as the chosen leader records it. A recruit can lead while recording the
+// outgoing rule as an undecided proposal even though another recruit knows it is
+// decided, and Promote on that leader must finish deciding it first.
+func (r revokedOutgoingRule) checkLeaderCanFinalizeProposal(leader *clustermetadatapb.ConsensusStatus) error {
+	leaderTransition := NewRuleTransition(leader.GetCurrentPosition().GetPosition())
+	if leaderTransition.IsDecided() || r.basis.cert != nil {
+		return nil
+	}
+	return r.canFinalize(leaderTransition)
+}
+
+// canFinalize checks that the recruits can satisfy the "Both" policy of t's
+// decision and proposal, which Promote needs to decide the proposal.
+func (r revokedOutgoingRule) canFinalize(t RuleTransition) error {
+	decision := t.Decision()
 	decisionPolicy, err := NewPolicyFromProto(decision.GetDurabilityPolicy())
 	if err != nil {
-		return finalizableOutgoingRule{}, fmt.Errorf("failed to parse durability policy from decision: %w", err)
+		return fmt.Errorf("failed to parse durability policy from decision: %w", err)
 	}
-	proposal := r.transition.PossiblyUndecidedRule()
+	proposal := t.PossiblyUndecidedRule()
 	proposalPolicy, err := NewPolicyFromProto(proposal.GetDurabilityPolicy())
 	if err != nil {
-		return finalizableOutgoingRule{}, fmt.Errorf("failed to parse durability policy from rule: %w", err)
+		return fmt.Errorf("failed to parse durability policy from rule: %w", err)
 	}
 	transition, err := BuildPolicyTransition(
 		PolicyWithCohort{Policy: decisionPolicy, Cohort: decision.GetCohortMembers()},
 		PolicyWithCohort{Policy: proposalPolicy, Cohort: proposal.GetCohortMembers()},
 	)
 	if err != nil {
-		return finalizableOutgoingRule{}, fmt.Errorf("outgoing proposal cannot be finalized: %w", err)
+		return fmt.Errorf("outgoing proposal cannot be finalized: %w", err)
 	}
 	reachable := statusesToIDs(filterCohortStatuses(transition.Both.Cohort, r.recruited))
 	if err := transition.Both.Policy.SatisfiedBy(reachable); err != nil {
-		return finalizableOutgoingRule{}, fmt.Errorf("outgoing proposal cannot be finalized: recruited members cannot satisfy its policy: %w", err)
+		return fmt.Errorf("outgoing proposal cannot be finalized: recruited members cannot satisfy its policy: %w", err)
 	}
-	return finalizableOutgoingRule{r}, nil
+	return nil
 }
 
 // eligibleLeaders returns the recruits that can lead: those recording the
 // outgoing rule that are tied at the highest LSN at or above the basis's frozen
-// LSN (zero when revoking by recruitment).
+// LSN (zero when revoking by recruitment), preferring among them those that need
+// not finalize the rule.
 func (r revokedOutgoingRule) eligibleLeaders() ([]*clustermetadatapb.ConsensusStatus, error) {
 	var minLSN pgutil.LSN
 	if r.basis.cert != nil {
 		minLSN = r.basis.cert.frozenLSN
 	}
-	return narrowByLSN(r.recruitsRecordingRule(), minLSN)
+	best, err := narrowByLSN(r.recruitsRecordingRule(), minLSN)
+	if err != nil {
+		return nil, err
+	}
+	// Candidates tied on LSN hold the same WAL, so prefer those that need not
+	// finalize a rule they hold undecided.
+	var finalizers []*clustermetadatapb.ConsensusStatus
+	for _, cs := range best {
+		if r.checkLeaderCanFinalizeProposal(cs) == nil {
+			finalizers = append(finalizers, cs)
+		}
+	}
+	if len(finalizers) > 0 {
+		return finalizers, nil
+	}
+	return best, nil
 }

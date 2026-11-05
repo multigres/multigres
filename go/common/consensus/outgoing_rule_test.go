@@ -625,3 +625,31 @@ func TestBuildSafeProposal_UndecidedProposalNotFinalizable(t *testing.T) {
 	}, build)
 	require.EqualError(t, err, wantErr)
 }
+
+func TestRevokedOutgoingRule_CheckLeaderCanFinalizeProposal(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	rev := revocation(5, ruleNum(3, 1))
+	// Deciding the latest rule needs all three under the stricter "Both" policy.
+	prior := makeRule(ruleNum(3, 0), atLeast(3), zone1.a, zone1.b, zone1.c)
+	latest := makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c)
+	knows := makeStatusWithProposal(zone1.a, &clustermetadatapb.RulePosition{Decision: latest}, rev, "0/1000000")
+	holds := makeStatusWithProposal(zone1.b, &clustermetadatapb.RulePosition{Decision: prior, Proposal: latest}, rev, "0/2000000")
+	check := func(basis revocationBasis, leader *clustermetadatapb.ConsensusStatus) error {
+		observed, err := discoverOutgoingRule([]*clustermetadatapb.ConsensusStatus{knows, holds}, ruleNum(3, 1), basis)
+		require.NoError(t, err)
+		return revokedOutgoingRule{observed}.checkLeaderCanFinalizeProposal(leader)
+	}
+
+	t.Run("a leader that knows the rule is decided needs nothing", func(t *testing.T) {
+		require.NoError(t, check(revocationBasis{}, knows))
+	})
+
+	t.Run("a leader holding the rule undecided needs the recruits to satisfy Both", func(t *testing.T) {
+		err := check(revocationBasis{}, holds)
+		require.EqualError(t, err, "outgoing proposal cannot be finalized: recruited members cannot satisfy its policy: durability not satisfied: 2 poolers, required 3")
+	})
+
+	t.Run("a certified revocation decides the proposal under the incoming policy", func(t *testing.T) {
+		require.NoError(t, check(revocationBasis{cert: &certBasis{}}, holds))
+	})
+}

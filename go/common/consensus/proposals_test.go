@@ -2621,3 +2621,49 @@ func TestBuildSafeProposal_LeaderRankedByLatestRuleThenLSN(t *testing.T) {
 	require.Len(t, eligible, 1)
 	assert.True(t, proto.Equal(zone1.b, eligible[0]), "the recruit holding the most WAL must lead, got %v", eligible[0])
 }
+
+// A recruit can lead while recording the latest rule as an undecided proposal even
+// though another recruit knows it is decided. Promote on that leader must decide
+// it first, so the recruits have to be able to satisfy the policy for that.
+func TestBuildSafeProposal_LeaderMustFinalizeWhatItHoldsUndecided(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	rev := revocation(5, ruleNum(3, 1))
+	// Deciding the latest rule needs all three under the stricter "Both" policy,
+	// but only a and b are recruited.
+	prior := makeRule(ruleNum(3, 0), atLeast(3), zone1.a, zone1.b, zone1.c)
+	latest := makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c)
+	keepOutgoing := func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return proposeFirstEligible(makeRule(ruleNum(5, 0), r.OutgoingRule.GetDurabilityPolicy(), r.OutgoingRule.GetCohortMembers()...))(r)
+	}
+	statuses := func(knowsLSN, holdsLSN string) []*clustermetadatapb.ConsensusStatus {
+		return []*clustermetadatapb.ConsensusStatus{
+			makeStatusWithProposal(zone1.a, &clustermetadatapb.RulePosition{Decision: latest}, rev, knowsLSN),
+			makeStatusWithProposal(zone1.b, &clustermetadatapb.RulePosition{Decision: prior, Proposal: latest}, rev, holdsLSN),
+		}
+	}
+
+	t.Run("the leader that holds the rule undecided cannot finalize it", func(t *testing.T) {
+		_, err := BuildSafeProposal(rev, statuses("0/1000000", "0/2000000"), keepOutgoing)
+
+		require.EqualError(t, err, "proposal validation: outgoing proposal cannot be finalized: recruited members cannot satisfy its policy: durability not satisfied: 2 poolers, required 3")
+	})
+
+	t.Run("among leaders holding the same WAL, the one that needs no finalizing leads", func(t *testing.T) {
+		var eligible []*clustermetadatapb.ID
+		_, err := BuildSafeProposal(rev, statuses("0/2000000", "0/2000000"), func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+			eligible = statusesToIDs(r.EligibleLeaders)
+			return keepOutgoing(r)
+		})
+
+		require.NoError(t, err)
+		require.Len(t, eligible, 1)
+		assert.True(t, proto.Equal(zone1.a, eligible[0]))
+	})
+
+	t.Run("the leader that knows the rule is decided needs nothing more", func(t *testing.T) {
+		built, err := BuildSafeProposal(rev, statuses("0/2000000", "0/1000000"), keepOutgoing)
+
+		require.NoError(t, err)
+		assert.True(t, proto.Equal(zone1.a, built.GetProposalLeader().GetId()))
+	})
+}
