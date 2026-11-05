@@ -79,8 +79,34 @@ func TestFirstModifiedSince(t *testing.T) {
 		assert.Empty(t, scan(t, newAgedDataDir(t)))
 	})
 
-	t.Run("missing root has nothing to protect", func(t *testing.T) {
-		assert.Empty(t, scan(t, filepath.Join(t.TempDir(), "gone")))
+	t.Run("a missing root is an error, not proof that nothing changed", func(t *testing.T) {
+		gone := filepath.Join(t.TempDir(), "gone")
+		_, err := firstModifiedSince(gone, ref, filepath.Join(gone, autoConfFileName))
+		require.Error(t, err)
+	})
+
+	t.Run("an entry that disappears below the root is tolerated", func(t *testing.T) {
+		dir := newAgedDataDir(t)
+		require.NoError(t, os.Symlink(filepath.Join(dir, "missing"), filepath.Join(dir, "dangling")))
+		old := time.Now().Add(-time.Hour)
+		require.NoError(t, os.Chtimes(dir, old, old))
+		assert.Empty(t, scan(t, dir))
+	})
+
+	t.Run("a symlink target that cannot be inspected is an error", func(t *testing.T) {
+		dir := newAgedDataDir(t)
+		locked := filepath.Join(t.TempDir(), "locked")
+		require.NoError(t, os.Mkdir(locked, 0o700))
+		require.NoError(t, os.Symlink(filepath.Join(locked, "target"), filepath.Join(dir, "tblspc")))
+		require.NoError(t, os.Chmod(locked, 0o000))
+		t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+		if _, err := os.Stat(filepath.Join(locked, "target")); err == nil || errors.Is(err, os.ErrNotExist) {
+			t.Skip("directory permissions are not enforced for this user")
+		}
+		old := time.Now().Add(-time.Hour)
+		require.NoError(t, os.Chtimes(dir, old, old))
+		_, err := firstModifiedSince(dir, ref, filepath.Join(dir, autoConfFileName))
+		require.Error(t, err)
 	})
 
 	t.Run("overwritten file", func(t *testing.T) {
@@ -310,6 +336,20 @@ func TestSettleRewindAttempt(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, tainted)
 		requirePresent(t, pm.rewindTainted(), false, "")
+	})
+
+	t.Run("a data directory that has disappeared is treated as modified", func(t *testing.T) {
+		newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		require.NoError(t, pm.rewindAttempt().write())
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(t.TempDir(), "gone"))
+
+		withLock(t, pm, func(ctx context.Context) {
+			tainted, err := pm.settleRewindAttempt(ctx)
+			require.NoError(t, err)
+			assert.True(t, tainted)
+		})
+		requirePresent(t, pm.rewindAttempt(), true, "the evidence is kept until a verdict can be recorded")
 	})
 
 	t.Run("an unreadable data directory is treated as modified", func(t *testing.T) {

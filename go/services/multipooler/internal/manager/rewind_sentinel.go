@@ -137,14 +137,18 @@ const autoConfFileName = "postgresql.auto.conf"
 // firstModifiedSince walks the tree under root, following a symlink at any level
 // (pg_wal is commonly a symlink to a separate volume), and returns the path of
 // the first entry whose modification time is not before ref, or "" if there is
-// none. A missing root has nothing to protect and counts as untouched. The root
-// directory and subdirectories are included: removing or creating an entry
-// changes the parent's modification time. excluded is skipped.
+// none. A root that cannot be read, missing included, is an error and not proof
+// that nothing changed: a volume that disappeared during the assessment must not
+// read as an untouched directory. An entry below the root that disappears while
+// walking is tolerated, because removing it changed its parent's modification
+// time, which is compared. The root directory and subdirectories are included:
+// removing or creating an entry changes the parent's modification time. excluded
+// is skipped.
 func firstModifiedSince(root string, ref time.Time, excluded string) (string, error) {
 	var found string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
+			if path != root && errors.Is(err, fs.ErrNotExist) {
 				return nil
 			}
 			return err
@@ -156,7 +160,16 @@ func firstModifiedSince(root string, ref time.Time, excluded string) (string, er
 		// removing one changes its parent directory, which is compared. What matters
 		// is the directory it points to.
 		if d.Type()&fs.ModeSymlink != 0 {
-			if target, err := os.Stat(path); err == nil && target.IsDir() {
+			target, statErr := os.Stat(path)
+			if statErr != nil {
+				// A dangling symlink has nothing to inspect. Any other failure means
+				// the evidence cannot be read and must not read as untouched.
+				if errors.Is(statErr, fs.ErrNotExist) {
+					return nil
+				}
+				return statErr
+			}
+			if target.IsDir() {
 				// The trailing separator makes the walk resolve the symlink.
 				sub, err := firstModifiedSince(path+string(filepath.Separator), ref, excluded)
 				if err != nil {
