@@ -152,6 +152,10 @@ type Multigateway struct {
 	// renumber, so the loss is fatal: it fails the readiness check (to
 	// drain new connections) and triggers shutdownOnPrefixLoss.
 	prefixLost atomic.Bool
+	// leaderServed is set the first time a pooler's health stream reports
+	// it is the leader, PRIMARY and SERVING: from then on writes can be
+	// routed. See LeaderServed.
+	leaderServed atomic.Bool
 	// shutdownOnPrefixLoss initiates the gateway's graceful shutdown when
 	// its PID prefix claim is lost; the supervisor then restarts the
 	// process, which claims a fresh prefix. A field so tests can observe
@@ -334,6 +338,13 @@ func (mg *Multigateway) Executor() *executor.Executor {
 	return mg.executor
 }
 
+// LeaderServed reports whether the gateway has seen a leader pooler serving
+// at least once since it started, so it has been able to route queries. It
+// stays true if the leader later stops serving.
+func (mg *Multigateway) LeaderServed() bool {
+	return mg.leaderServed.Load()
+}
+
 // ServiceIdentity returns the identity the multigateway reports when main
 // initializes the process's servenv.
 func (mg *Multigateway) ServiceIdentity() servenv.ServiceIdentity {
@@ -463,8 +474,13 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 		notifMetrics,
 	)
 
+	onLeaderServing := func(sk *clustermetadatapb.ShardRef) {
+		mg.leaderServed.Store(true)
+		notifMgr.OnLeaderServing(sk)
+	}
+
 	mg.poolerGateway = poolergateway.NewPoolerGateway(poolergateway.PoolerGatewayOpts{
-		OnLeaderServing: notifMgr.OnLeaderServing,
+		OnLeaderServing: onLeaderServing,
 		Ctx:             mg.shutdownCtx,
 		Source:          mg.ts,
 		LocalCell:       mg.cell.Get(),

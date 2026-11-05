@@ -164,6 +164,20 @@ binaries pass none and use every pooler in the topology.
 - **One identity.** The process reports the service name `minigres` with the
   pooler's cell, service ID, database and shard, so it appears once in logs,
   metrics and traces.
+- **Ready once a query can succeed.** `/ready` runs both halves' checks, and
+  neither waits for PostgreSQL: the pooler's leaves it out, and the gateway's
+  passes once it has its pooler's record. So `main` adds one more: ready only
+  once the gateway has seen its pooler serving as the PRIMARY. It stays ready if
+  PostgreSQL goes down later, as a Multigres pooler does, so clients get an
+  error instead of no connection.
+- **A failed start behaves as in Multigres.** If a half cannot start (its
+  port is taken, or pgctld does not answer within 30 seconds), the process logs
+  the error and exits with status 1. Its gateway record is ephemeral, so etcd
+  drops it once the lease expires (`--topo-etcd-lease-ttl`). If PostgreSQL
+  cannot start, the process keeps running and retrying, and `/ready` stays
+  not ready. SIGTERM before startup finishes ends the process at once, before
+  any shutdown hook is installed: no query can succeed yet, and PostgreSQL
+  belongs to pgctld.
 - **Status pages.** `/` is an index; the halves' pages are at `/multigateway`
   and `/multipooler`, because the shared HTTP server cannot register `/` twice.
 - **Flags.** Process flags are defined once and shared flags are given once (see

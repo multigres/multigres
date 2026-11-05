@@ -350,3 +350,40 @@ func TestMinigres_ShutdownUnderLoad(t *testing.T) {
 		t.Errorf("%d queries were refused on an open connection during shutdown; first: %v", len(refused), refused[0])
 	}
 }
+
+// TestMinigres_ReadyOnlyOnceServing restarts Minigres with PostgreSQL stopped,
+// so the pooler has to start it, and checks that /ready reports ready only once
+// a client query succeeds: Minigres must not be put behind a load balancer
+// while every query still fails. Once ready, it stays ready while PostgreSQL is
+// down.
+func TestMinigres_ReadyOnlyOnceServing(t *testing.T) {
+	skipIfShort(t)
+	setup, cleanup := NewIsolated(t)
+	defer cleanup()
+
+	setup.Minigres.TerminateGracefully(t.Logf, 30*time.Second)
+	setup.Pgctld.StopPostgres(t)
+	require.NoError(t, setup.Minigres.Start(t.Context(), t))
+
+	ready := func() bool {
+		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/ready", setup.Minigres.HttpPort))
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return resp.StatusCode == http.StatusOK
+	}
+	require.Eventually(t, ready, 60*time.Second, 50*time.Millisecond, "minigres must become ready")
+
+	db, err := sql.Open("postgres", clustersetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5"))
+	require.NoError(t, err)
+	defer db.Close()
+	var one int
+	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT 1").Scan(&one), "a query must succeed once /ready reports ready")
+
+	// Once it has served, it stays ready while PostgreSQL is down, as a
+	// Multigres pooler does.
+	setup.Pgctld.StopPostgres(t)
+	testpoll.Never(t, func() bool { return !ready() }, 3*time.Second, 100*time.Millisecond, "minigres must stay ready while PostgreSQL is down")
+}

@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -234,6 +235,19 @@ func (m *minigres) run(ctx context.Context) error {
 		return err
 	}
 	m.senv.OnTermSync(func() { m.shutdown(ctx) })
+	// The multipooler's own ready check leaves PostgreSQL out, and the
+	// multigateway's passes once it has the pooler's record, so together they
+	// report ready before a query can succeed: while the pooler starts
+	// PostgreSQL, or for as long as PostgreSQL cannot start. The pooler is the
+	// only one clients reach, so Minigres reports ready only once the gateway
+	// has seen it serving. It then stays ready if PostgreSQL goes down, as the
+	// multipooler does: clients get an error instead of no connection.
+	m.senv.RegisterReadyCheck(func() error {
+		if !m.gateway.LeaderServed() {
+			return errors.New("pooler has not served yet")
+		}
+		return nil
+	})
 	m.senv.HTTPHandleFunc("/", handleIndex)
 	return m.senv.RunDefault(m.grpcServer)
 }
