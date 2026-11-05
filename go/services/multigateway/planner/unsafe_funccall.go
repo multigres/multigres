@@ -409,8 +409,8 @@ func analyzeStatement(stmt ast.Stmt, unsafeConnection bool, admitFailoverSlots b
 	if err := checkTempSchemaQualifiedCreate(stmt); err != nil {
 		return nil, err
 	}
-	if ast.IsTableGroupDDL(stmt) {
-		return nil, mterrors.NewFeatureNotSupported("tablegroup DDL is parsed but not implemented yet")
+	if _, ok := stmt.(*ast.AlterTableGroupStmt); ok {
+		return nil, mterrors.NewFeatureNotSupported("ALTER TABLEGROUP is not supported")
 	}
 	if ps, ok := stmt.(*ast.PrepareStmt); ok {
 		if _, err := analyzeSQLPreparedBody(ps.Query, unsafeConnection, admitFailoverSlots); err != nil {

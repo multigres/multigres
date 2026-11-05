@@ -78,6 +78,11 @@ type Multigateway struct {
 	// multigres.multipoolers from this gateway. Off by default: the names are
 	// then ordinary unknown relations to the backend.
 	clusterViewsEnabled viperutil.Value[bool]
+	// tableGroupDDLEnabled executes CREATE and DROP TABLEGROUP. Off by
+	// default: only a cluster whose provisioner creates tablegroups from the
+	// catalog can complete them, so elsewhere the statements are rejected.
+	// nil with a single pooler, which has no shards to add.
+	tableGroupDDLEnabled viperutil.Value[bool]
 	// poolerGateway manages connections to poolers and owns the lifecycle
 	// of the underlying pooler cache (topology watch + per-pooler health
 	// streams + per-pooler connection riders).
@@ -191,8 +196,9 @@ func (mg *Multigateway) singlePooler() bool {
 // localPooler is the pooler in the same process, the only one the multigateway
 // then uses (minigres); nil uses every pooler in the topology (Multigres).
 // With a local pooler, what needs several poolers or gateways is off: replica
-// reads, failover buffering, the multipooler gRPC TLS settings and
-// cross-gateway cancel forwarding. Their flags are not registered.
+// reads, failover buffering, the multipooler gRPC TLS settings,
+// cross-gateway cancel forwarding and tablegroup DDL. Their flags are not
+// registered.
 func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string, localPooler *poolergateway.LocalPooler) *Multigateway {
 	if reg == nil {
 		panic("multigateway: reg is required")
@@ -317,6 +323,12 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 		mg.replicaConfig = newReplicaConfig(reg)
 		mg.bufferConfig = buffer.NewConfig(reg)
 		mg.connConfig = rpcclient.NewConnConfig(reg)
+		mg.tableGroupDDLEnabled = viperutil.Configure(reg, "enable-tablegroup-ddl", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "enable-tablegroup-ddl",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_ENABLE_TABLEGROUP_DDL"},
+		})
 	}
 	mg.shutdownOnPrefixLoss = func() { mg.senv.InitiateShutdown() }
 
@@ -380,6 +392,10 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.queryLogSampleRate,
 	)
 	mg.replicaConfig.registerFlags(fs)
+	if mg.tableGroupDDLEnabled != nil {
+		fs.Bool("enable-tablegroup-ddl", mg.tableGroupDDLEnabled.Default(), "execute CREATE TABLEGROUP and DROP TABLEGROUP from this gateway. Enable only where a provisioner creates tablegroups from the sharding catalog (the Kubernetes operator); without one a creation can never complete. Default off; the statements are then rejected as not supported.")
+		viperutil.BindFlags(fs, mg.tableGroupDDLEnabled)
+	}
 	if mg.bufferConfig != nil {
 		mg.bufferConfig.RegisterFlags(fs)
 	}
@@ -481,6 +497,10 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	if mg.clusterViewsEnabled.Get() {
 		mg.executor.SetClusterViewSource(mg)
 		logger.InfoContext(ctx, "cluster views enabled")
+	}
+	if mg.tableGroupDDLEnabled != nil && mg.tableGroupDDLEnabled.Get() {
+		mg.executor.SetTableGroupAdmin(newTableGroupAdmin(mg.poolerGateway))
+		logger.InfoContext(ctx, "tablegroup DDL enabled")
 	}
 	// Started only now that mg.executor is assigned — see CobraPreRunE's doc
 	// comment, which subscribes mg.configReloaded, for why the consumer

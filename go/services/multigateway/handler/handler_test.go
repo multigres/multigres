@@ -26,6 +26,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -930,4 +931,44 @@ func TestConnectionClosed_CleansPreparedStatements(t *testing.T) {
 	require.Nil(t, psi)
 	psi = h.Consolidator().GetPreparedStatementInfo(conn.ConnectionID(), "stmt2")
 	require.Nil(t, psi)
+}
+
+// TestPipelining follows the extended-protocol pipeline flag: a completed
+// Execute sets it until the next Sync, a transaction statement ends it, and a
+// simple query clears it once it has run.
+func TestPipelining(t *testing.T) {
+	h := NewMultigatewayHandler(&mockExecutor{}, slog.Default(), 0)
+	conn := &server.Conn{}
+	ctx := context.Background()
+	state := h.getConnectionState(conn)
+	noop := func(context.Context, *sqltypes.Result) error { return nil }
+	execute := func(sql string) {
+		t.Helper()
+		require.NoError(t, h.HandleParse(ctx, conn, "", sql, nil))
+		require.NoError(t, h.HandleBind(ctx, conn, "", "", nil, nil, nil))
+		require.NoError(t, h.HandleExecute(ctx, conn, "", 0, false, noop))
+	}
+
+	require.False(t, state.Pipelining())
+	execute("SELECT 1")
+	require.True(t, state.Pipelining(), "a completed Execute opens the pipeline's implicit transaction")
+	execute("COMMIT")
+	require.False(t, state.Pipelining(), "COMMIT ends it")
+	execute("SELECT 1")
+	require.NoError(t, h.HandleSync(ctx, conn))
+	require.False(t, state.Pipelining(), "Sync ends it")
+	execute("SELECT 1")
+	require.NoError(t, h.HandleQuery(ctx, conn, "SELECT 1", noop))
+	require.False(t, state.Pipelining(), "a simple query commits it")
+}
+
+func TestNotePipelinedExecute_TableGroupDDLLeavesTheFlag(t *testing.T) {
+	stmts, err := parser.ParseSQL("CREATE TABLEGROUP commerce")
+	require.NoError(t, err)
+	for _, before := range []bool{false, true} {
+		state := NewMultigatewayConnectionState()
+		state.SetPipelining(before)
+		notePipelinedExecute(state, stmts[0])
+		require.Equal(t, before, state.Pipelining(), "it commits on its own, as CREATE DATABASE does")
+	}
 }
