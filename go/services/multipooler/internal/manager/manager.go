@@ -874,8 +874,6 @@ func (pm *MultipoolerManager) QueryServiceControl() poolerserver.PoolerControlle
 // This is symmetric to closeConnectionsLocked and used by both Open() and reopenConnections().
 func (pm *MultipoolerManager) openConnectionsLocked() {
 	// Open connection pool manager
-
-	// Open connection pool manager
 	if pm.connPoolMgr != nil {
 		pgPort := int(pm.record.Port("postgres"))
 		connConfig := &connpoolmanager.ConnectionConfig{
