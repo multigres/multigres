@@ -329,3 +329,24 @@ func TestMinigres_ShutdownWaitsForRunningQuery(t *testing.T) {
 	assert.NoError(t, exitErr, "minigres must exit cleanly")
 	assert.NoError(t, <-queryErr, "the running query must finish, not fail on closed pools")
 }
+
+// TestMinigres_ShutdownUnderLoad sends SIGTERM while clients run queries
+// through minigres, and checks that shutdown is as clean for them as a
+// standalone multigateway's: until minigres exits, their queries succeed or
+// their connections end. The gateway drains before the pooler stops; in
+// parallel, the pooler would refuse the open connections' queries.
+func TestMinigres_ShutdownUnderLoad(t *testing.T) {
+	skipIfShort(t)
+	setup, cleanup := NewIsolated(t)
+	defer cleanup()
+
+	dsn := clustersetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
+	refused := clustersetup.QueriesRefusedDuringShutdown(t, dsn, 4, func() {
+		exitErr, stopped := setup.Minigres.Process.Terminate(utils.WithTimeout(t, 60*time.Second))
+		require.True(t, stopped, "minigres must exit after SIGTERM")
+		assert.NoError(t, exitErr, "minigres must exit cleanly")
+	})
+	if len(refused) > 0 {
+		t.Errorf("%d queries were refused on an open connection during shutdown; first: %v", len(refused), refused[0])
+	}
+}

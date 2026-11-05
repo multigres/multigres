@@ -152,6 +152,11 @@ type Multipooler struct {
 	// localServer serves the pooler to callers in this process (minigres's
 	// gateway) without gRPC; see LocalPoolerService.
 	localServer *localpoolerservice.Server
+
+	// sequencedShutdown is ProcessResources.SequencedShutdown: main calls
+	// GracefulShutdown itself instead of the multipooler registering it.
+	sequencedShutdown bool
+
 	// Senv is the serving environment
 	senv      *servenv.ServEnv
 	telemetry *telemetry.Telemetry
@@ -345,6 +350,7 @@ func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, res
 	mp.grpcServer = resources.GrpcServer
 	mp.queryGrpcServer = resources.QueryGrpcServer
 	mp.localServer = localpoolerservice.NewServer()
+	mp.sequencedShutdown = resources.SequencedShutdown
 	mp.statusPath = statusPath
 	mp.staticLeader = staticLeader
 	mp.senv.InitServiceMap("grpc", "pooler")
@@ -676,7 +682,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	if mp.queryGrpcServer != nil {
 		grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.queryGrpcServer)
 	}
-	localpoolerservice.RegisterPoolerServices(mp.senv, mp.localServer)
+	localpoolerservice.RegisterPoolerServices(mp.localServer)
 	grpcmigrationservice.RegisterMigrationServices(mp.senv, mp.grpcServer)
 
 	mp.senv.HTTPHandleFunc(mp.statusPath, mp.handleIndex)
@@ -702,6 +708,9 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	// publisher, and the shutdown unregister on close all live behind
 	// StartTopoRegistration / StopTopoRegistration on the manager.
 	mp.poolerManager = poolerManager
+	if !mp.sequencedShutdown {
+		mp.senv.OnTermSync(mp.GracefulShutdown)
+	}
 	mp.senv.OnRun(func() {
 		poolerManager.StartTopoRegistration(func(s string) {
 			mp.serverStatus.mu.Lock()
@@ -720,6 +729,16 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		mp.Shutdown(ctx)
 	})
 	return nil
+}
+
+// GracefulShutdown stops serving and stops PostgreSQL: the local query service
+// refuses new calls and waits for running ones, then the manager drains the
+// pools and stops PostgreSQL. It runs on SIGTERM, as an OnTermSync hook unless
+// main runs it itself (ProcessResources.SequencedShutdown), once what calls
+// the pooler has stopped.
+func (mp *Multipooler) GracefulShutdown() {
+	mp.localServer.Stop()
+	mp.poolerManager.Shutdown()
 }
 
 // LocalPoolerService returns the pooler for callers in this process, such as

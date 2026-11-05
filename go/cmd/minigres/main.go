@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -34,6 +35,7 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway"
 	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
 	"github.com/multigres/multigres/go/services/multipooler"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
@@ -87,6 +89,8 @@ func newMinigres() *minigres {
 	resources := servenv.ProcessResources{
 		ServEnv:    m.senv,
 		GrpcServer: m.grpcServer,
+		// run sequences the halves' shutdown (see shutdown).
+		SequencedShutdown: true,
 	}
 	// The only pooler of its shard leads it without consensus.
 	// Each half configures its settings on a view of the process registry
@@ -229,8 +233,29 @@ func (m *minigres) run(ctx context.Context) error {
 	if err := m.gateway.Init(ctx, ts); err != nil {
 		return err
 	}
+	m.senv.OnTermSync(func() { m.shutdown(ctx) })
 	m.senv.HTTPHandleFunc("/", handleIndex)
 	return m.senv.RunDefault(m.grpcServer)
+}
+
+// shutdown stops both halves on SIGTERM, the gateway first, so clients see
+// what a standalone multigateway in front of a standalone multipooler gives
+// them. First the lameduck period (--lameduck-period): both halves keep
+// serving, and new connections are still accepted, as a standalone
+// multigateway does until its OnClose hooks run. Then the gateway stops
+// accepting connections and waits for the open ones to end, for at most
+// --onclose-timeout, the bound servenv gives a standalone multigateway's
+// shutdown, and cuts the rest, as that process exiting would. Only then does
+// the pooler stop serving and stop PostgreSQL. Run in parallel, as their own
+// hooks, the pooler would refuse the open connections' queries until the
+// gateway closed them. servenv sleeps only what is left of the lameduck
+// period after OnTermSync, so it is not waited twice.
+func (m *minigres) shutdown(ctx context.Context) {
+	time.Sleep(m.senv.LameduckPeriod())
+	drainCtx, cancel := context.WithTimeout(ctxutil.Detach(ctx), m.senv.OnCloseTimeout())
+	defer cancel()
+	m.gateway.Shutdown(drainCtx)
+	m.pooler.GracefulShutdown()
 }
 
 // poolerID is the multipooler's topology ID, as it registers itself.

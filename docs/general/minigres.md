@@ -203,6 +203,15 @@ binaries pass none and use every pooler in the topology.
   backend, byte tunnel, metrics and errors, joined to the gateway by Go
   channels that copy each chunk of data, as gRPC does when it marshals. At
   shutdown the pooler ends replication tunnels instead of waiting for them.
+- **Shutdown drains the gateway before the pooler stops.** On SIGTERM, clients
+  see what a standalone multigateway gives them. For `--lameduck-period` both
+  halves keep serving and new connections are still accepted. Then the gateway
+  stops accepting connections and waits for the open ones to end, for at most
+  `--onclose-timeout`, and cuts the rest, as the multigateway process exiting
+  would. Only then does the pooler stop serving and stop PostgreSQL. Until a
+  connection ends, its queries work. (`ProcessResources.SequencedShutdown`
+  stops each half from registering its own shutdown hook; `cmd/minigres` runs
+  them in this order.)
 - **Observability differs on the query path.** The direct path has no
   pooler-side operation span and no transport metrics: traces go from the
   gateway's spans straight to the pooler's internal spans, and the gateway's
@@ -372,6 +381,3 @@ run daily.
 - Several Minigres instances serving the same database name under one
   topology root look like one shard to the topology. Each instance needs its
   own topology root (`--topo-global-root`), as Multigres projects have.
-- Shutdown uses the Multigres hooks, which run the halves' shutdowns
-  concurrently, so shutdown under load does not yet drain the gateway before the
-  pooler stops.
