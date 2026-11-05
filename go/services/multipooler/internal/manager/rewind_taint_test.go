@@ -643,3 +643,85 @@ func TestMonitor_TaintedRewind(t *testing.T) {
 		assert.True(t, pm.consensusMgr.SuspectedDivergence(), "repair is armed as before")
 	})
 }
+
+// TestRewindSettleFailures covers the callers of settleRewindAttempt when the
+// attempt marker cannot be resolved. An attempt marker that is a non-empty
+// directory is present but cannot be removed, so settling an untouched data
+// directory fails.
+func TestRewindSettleFailures(t *testing.T) {
+	t.Run("failRewindRun returns the run error together with the settle error", func(t *testing.T) {
+		newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		blockSentinel(t, pm.rewindAttempt())
+
+		withLock(t, pm, func(ctx context.Context) {
+			runErr := errors.New("copy failed")
+			got := pm.failRewindRun(ctx, runErr)
+			require.ErrorIs(t, got, runErr)
+			require.ErrorContains(t, got, "failed to settle rewind attempt marker")
+		})
+	})
+
+	t.Run("a rewind is not launched while an earlier run cannot be settled", func(t *testing.T) {
+		newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		client := &mockPgctldClient{
+			pgRewindResponse: &pgctldpb.PgRewindResponse{Output: "servers diverged at 0/5000000 on timeline 2"},
+		}
+		pm.pgctldClient = client
+		blockSentinel(t, pm.rewindAttempt())
+
+		withLock(t, pm, func(ctx context.Context) {
+			_, err := pm.runPgRewind(ctx, "leader", 5432)
+			require.ErrorContains(t, err, "failed to settle earlier pg_rewind run")
+			assert.Zero(t, client.pgRewindCalls)
+		})
+	})
+
+	t.Run("a rewind is not launched when the attempt marker cannot be written", func(t *testing.T) {
+		newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		client := &mockPgctldClient{
+			pgRewindResponse: &pgctldpb.PgRewindResponse{Output: "servers diverged at 0/5000000 on timeline 2"},
+		}
+		// The dry-run succeeds and then something occupies the marker's path.
+		client.pgRewindOnCall = func(*pgctldpb.PgRewindRequest) {
+			blockSentinel(t, pm.rewindAttempt())
+		}
+		pm.pgctldClient = client
+
+		withLock(t, pm, func(ctx context.Context) {
+			_, err := pm.runPgRewind(ctx, "leader", 5432)
+			require.ErrorContains(t, err, "failed to write rewind attempt marker")
+			assert.Equal(t, 1, client.pgRewindCalls, "only the dry-run ran")
+		})
+	})
+
+	t.Run("the monitor retries later when an interrupted run cannot be settled", func(t *testing.T) {
+		newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		require.NoError(t, pm.rewindSentinel().write())
+		blockSentinel(t, pm.rewindAttempt())
+
+		withLock(t, pm, func(ctx context.Context) {
+			require.NoError(t, pm.takeRemedialAction(ctx, remedialActionMarkRewindInterrupted, postgresState{}))
+		})
+		quarantined, _, _ := quarantineState(pm)
+		assert.False(t, quarantined)
+		assert.False(t, pm.consensusMgr.SuspectedDivergence(), "nothing is armed until the run is settled")
+	})
+
+	t.Run("discovery skips the tick when the taint marker cannot be read", func(t *testing.T) {
+		newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		pm.pgctldClient = &mockPgctldClient{
+			statusResponse: &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_STOPPED},
+		}
+		blocker := filepath.Join(t.TempDir(), "blocker")
+		require.NoError(t, os.WriteFile(blocker, nil, 0o600))
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(blocker, "pg_data"))
+
+		_, err := pm.discoverPostgresState(t.Context())
+		require.ErrorContains(t, err, "check rewind taint marker")
+	})
+}
