@@ -342,6 +342,12 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	// do — a cohort member should only ever advance via streaming from the
 	// current leader. Might be good to add a best-effort check of this.
 
+	// TODO: a restore moves this pooler's position back to the backup's, so it
+	// should first raise the recruit position floor (EnsureRecruitBlockedUntilAtLeast)
+	// to what it had reached. We can't today: PGDATA is already gone by the time we
+	// get here, so the prior position is unknown. This matters when pooler_dir (the
+	// promises) survives a PGDATA loss, or if restoring over live data is ever allowed.
+
 	// Check that PGDATA doesn't exist (caller must remove it before restore)
 	if pm.hasDataDirectory() {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
