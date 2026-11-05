@@ -159,6 +159,14 @@ func IsReservedConnectionTerminated(err error) bool {
 		diag.Message == reservedConnectionTerminatedMessage
 }
 
+// NewInTransactionBlock creates the PgDiagnostic for a statement that cannot
+// run inside a transaction block, as PostgreSQL's PreventInTransactionBlock
+// raises it. SQLSTATE 25001 (active_sql_transaction).
+func NewInTransactionBlock(statement string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSActiveTransaction,
+		statement+" cannot run inside a transaction block", "")
+}
+
 // NewAuthenticationTimeout creates a PgDiagnostic for an authentication_timeout
 // expiry during the startup phase (SSLRequest, StartupMessage, or SCRAM
 // exchange). SQLSTATE 08006 (connection_failure), severity FATAL — matches

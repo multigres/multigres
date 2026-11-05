@@ -412,8 +412,12 @@ func (e *Executor) Describe(
 		return engine.MultigresServerVersionShowDescription(), nil
 	}
 
-	// Tablegroup DDL is not PostgreSQL syntax, so the backend cannot describe
-	// it. It takes no parameters and returns no rows.
+	// Tablegroup DDL is not PostgreSQL syntax, so the backend would answer
+	// Describe with a syntax error, and drivers that describe before executing
+	// would fail. It takes no parameters and returns no rows, so the answer is
+	// an empty description: ParameterDescription with no parameters, then
+	// NoData, as PostgreSQL sends for CREATE TABLE. Notices and the command tag
+	// come at Execute.
 	if stmt != nil && ast.IsTableGroupDDL(stmt) {
 		return &query.StatementDescription{}, nil
 	}
