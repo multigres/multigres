@@ -1130,3 +1130,71 @@ echo "Database cluster state:               shut down"
 		})
 	}
 }
+
+// TestPgCtldService_PgRewindRunningMarkerErrors covers a running record that
+// cannot be written and a target whose state cannot be read or is not clean.
+func TestPgCtldService_PgRewindRunningMarkerErrors(t *testing.T) {
+	setup := func(t *testing.T, controldata string) (*PgCtldService, string, string) {
+		t.Helper()
+		baseDir := t.TempDir()
+		dataDir := filepath.Join(baseDir, "pg_data")
+		t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+		binDir := filepath.Join(baseDir, "bin")
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
+		testutil.CreateMockPostgreSQLBinaries(t, binDir)
+		ran := filepath.Join(baseDir, "pg-rewind-ran")
+		testutil.MockBinary(t, binDir, "pg_rewind", fmt.Sprintf("touch %q", ran))
+		testutil.MockBinary(t, binDir, "pg_controldata", controldata)
+		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+		require.NoError(t, os.MkdirAll(dataDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16\n"), 0o644))
+
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		require.NoError(t, err)
+		t.Cleanup(func() { service.Close() })
+		return service, baseDir, ran
+	}
+	mutating := &pb.PgRewindRequest{SourceHost: "127.0.0.1", SourcePort: 5433, DryRun: false}
+
+	t.Run("pg_rewind is not launched when the record cannot be written", func(t *testing.T) {
+		service, baseDir, ran := setup(t, `echo "Database cluster state:               shut down"`)
+		// A non-empty directory where the record goes makes the write fail.
+		require.NoError(t, os.MkdirAll(filepath.Join(baseDir, constants.RewindRunningFile, "occupied"), 0o755))
+
+		_, err := service.PgRewind(context.Background(), mutating)
+		require.ErrorContains(t, err, "failed to record that pg_rewind is running")
+		assert.NoFileExists(t, ran)
+	})
+
+	t.Run("a record that cannot be removed is only logged", func(t *testing.T) {
+		service, baseDir, _ := setup(t, `echo "Database cluster state:               shut down"`)
+		running := filepath.Join(baseDir, constants.RewindRunningFile)
+		// pg_rewind replaces the record with a non-empty directory, which the
+		// deferred removal cannot delete.
+		testutil.MockBinary(t, filepath.Join(baseDir, "bin"), "pg_rewind", fmt.Sprintf(`
+rm -f %q
+mkdir -p %q
+`, running, filepath.Join(running, "occupied")))
+
+		_, err := service.PgRewind(context.Background(), mutating)
+		require.NoError(t, err)
+	})
+
+	t.Run("pg_rewind still runs when the target state cannot be read", func(t *testing.T) {
+		service, _, ran := setup(t, "exit 1")
+
+		_, err := service.PgRewind(context.Background(), mutating)
+		require.NoError(t, err)
+		assert.FileExists(t, ran)
+	})
+
+	t.Run("pg_rewind still runs when crash recovery of an unclean target fails", func(t *testing.T) {
+		service, _, ran := setup(t, `echo "Database cluster state:               in production"`)
+
+		_, err := service.PgRewind(context.Background(), mutating)
+		require.NoError(t, err)
+		assert.FileExists(t, ran)
+	})
+}
