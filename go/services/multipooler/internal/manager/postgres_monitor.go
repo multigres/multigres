@@ -137,6 +137,10 @@ type postgresState struct {
 	// starting postgres on it, and to keep the unrecoverable classifier counting
 	// even when postgres appears "running" (the false-healthy waiting-for-WAL state).
 	rewindSentinelPresent bool
+	// rewindTaintedPresent is true when the rewind taint marker is on disk: a
+	// pg_rewind modified the data directory and did not complete. Durable across
+	// restarts; the monitor quarantines the node rather than rewinding or starting.
+	rewindTaintedPresent bool
 	// restoreSentinelPresent is true when a restore sentinel is on disk, meaning a
 	// prior pgBackRest restore did not complete (see restore_sentinel.go). The
 	// data directory may be a partial restore that already contains PG_VERSION;
@@ -160,6 +164,7 @@ func postgresStateEqual(a, b postgresState) bool {
 		a.pgMode == b.pgMode &&
 		a.bootstrapSentinelPresent == b.bootstrapSentinelPresent &&
 		a.rewindSentinelPresent == b.rewindSentinelPresent &&
+		a.rewindTaintedPresent == b.rewindTaintedPresent &&
 		a.restoreSentinelPresent == b.restoreSentinelPresent &&
 		a.rewindSourceReady == b.rewindSourceReady
 }
@@ -310,6 +315,13 @@ const (
 	// (running node) or brought up "held" then rewound (down node). Purely sets the
 	// flag; the rewind itself follows on a later tick via remedialActionRewindToLeader.
 	remedialActionMarkRewindInterrupted
+
+	// remedialActionQuarantineTaintedRewind means a pg_rewind modified the data
+	// directory and did not complete (the rewind taint marker is on disk). The
+	// directory is a mix of old and new files: it must not be rewound again or
+	// started, so the pooler is quarantined to be replaced from backup. See
+	// rewind_sentinel.go.
+	remedialActionQuarantineTaintedRewind
 )
 
 // standbyStuckDivergenceThreshold is the default for how long a standby must stay
@@ -598,6 +610,14 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		return state, fmt.Errorf("check rewind sentinel: %w", err)
 	}
 	state.rewindSentinelPresent = rewindSentinelPresent
+
+	rewindTaintedPresent, err := pm.rewindTainted().present()
+	if err != nil {
+		// Without the verdict we cannot tell whether the directory may be started
+		// or rewound, so skip the tick.
+		return state, fmt.Errorf("check rewind taint marker: %w", err)
+	}
+	state.rewindTaintedPresent = rewindTaintedPresent
 
 	return state, nil
 }
@@ -1056,6 +1076,12 @@ func (pm *MultipoolerManager) determineReplicationSettingsAction(ctx context.Con
 // determineRemedialAction decides what action to take based on discovered state.
 // This is pure decision logic with no side effects.
 func (pm *MultipoolerManager) determineRemedialAction(ctx context.Context, currentState postgresState) remedialAction {
+	// A tainted data directory is unusable and the verdict is durable: quarantine
+	// before anything that would rewind or start it. This needs no pgctld.
+	if currentState.rewindTaintedPresent {
+		return remedialActionQuarantineTaintedRewind
+	}
+
 	// Pgctld unavailable: No action possible
 	if !currentState.pgctldAvailable {
 		return remedialActionNone
@@ -1315,6 +1341,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 	const (
 		reasonPostgresRunning            = "postgres_running"
 		reasonStartingPostgres           = "starting_postgres"
+		reasonRewindTainted              = "rewind_tainted"
 		reasonRestoringFromBackup        = "restoring_from_backup"
 		reasonCreatingFirstBackup        = "creating_first_backup"
 		reasonWaitingForFirstBackupLease = "waiting_for_first_backup_lease"
@@ -1476,6 +1503,18 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 	case remedialActionMarkRewindInterrupted:
 		pm.setMonitorReason(ctx, reasonStartingPostgres, "MonitorPostgres: rewind sentinel present; a prior pg_rewind was interrupted")
 		pm.logger.WarnContext(ctx, "MonitorPostgres: rewind sentinel on disk from an interrupted pg_rewind; marking suspected divergence so the node is repaired (re-run pg_rewind) or quarantined rather than started on a half-rewound directory") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+		// First settle the interrupted run, before anything starts postgres on the
+		// directory: if the run had already started modifying it the directory is
+		// ruined and must be replaced, not repaired.
+		tainted, err := pm.settleRewindAttempt(ctx)
+		if err != nil {
+			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to settle interrupted rewind attempt; will retry", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			return nil
+		}
+		if tainted {
+			pm.markPoolerQuarantinedLocked(ctx, rewindTaintedReason)
+			return nil
+		}
 		// Re-establish the suspected-divergence flag lost across the restart. The
 		// rewind itself follows on a later tick via remedialActionRewindToLeader
 		// (gated on a rewind-ready leader and rate-limited); repeated failures are
@@ -1484,6 +1523,11 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to mark suspected divergence for interrupted rewind", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			return nil
 		}
+
+	case remedialActionQuarantineTaintedRewind:
+		pm.setMonitorReason(ctx, reasonRewindTainted, "MonitorPostgres: data directory modified by a failed pg_rewind; quarantined for replacement")
+		// Idempotent; retried each tick until the verdict is fully applied.
+		pm.markPoolerQuarantinedLocked(ctx, rewindTaintedReason)
 
 	case remedialActionRestoreFromBackup:
 		pm.setMonitorReason(ctx, reasonRestoringFromBackup, "MonitorPostgres: directory not initialized but backups available, restoring from backup")
