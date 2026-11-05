@@ -40,6 +40,8 @@ import (
 //     every open. Additive changes (a new table, a new nullable or defaulted
 //     column) are appended here and need no format bump.
 //   - catalogSeed: the initial rows, inserted idempotently on every open.
+//   - catalogObjects: what sits outside the catalog tables, such as roles,
+//     declared idempotently and re-run on every open.
 // ============================================================================
 
 // catalogSchemaLockKey is the pg_advisory_xact_lock key that serializes
@@ -219,6 +221,26 @@ var catalogSeed = []string{
 	ON CONFLICT (tablegroup_id, shard_name) DO NOTHING`,
 }
 
+// catalogObjects run on every open after catalogSeed. Each is idempotent, so an
+// edit here reaches existing catalogs on their next open.
+var catalogObjects = []string{
+	// multigres_topo is the role allowed to change shard infrastructure:
+	// CREATE and DROP TABLEGROUP require superuser or membership in it. Roles
+	// are cluster-wide, so it is created once, by the admin user when the
+	// catalog is first set up, and no user role holds ADMIN on it. An admin
+	// user without CREATEROLE warns instead of failing the catalog setup;
+	// until the role exists only superusers pass the check.
+	`DO $do$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'multigres_topo') THEN
+		CREATE ROLE multigres_topo NOLOGIN;
+	END IF;
+EXCEPTION WHEN insufficient_privilege THEN
+	RAISE WARNING 'cannot create role multigres_topo: %', SQLERRM;
+END
+$do$`,
+}
+
 // latestCatalogFormat returns the newest catalog format this binary knows.
 func latestCatalogFormat() int {
 	return catalogMigrations[len(catalogMigrations)-1].version
@@ -226,15 +248,15 @@ func latestCatalogFormat() int {
 
 // ensureCatalogSchema brings the catalog shard's catalog up to date in one
 // transaction: it applies the missing catalogMigrations in order, then runs
-// catalogTables and catalogSeed, then records latestCatalogFormat. Steps after
-// the migrations run on every call, including when the format is already
-// current; they are idempotent, and they are how an existing catalog picks up
-// tables added by a later release.
+// catalogTables, catalogSeed and catalogObjects, then records
+// latestCatalogFormat. Steps after the migrations run on every call, including
+// when the format is already current; they are idempotent, and they are how an
+// existing catalog picks up tables added by a later release.
 //
 // A catalog at a format newer than this binary knows (written by a newer
-// pooler) is left untouched, including catalogTables and catalogSeed: a newer
-// format may have dropped or renamed something this binary would recreate.
-// The catalog is never downgraded.
+// pooler) is left untouched, including catalogTables, catalogSeed and
+// catalogObjects: a newer format may have dropped or renamed something this
+// binary would recreate. The catalog is never downgraded.
 //
 // It runs under a transaction-scoped advisory lock, so concurrent callers
 // serialize and the loser sees the winner's format once it acquires the lock.
@@ -289,6 +311,11 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 	for _, stmt := range catalogSeed {
 		if _, err := tx.Query(execCtx, stmt); err != nil {
 			return mterrors.Wrap(err, "failed to seed catalog")
+		}
+	}
+	for _, stmt := range catalogObjects {
+		if _, err := tx.Query(execCtx, stmt); err != nil {
+			return mterrors.Wrap(err, "failed to ensure catalog objects")
 		}
 	}
 
