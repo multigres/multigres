@@ -531,7 +531,7 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 		logger.InfoContext(ctx, "cluster views enabled")
 	}
 	if mg.tableGroupDDLEnabled.Get() {
-		mg.executor.SetTableGroupAdmin(&tableGroupAdmin{pg: mg.poolerGateway})
+		mg.executor.SetTableGroupAdmin(newTableGroupAdmin(mg.poolerGateway))
 		logger.InfoContext(ctx, "tablegroup DDL enabled")
 	}
 	// Started only now that mg.executor is assigned — see CobraPreRunE's doc
