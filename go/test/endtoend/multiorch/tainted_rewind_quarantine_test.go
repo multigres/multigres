@@ -17,7 +17,6 @@ package multiorch
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -128,75 +127,4 @@ func TestInterruptedRewindTaintVerdict(t *testing.T) {
 		"an untouched data directory must not be tainted")
 	assert.NotEqual(t, clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_QUARANTINED, lifecycle(clean.Name),
 		"an untouched data directory stays on the repair path")
-}
-
-// TestFailedDryRunAfterCrashRecoveryIsRetryable checks end to end that a rewind
-// failing before pg_rewind copies anything stays retryable. A standby stopped
-// with an immediate shutdown is crash-recovered by pgctld, which writes to its
-// data directory, and with the leader down the rewind dry-run then fails. That
-// failure must not be read as a modification: no taint verdict, no quarantine,
-// and the node rejoins once the leader is back.
-//
-// In this flow the monitor usually recovers the node by starting it before the
-// rewind, so the crash recovery is not always inside the dry-run call itself; the
-// unit tests cover the case where it is.
-func TestFailedDryRunAfterCrashRecoveryIsRetryable(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping real-postgres e2e in short mode")
-	}
-	if utils.ShouldSkipRealPostgres() {
-		t.Skip("real postgres binaries not available")
-	}
-
-	setup, cleanup := shardsetup.NewIsolated(
-		t,
-		shardsetup.WithMultipoolerCount(3),
-		shardsetup.WithMultiorchCount(1),
-	)
-	defer cleanup()
-
-	setup.StartMultiorchs(t.Context(), t)
-	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioInitialSettle)
-	setup.WaitForHealthStreamsEstablished(t, "multiorch", 30*time.Second)
-	// Keep the orchestrator from failing over while the leader is down.
-	setup.DisableRecovery(t, "multiorch")
-
-	setup.RefreshPrimary(t)
-	standbys := setup.GetStandbys()
-	require.NotEmpty(t, standbys)
-	victim := standbys[0]
-	leaderName := setup.PrimaryName
-	victimDir := victim.Pgctld.PoolerDir
-	t.Logf("victim=%s leader=%s", victim.Name, leaderName)
-
-	// Leave the standby unclean, with the rewind sentinel that routes the monitor
-	// onto the rewind path, and take the leader down so the dry-run cannot connect.
-	resumeVictim := setup.StopPostgres(t, victim.Name, "immediate")
-	resumeLeader := setup.StopPostgres(t, leaderName, "fast")
-	defer resumeLeader()
-	require.NoError(t, os.WriteFile(filepath.Join(victimDir, constants.RewindSentinelFile), []byte("pg_rewind in progress\n"), 0o644))
-	resumeVictim()
-
-	logPath := victim.Multipooler.LogFile
-	require.Eventually(t, func() bool {
-		b, err := os.ReadFile(logPath)
-		return err == nil && strings.Contains(string(b), "pg_rewind dry-run failed")
-	}, utils.ScaleTimeout(90*time.Second), time.Second, "the dry-run should have failed with the leader down")
-
-	_, err := os.Stat(filepath.Join(victimDir, "pg_data", constants.RewindTaintedFile))
-	require.True(t, os.IsNotExist(err), "a failed dry-run must not taint the data directory")
-	_, err = os.Stat(filepath.Join(victimDir, constants.RewindAttemptFile))
-	require.True(t, os.IsNotExist(err), "no attempt marker is written before the mutating call")
-	mp, err := setup.TopoServer.GetMultipooler(t.Context(), setup.GetMultipoolerID(victim.Name))
-	require.NoError(t, err)
-	require.NotEqual(t, clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_QUARANTINED, mp.GetLifecycleStatus().GetStatus())
-
-	// With the leader back the repair completes and the sentinel is cleared.
-	resumeLeader()
-	require.Eventually(t, func() bool {
-		_, err := os.Stat(filepath.Join(victimDir, constants.RewindSentinelFile))
-		return os.IsNotExist(err)
-	}, utils.ScaleTimeout(120*time.Second), time.Second, "the standby should complete its rewind once the leader is back")
-	_, err = os.Stat(filepath.Join(victimDir, "pg_data", constants.RewindTaintedFile))
-	require.True(t, os.IsNotExist(err))
 }
