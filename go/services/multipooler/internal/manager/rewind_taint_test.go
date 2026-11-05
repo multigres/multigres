@@ -336,21 +336,29 @@ func blockSentinel(t *testing.T, s sentinel) {
 }
 
 func TestRewindAttemptErrors(t *testing.T) {
-	t.Run("a verdict that cannot be recorded is an error, not a silent retry", func(t *testing.T) {
+	t.Run("a verdict that cannot be recorded is logged, not an error, and quarantines the pooler", func(t *testing.T) {
 		dir := newAgedDataDir(t)
 		pm := newSentinelTestManager(t)
 		require.NoError(t, pm.rewindAttempt().write())
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "base/1/16384"), []byte("x"), 0o600))
 		blockSentinel(t, pm.rewindTainted())
 
-		tainted, err := pm.settleRewindAttempt(t.Context())
-		require.Error(t, err)
-		assert.True(t, tainted)
+		withLock(t, pm, func(ctx context.Context) {
+			tainted, err := pm.settleRewindAttempt(ctx)
+			require.NoError(t, err)
+			assert.True(t, tainted)
+		})
+		quarantined, reason, _ := quarantineState(pm)
+		assert.True(t, quarantined, "the quarantine is durable without the marker")
+		assert.Equal(t, rewindTaintedReason, reason)
+		requirePresent(t, pm.rewindAttempt(), true, "kept so the verdict is derived again")
 
-		runErr := errors.New("copy failed")
-		got := pm.failRewindRun(t.Context(), runErr)
-		require.ErrorIs(t, got, runErr)
-		require.ErrorContains(t, got, "failed to settle rewind attempt marker")
+		withLock(t, pm, func(ctx context.Context) {
+			runErr := errors.New("copy failed")
+			got := pm.failRewindRun(ctx, runErr)
+			require.ErrorIs(t, got, runErr)
+			require.ErrorContains(t, got, "did not complete")
+		})
 	})
 
 	t.Run("a taint recorded but an attempt marker that cannot be removed is only logged", func(t *testing.T) {
@@ -366,7 +374,7 @@ func TestRewindAttemptErrors(t *testing.T) {
 		requirePresent(t, pm.rewindTainted(), true, "")
 	})
 
-	t.Run("a pg_rewind run is not launched when an earlier run cannot be settled", func(t *testing.T) {
+	t.Run("a pg_rewind run is not launched on a directory an earlier run modified", func(t *testing.T) {
 		dir := newAgedDataDir(t)
 		pm := newSentinelTestManager(t)
 		client := &mockPgctldClient{
@@ -377,9 +385,12 @@ func TestRewindAttemptErrors(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "base/1/16384"), []byte("x"), 0o600))
 		blockSentinel(t, pm.rewindTainted())
 
-		_, err := pm.runPgRewind(t.Context(), "leader", 5432)
-		require.ErrorContains(t, err, "failed to settle earlier pg_rewind run")
-		assert.Zero(t, client.pgRewindCalls)
+		withLock(t, pm, func(ctx context.Context) {
+			_, err := pm.runPgRewind(ctx, "leader", 5432)
+			require.Error(t, err)
+			assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+			assert.Zero(t, client.pgRewindCalls)
+		})
 	})
 
 	t.Run("a rewind is refused when the taint marker cannot be read", func(t *testing.T) {
@@ -420,7 +431,7 @@ func TestRewindAttemptErrors(t *testing.T) {
 		assert.NotPanics(t, func() { pm.passRewindRun(t.Context()) })
 	})
 
-	t.Run("the monitor retries on the next tick when the interrupted run cannot be settled", func(t *testing.T) {
+	t.Run("the monitor quarantines an interrupted run whose verdict cannot be recorded", func(t *testing.T) {
 		dir := newAgedDataDir(t)
 		pm := newSentinelTestManager(t)
 		require.NoError(t, pm.rewindSentinel().write())
@@ -432,9 +443,9 @@ func TestRewindAttemptErrors(t *testing.T) {
 			require.NoError(t, pm.takeRemedialAction(ctx, remedialActionMarkRewindInterrupted, postgresState{}))
 		})
 		quarantined, _, _ := quarantineState(pm)
-		assert.False(t, quarantined, "nothing is decided until the verdict is durable")
-		requirePresent(t, pm.rewindAttempt(), true, "the evidence is kept for the retry")
-		assert.False(t, pm.consensusMgr.SuspectedDivergence())
+		assert.True(t, quarantined)
+		requirePresent(t, pm.rewindAttempt(), true, "the evidence is kept")
+		assert.False(t, pm.consensusMgr.SuspectedDivergence(), "no repair may be armed for a modified directory")
 	})
 }
 
