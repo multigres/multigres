@@ -256,6 +256,9 @@ func TestRunPgRewind_TaintVerdict(t *testing.T) {
 		client.pgRewindOnCall = func(req *pgctldpb.PgRewindRequest) {
 			if client.pgRewindCalls == 1 {
 				overwrite(postgresDataDir())
+				// Coarse filesystem timestamps would otherwise let the write and the
+				// marker written right after it share a timestamp.
+				time.Sleep(50 * time.Millisecond)
 			}
 			hook(req)
 		}
