@@ -129,6 +129,17 @@ func TestMostAdvancedPosition(t *testing.T) {
 		assert.Equal(t, "0/300", got.GetLsn())
 	})
 
+	t.Run("same latest rule: highest LSN wins even if another status knows it is decided", func(t *testing.T) {
+		rule := func(term int64) *clustermetadatapb.ShardRule {
+			return &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term}}
+		}
+		got := MostAdvancedPosition([]*clustermetadatapb.ConsensusStatus{
+			status("a", &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: rule(3)}, Lsn: "0/100"}),
+			status("b", &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: rule(2), Proposal: rule(3)}, Lsn: "0/200"}),
+		})
+		assert.Equal(t, "0/200", got.GetLsn())
+	})
+
 	t.Run("skips statuses with unparsable LSN", func(t *testing.T) {
 		got := MostAdvancedPosition([]*clustermetadatapb.ConsensusStatus{
 			status("a", pos(5, "bad-lsn")),

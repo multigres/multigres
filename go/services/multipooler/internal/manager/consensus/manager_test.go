@@ -309,6 +309,14 @@ func TestRecruitPositionFloorIfOutstanding(t *testing.T) {
 			wantOutstanding: true,
 		},
 		{
+			// Both sit at latest rule 6, so the node has not regained the WAL the floor
+			// recorded: it learned that rule is decided but is behind the floor's LSN.
+			name:            "LatestRuleTied_DecisionAhead_LSNBehind_Outstanding",
+			floor:           floorAt(5, 6, "0/2000"),
+			pos:             poolerPosAt(6, 0, "0/1000"),
+			wantOutstanding: true,
+		},
+		{
 			name:            "RulePositionTied_LSNAtFloor_Satisfied",
 			floor:           floorAt(5, 0, "0/2000"),
 			pos:             poolerPosAt(5, 0, "0/2000"),
