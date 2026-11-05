@@ -77,6 +77,10 @@ func TestLocalPooler_CalledDirectly(t *testing.T) {
 	direct, ok := conn.Pooler().(*directQueryService)
 	require.True(t, ok, "the local pooler is called directly, got %T", conn.Pooler())
 	assert.Equal(t, local.Service, direct.local)
+
+	client, err := conn.ManagerClient()
+	require.Error(t, err, "the local pooler has no manager service to call")
+	assert.Nil(t, client)
 }
 
 // TestLocalPooler_RecordFindsPoolerWithoutTopology discovers the local pooler

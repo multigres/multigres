@@ -62,7 +62,11 @@ func newTableGroupAdmin(pg *poolergateway.PoolerGateway) *tableGroupAdmin {
 		if conn == nil {
 			return nil, status.Errorf(codes.Unavailable, "no writable pooler for the catalog shard of database %q", database)
 		}
-		return conn.ManagerClient(), nil
+		client, err := conn.ManagerClient()
+		if err != nil {
+			return nil, status.Error(codes.Unimplemented, err.Error())
+		}
+		return client, nil
 	}}
 }
 

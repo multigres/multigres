@@ -311,6 +311,9 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	queryStart := time.Now()
 	h.logger.DebugContext(ctx, "handling query", "query", queryStr, "user", conn.User(), "database", conn.Database())
 	st := h.getConnectionState(conn)
+	// A simple query ends any extended-protocol pipeline before it: it commits
+	// the implicit transaction it ran in, as Sync would.
+	defer st.SetPipelining(false)
 	ctx = h.callerContext(ctx, conn, st)
 
 	parseStart := time.Now()
@@ -660,13 +663,13 @@ func (h *MultigatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 
 	execStart := time.Now()
 	result, err := h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, includeDescribe, countingCallback)
-	if err != nil {
-		// A gateway policy rejection never reached the backend, so with
-		// keep-transaction-on-gateway-rejection enabled we leave the session
-		// in-block instead of aborting.
-		if conn.TxnStatus() == protocol.TxnStatusInBlock && h.abortsTransactionOnError(err) {
-			conn.SetTxnStatus(protocol.TxnStatusFailed)
-		}
+	// A gateway policy rejection never reached the backend, so with
+	// keep-transaction-on-gateway-rejection enabled we leave the session
+	// in-block instead of aborting.
+	if err == nil {
+		notePipelinedExecute(state, astStmt)
+	} else if conn.TxnStatus() == protocol.TxnStatusInBlock && h.abortsTransactionOnError(err) {
+		conn.SetTxnStatus(protocol.TxnStatusFailed)
 	}
 
 	execDuration := time.Since(execStart)
@@ -798,7 +801,24 @@ func (h *MultigatewayHandler) HandleClose(ctx context.Context, conn *server.Conn
 // HandleSync processes a Sync message ('S').
 func (h *MultigatewayHandler) HandleSync(ctx context.Context, conn *server.Conn) error {
 	h.logger.DebugContext(ctx, "sync")
+	h.getConnectionState(conn).SetPipelining(false)
 	return nil
+}
+
+// notePipelinedExecute records a completed Execute in the connection's
+// pipeline, as PostgreSQL sets XACT_FLAGS_PIPELINING: the statements after it,
+// until Sync, run in the same implicit transaction. A transaction statement
+// ends that transaction or opens a block, which is refused on its own. Tablegroup
+// DDL commits on its own, as CREATE DATABASE does, and leaves the flag as it
+// was.
+func notePipelinedExecute(state *MultigatewayConnectionState, stmt ast.Stmt) {
+	switch {
+	case stmt == nil:
+	case ast.IsTableGroupDDL(stmt):
+	default:
+		_, isTransactionStmt := stmt.(*ast.TransactionStmt)
+		state.SetPipelining(!isTransactionStmt)
+	}
 }
 
 // ConnectionClosed is called when a client connection is closed.

@@ -53,11 +53,15 @@ held to the strictest of their rules.
 `multigres_topo`, a role without login that the catalog shard creates;
 superusers are members of every role. Grant it to the roles allowed to change
 shard infrastructure: `GRANT multigres_topo TO some_role`. Like
-`CREATE DATABASE`, they cannot run inside a transaction block or a function
-body, and they return once the change is complete: for `CREATE`, every shard
-has a serving primary; for `DROP`, every shard has been torn down. Cancelling
-the statement only stops the wait; the change continues and is visible in
-`multigres.operations`.
+`CREATE DATABASE`, they cannot run inside a transaction block, a pipeline or a
+function body, nor in a read-only session, which includes every session on the
+gateway's replica-reads port. They return once the change is complete: for
+`CREATE`, every shard has a serving primary; for `DROP`, every shard has been
+torn down. Cancelling the statement only stops the wait; the change continues
+and is visible in `multigres.operations`. If the statement fails before it
+names its operation, for instance because the catalog primary is failing over,
+the change may still have been recorded: running it again with `IF NOT EXISTS`
+or `IF EXISTS` waits for it.
 
 Ranges use `lower-upper` notation, with hexadecimal boundaries and an
 exclusive upper bound. `0-inf` covers the entire keyspace. A shard map must

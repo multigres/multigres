@@ -151,6 +151,15 @@ func NewInTransactionBlock(statement string) *PgDiagnostic {
 		statement+" cannot run inside a transaction block", "")
 }
 
+// NewInPipeline creates the PgDiagnostic for a statement that cannot run
+// inside a transaction block, sent after another statement of the same
+// extended-protocol pipeline (before its Sync), as PostgreSQL's
+// PreventInTransactionBlock raises it. SQLSTATE 25001 (active_sql_transaction).
+func NewInPipeline(statement string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSActiveTransaction,
+		statement+" cannot be executed within a pipeline", "")
+}
+
 // NewAuthenticationTimeout creates a PgDiagnostic for an authentication_timeout
 // expiry during the startup phase (SSLRequest, StartupMessage, or SCRAM
 // exchange). SQLSTATE 08006 (connection_failure), severity FATAL — matches

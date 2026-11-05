@@ -57,28 +57,37 @@ type TableGroupAdmin interface {
 // Provisioning takes minutes; a second of latency is invisible.
 const tableGroupPollInterval = time.Second
 
-// tableGroupPrivilegeSQL is the privilege check, run on the caller's own
-// session so current_user is the caller's effective role. Superusers and
-// members of multigres_topo (constants.MultigresTopoRole) pass; the catalog's
-// multigres.operations view and multigres.cancel_operation admit the same
-// roles. A missing role (a catalog shard whose admin user could not create
-// it) admits superusers only, rather than failing every statement.
+// tableGroupPrivilegeSQL checks the caller's session before anything is
+// recorded. It runs on the caller's own session on the catalog shard, where
+// multigres_topo exists, and returns two columns:
+//
+//   - transaction_read_only: on for a read-only session
+//     (default_transaction_read_only) and on a standby, which is where a
+//     connection on the replica-reads port runs it. The statement is then
+//     refused, as PostgreSQL refuses CREATE DATABASE.
+//   - whether current_user, the caller's effective role, may change shard
+//     infrastructure. Superusers and members of multigres_topo
+//     (constants.MultigresTopoRole) may; the catalog's multigres.operations
+//     view and multigres.cancel_operation admit the same roles. A missing role
+//     (a catalog shard whose admin user could not create it) admits
+//     superusers only, rather than failing every statement.
 //
 // It runs with the caller's search_path, so every function and operator in it
 // is schema-qualified: an unqualified = would resolve to an operator the
 // caller defined in a schema ahead of pg_catalog, and could match the
 // superuser's row instead of the caller's.
-const tableGroupPrivilegeSQL = "SELECT COALESCE((SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname OPERATOR(pg_catalog.=) current_user), false)" +
+const tableGroupPrivilegeSQL = "SELECT pg_catalog.current_setting('transaction_read_only'), " +
+	"COALESCE((SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname OPERATOR(pg_catalog.=) current_user), false)" +
 	" OR CASE WHEN pg_catalog.to_regrole('" + constants.MultigresTopoRole + "') IS NULL THEN false" +
 	" ELSE pg_catalog.pg_has_role(current_user, '" + constants.MultigresTopoRole + "', 'MEMBER') END"
 
-// TableGroupDDL executes CREATE TABLEGROUP or DROP TABLEGROUP.
+// TableGroupDDL executes CREATE TABLEGROUP or DROP TABLEGROUP. Everything it
+// runs goes to the catalog shard (constants.IsCatalogShard), never to the
+// tablegroup it names.
 type TableGroupDDL struct {
-	admin             TableGroupAdmin
-	sql               string
-	defaultTableGroup string
-	defaultShard      string
-	pollInterval      time.Duration
+	admin        TableGroupAdmin
+	sql          string
+	pollInterval time.Duration
 
 	drop        bool
 	name        string
@@ -87,19 +96,18 @@ type TableGroupDDL struct {
 	ifExists    bool     // DROP only
 }
 
-// NewCreateTableGroup returns the primitive for CREATE TABLEGROUP. The
-// privilege check runs on defaultTableGroup/defaultShard.
-func NewCreateTableGroup(admin TableGroupAdmin, sql, defaultTableGroup, defaultShard, name string, shards []string, ifNotExists bool) *TableGroupDDL {
+// NewCreateTableGroup returns the primitive for CREATE TABLEGROUP.
+func NewCreateTableGroup(admin TableGroupAdmin, sql, name string, shards []string, ifNotExists bool) *TableGroupDDL {
 	return &TableGroupDDL{
-		admin: admin, sql: sql, defaultTableGroup: defaultTableGroup, defaultShard: defaultShard, pollInterval: tableGroupPollInterval,
+		admin: admin, sql: sql, pollInterval: tableGroupPollInterval,
 		name: name, shards: shards, ifNotExists: ifNotExists,
 	}
 }
 
 // NewDropTableGroup returns the primitive for DROP TABLEGROUP.
-func NewDropTableGroup(admin TableGroupAdmin, sql, defaultTableGroup, defaultShard, name string, ifExists bool) *TableGroupDDL {
+func NewDropTableGroup(admin TableGroupAdmin, sql, name string, ifExists bool) *TableGroupDDL {
 	return &TableGroupDDL{
-		admin: admin, sql: sql, defaultTableGroup: defaultTableGroup, defaultShard: defaultShard, pollInterval: tableGroupPollInterval,
+		admin: admin, sql: sql, pollInterval: tableGroupPollInterval,
 		drop: true, name: name, ifExists: ifExists,
 	}
 }
@@ -120,10 +128,7 @@ func (t *TableGroupDDL) StreamExecute(
 	_ PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	if conn != nil && conn.IsInTransaction() {
-		return mterrors.NewInTransactionBlock(t.statementName())
-	}
-	if err := t.checkPrivilege(ctx, exec, conn, state); err != nil {
+	if err := t.checkSession(ctx, exec, conn, state); err != nil {
 		return err
 	}
 	var database string
@@ -151,17 +156,35 @@ func (t *TableGroupDDL) PortalStreamExecute(
 	return t.StreamExecute(ctx, exec, conn, state, nil, PlanExecInfo{}, callback)
 }
 
-func (t *TableGroupDDL) checkPrivilege(ctx context.Context, exec IExecute, conn *server.Conn, state *handler.MultigatewayConnectionState) error {
-	allowed := false
+// checkSession refuses the statement where PostgreSQL refuses CREATE
+// DATABASE, in PostgreSQL's order: a read-only session, then a transaction
+// block, then a pipeline, then a caller without the privilege. The read-only
+// and privilege answers come from tableGroupPrivilegeSQL on the catalog shard.
+func (t *TableGroupDDL) checkSession(ctx context.Context, exec IExecute, conn *server.Conn, state *handler.MultigatewayConnectionState) error {
+	answered, readOnly, allowed := false, false, false
 	capture := func(_ context.Context, result *sqltypes.Result) error {
-		if len(result.Rows) > 0 && len(result.Rows[0].Values) > 0 {
-			v := string(result.Rows[0].Values[0])
+		if len(result.Rows) > 0 && len(result.Rows[0].Values) > 1 {
+			answered = true
+			readOnly = string(result.Rows[0].Values[0]) != "off"
+			v := string(result.Rows[0].Values[1])
 			allowed = v == "t" || v == "true"
 		}
 		return nil
 	}
-	if err := exec.StreamExecute(ctx, conn, t.defaultTableGroup, t.defaultShard, tableGroupPrivilegeSQL, nil, state, PlanExecInfo{}, true, capture); err != nil {
+	if err := exec.StreamExecute(ctx, conn, constants.DefaultTableGroup, constants.DefaultShard, tableGroupPrivilegeSQL, nil, state, PlanExecInfo{}, true, capture); err != nil {
 		return err
+	}
+	if !answered {
+		return unansweredPrivilegeCheckError(t.statementName())
+	}
+	if readOnly {
+		return readOnlyTransactionError(t.statementName())
+	}
+	if conn != nil && conn.IsInTransaction() {
+		return mterrors.NewInTransactionBlock(t.statementName())
+	}
+	if state != nil && state.Pipelining() {
+		return mterrors.NewInPipeline(t.statementName())
 	}
 	if !allowed {
 		verb := "create"
@@ -178,7 +201,7 @@ func (t *TableGroupDDL) runCreate(ctx context.Context, database string, callback
 		Name: t.name, Shards: t.shards, IfNotExists: t.ifNotExists,
 	})
 	if err != nil {
-		return statementError(ctx, err)
+		return t.recordError(ctx, err, callback)
 	}
 	if resp.GetAlreadyExists() {
 		return callback(ctx, &sqltypes.Result{
@@ -208,7 +231,7 @@ func (t *TableGroupDDL) runDrop(ctx context.Context, database string, callback f
 	for range 2 {
 		resp, err := t.admin.DropTableGroup(ctx, database, &multipoolermanagerdatapb.DropTableGroupRequest{Name: t.name, IfExists: t.ifExists})
 		if err != nil {
-			return statementError(ctx, err)
+			return t.recordError(ctx, err, callback)
 		}
 		if resp.GetNotFound() {
 			return callback(ctx, &sqltypes.Result{
@@ -267,6 +290,21 @@ func (t *TableGroupDDL) wait(ctx context.Context, database, opID string) (*multi
 		case <-ticker.C:
 		}
 	}
+}
+
+// readOnlyTransactionError refuses the statement in a read-only session,
+// including any session on the replica-reads port, as PostgreSQL refuses
+// CREATE DATABASE. SQLSTATE 25006 (read_only_sql_transaction).
+func readOnlyTransactionError(statement string) *mterrors.PgDiagnostic {
+	return mterrors.NewPgError("ERROR", mterrors.PgSSReadOnlyTransaction,
+		"cannot execute "+statement+" in a read-only transaction", "")
+}
+
+// unansweredPrivilegeCheckError refuses the statement when its session check
+// returned no row: it never runs on a check that did not happen.
+func unansweredPrivilegeCheckError(statement string) *mterrors.PgDiagnostic {
+	return mterrors.NewPgError("ERROR", mterrors.PgSSInternalError,
+		"the "+statement+" privilege check returned no row", "")
 }
 
 // insufficientPrivilegeError rejects a caller that is neither a superuser nor
@@ -353,14 +391,51 @@ func isTransientAdminError(err error) bool {
 	return false
 }
 
-// statementError is the error for a failed RPC: the statement's own cancel or
-// timeout when ctx ended, which the server reports as such (57014), else the
-// pooler's error mapped by tableGroupAdminError.
-func statementError(ctx context.Context, err error) error {
+// recordError is the error for a failed CreateTableGroup or DropTableGroup
+// call. When its outcome is unknown, the catalog may have recorded the request
+// although the caller never saw its operation id, so the error says how to
+// find it. When ctx ended, the error is the statement's own cancel or timeout,
+// which the server reports as such (57014) and without a hint, so the hint
+// goes out first as a notice.
+func (t *TableGroupDDL) recordError(ctx context.Context, err error, callback func(context.Context, *sqltypes.Result) error) error {
 	if ctx.Err() != nil {
+		n := mterrors.NewPgNotice("NOTICE", mterrors.PgSSSuccessfulCompletion,
+			"the "+t.statementName()+" request may have been recorded before the statement ended", "")
+		n.Hint = t.mayBeRecordedHint()
+		// Best effort: a closed connection has no one to tell.
+		_ = callback(ctx, &sqltypes.Result{Notices: []*mterrors.PgDiagnostic{n}})
 		return ctx.Err()
 	}
-	return tableGroupAdminError(err)
+	mapped := tableGroupAdminError(err)
+	var d *mterrors.PgDiagnostic
+	if !outcomeUnknown(err) || !errors.As(mapped, &d) {
+		return mapped
+	}
+	hinted := *d
+	hinted.Hint = "The request may have been recorded. " + t.mayBeRecordedHint()
+	return &hinted
+}
+
+// mayBeRecordedHint says how to reach a request that may have been recorded:
+// repeating the statement joins it, and the IF [NOT] EXISTS form also
+// succeeds if it has already finished.
+func (t *TableGroupDDL) mayBeRecordedHint() string {
+	clause := "IF NOT EXISTS"
+	if t.drop {
+		clause = "IF EXISTS"
+	}
+	return "Run the statement again with " + clause + " to wait for it, or check multigres.operations."
+}
+
+// outcomeUnknown reports whether a failed record call may still have
+// committed: the call timed out, was cut off, or never got an answer.
+// Any other error is the catalog primary refusing the request.
+func outcomeUnknown(err error) bool {
+	switch status.Code(err) {
+	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled, codes.Unknown:
+		return true
+	}
+	return false
 }
 
 // tableGroupAdminError maps a pooler error to the PostgreSQL error a client
@@ -394,10 +469,9 @@ func tableGroupAdminError(err error) error {
 	return mterrors.NewPgError("ERROR", code, st.Message(), "")
 }
 
-// GetTableGroup returns the default tablegroup: the statement runs its
-// privilege check there and calls that tablegroup's catalog primary, never
-// the tablegroup it names.
-func (t *TableGroupDDL) GetTableGroup() string { return t.defaultTableGroup }
+// GetTableGroup returns the catalog shard's tablegroup, where the statement
+// runs its session check and whose primary it calls.
+func (t *TableGroupDDL) GetTableGroup() string { return constants.DefaultTableGroup }
 
 func (t *TableGroupDDL) GetQuery() string { return t.sql }
 
