@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	consensusdatapb "github.com/multigres/multigres/go/pb/consensusdata"
@@ -427,12 +428,114 @@ func TestDiscoverOutgoingRule_InconsistentRecruits(t *testing.T) {
 	require.EqualError(t, err, "recruits zone1_pooler-a and zone1_pooler-b agree on rule number but disagree on content; inconsistent discovery result")
 }
 
-func TestDiscoverOutgoingRulePosition_NoRecruits(t *testing.T) {
-	recruits, position, err := discoverOutgoingRulePosition(nil)
+func TestDiscoverOutgoing(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	rev := revocation(5, ruleNum(3, 1))
+	prior := makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c)
+	latest := makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c)
+	status := func(id *clustermetadatapb.ID, position *clustermetadatapb.RulePosition) *clustermetadatapb.ConsensusStatus {
+		return makeStatusWithProposal(id, position, rev, "0/1000000")
+	}
 
-	require.NoError(t, err)
-	assert.Empty(t, recruits)
-	assert.Nil(t, position)
+	t.Run("no statuses", func(t *testing.T) {
+		view, err := discoverOutgoing(nil)
+
+		require.NoError(t, err)
+		assert.Nil(t, view.base)
+		assert.Nil(t, view.latest)
+		assert.Empty(t, view.holders)
+	})
+
+	t.Run("a rule is held by those that know it is decided and those that do not", func(t *testing.T) {
+		knows := status(zone1.a, &clustermetadatapb.RulePosition{Decision: latest})
+		holds := status(zone1.b, &clustermetadatapb.RulePosition{Decision: prior, Proposal: latest})
+		behind := status(zone1.c, &clustermetadatapb.RulePosition{Decision: prior})
+
+		view, err := discoverOutgoing([]*clustermetadatapb.ConsensusStatus{behind, holds, knows})
+
+		require.NoError(t, err)
+		assert.Equal(t, ruleNum(3, 1), view.latest.GetRuleNumber())
+		assert.Equal(t, ruleNum(3, 1), view.base.GetRuleNumber(), "the highest decision any status knows is the base")
+		assert.True(t, view.transition().IsDecided())
+		require.Len(t, view.holders, 2)
+		assert.Equal(t, zone1.b.GetName(), view.holders[0].GetId().GetName())
+		assert.Equal(t, zone1.a.GetName(), view.holders[1].GetId().GetName())
+	})
+
+	t.Run("an undecided proposal beyond every decision is the transition's proposal", func(t *testing.T) {
+		view, err := discoverOutgoing([]*clustermetadatapb.ConsensusStatus{
+			status(zone1.a, &clustermetadatapb.RulePosition{Decision: prior, Proposal: latest}),
+			status(zone1.b, &clustermetadatapb.RulePosition{Decision: prior}),
+		})
+
+		require.NoError(t, err)
+		assert.False(t, view.transition().IsDecided())
+		assert.Equal(t, ruleNum(3, 0), view.transition().Decision().GetRuleNumber())
+		assert.Equal(t, ruleNum(3, 1), view.transition().Proposal().GetRuleNumber())
+	})
+
+	t.Run("deciding a proposal may rewrite bookkeeping without disagreeing", func(t *testing.T) {
+		decided := proto.Clone(latest).(*clustermetadatapb.ShardRule)
+		decided.CoordinatorId = zone1.c
+
+		_, err := discoverOutgoing([]*clustermetadatapb.ConsensusStatus{
+			status(zone1.a, &clustermetadatapb.RulePosition{Decision: decided}),
+			status(zone1.b, &clustermetadatapb.RulePosition{Decision: prior, Proposal: latest}),
+		})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("a decision that disagrees on content is refused", func(t *testing.T) {
+		other := makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b)
+
+		_, err := discoverOutgoing([]*clustermetadatapb.ConsensusStatus{
+			status(zone1.a, &clustermetadatapb.RulePosition{Decision: prior}),
+			status(zone1.b, &clustermetadatapb.RulePosition{Decision: other}),
+		})
+
+		require.EqualError(t, err, "recruits zone1_pooler-a and zone1_pooler-b agree on rule number but disagree on content; inconsistent discovery result")
+	})
+
+	t.Run("a rule that disagrees on leader or policy is refused", func(t *testing.T) {
+		otherLeader := proto.Clone(prior).(*clustermetadatapb.ShardRule)
+		otherLeader.LeaderId = zone1.b
+		otherPolicy := makeRule(ruleNum(3, 0), atLeast(3), zone1.a, zone1.b, zone1.c)
+		withLeader := proto.Clone(prior).(*clustermetadatapb.ShardRule)
+		withLeader.LeaderId = zone1.a
+
+		for _, tc := range []struct {
+			name  string
+			other *clustermetadatapb.ShardRule
+		}{{"leader", otherLeader}, {"policy", otherPolicy}} {
+			_, err := discoverOutgoing([]*clustermetadatapb.ConsensusStatus{
+				status(zone1.a, &clustermetadatapb.RulePosition{Decision: withLeader}),
+				status(zone1.b, &clustermetadatapb.RulePosition{Decision: tc.other}),
+			})
+
+			require.Error(t, err, tc.name)
+		}
+	})
+
+	t.Run("holders of the latest rule that disagree on content are refused", func(t *testing.T) {
+		other := makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b)
+
+		_, err := discoverOutgoing([]*clustermetadatapb.ConsensusStatus{
+			status(zone1.a, &clustermetadatapb.RulePosition{Decision: prior, Proposal: latest}),
+			status(zone1.b, &clustermetadatapb.RulePosition{Decision: prior, Proposal: other}),
+		})
+
+		require.EqualError(t, err, "recruits zone1_pooler-a and zone1_pooler-b agree on rule number but disagree on content; inconsistent discovery result")
+	})
+
+	t.Run("a decision beyond every recorded rule is refused", func(t *testing.T) {
+		// This node records a proposal older than its own decision.
+		_, err := discoverOutgoing([]*clustermetadatapb.ConsensusStatus{
+			status(zone1.a, &clustermetadatapb.RulePosition{Decision: latest, Proposal: prior}),
+		})
+
+		require.EqualError(t, err, "decision 3.1 is beyond every recorded rule 3.0; inconsistent discovery result")
+	})
 }
 
 func TestNarrowByLSN_NoCandidates(t *testing.T) {

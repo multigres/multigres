@@ -61,22 +61,16 @@ func NewTermRevocation(
 	if initiatedAt == nil {
 		return nil, errors.New("NewTermRevocation: initiatedAt must be non-nil")
 	}
-	// Discovery: the cohort's most advanced position anchors this
-	// revocation's outgoing_rule — decision or undecided proposal alike.
-	var maxPosition *clustermetadatapb.RulePosition
-	for _, cs := range statuses {
-		// Capture the first position we see (even an explicit zero-valued
-		// one, e.g. a freshly bootstrapped node); bump only on strictly
-		// greater thereafter.
-		position := cs.GetCurrentPosition().GetPosition()
-		if maxPosition == nil || CompareRulePosition(position, maxPosition) > 0 {
-			maxPosition = position
-		}
+	// Discovery: the newest rule any cohort member records, decided or not, is
+	// this revocation's outgoing_rule. Recruitment discovers it the same way.
+	view, err := discoverOutgoing(statuses)
+	if err != nil {
+		return nil, fmt.Errorf("NewTermRevocation: %w", err)
 	}
-	if maxPosition == nil {
+	if view.latest == nil {
 		return nil, errors.New("NewTermRevocation: no cohort member reports a recorded rule; agent should construct revocation directly with explicit outgoing_rule")
 	}
-	outgoingRule := PossiblyUndecidedRule(maxPosition).GetRuleNumber()
+	outgoingRule := view.latest.GetRuleNumber()
 
 	// replaceDecision is the backoff's problem-identity baseline — see
 	// recruitAttempt below for why it must be a settled decision, not

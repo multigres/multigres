@@ -377,51 +377,11 @@ func buildProposalCore(
 	return proposal, nil
 }
 
-// discoverOutgoingRulePosition returns every recruit that holds the outgoing
-// rule position (the highest RulePosition among recruitedStatuses), followed
-// by that position itself. Decision takes precedence; an undecided proposal
-// only breaks ties among recruits sharing the same decision (see
-// CompareRulePosition) — a recruit's own undecided proposal never outranks
-// another recruit's higher decision.
-//
-// Returns an error if the recruits recording the position disagree on its
-// content (decision or proposal) — different nodes agreeing on a rule
-// number but disagreeing on cohort members or durability policy signals a
-// data inconsistency the caller cannot safely proceed past.
-func discoverOutgoingRulePosition(
-	recruitedStatuses []*clustermetadatapb.ConsensusStatus,
-) ([]*clustermetadatapb.ConsensusStatus, *clustermetadatapb.RulePosition, error) {
-	var outgoingPosition *clustermetadatapb.RulePosition
-	var recruitsRecordingRule []*clustermetadatapb.ConsensusStatus
-	for _, cs := range recruitedStatuses {
-		position := cs.GetCurrentPosition().GetPosition()
-		switch {
-		case outgoingPosition == nil || CompareRulePosition(position, outgoingPosition) > 0:
-			outgoingPosition = position
-			recruitsRecordingRule = []*clustermetadatapb.ConsensusStatus{cs}
-		case CompareRulePosition(position, outgoingPosition) == 0:
-			recruitsRecordingRule = append(recruitsRecordingRule, cs)
-		}
-	}
-	if len(recruitsRecordingRule) == 0 {
-		return recruitsRecordingRule, nil, nil
-	}
-	for _, cs := range recruitsRecordingRule[1:] {
-		if !proto.Equal(cs.GetCurrentPosition().GetPosition(), outgoingPosition) {
-			return nil, nil, fmt.Errorf(
-				"recruits %s and %s agree on rule number but disagree on content; inconsistent discovery result",
-				topoclient.ClusterIDString(recruitsRecordingRule[0].GetId()), topoclient.ClusterIDString(cs.GetId()),
-			)
-		}
-	}
-	return recruitsRecordingRule, outgoingPosition, nil
-}
-
-// narrowByLSN narrows mostAdvanced (recruits already confirmed to share the
-// same RulePosition, decided, matching the coordinator's expected outgoing
-// rule — see buildProposalCore) to those additionally tied at the highest
-// LSN at or above minLSN: RulePosition alone doesn't capture ordinary WAL
-// streaming progress within the same decided rule, so the buildProposal
+// narrowByLSN narrows mostAdvanced (recruits already confirmed to record the
+// latest rule matching the coordinator's expected outgoing rule — see
+// buildProposalCore) to those additionally tied at the highest
+// LSN at or above minLSN: the rule alone doesn't capture ordinary WAL
+// streaming progress within it, so the buildProposal
 // callback still needs an LSN-based choice among them.
 //
 // minLSN (see certMinLSN) narrows leader eligibility only — a recruit below

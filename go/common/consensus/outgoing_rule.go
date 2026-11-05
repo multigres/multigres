@@ -17,6 +17,8 @@ package consensus
 import (
 	"fmt"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/tools/pgutil"
@@ -38,16 +40,92 @@ type observedOutgoingRule struct {
 	basis revocationBasis
 }
 
-// recruitsRecordingRule are all recruits that record the outgoing position,
-// whether or not they are members of the rule's cohort.
+// recruitsRecordingRule are all recruits that record the outgoing rule, whether
+// or not they know it is decided and whether or not they are members of its
+// cohort.
 func (o observedOutgoingRule) recruitsRecordingRule() []*clustermetadatapb.ConsensusStatus {
+	latest := o.transition.PossiblyUndecidedRule().GetRuleNumber()
 	var recording []*clustermetadatapb.ConsensusStatus
 	for _, cs := range o.recruited {
-		if NewRuleTransition(cs.GetCurrentPosition().GetPosition()).Compare(o.transition) == 0 {
+		if CompareRuleNumbers(RuleNumberPositionOf(cs.GetCurrentPosition().GetPosition()).Latest(), latest) == 0 {
 			recording = append(recording, cs)
 		}
 	}
 	return recording
+}
+
+// outgoingView is what a set of statuses collectively says about the rule a
+// rule change transitions from. Two independent facts are joined, not read from
+// any one status: which rules are decided (a decision is never forgotten, so
+// this is a maximum) and which rule the WAL records last (what a node holds does
+// not depend on what it knows is decided).
+type outgoingView struct {
+	// base is the highest decision any status knows.
+	base *clustermetadatapb.ShardRule
+	// latest is the newest rule any status records: an undecided proposal beyond
+	// base, or base itself.
+	latest *clustermetadatapb.ShardRule
+	// holders are the statuses that record latest.
+	holders []*clustermetadatapb.ConsensusStatus
+}
+
+// discoverOutgoing joins statuses into an outgoingView. It fails if statuses
+// disagree on the content of a rule they share the number of: that is a data
+// inconsistency the caller cannot safely proceed past.
+func discoverOutgoing(statuses []*clustermetadatapb.ConsensusStatus) (outgoingView, error) {
+	var view outgoingView
+	var baseSource, latestSource *clustermetadatapb.ConsensusStatus
+	for _, cs := range statuses {
+		position := cs.GetCurrentPosition().GetPosition()
+		if baseSource == nil || CompareRuleNumbers(position.GetDecision().GetRuleNumber(), view.base.GetRuleNumber()) > 0 {
+			baseSource, view.base = cs, position.GetDecision()
+		}
+		if latestSource == nil || CompareRuleNumbers(PossiblyUndecidedRule(position).GetRuleNumber(), view.latest.GetRuleNumber()) > 0 {
+			latestSource, view.latest = cs, PossiblyUndecidedRule(position)
+		}
+	}
+	for _, cs := range statuses {
+		position := cs.GetCurrentPosition().GetPosition()
+		if CompareRuleNumbers(position.GetDecision().GetRuleNumber(), view.base.GetRuleNumber()) == 0 &&
+			!sameRuleContent(position.GetDecision(), view.base) {
+			return outgoingView{}, disagreeError(baseSource, cs)
+		}
+		if CompareRuleNumbers(PossiblyUndecidedRule(position).GetRuleNumber(), view.latest.GetRuleNumber()) == 0 {
+			if !sameRuleContent(PossiblyUndecidedRule(position), view.latest) {
+				return outgoingView{}, disagreeError(latestSource, cs)
+			}
+			view.holders = append(view.holders, cs)
+		}
+	}
+	if CompareRuleNumbers(view.base.GetRuleNumber(), view.latest.GetRuleNumber()) > 0 {
+		return outgoingView{}, fmt.Errorf("decision %s is beyond every recorded rule %s; inconsistent discovery result",
+			FormatRuleNumber(view.base.GetRuleNumber()), FormatRuleNumber(view.latest.GetRuleNumber()))
+	}
+	return view, nil
+}
+
+func disagreeError(a, b *clustermetadatapb.ConsensusStatus) error {
+	return fmt.Errorf("recruits %s and %s agree on rule number but disagree on content; inconsistent discovery result",
+		topoclient.ClusterIDString(a.GetId()), topoclient.ClusterIDString(b.GetId()))
+}
+
+// sameRuleContent reports whether two rules with the same number agree on what
+// the protocol acts on: leader, cohort and policy. The coordinator and creation
+// time are bookkeeping that deciding a proposal can rewrite.
+func sameRuleContent(a, b *clustermetadatapb.ShardRule) bool {
+	return idsEqual(a.GetLeaderId(), b.GetLeaderId()) &&
+		sameCohort(a.GetCohortMembers(), b.GetCohortMembers()) &&
+		proto.Equal(a.GetDurabilityPolicy(), b.GetDurabilityPolicy())
+}
+
+// transition reads the view as a RuleTransition: the base decision, plus the
+// latest rule as an undecided proposal when it is beyond the base.
+func (v outgoingView) transition() RuleTransition {
+	position := &clustermetadatapb.RulePosition{Decision: v.base}
+	if CompareRuleNumbers(v.latest.GetRuleNumber(), v.base.GetRuleNumber()) > 0 {
+		position.Proposal = v.latest
+	}
+	return NewRuleTransition(position)
 }
 
 // discoverOutgoingRule finds the outgoing rule among recruited and checks that
@@ -57,11 +135,12 @@ func discoverOutgoingRule(
 	expected *clustermetadatapb.RuleNumber,
 	basis revocationBasis,
 ) (observedOutgoingRule, error) {
-	recruitsRecordingRule, position, err := discoverOutgoingRulePosition(recruited)
+	view, err := discoverOutgoing(recruited)
 	if err != nil {
 		return observedOutgoingRule{}, err
 	}
-	transition := NewRuleTransition(position)
+	recruitsRecordingRule := view.holders
+	transition := view.transition()
 	observed := observedOutgoingRule{recruited: recruited, transition: transition, basis: basis}
 	outgoing := transition.PossiblyUndecidedRule()
 	cmp := CompareRuleNumbers(outgoing.GetRuleNumber(), expected)
