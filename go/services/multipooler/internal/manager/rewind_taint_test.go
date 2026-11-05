@@ -27,6 +27,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
@@ -111,6 +112,15 @@ func TestFirstModifiedSince(t *testing.T) {
 	t.Run("the pooler's own postgresql.auto.conf edits are ignored", func(t *testing.T) {
 		dir := newAgedDataDir(t)
 		require.NoError(t, os.WriteFile(filepath.Join(dir, autoConfFileName), []byte("restore_command = 'x'\n"), 0o600))
+		assert.Empty(t, scan(t, dir))
+	})
+
+	t.Run("symlinks that do not point to a directory are not followed", func(t *testing.T) {
+		dir := newAgedDataDir(t)
+		require.NoError(t, os.Symlink(filepath.Join(dir, "missing"), filepath.Join(dir, "dangling")))
+		require.NoError(t, os.Symlink(filepath.Join(dir, "base/1/16384"), filepath.Join(dir, "filelink")))
+		old := time.Now().Add(-time.Hour)
+		require.NoError(t, os.Chtimes(dir, old, old)) // creating the links touched it
 		assert.Empty(t, scan(t, dir))
 	})
 
@@ -269,6 +279,70 @@ func TestSettleRewindAttempt(t *testing.T) {
 		tainted, err := pm.settleRewindAttempt(t.Context())
 		require.NoError(t, err)
 		assert.True(t, tainted)
+	})
+}
+
+// blockSentinel makes the sentinel impossible to write or remove by putting a
+// non-empty directory where its file would go.
+func blockSentinel(t *testing.T, s sentinel) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Join(s.path, "occupied"), 0o700))
+}
+
+func TestRewindAttemptErrors(t *testing.T) {
+	t.Run("a verdict that cannot be recorded is an error, not a silent retry", func(t *testing.T) {
+		dir := newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		require.NoError(t, pm.rewindAttempt().write())
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "base/1/16384"), []byte("x"), 0o600))
+		blockSentinel(t, pm.rewindTainted())
+
+		tainted, err := pm.settleRewindAttempt(t.Context())
+		require.Error(t, err)
+		assert.True(t, tainted)
+
+		runErr := errors.New("copy failed")
+		got := pm.failRewindRun(t.Context(), runErr)
+		require.ErrorIs(t, got, runErr)
+		require.ErrorContains(t, got, "failed to settle rewind attempt marker")
+	})
+
+	t.Run("a failed unassessed marker check is an error", func(t *testing.T) {
+		newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		// A path component that is a file makes stat fail with something other
+		// than not-exist.
+		require.NoError(t, os.WriteFile(filepath.Join(pm.record.PoolerDir(), "blocker"), nil, 0o600))
+		pm.record = newRecordFromProto(&clustermetadatapb.Multipooler{
+			Type:      clustermetadatapb.PoolerType_REPLICA,
+			PoolerDir: filepath.Join(pm.record.PoolerDir(), "blocker", "sub"),
+		})
+		_, err := pm.settleRewindAttempt(t.Context())
+		require.Error(t, err)
+	})
+
+	t.Run("an attempt marker that cannot be removed after a pass is only logged", func(t *testing.T) {
+		newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		blockSentinel(t, pm.rewindAttempt())
+		assert.NotPanics(t, func() { pm.passRewindRun(t.Context()) })
+	})
+
+	t.Run("the monitor retries on the next tick when the interrupted run cannot be settled", func(t *testing.T) {
+		dir := newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		require.NoError(t, pm.rewindSentinel().write())
+		require.NoError(t, pm.rewindAttempt().write())
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "base/1/16384"), []byte("half copied"), 0o600))
+		blockSentinel(t, pm.rewindTainted())
+
+		withLock(t, pm, func(ctx context.Context) {
+			require.NoError(t, pm.takeRemedialAction(ctx, remedialActionMarkRewindInterrupted, postgresState{}))
+		})
+		quarantined, _, _ := quarantineState(pm)
+		assert.False(t, quarantined, "nothing is decided until the verdict is durable")
+		requirePresent(t, pm.rewindAttempt(), true, "the evidence is kept for the retry")
+		assert.False(t, pm.consensusMgr.SuspectedDivergence())
 	})
 }
 
