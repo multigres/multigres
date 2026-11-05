@@ -391,7 +391,7 @@ func statusReplicationPrimary(pos *clustermetadatapb.PoolerPosition, replication
 	// Whichever position wins is republished whole (decision and proposal
 	// together), not flattened to a single merged rule.
 	position := ruleStorePosition
-	if consensus.CompareRulePosition(highestKnownPosition, ruleStorePosition) >= 0 {
+	if consensus.CompareKnowledge(highestKnownPosition, ruleStorePosition) >= 0 {
 		// RPC-delivered position leads or ties the rule store — use it.
 		position = highestKnownPosition
 	}

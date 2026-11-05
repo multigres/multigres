@@ -326,7 +326,7 @@ func TestMergeReplicationPrimary(t *testing.T) {
 	})
 
 	t.Run("rewind_ready carries forward when a decision replaces its own term's proposal", func(t *testing.T) {
-		// CompareRulePosition ranks a decision strictly above its own term's
+		// CompareKnowledge ranks a decision strictly above its own term's
 		// undecided proposal (cmp > 0, not cmp == 0), so this exercises the
 		// carry-forward on the advance path, not just the same-position path.
 		proposal := &clustermetadatapb.ReplicationPrimary{
@@ -508,7 +508,7 @@ func TestPossiblyUndecidedRule(t *testing.T) {
 	assert.Equal(t, proposal, PossiblyUndecidedRule(&clustermetadatapb.RulePosition{Decision: decision, Proposal: proposal}), "outstanding proposal: prefers proposal")
 }
 
-func TestCompareRulePosition(t *testing.T) {
+func TestCompareKnowledge(t *testing.T) {
 	decision := func(term int64) *clustermetadatapb.RulePosition {
 		return &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)}}
 	}
@@ -535,7 +535,7 @@ func TestCompareRulePosition(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, CompareRulePosition(tt.a, tt.b))
+			assert.Equal(t, tt.want, CompareKnowledge(tt.a, tt.b))
 		})
 	}
 }
