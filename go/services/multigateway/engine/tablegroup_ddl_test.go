@@ -371,3 +371,8 @@ func TestTableGroupDDL_PortalDelegates(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"DROP TABLEGROUP"}, tags)
 }
+
+func TestTableGroupDDL_RunsOnTheDefaultTableGroup(t *testing.T) {
+	assert.Equal(t, "default", newTestCreate(nil, false).GetTableGroup())
+	assert.Equal(t, "default", newTestDrop(nil, false).GetTableGroup())
+}

@@ -121,8 +121,7 @@ func (t *TableGroupDDL) StreamExecute(
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
 	if conn != nil && conn.IsInTransaction() {
-		return mterrors.NewPgError("ERROR", mterrors.PgSSActiveTransaction,
-			t.statementName()+" cannot run inside a transaction block", "")
+		return mterrors.NewInTransactionBlock(t.statementName())
 	}
 	if err := t.checkPrivilege(ctx, exec, conn, state); err != nil {
 		return err
@@ -169,9 +168,7 @@ func (t *TableGroupDDL) checkPrivilege(ctx context.Context, exec IExecute, conn 
 		if t.drop {
 			verb = "drop"
 		}
-		d := mterrors.NewPgError("ERROR", mterrors.PgSSInsufficientPrivilege, "permission denied to "+verb+" tablegroup", "")
-		d.Hint = "Must be a member of " + constants.MultigresTopoRole + "."
-		return d
+		return insufficientPrivilegeError(verb)
 	}
 	return nil
 }
@@ -185,14 +182,12 @@ func (t *TableGroupDDL) runCreate(ctx context.Context, database string, callback
 	}
 	if resp.GetAlreadyExists() {
 		return callback(ctx, &sqltypes.Result{
-			Notices:    []*mterrors.PgDiagnostic{mterrors.NewPgNotice("NOTICE", mterrors.PgSSDuplicateObject, fmt.Sprintf("tablegroup %q already exists, skipping", t.name), "")},
+			Notices:    []*mterrors.PgDiagnostic{alreadyExistsNotice(t.name)},
 			CommandTag: t.statementName(),
 		})
 	}
 	opID := resp.GetOperationId()
-	if err := callback(ctx, &sqltypes.Result{Notices: []*mterrors.PgDiagnostic{
-		operationNotice(fmt.Sprintf("creating tablegroup %q as operation %s", t.name, opID), opID, true),
-	}}); err != nil {
+	if err := callback(ctx, &sqltypes.Result{Notices: []*mterrors.PgDiagnostic{creatingNotice(t.name, opID)}}); err != nil {
 		return err
 	}
 	op, err := t.wait(ctx, database, opID)
@@ -217,16 +212,12 @@ func (t *TableGroupDDL) runDrop(ctx context.Context, database string, callback f
 		}
 		if resp.GetNotFound() {
 			return callback(ctx, &sqltypes.Result{
-				Notices:    []*mterrors.PgDiagnostic{mterrors.NewPgNotice("NOTICE", mterrors.PgSSSuccessfulCompletion, fmt.Sprintf("tablegroup %q does not exist, skipping", t.name), "")},
+				Notices:    []*mterrors.PgDiagnostic{doesNotExistNotice(t.name)},
 				CommandTag: t.statementName(),
 			})
 		}
 		opID := resp.GetOperationId()
-		msg := fmt.Sprintf("dropping tablegroup %q as operation %s", t.name, opID)
-		if resp.GetCancelledCreation() {
-			msg = fmt.Sprintf("cancelling the creation of tablegroup %q, operation %s", t.name, opID)
-		}
-		if err := callback(ctx, &sqltypes.Result{Notices: []*mterrors.PgDiagnostic{operationNotice(msg, opID, false)}}); err != nil {
+		if err := callback(ctx, &sqltypes.Result{Notices: []*mterrors.PgDiagnostic{droppingNotice(t.name, opID, resp.GetCancelledCreation())}}); err != nil {
 			return err
 		}
 		op, err := t.wait(ctx, database, opID)
@@ -240,8 +231,7 @@ func (t *TableGroupDDL) runDrop(ctx context.Context, database string, callback f
 		}
 		return callback(ctx, &sqltypes.Result{CommandTag: t.statementName()})
 	}
-	return mterrors.NewPgError("ERROR", mterrors.PgSSObjectNotInPrerequisiteState,
-		fmt.Sprintf("tablegroup %q changed state while being dropped", t.name), "")
+	return changedStateError(t.name)
 }
 
 // wait polls the operation until it is done or failed. Transient errors
@@ -256,8 +246,7 @@ func (t *TableGroupDDL) wait(ctx context.Context, database, opID string) (*multi
 		switch {
 		case err == nil:
 			if op == nil {
-				return nil, mterrors.NewPgError("ERROR", mterrors.PgSSInternalError,
-					fmt.Sprintf("operation %s was reported without its state", opID), "")
+				return nil, missingOperationStateError(opID)
 			}
 			if s := op.GetState(); s == multipoolermanagerdatapb.OperationState_OPERATION_STATE_DONE || s == multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED {
 				return op, nil
@@ -273,6 +262,56 @@ func (t *TableGroupDDL) wait(ctx context.Context, database, opID string) (*multi
 		case <-ticker.C:
 		}
 	}
+}
+
+// insufficientPrivilegeError rejects a caller that is neither a superuser nor
+// a member of multigres_topo. verb is "create" or "drop".
+func insufficientPrivilegeError(verb string) *mterrors.PgDiagnostic {
+	d := mterrors.NewPgError("ERROR", mterrors.PgSSInsufficientPrivilege, "permission denied to "+verb+" tablegroup", "")
+	d.Hint = "Must be a member of " + constants.MultigresTopoRole + "."
+	return d
+}
+
+// alreadyExistsNotice is CREATE TABLEGROUP IF NOT EXISTS finding the
+// tablegroup active.
+func alreadyExistsNotice(name string) *mterrors.PgDiagnostic {
+	return mterrors.NewPgNotice("NOTICE", mterrors.PgSSDuplicateObject,
+		fmt.Sprintf("tablegroup %q already exists, skipping", name), "")
+}
+
+// doesNotExistNotice is DROP TABLEGROUP IF EXISTS finding no tablegroup.
+func doesNotExistNotice(name string) *mterrors.PgDiagnostic {
+	return mterrors.NewPgNotice("NOTICE", mterrors.PgSSSuccessfulCompletion,
+		fmt.Sprintf("tablegroup %q does not exist, skipping", name), "")
+}
+
+// creatingNotice announces a creation and how to follow or cancel it.
+func creatingNotice(name, opID string) *mterrors.PgDiagnostic {
+	return operationNotice(fmt.Sprintf("creating tablegroup %q as operation %s", name, opID), opID, true)
+}
+
+// droppingNotice announces a drop, or the cancel of a creation still in
+// flight, and how to follow it.
+func droppingNotice(name, opID string, cancelledCreation bool) *mterrors.PgDiagnostic {
+	msg := fmt.Sprintf("dropping tablegroup %q as operation %s", name, opID)
+	if cancelledCreation {
+		msg = fmt.Sprintf("cancelling the creation of tablegroup %q, operation %s", name, opID)
+	}
+	return operationNotice(msg, opID, false)
+}
+
+// changedStateError reports a drop whose both attempts cancelled a creation
+// that completed before the cancel took effect.
+func changedStateError(name string) *mterrors.PgDiagnostic {
+	return mterrors.NewPgError("ERROR", mterrors.PgSSObjectNotInPrerequisiteState,
+		fmt.Sprintf("tablegroup %q changed state while being dropped", name), "")
+}
+
+// missingOperationStateError reports a GetOperation that answered without an
+// operation, which the catalog primary never does.
+func missingOperationStateError(opID string) *mterrors.PgDiagnostic {
+	return mterrors.NewPgError("ERROR", mterrors.PgSSInternalError,
+		fmt.Sprintf("operation %s was reported without its state", opID), "")
 }
 
 // operationNotice is the first notice of a statement: what it started and
@@ -350,7 +389,10 @@ func tableGroupAdminError(err error) error {
 	return mterrors.NewPgError("ERROR", code, st.Message(), "")
 }
 
-func (t *TableGroupDDL) GetTableGroup() string { return "" }
+// GetTableGroup returns the default tablegroup: the statement runs its
+// privilege check there and calls that tablegroup's catalog primary, never
+// the tablegroup it names.
+func (t *TableGroupDDL) GetTableGroup() string { return t.defaultTableGroup }
 
 func (t *TableGroupDDL) GetQuery() string { return t.sql }
 
