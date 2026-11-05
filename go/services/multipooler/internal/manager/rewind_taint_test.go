@@ -385,11 +385,11 @@ func TestRewindAttemptErrors(t *testing.T) {
 	t.Run("a rewind is refused when the taint marker cannot be read", func(t *testing.T) {
 		newAgedDataDir(t)
 		pm := newSentinelTestManager(t)
-		require.NoError(t, os.WriteFile(filepath.Join(pm.record.PoolerDir(), "blocker"), nil, 0o600))
-		pm.record = newRecordFromProto(&clustermetadatapb.Multipooler{
-			Type:      clustermetadatapb.PoolerType_REPLICA,
-			PoolerDir: filepath.Join(pm.record.PoolerDir(), "blocker", "sub"),
-		})
+		// A data directory below a regular file makes stat fail with something
+		// other than not-exist.
+		blocker := filepath.Join(t.TempDir(), "blocker")
+		require.NoError(t, os.WriteFile(blocker, nil, 0o600))
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(blocker, "pg_data"))
 		client := &mockPgctldClient{}
 		pm.pgctldClient = client
 		withLock(t, pm, func(ctx context.Context) {
@@ -501,8 +501,35 @@ func TestSettleRewindAttempt_WaitsForPgRewindToExit(t *testing.T) {
 	})
 }
 
+func TestRewindTainted_Sentinel(t *testing.T) {
+	t.Run("lives in the data directory, so replacing the directory removes it", func(t *testing.T) {
+		dir := newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		s := pm.rewindTainted()
+		assert.Equal(t, filepath.Join(dir, constants.RewindTaintedFile), s.path)
+		assert.NotEqual(t, pm.record.PoolerDir(), filepath.Dir(s.path))
+
+		requirePresent(t, s, false, "no verdict initially")
+		require.NoError(t, s.write())
+		requirePresent(t, s, true, "present after write")
+
+		// A fresh data directory in the same place (restore, re-init) has no verdict.
+		require.NoError(t, os.RemoveAll(dir))
+		require.NoError(t, os.MkdirAll(dir, 0o700))
+		requirePresent(t, s, false, "the verdict goes with the directory it describes")
+	})
+
+	t.Run("a write to a missing data directory is an error", func(t *testing.T) {
+		newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(t.TempDir(), "no", "such", "dir"))
+		require.Error(t, pm.rewindTainted().write())
+	})
+}
+
 func TestMonitor_TaintedRewind(t *testing.T) {
 	t.Run("the verdict is rediscovered from disk and decides before everything else", func(t *testing.T) {
+		newAgedDataDir(t)
 		pm := newSentinelTestManager(t)
 		pm.pgctldClient = &mockPgctldClient{
 			statusResponse: &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_STOPPED},

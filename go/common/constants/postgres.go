@@ -175,7 +175,13 @@ const (
 	// RewindTaintedFile is the durable verdict that a failed pg_rewind modified the
 	// data directory and did not complete. Such a directory is a mix of old and new
 	// files, so it must never be rewound again or started: the node is quarantined
-	// for replacement. Lives in pooler_dir for the same reasons as RewindSentinelFile.
+	// for replacement. Unlike the other rewind markers it lives in the data directory
+	// itself, because it describes that directory: replacing the directory (restore,
+	// re-init, volume wipe) removes the verdict with it. It is written only after
+	// pg_rewind has exited and a tainted directory is never rewound again, so
+	// pg_rewind, which removes files that exist only in the target, cannot delete
+	// it. It is excluded from pgBackRest backups so that a backup of a tainted node
+	// does not carry the verdict into a restored one.
 	RewindTaintedFile = ".multigres-rewind-tainted"
 
 	// RestoreSentinelFile marks an in-progress pgBackRest restore. Written before

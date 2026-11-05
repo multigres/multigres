@@ -49,7 +49,6 @@ var testSentinels = []struct {
 	{"rewind", constants.RewindSentinelFile, (*MultipoolerManager).rewindSentinel},
 	{"restore", constants.RestoreSentinelFile, (*MultipoolerManager).restoreSentinel},
 	{"rewind attempt", constants.RewindAttemptFile, (*MultipoolerManager).rewindAttempt},
-	{"rewind tainted", constants.RewindTaintedFile, (*MultipoolerManager).rewindTainted},
 }
 
 func TestSentinel_RoundTrip(t *testing.T) {

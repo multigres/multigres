@@ -113,7 +113,8 @@ func TestInterruptedRewindTaintVerdict(t *testing.T) {
 		return lifecycle(tainted.Name) == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_QUARANTINED
 	}, utils.ScaleTimeout(60*time.Second), 500*time.Millisecond,
 		"standby %s modified by an interrupted rewind should be quarantined", tainted.Name)
-	assert.FileExists(t, filepath.Join(tainted.Pgctld.PoolerDir, constants.RewindTaintedFile))
+	assert.FileExists(t, filepath.Join(tainted.Pgctld.PoolerDir, "pg_data", constants.RewindTaintedFile),
+		"the verdict lives in the data directory it describes")
 	assert.False(t, exists(filepath.Join(tainted.Pgctld.PoolerDir, constants.RewindAttemptFile)),
 		"the attempt marker is consumed by the verdict")
 
@@ -123,7 +124,7 @@ func TestInterruptedRewindTaintVerdict(t *testing.T) {
 		return !exists(filepath.Join(clean.Pgctld.PoolerDir, constants.RewindAttemptFile))
 	}, utils.ScaleTimeout(60*time.Second), 500*time.Millisecond,
 		"the untouched standby %s should have its attempt marker consumed", clean.Name)
-	assert.False(t, exists(filepath.Join(clean.Pgctld.PoolerDir, constants.RewindTaintedFile)),
+	assert.False(t, exists(filepath.Join(clean.Pgctld.PoolerDir, "pg_data", constants.RewindTaintedFile)),
 		"an untouched data directory must not be tainted")
 	assert.NotEqual(t, clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_QUARANTINED, lifecycle(clean.Name),
 		"an untouched data directory stays on the repair path")
@@ -182,7 +183,7 @@ func TestFailedDryRunAfterCrashRecoveryIsRetryable(t *testing.T) {
 		return err == nil && strings.Contains(string(b), "pg_rewind dry-run failed")
 	}, utils.ScaleTimeout(90*time.Second), time.Second, "the dry-run should have failed with the leader down")
 
-	_, err := os.Stat(filepath.Join(victimDir, constants.RewindTaintedFile))
+	_, err := os.Stat(filepath.Join(victimDir, "pg_data", constants.RewindTaintedFile))
 	require.True(t, os.IsNotExist(err), "a failed dry-run must not taint the data directory")
 	_, err = os.Stat(filepath.Join(victimDir, constants.RewindAttemptFile))
 	require.True(t, os.IsNotExist(err), "no attempt marker is written before the mutating call")
@@ -196,6 +197,6 @@ func TestFailedDryRunAfterCrashRecoveryIsRetryable(t *testing.T) {
 		_, err := os.Stat(filepath.Join(victimDir, constants.RewindSentinelFile))
 		return os.IsNotExist(err)
 	}, utils.ScaleTimeout(120*time.Second), time.Second, "the standby should complete its rewind once the leader is back")
-	_, err = os.Stat(filepath.Join(victimDir, constants.RewindTaintedFile))
+	_, err = os.Stat(filepath.Join(victimDir, "pg_data", constants.RewindTaintedFile))
 	require.True(t, os.IsNotExist(err))
 }
