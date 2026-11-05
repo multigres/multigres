@@ -39,11 +39,6 @@ const (
 	// built-ins of the same name.
 	MultigresSchema = "multigres"
 
-	// MultigresTopoRole is the role whose members may run tablegroup and
-	// shard-index commands and see or cancel catalog operations. Superusers
-	// are members of every role. The catalog shard creates it, without login.
-	MultigresTopoRole = "multigres_topo"
-
 	// MultigresVersionFunction is the name of the gateway function
 	// `multigres.version()`, which reports the running multigateway's full build
 	// string. It doubles as the default output column label, matching

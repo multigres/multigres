@@ -37,8 +37,7 @@ Each statement:
    (`transaction_read_only`, always on for a session on the replica-reads
    port, whose queries run on a standby), a transaction block, and a
    statement after another of the same extended-protocol pipeline. Then the
-   caller's current role must be a member of `multigres_topo` (superusers
-   always are).
+   caller's current role must be a superuser.
 2. Records the intent through the catalog primary (below) and sends a
    `NOTICE` naming the operation id. If the call fails without an answer (a
    timeout, an unreachable or failing-over primary, or the statement
