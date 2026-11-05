@@ -20,12 +20,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/switcher"
@@ -35,6 +35,20 @@ import (
 
 const (
 	defaultHeartbeatReadInterval = 1 * time.Second
+
+	// quorumColumnsRetryInterval is how long the Reader reads only the lag columns after
+	// finding the quorum-commit columns missing, before trying the full query again.
+	quorumColumnsRetryInterval = 30 * time.Second
+
+	// fullHeartbeatQuery reads everything the Reader uses. Only ts is needed for lag; the
+	// quorum_commit columns are optional extras (see lagOnlyHeartbeatQuery).
+	fullHeartbeatQuery = "SELECT ts, pg_last_wal_receive_lsn()::text, quorum_commit_lsn::text, quorum_commit_ts FROM multigres.heartbeat WHERE shard_id = $1"
+
+	// lagOnlyHeartbeatQuery is what the Reader falls back to on a table from a release
+	// that predates the quorum_commit columns. A standby cannot alter the table, so until
+	// the primary upgrades it (the change then replicates) this keeps lag and WAL-receive
+	// tracking working instead of failing the whole read over two optional columns.
+	lagOnlyHeartbeatQuery = "SELECT ts, pg_last_wal_receive_lsn()::text FROM multigres.heartbeat WHERE shard_id = $1"
 )
 
 // Reader reads the heartbeat table at a configured interval in order
@@ -82,6 +96,14 @@ type Reader struct {
 
 	reads      atomic.Int64
 	readErrors atomic.Int64
+
+	// readSchemaErrors counts the readErrors caused by an incompatible heartbeat
+	// table (see IsSchemaError).
+	readSchemaErrors atomic.Int64
+
+	// lagOnlyUntil is when to next try the full query, in Unix nanoseconds; until then
+	// only lagOnlyHeartbeatQuery is used. Zero means the full query works.
+	lagOnlyUntil atomic.Int64
 }
 
 // NewReader returns a new heartbeat reader with the default interval.
@@ -205,9 +227,7 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 // advancement is a distinct "the primary is durably committing with quorum"
 // signal.
 func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, receiveLSN pgutil.LSN, haveReceiveLSN bool, quorumCommitLSN pgutil.LSN, haveQuorumCommitLSN bool, quorumCommitTs time.Time, haveQuorumCommitTs bool, err error) {
-	result, err := r.queryService.QueryAdminArgs(ctx,
-		"SELECT ts, pg_last_wal_receive_lsn()::text, quorum_commit_lsn::text, quorum_commit_ts FROM multigres.heartbeat WHERE shard_id = $1",
-		r.shardID)
+	result, withQuorum, err := r.queryHeartbeat(ctx)
 	if err != nil {
 		return 0, 0, false, 0, false, time.Time{}, false, mterrors.Wrap(err, "failed to read most recent heartbeat")
 	}
@@ -230,6 +250,9 @@ func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, re
 			receiveLSN, haveReceiveLSN = lsn, true
 		}
 	}
+	if !withQuorum {
+		return tsNano, receiveLSN, haveReceiveLSN, 0, false, time.Time{}, false, nil
+	}
 	// Same best-effort treatment for quorum_commit_lsn.
 	if raw, rawErr := executor.GetString(row, 2); rawErr == nil && raw != "" {
 		if lsn, lsnErr := pgutil.ParseLSN(raw); lsnErr != nil {
@@ -247,6 +270,39 @@ func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, re
 		quorumCommitTs, haveQuorumCommitTs = ts, true
 	}
 	return tsNano, receiveLSN, haveReceiveLSN, quorumCommitLSN, haveQuorumCommitLSN, quorumCommitTs, haveQuorumCommitTs, nil
+}
+
+// queryHeartbeat runs the heartbeat read, falling back to the lag-only query when the
+// table lacks the quorum_commit columns. withQuorum reports which one produced the result.
+//
+// The fallback read counts as a successful read, so lag keeps flowing, and also as a
+// schema error, so the gap stays visible in the error metric and triggers a schema
+// re-check. While on the fallback the full query is retried every
+// quorumColumnsRetryInterval, which picks up the columns once the primary adds them.
+func (r *Reader) queryHeartbeat(ctx context.Context) (result *sqltypes.Result, withQuorum bool, err error) {
+	if until := r.lagOnlyUntil.Load(); until != 0 && r.now().UnixNano() < until {
+		result, err = r.queryService.QueryAdminArgs(ctx, lagOnlyHeartbeatQuery, r.shardID)
+		return result, false, err
+	}
+	result, err = r.queryService.QueryAdminArgs(ctx, fullHeartbeatQuery, r.shardID)
+	if err == nil {
+		r.lagOnlyUntil.Store(0)
+		return result, true, nil
+	}
+	if !IsSchemaError(err) {
+		return nil, true, err
+	}
+	// Do not wait out the retry interval on the failure path: lag is read right away.
+	result, fallbackErr := r.queryService.QueryAdminArgs(ctx, lagOnlyHeartbeatQuery, r.shardID)
+	if fallbackErr != nil {
+		return nil, false, fallbackErr
+	}
+	r.lagOnlyUntil.Store(r.now().Add(quorumColumnsRetryInterval).UnixNano())
+	r.readErrors.Add(1)
+	r.readSchemaErrors.Add(1)
+	r.logger.WarnContext(ctx, "heartbeat table cannot supply quorum-commit columns; reading replication lag only",
+		"error", err)
+	return result, false, nil
 }
 
 // LastReceiveLSNAdvance returns when pg_last_wal_receive_lsn() was last observed
@@ -283,6 +339,9 @@ func (r *Reader) recordError(err error) {
 	r.lagMu.Unlock()
 	r.logger.Error("failed to read heartbeat", "error", err)
 	r.readErrors.Add(1)
+	if IsSchemaError(err) {
+		r.readSchemaErrors.Add(1)
+	}
 }
 
 // Reads returns the number of successful heartbeat reads.
@@ -293,6 +352,12 @@ func (r *Reader) Reads() int64 {
 // ReadErrors returns the number of heartbeat read errors.
 func (r *Reader) ReadErrors() int64 {
 	return r.readErrors.Load()
+}
+
+// ReadSchemaErrors returns the number of heartbeat read errors caused by an
+// incompatible heartbeat table. They are also counted in ReadErrors.
+func (r *Reader) ReadSchemaErrors() int64 {
+	return r.readSchemaErrors.Load()
 }
 
 // LeadershipView contains the consensus state and replication lag information
@@ -318,13 +383,17 @@ func (r *Reader) GetLeadershipView() (*LeadershipView, error) {
 	}
 
 	row := result.StructuredRows()[0]
-	tsNano, err := strconv.ParseInt(string(row.Values[1]), 10, 64)
+	leaderID, err := executor.GetString(row, 0)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to parse heartbeat leader")
+	}
+	tsNano, err := executor.GetInt64(row, 1)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to parse heartbeat timestamp")
 	}
 
 	view := &LeadershipView{
-		LeaderID:      string(row.Values[0]),
+		LeaderID:      leaderID,
 		LastHeartbeat: time.Unix(0, tsNano),
 	}
 

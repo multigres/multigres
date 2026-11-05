@@ -83,9 +83,15 @@ type MultipoolerManager struct {
 	serviceID       *clustermetadatapb.ID
 	servicePoolerID consensus.ReplicaID
 	replTracker     *heartbeat.ReplTracker
-	pubsubListener  *pubsub.Listener
-	replStats       *replicationstats.Tracker
-	pgctldClient    pgctldpb.PgCtldClient
+
+	// heartbeatSchema is the latest check of multigres.heartbeat against this release (nil
+	// until the first check); see pg_heartbeat_schema.go. heartbeatSchemaErrorsSeen is the
+	// schema-error count at the last check, so a later error triggers a re-check.
+	heartbeatSchema           atomic.Pointer[heartbeat.SchemaReport]
+	heartbeatSchemaErrorsSeen atomic.Int64
+	pubsubListener            *pubsub.Listener
+	replStats                 *replicationstats.Tracker
+	pgctldClient              pgctldpb.PgCtldClient
 
 	// connPoolMgr manages all connection pools (admin, regular, reserved)
 	connPoolMgr connpoolmanager.PoolManager
@@ -645,9 +651,15 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 		// actual pg_promote() transition. Without this, a plain process restart of
 		// an already-primary pooler would never re-ensure them, even after
 		// upgrading to a pooler version that knows about them.
-		if mode, err := pm.postgresMode(ctx); err == nil && mode.OutOfRecovery() {
-			if err := pm.ensureSidecarSchemas(ctx); err != nil {
-				pm.logger.WarnContext(ctx, "failed to ensure sidecar schemas on open", "error", err)
+		if mode, err := pm.postgresMode(ctx); err == nil {
+			if mode.OutOfRecovery() {
+				if err := pm.ensureSidecarSchemas(ctx); err != nil {
+					pm.logger.WarnContext(ctx, "failed to ensure sidecar schemas on open", "error", err)
+				}
+			} else {
+				// A standby cannot alter the table, but can still report that it is
+				// incompatible.
+				pm.checkHeartbeatSchema(ctx)
 			}
 		}
 
@@ -1723,6 +1735,11 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	if err := pm.createBackendVpidTable(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "failed to recreate backend_vpid table after promotion", "error", err)
 	}
+
+	// A standby promoted before any primary ran this release inherits the heartbeat
+	// table of the release that bootstrapped the shard. Upgrade it before the new
+	// leader's first heartbeat. Never fails the promotion.
+	pm.ensureHeartbeatSchema(ctx)
 
 	return nil
 }

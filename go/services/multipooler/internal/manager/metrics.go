@@ -128,7 +128,19 @@ type managerMetrics struct {
 	// total-ready go negative).
 	failoverSlotReadinessSnapshot atomic.Pointer[failoverSlotReadiness]
 	logicalFailoverSlots          metric.Int64ObservableGauge
+
+	// heartbeatSchemaState backs mg.pooler.heartbeat.schema.compatible: 0 before the
+	// first check (nothing is observed), then heartbeatSchemaCompatible or
+	// heartbeatSchemaIncompatible.
+	heartbeatSchemaState      atomic.Int32
+	heartbeatSchemaCompatible metric.Int64ObservableGauge
 }
+
+const (
+	heartbeatSchemaUnchecked int32 = iota
+	heartbeatSchemaCompatible
+	heartbeatSchemaIncompatible
+)
 
 // failoverSlotReadiness is a (ready, total) pair published atomically as a
 // unit by managerMetrics.setFailoverSlotReadiness.
@@ -270,7 +282,46 @@ func newManagerMetrics() (*managerMetrics, error) {
 		}
 	}
 
+	// 1 while multigres.heartbeat works with this release, 0 while it does not (see
+	// pg_heartbeat_schema.go). Not observed until the first check has run.
+	schemaGauge, schemaErr := meter.Int64ObservableGauge(
+		"mg.pooler.heartbeat.schema.compatible",
+		metric.WithDescription("1 if the multigres.heartbeat table matches what this release needs, 0 if it does not"),
+		metric.WithUnit("{boolean}"),
+	)
+	errs = append(errs, schemaErr)
+	if schemaErr == nil {
+		m.heartbeatSchemaCompatible = schemaGauge
+		if _, err := meter.RegisterCallback(
+			func(_ context.Context, o metric.Observer) error {
+				switch m.heartbeatSchemaState.Load() {
+				case heartbeatSchemaCompatible:
+					o.ObserveInt64(schemaGauge, 1)
+				case heartbeatSchemaIncompatible:
+					o.ObserveInt64(schemaGauge, 0)
+				}
+				return nil
+			},
+			schemaGauge,
+		); err != nil {
+			errs = append(errs, fmt.Errorf("heartbeat schema callback: %w", err))
+		}
+	}
+
 	return m, errors.Join(errs...)
+}
+
+// setHeartbeatSchemaCompatible records the latest heartbeat-table verdict for the
+// mg.pooler.heartbeat.schema.compatible gauge. Nil-receiver safe.
+func (m *managerMetrics) setHeartbeatSchemaCompatible(compatible bool) {
+	if m == nil {
+		return
+	}
+	state := heartbeatSchemaIncompatible
+	if compatible {
+		state = heartbeatSchemaCompatible
+	}
+	m.heartbeatSchemaState.Store(state)
 }
 
 // recordRewindCheckpointWait records how long a pg_rewind waited for the source

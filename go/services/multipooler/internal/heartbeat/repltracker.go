@@ -24,8 +24,6 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/switcher"
 )
 
-// TODO: add stats for heartbeat reads and writes
-
 // ReplTracker tracks replication lag using heartbeats. The writer runs
 // while this pooler is the writable leader; the reader runs otherwise —
 // see switcher.RoleSwitcher for the shared start/stop-on-state-change
@@ -34,20 +32,31 @@ type ReplTracker struct {
 	hw *Writer
 	hr *Reader
 	sw *switcher.RoleSwitcher
+
+	// unregisterMetrics stops reporting this tracker's counters; see registerMetrics.
+	unregisterMetrics func()
 }
 
 // NewReplTracker creates a new ReplTracker.
 func NewReplTracker(queryService executor.InternalQueryService, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int) *ReplTracker {
 	hw := NewWriter(queryService, logger, shardID, poolerID, intervalMs)
 	hr := NewReader(queryService, logger, shardID)
-	return &ReplTracker{hw: hw, hr: hr, sw: switcher.NewRoleSwitcher(hw, hr)}
+	return newReplTracker(hw, hr, logger)
 }
 
 // newReplTrackerWithReaderInterval creates a ReplTracker with a custom reader interval for testing.
 func newReplTrackerWithReaderInterval(queryService executor.InternalQueryService, logger *slog.Logger, shardID []byte, poolerID string, intervalMs int, readerInterval time.Duration) *ReplTracker {
 	hw := NewWriter(queryService, logger, shardID, poolerID, intervalMs)
 	hr := newReader(queryService, logger, shardID, readerInterval)
-	return &ReplTracker{hw: hw, hr: hr, sw: switcher.NewRoleSwitcher(hw, hr)}
+	return newReplTracker(hw, hr, logger)
+}
+
+func newReplTracker(hw *Writer, hr *Reader, logger *slog.Logger) *ReplTracker {
+	unregister, err := registerMetrics(hw, hr)
+	if err != nil {
+		logger.Warn("failed to initialise some heartbeat metrics", "error", err)
+	}
+	return &ReplTracker{hw: hw, hr: hr, sw: switcher.NewRoleSwitcher(hw, hr), unregisterMetrics: unregister}
 }
 
 // HeartbeatWriter returns the heartbeat writer used by this tracker.
@@ -82,6 +91,7 @@ func (rt *ReplTracker) OnStateChange(ctx context.Context, state servingstate.Sta
 // switcher.RoleSwitcher.Close.
 func (rt *ReplTracker) Close() {
 	rt.sw.Close()
+	rt.unregisterMetrics()
 }
 
 // isWritingHeartbeats reports whether this tracker is running the heartbeat
