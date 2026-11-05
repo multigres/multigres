@@ -1027,3 +1027,54 @@ func TestPgCtldServiceStopRestoreCommand(t *testing.T) {
 		assert.Error(t, err, "process should no longer exist after StopRestoreCommand")
 	})
 }
+
+// TestPgCtldService_PgRewindRunningMarker verifies that pgctld records, for the
+// pooler, that a mutating pg_rewind is running and removes the record once the
+// process has exited, whatever the outcome. The pooler waits for it to disappear
+// before it judges what a failed run modified.
+func TestPgCtldService_PgRewindRunningMarker(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		exit    int
+		wantErr bool
+	}{
+		{name: "success", exit: 0},
+		{name: "failure", exit: 1, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			baseDir := t.TempDir()
+			dataDir := filepath.Join(baseDir, "pg_data")
+			t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+			binDir := filepath.Join(baseDir, "bin")
+			require.NoError(t, os.MkdirAll(binDir, 0o755))
+			testutil.CreateMockPostgreSQLBinaries(t, binDir)
+			running := filepath.Join(baseDir, constants.RewindRunningFile)
+			// The mock records whether the marker existed while it ran.
+			seen := filepath.Join(baseDir, "seen-marker")
+			testutil.MockBinary(t, binDir, "pg_rewind", fmt.Sprintf(`
+if [ -f %q ]; then touch %q; fi
+exit %d
+`, running, seen, tc.exit))
+			t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+			require.NoError(t, os.MkdirAll(dataDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16\n"), 0o644))
+
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+			require.NoError(t, err)
+			defer service.Close()
+
+			_, err = service.PgRewind(context.Background(), &pb.PgRewindRequest{
+				SourceHost: "127.0.0.1", SourcePort: 5433, DryRun: false,
+			})
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.FileExists(t, seen, "the marker must exist while pg_rewind runs")
+			assert.NoFileExists(t, running, "the marker must be gone once pg_rewind has exited")
+		})
+	}
+}

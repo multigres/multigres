@@ -164,6 +164,14 @@ const (
 	// as RewindSentinelFile.
 	RewindAttemptFile = ".multigres-rewind-attempt"
 
+	// RewindRunningFile is written by pgctld while a mutating pg_rewind it launched is
+	// running and removed once that process has exited, whatever the outcome. The
+	// pooler waits for it to disappear before it assesses a failed run: a call that
+	// failed on a timeout or cancellation can return while pg_rewind is still being
+	// killed and may still write. Lives in pooler_dir, which pgctld and the pooler
+	// share, for the same reasons as RewindSentinelFile.
+	RewindRunningFile = ".multigres-rewind-running"
+
 	// RewindTaintedFile is the durable verdict that a failed pg_rewind modified the
 	// data directory and did not complete. Such a directory is a mix of old and new
 	// files, so it must never be rewound again or started: the node is quarantined
