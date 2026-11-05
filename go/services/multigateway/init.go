@@ -772,12 +772,6 @@ func (mg *Multigateway) CobraPreRunE(cmd *cobra.Command) error {
 func (mg *Multigateway) Shutdown() {
 	mg.senv.GetLogger().Info("multigateway shutting down")
 
-	// Cancel the service-lifetime context first so health stream goroutines
-	// stop promptly, before we close the underlying gRPC connections.
-	if mg.shutdownCancel != nil {
-		mg.shutdownCancel()
-	}
-
 	// Stop PostgreSQL listener
 	if mg.pgListener != nil {
 		if err := mg.pgListener.Close(); err != nil {
@@ -794,6 +788,14 @@ func (mg *Multigateway) Shutdown() {
 		} else {
 			mg.senv.GetLogger().Info("replica Postgres listener stopped")
 		}
+	}
+
+	// Cancel the service-lifetime context so health stream goroutines stop
+	// promptly, before we close the underlying gRPC connections. Only once
+	// the client connections above have ended: until then the gateway must
+	// keep routing their queries to the poolers.
+	if mg.shutdownCancel != nil {
+		mg.shutdownCancel()
 	}
 
 	// Close cancel manager's gRPC connections
