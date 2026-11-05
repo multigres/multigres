@@ -58,28 +58,22 @@ type TableGroupAdmin interface {
 const tableGroupPollInterval = time.Second
 
 // tableGroupPrivilegeSQL checks the caller's session before anything is
-// recorded. It runs on the caller's own session on the catalog shard, where
-// multigres_topo exists, and returns two columns:
+// recorded. It runs on the caller's own session on the catalog shard and
+// returns two columns:
 //
 //   - transaction_read_only: on for a read-only session
 //     (default_transaction_read_only) and on a standby, which is where a
 //     connection on the replica-reads port runs it. The statement is then
 //     refused, as PostgreSQL refuses CREATE DATABASE.
-//   - whether current_user, the caller's effective role, may change shard
-//     infrastructure. Superusers and members of multigres_topo
-//     (constants.MultigresTopoRole) may; the catalog's multigres.operations
-//     view and multigres.cancel_operation admit the same roles. A missing role
-//     (a catalog shard whose admin user could not create it) admits
-//     superusers only, rather than failing every statement.
+//   - whether current_user, the caller's effective role, is a superuser.
+//     Only superusers may change shard infrastructure.
 //
 // It runs with the caller's search_path, so every function and operator in it
 // is schema-qualified: an unqualified = would resolve to an operator the
 // caller defined in a schema ahead of pg_catalog, and could match the
 // superuser's row instead of the caller's.
 const tableGroupPrivilegeSQL = "SELECT pg_catalog.current_setting('transaction_read_only'), " +
-	"COALESCE((SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname OPERATOR(pg_catalog.=) current_user), false)" +
-	" OR CASE WHEN pg_catalog.to_regrole('" + constants.MultigresTopoRole + "') IS NULL THEN false" +
-	" ELSE pg_catalog.pg_has_role(current_user, '" + constants.MultigresTopoRole + "', 'MEMBER') END"
+	"COALESCE((SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname OPERATOR(pg_catalog.=) current_user), false)"
 
 // TableGroupDDL executes CREATE TABLEGROUP or DROP TABLEGROUP. Everything it
 // runs goes to the catalog shard (constants.IsCatalogShard), never to the
@@ -307,11 +301,11 @@ func unansweredPrivilegeCheckError(statement string) *mterrors.PgDiagnostic {
 		"the "+statement+" privilege check returned no row", "")
 }
 
-// insufficientPrivilegeError rejects a caller that is neither a superuser nor
-// a member of multigres_topo. verb is "create" or "drop".
+// insufficientPrivilegeError rejects a caller that is not a superuser, worded
+// as PostgreSQL rejects CREATE EVENT TRIGGER. verb is "create" or "drop".
 func insufficientPrivilegeError(verb string) *mterrors.PgDiagnostic {
 	d := mterrors.NewPgError("ERROR", mterrors.PgSSInsufficientPrivilege, "permission denied to "+verb+" tablegroup", "")
-	d.Hint = "Must be a member of " + constants.MultigresTopoRole + "."
+	d.Hint = "Must be superuser to " + verb + " a tablegroup."
 	return d
 }
 

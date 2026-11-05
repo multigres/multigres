@@ -49,10 +49,7 @@ starting and ending with a letter or digit, at most 25 characters. The name is
 reused as a Kubernetes resource name, a pooler flag and a backup path, so it is
 held to the strictest of their rules.
 
-`CREATE TABLEGROUP` and `DROP TABLEGROUP` require membership in
-`multigres_topo`, a role without login that the catalog shard creates;
-superusers are members of every role. Grant it to the roles allowed to change
-shard infrastructure: `GRANT multigres_topo TO some_role`. Like
+`CREATE TABLEGROUP` and `DROP TABLEGROUP` require a superuser. Like
 `CREATE DATABASE`, they cannot run inside a transaction block, a pipeline or a
 function body, nor in a read-only session, which includes every session on the
 gateway's replica-reads port. They return once the change is complete: for

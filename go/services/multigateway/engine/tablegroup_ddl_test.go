@@ -274,7 +274,7 @@ func TestTableGroupDDL_PermissionDenied(t *testing.T) {
 		_, err := runTableGroupDDL(t, t.Context(), prim, privilegeExec("f"))
 		d := requirePgError(t, err, mterrors.PgSSInsufficientPrivilege)
 		assert.Contains(t, d.Message, "permission denied to")
-		assert.Equal(t, "Must be a member of multigres_topo.", d.Hint)
+		assert.Contains(t, d.Hint, "Must be superuser to")
 		assert.Empty(t, admin.databases, "the catalog is never called")
 	}
 }
