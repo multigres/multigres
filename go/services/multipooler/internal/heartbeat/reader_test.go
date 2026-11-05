@@ -379,3 +379,82 @@ func newTestReader(_ *testing.T, queryService *mock.QueryService, frozenTime *ti
 
 	return tr
 }
+
+// TestReaderFallsBackToLagOnlyWithoutQuorumColumns: a standby on a table from a release
+// before the quorum_commit columns still measures lag and WAL-receive progress, since it
+// cannot alter the table itself. The gap is counted as a schema error, the full query is
+// retried after the retry interval, and the quorum values appear once the columns do.
+func TestReaderFallsBackToLagOnlyWithoutQuorumColumns(t *testing.T) {
+	queryService := mock.NewQueryService()
+	now := time.Now()
+	tr := newTestReader(t, queryService, &now)
+	defer tr.Close()
+	ctx := t.Context()
+
+	const fullQuery = "SELECT ts, pg_last_wal_receive_lsn\\(\\)::text, quorum_commit_lsn"
+	const lagOnlyQuery = "SELECT ts, pg_last_wal_receive_lsn\\(\\)::text FROM"
+	lagOnly := mock.MakeQueryResult([]string{"ts", "receive_lsn"}, [][]any{{now.Add(-time.Second).UnixNano(), "0/100"}})
+
+	// The full query fails on the old table; the lag-only one serves the read.
+	queryService.AddQueryPatternOnceWithError(fullQuery, pgErr("42703"))
+	queryService.AddQueryPatternOnce(lagOnlyQuery, lagOnly)
+	tr.readHeartbeat(ctx)
+	lag, err := tr.Status()
+	require.NoError(t, err)
+	assert.InDelta(t, time.Second, lag, float64(10*time.Millisecond))
+	assert.EqualValues(t, 1, tr.Reads(), "the lag read succeeded")
+	assert.EqualValues(t, 1, tr.ReadSchemaErrors(), "the missing columns are still visible")
+	_, haveLSN := tr.QuorumCommitLSN()
+	assert.False(t, haveLSN)
+
+	// Within the retry interval only the lag-only query runs: the full query has no
+	// pattern left and would fail the read.
+	queryService.AddQueryPatternOnce(lagOnlyQuery, lagOnly)
+	tr.readHeartbeat(ctx)
+	require.NoError(t, func() error { _, err := tr.Status(); return err }())
+	assert.EqualValues(t, 1, tr.ReadSchemaErrors(), "no new error while on the fallback")
+	assert.EqualValues(t, 2, tr.Reads())
+
+	// After the interval the full query is tried again, and works once the primary has
+	// upgraded the table.
+	now = now.Add(quorumColumnsRetryInterval + time.Second)
+	queryService.AddQueryPatternOnce(fullQuery, mock.MakeQueryResult(
+		[]string{"ts", "receive_lsn", "quorum_commit_lsn", "quorum_commit_ts"},
+		[][]any{{now.Add(-time.Second).UnixNano(), "0/200", "0/150", now.Add(-2 * time.Second)}},
+	))
+	tr.readHeartbeat(ctx)
+	lsn, haveLSN := tr.QuorumCommitLSN()
+	require.True(t, haveLSN)
+	assert.Equal(t, "0/150", lsn.String())
+	assert.EqualValues(t, 3, tr.Reads())
+	assert.EqualValues(t, 1, tr.ReadSchemaErrors())
+}
+
+// TestReaderDoesNotFallBackOnOtherErrors: only a schema error means "columns missing";
+// a transient failure of the full query is a plain read error.
+func TestReaderDoesNotFallBackOnOtherErrors(t *testing.T) {
+	queryService := mock.NewQueryService()
+	tr := newTestReader(t, queryService, nil)
+	defer tr.Close()
+
+	queryService.AddQueryPatternOnceWithError("SELECT ts, pg_last_wal_receive_lsn", pgErr("57014"))
+	tr.readHeartbeat(t.Context())
+	assert.EqualValues(t, 0, tr.Reads())
+	assert.EqualValues(t, 1, tr.ReadErrors())
+	assert.EqualValues(t, 0, tr.ReadSchemaErrors())
+}
+
+// TestReaderFallbackFailureIsOneError: if the lag-only read fails too, it is one failed
+// read, not two.
+func TestReaderFallbackFailureIsOneError(t *testing.T) {
+	queryService := mock.NewQueryService()
+	tr := newTestReader(t, queryService, nil)
+	defer tr.Close()
+
+	queryService.AddQueryPatternOnceWithError("SELECT ts, pg_last_wal_receive_lsn\\(\\)::text, quorum_commit_lsn", pgErr("42703"))
+	queryService.AddQueryPatternOnceWithError("SELECT ts, pg_last_wal_receive_lsn\\(\\)::text FROM", pgErr("42P01"))
+	tr.readHeartbeat(t.Context())
+	assert.EqualValues(t, 0, tr.Reads())
+	assert.EqualValues(t, 1, tr.ReadErrors())
+	assert.EqualValues(t, 1, tr.ReadSchemaErrors())
+}
