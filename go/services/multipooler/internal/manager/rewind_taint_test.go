@@ -124,6 +124,25 @@ func TestFirstModifiedSince(t *testing.T) {
 		assert.Empty(t, scan(t, dir))
 	})
 
+	t.Run("an unreadable symlinked directory is an error", func(t *testing.T) {
+		dir := newAgedDataDir(t)
+		walDir := t.TempDir()
+		locked := filepath.Join(walDir, "locked")
+		require.NoError(t, os.Mkdir(locked, 0o700))
+		ageTree(t, walDir)
+		require.NoError(t, os.RemoveAll(filepath.Join(dir, "pg_wal")))
+		require.NoError(t, os.Symlink(walDir, filepath.Join(dir, "pg_wal")))
+		old := time.Now().Add(-time.Hour)
+		require.NoError(t, os.Chtimes(dir, old, old))
+		require.NoError(t, os.Chmod(locked, 0o000))
+		t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+		if _, err := os.ReadDir(locked); err == nil {
+			t.Skip("directory permissions are not enforced for this user")
+		}
+		_, err := firstModifiedSince(dir, ref, filepath.Join(dir, autoConfFileName))
+		require.Error(t, err)
+	})
+
 	t.Run("a symlinked pg_wal is scanned", func(t *testing.T) {
 		dir := newAgedDataDir(t)
 		walDir := t.TempDir()
@@ -305,6 +324,52 @@ func TestRewindAttemptErrors(t *testing.T) {
 		got := pm.failRewindRun(t.Context(), runErr)
 		require.ErrorIs(t, got, runErr)
 		require.ErrorContains(t, got, "failed to settle rewind attempt marker")
+	})
+
+	t.Run("a taint recorded but an attempt marker that cannot be removed is only logged", func(t *testing.T) {
+		dir := newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		blockSentinel(t, pm.rewindAttempt())
+		time.Sleep(10 * time.Millisecond)
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "base/1/16384"), []byte("x"), 0o600))
+
+		tainted, err := pm.settleRewindAttempt(t.Context())
+		require.NoError(t, err)
+		assert.True(t, tainted)
+		requirePresent(t, pm.rewindTainted(), true, "")
+	})
+
+	t.Run("a pg_rewind run is not launched when an earlier run cannot be settled", func(t *testing.T) {
+		dir := newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		client := &mockPgctldClient{
+			pgRewindResponse: &pgctldpb.PgRewindResponse{Output: "servers diverged at 0/5000000 on timeline 2"},
+		}
+		pm.pgctldClient = client
+		require.NoError(t, pm.rewindAttempt().write())
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "base/1/16384"), []byte("x"), 0o600))
+		blockSentinel(t, pm.rewindTainted())
+
+		_, err := pm.runPgRewind(t.Context(), "leader", 5432)
+		require.ErrorContains(t, err, "failed to settle earlier pg_rewind run")
+		assert.Zero(t, client.pgRewindCalls)
+	})
+
+	t.Run("a rewind is refused when the taint marker cannot be read", func(t *testing.T) {
+		newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		require.NoError(t, os.WriteFile(filepath.Join(pm.record.PoolerDir(), "blocker"), nil, 0o600))
+		pm.record = newRecordFromProto(&clustermetadatapb.Multipooler{
+			Type:      clustermetadatapb.PoolerType_REPLICA,
+			PoolerDir: filepath.Join(pm.record.PoolerDir(), "blocker", "sub"),
+		})
+		client := &mockPgctldClient{}
+		pm.pgctldClient = client
+		withLock(t, pm, func(ctx context.Context) {
+			_, err := pm.restartAsStandbyLocked(ctx, "leader", 5432)
+			require.ErrorContains(t, err, "failed to check rewind taint marker")
+			assert.Zero(t, client.pgRewindCalls)
+		})
 	})
 
 	t.Run("a failed unassessed marker check is an error", func(t *testing.T) {
