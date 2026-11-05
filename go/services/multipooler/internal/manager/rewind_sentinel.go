@@ -59,8 +59,8 @@ func (pm *MultipoolerManager) rewindSentinel() sentinel {
 // started. pg_rewind records no marker when it crosses that point, so the
 // pooler derives the evidence itself:
 //
-//   - rewindAttempt is written just before a run is launched. Its modification
-//     time is the reference.
+//   - rewindAttempt is written just before the mutating pg_rewind call, after the
+//     dry-run. Its modification time is the reference.
 //   - After a failure, or on restart with the marker still present, any entry
 //     in the data directory modified at or after the reference means the run
 //     started modifying it. The pooler then writes rewindTainted, a durable
@@ -70,11 +70,16 @@ func (pm *MultipoolerManager) rewindSentinel() sentinel {
 //     left the directory untouched, so a later postgres start (which legitimately
 //     writes to the directory) is never mistaken for a rewind.
 //
-// Limitation: a target that was not cleanly shut down is crash-recovered by the
-// real pg_rewind before it starts planning. That recovery writes to the
-// directory, so a failure after it is reported as modified even if pg_rewind
-// never got further. The error is on the safe side: the node is re-seeded
-// instead of repaired.
+// The dry-run writes nothing, except that pgctld first crash-recovers a target
+// that was not cleanly stopped. That happens before the marker is written and
+// leaves the target cleanly stopped, so it is never mistaken for the rewind and a
+// failed dry-run is always retryable.
+//
+// Limitation: if the target is still not cleanly stopped when the mutating call
+// starts, the real pg_rewind crash-recovers it before it plans. That recovery
+// writes to the directory, so a failure after it is reported as modified even if
+// pg_rewind never got further. The error is on the safe side: the node is
+// re-seeded instead of repaired.
 
 // rewindAttempt returns the marker for a launched, not yet assessed pg_rewind
 // run. Like every sentinel it lives in pooler_dir; see sentinel.go.

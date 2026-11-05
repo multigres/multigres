@@ -232,12 +232,36 @@ func TestRunPgRewind_TaintVerdict(t *testing.T) {
 		assert.True(t, performed)
 	})
 
-	t.Run("failed dry-run leaves the directory untouched", func(t *testing.T) {
+	t.Run("failed dry-run is retryable even though crash recovery wrote to the directory", func(t *testing.T) {
 		pm, client := rewindRunSetup(t, nil, nil)
-		client.pgRewindOnCall = nil
-		client.pgRewindError = errors.New("dry-run boom")
+		// pgctld crash-recovers a target that was not cleanly stopped before the
+		// dry-run, which writes to the directory, and then the dry-run fails.
+		client.pgRewindOnCall = func(*pgctldpb.PgRewindRequest) {
+			overwrite(postgresDataDir())
+			client.pgRewindError = errors.New("dry-run boom")
+		}
 		_, err := pm.runPgRewind(t.Context(), "leader", 5432)
 		require.ErrorContains(t, err, "dry-run boom")
+		assert.NotContains(t, err.Error(), "did not complete")
+		requirePresent(t, pm.rewindTainted(), false, "crash recovery before the marker is not a rewind")
+		requirePresent(t, pm.rewindAttempt(), false, "no attempt was started")
+		requirePresent(t, pm.rewindSentinel(), true, "repair stays armed")
+	})
+
+	t.Run("crash recovery in the dry-run is not mistaken for the rewind", func(t *testing.T) {
+		pm, client := rewindRunSetup(t, nil, errors.New("source demoted while planning"))
+		// The first call is the dry-run, which crash-recovers and succeeds; the
+		// mutating call then fails before pg_rewind wrote anything.
+		hook := client.pgRewindOnCall
+		client.pgRewindOnCall = func(req *pgctldpb.PgRewindRequest) {
+			if client.pgRewindCalls == 1 {
+				overwrite(postgresDataDir())
+			}
+			hook(req)
+		}
+		_, err := pm.runPgRewind(t.Context(), "leader", 5432)
+		require.ErrorContains(t, err, "source demoted while planning")
+		assert.NotContains(t, err.Error(), "did not complete")
 		requirePresent(t, pm.rewindTainted(), false, "")
 		requirePresent(t, pm.rewindAttempt(), false, "")
 	})

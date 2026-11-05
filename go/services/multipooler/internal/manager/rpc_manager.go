@@ -1249,11 +1249,6 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 		return false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
 			"an earlier pg_rewind modified the data directory and did not complete")
 	}
-	// The reference for telling, after a failure, whether pg_rewind modified the
-	// data directory (see rewind_sentinel.go).
-	if err := pm.rewindAttempt().write(); err != nil {
-		return false, mterrors.Wrap(err, "failed to write rewind attempt marker before pg_rewind")
-	}
 
 	// Get application name for replication connection
 	pid := pm.servicePoolerID
@@ -1287,7 +1282,11 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 		if dryRunResp != nil {
 			pm.logger.ErrorContext(ctx, "pg_rewind dry-run failed", "error", err, "duration", dryRunDuration.String(), "output", dryRunResp.Output)
 		}
-		return false, pm.failRewindRun(ctx, mterrors.Wrap(err, "pg_rewind dry-run failed"))
+		// A dry-run writes nothing, apart from the crash recovery pgctld runs first on
+		// a target that was not cleanly stopped. That recovery is legitimate and leaves
+		// the target cleanly stopped, so the directory is still intact and the run is
+		// retryable. The attempt marker is only written before the mutating call.
+		return false, mterrors.Wrap(err, "pg_rewind dry-run failed")
 	}
 
 	// Check if servers diverged
@@ -1300,6 +1299,12 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 			DryRun:          false,
 			ApplicationName: pid.AppName(),
 			ExtraArgs:       append([]string{"-R"}, rewindExtraArgs...),
+		}
+		// The reference for telling, after a failure, whether pg_rewind modified the
+		// data directory (see rewind_sentinel.go). It is written after the dry-run
+		// so that the crash recovery done there is not mistaken for the rewind.
+		if err := pm.rewindAttempt().write(); err != nil {
+			return false, mterrors.Wrap(err, "failed to write rewind attempt marker before pg_rewind")
 		}
 		rewindStart := time.Now()
 		rewindResp, err := pm.pgctldClient.PgRewind(ctx, rewindReq)
@@ -1318,7 +1323,6 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 	}
 
 	pm.logger.InfoContext(ctx, "no divergence, skipping rewind")
-	pm.passRewindRun(ctx)
 	return false, nil
 }
 
