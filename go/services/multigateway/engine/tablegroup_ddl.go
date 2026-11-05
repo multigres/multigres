@@ -229,6 +229,11 @@ func (t *TableGroupDDL) runDrop(ctx context.Context, database string, callback f
 		if resp.GetCancelledCreation() && op.GetState() == multipoolermanagerdatapb.OperationState_OPERATION_STATE_DONE {
 			continue
 		}
+		// A drop never fails, but a failed one must not report success: its
+		// shards and their data would still be there.
+		if !resp.GetCancelledCreation() && op.GetState() == multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED {
+			return operationFailedError(fmt.Sprintf("tablegroup %q was not dropped", t.name), op)
+		}
 		return callback(ctx, &sqltypes.Result{CommandTag: t.statementName()})
 	}
 	return changedStateError(t.name)

@@ -315,6 +315,18 @@ func TestTableGroupDDL_Drop(t *testing.T) {
 		assert.Equal(t, "Follow it in multigres.operations.", notice.Hint, "a drop cannot be cancelled")
 		assert.Equal(t, "DROP TABLEGROUP", results[1].CommandTag)
 	})
+	t.Run("a failed drop is an error, never success", func(t *testing.T) {
+		admin := &fakeTableGroupAdmin{
+			dropRes: []*multipoolermanagerdatapb.DropTableGroupResponse{{OperationId: testTableGroupOpID, TablegroupId: 7}},
+			ops:     []fakeOpAnswer{opIn(multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED, "teardown failed")},
+		}
+		results, err := runTableGroupDDL(t, t.Context(), newTestDrop(admin, false), privilegeExec("t"))
+		d := requirePgError(t, err, mterrors.PgSSSystemError)
+		assert.Equal(t, `tablegroup "commerce" was not dropped: teardown failed`, d.Message)
+		for _, r := range results {
+			assert.Empty(t, r.CommandTag, "a failed drop must not send a command tag")
+		}
+	})
 	t.Run("IF EXISTS on a missing tablegroup is a notice", func(t *testing.T) {
 		admin := &fakeTableGroupAdmin{dropRes: []*multipoolermanagerdatapb.DropTableGroupResponse{{NotFound: true}}}
 		results, err := runTableGroupDDL(t, t.Context(), newTestDrop(admin, true), privilegeExec("t"))
