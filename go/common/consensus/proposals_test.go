@@ -2593,3 +2593,31 @@ func TestRecruitmentThroughUndecidedProposal_ProvablyUndecided(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, built)
 }
+
+// A recruit that holds more WAL under the latest rule must be a leader candidate
+// even if another recruit has learned that rule is decided: a decided entry may
+// exist only on the candidate that has not learned it.
+func TestBuildSafeProposal_LeaderRankedByLatestRuleThenLSN(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	rev := revocation(5, ruleNum(3, 1))
+	prior := makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c)
+	latest := makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c)
+
+	// With 2 of {a, b, c}, a write is decided on {b, c}. c is unreachable. a
+	// learned the latest rule is decided but has not received the write; b holds
+	// it and has not learned the decision.
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatusWithProposal(zone1.a, &clustermetadatapb.RulePosition{Decision: latest}, rev, "0/1000000"),
+		makeStatusWithProposal(zone1.b, &clustermetadatapb.RulePosition{Decision: prior, Proposal: latest}, rev, "0/2000000"),
+	}
+
+	var eligible []*clustermetadatapb.ID
+	_, err := BuildSafeProposal(rev, statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		eligible = statusesToIDs(r.EligibleLeaders)
+		return proposeFirstEligible(makeRule(ruleNum(5, 0), r.OutgoingRule.GetDurabilityPolicy(), r.OutgoingRule.GetCohortMembers()...))(r)
+	})
+
+	require.NoError(t, err)
+	require.Len(t, eligible, 1)
+	assert.True(t, proto.Equal(zone1.b, eligible[0]), "the recruit holding the most WAL must lead, got %v", eligible[0])
+}
