@@ -346,7 +346,7 @@ func TestRecruitPositionFloorIfOutstanding(t *testing.T) {
 			_, err := promises.Load()
 			require.NoError(t, err)
 			if tt.floor != nil {
-				require.NoError(t, promises.SetRecruitBlockedUntil(actionLockCtx(t), tt.floor))
+				require.NoError(t, promises.EnsureRecruitBlockedUntilAtLeast(actionLockCtx(t), tt.floor))
 			}
 			cm := NewManagerForTesting(t, nil, promises, nil, nil)
 

@@ -487,7 +487,7 @@ func TestRecruit(t *testing.T) {
 		lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed-floor")
 		require.NoError(t, err)
 		defer pm.actionLock.Release(lockCtx)
-		require.NoError(t, pm.consensusMgr.Promises().SetRecruitBlockedUntil(lockCtx, floor))
+		require.NoError(t, pm.consensusMgr.Promises().EnsureRecruitBlockedUntilAtLeast(lockCtx, floor))
 	}
 	// rulePositionWithLSN builds a minimal PoolerPosition like makeRulePosition,
 	// but with a caller-chosen LSN instead of makeRulePosition's fixed one, for

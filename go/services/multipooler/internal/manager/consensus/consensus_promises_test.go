@@ -50,7 +50,7 @@ func TestConsensusPromises_PersistsAcrossReload(t *testing.T) {
 	require.NoError(t, err)
 
 	floor := &clustermetadatapb.LsnPosition{Lsn: "0/2000"}
-	require.NoError(t, first.SetRecruitBlockedUntil(ctx, floor))
+	require.NoError(t, first.EnsureRecruitBlockedUntilAtLeast(ctx, floor))
 
 	revocation := &clustermetadatapb.TermRevocation{
 		RevokedBelowTerm:       5,
@@ -77,7 +77,7 @@ func TestConsensusPromises_PersistsAcrossReload(t *testing.T) {
 	assert.Equal(t, int64(5), reloaded.GetRevokedBelowTerm())
 }
 
-func TestConsensusPromises_SetRecruitBlockedUntilDoesNotClobberRevocation(t *testing.T) {
+func TestConsensusPromises_EnsureRecruitBlockedUntilAtLeastDoesNotClobberRevocation(t *testing.T) {
 	dir := t.TempDir()
 	ctx := withTestActionLock(t)
 
@@ -97,7 +97,7 @@ func TestConsensusPromises_SetRecruitBlockedUntilDoesNotClobberRevocation(t *tes
 	}
 	require.NoError(t, promises.AcceptRevocation(ctx, status, revocation))
 
-	require.NoError(t, promises.SetRecruitBlockedUntil(ctx, &clustermetadatapb.LsnPosition{Lsn: "0/1000"}))
+	require.NoError(t, promises.EnsureRecruitBlockedUntilAtLeast(ctx, &clustermetadatapb.LsnPosition{Lsn: "0/1000"}))
 
 	reloaded := NewConsensusPromises(dir, nil)
 	term, err := reloaded.Load()
@@ -127,7 +127,7 @@ func TestConsensusPromises_LoadIgnoresUnknownFields(t *testing.T) {
 	assert.Equal(t, "0/1000", promises.GetRecruitBlockedUntil().GetLsn())
 }
 
-func TestConsensusPromises_SetRecruitBlockedUntilFilesystemReadOnly(t *testing.T) {
+func TestConsensusPromises_EnsureRecruitBlockedUntilAtLeastFilesystemReadOnly(t *testing.T) {
 	dir := t.TempDir()
 	ctx := withTestActionLock(t)
 
@@ -138,15 +138,73 @@ func TestConsensusPromises_SetRecruitBlockedUntilFilesystemReadOnly(t *testing.T
 	require.NoError(t, os.Chmod(dir, 0o555))
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
 
-	err = promises.SetRecruitBlockedUntil(ctx, &clustermetadatapb.LsnPosition{Lsn: "0/1000"})
+	err = promises.EnsureRecruitBlockedUntilAtLeast(ctx, &clustermetadatapb.LsnPosition{Lsn: "0/1000"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to save recruit position floor")
 	assert.Nil(t, promises.GetRecruitBlockedUntil(), "a failed save must not update in-memory state")
 }
 
-func TestConsensusPromises_SetRecruitBlockedUntilRequiresActionLock(t *testing.T) {
+func TestConsensusPromises_EnsureRecruitBlockedUntilAtLeastRequiresActionLock(t *testing.T) {
 	promises := NewConsensusPromises(t.TempDir(), nil)
-	err := promises.SetRecruitBlockedUntil(t.Context(), &clustermetadatapb.LsnPosition{Lsn: "0/1000"})
+	err := promises.EnsureRecruitBlockedUntilAtLeast(t.Context(), &clustermetadatapb.LsnPosition{Lsn: "0/1000"})
 	require.Error(t, err)
 	assert.Nil(t, promises.GetRecruitBlockedUntil())
+}
+
+func TestConsensusPromises_RecruitBlockedUntilNeverLowers(t *testing.T) {
+	floorAt := func(term int64, lsn string) *clustermetadatapb.LsnPosition {
+		return &clustermetadatapb.LsnPosition{
+			Position: &clustermetadatapb.RuleNumberPosition{Decision: &clustermetadatapb.RuleNumber{CoordinatorTerm: term}},
+			Lsn:      lsn,
+		}
+	}
+	tests := []struct {
+		name     string
+		first    *clustermetadatapb.LsnPosition
+		second   *clustermetadatapb.LsnPosition
+		wantTerm int64
+		wantLSN  string
+	}{
+		{name: "lower LSN, same rule", first: floorAt(3, "0/5000"), second: floorAt(3, "0/1000"), wantTerm: 3, wantLSN: "0/5000"},
+		{name: "lower rule, higher LSN", first: floorAt(3, "0/5000"), second: floorAt(2, "0/9000"), wantTerm: 3, wantLSN: "0/5000"},
+		{name: "higher LSN, same rule", first: floorAt(3, "0/5000"), second: floorAt(3, "0/9000"), wantTerm: 3, wantLSN: "0/9000"},
+		{name: "higher rule, lower LSN", first: floorAt(3, "0/5000"), second: floorAt(4, "0/1000"), wantTerm: 4, wantLSN: "0/1000"},
+		{name: "identical", first: floorAt(3, "0/5000"), second: floorAt(3, "0/5000"), wantTerm: 3, wantLSN: "0/5000"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			ctx := withTestActionLock(t)
+			promises := NewConsensusPromises(dir, nil)
+			_, err := promises.Load()
+			require.NoError(t, err)
+
+			require.NoError(t, promises.EnsureRecruitBlockedUntilAtLeast(ctx, tt.first))
+			require.NoError(t, promises.EnsureRecruitBlockedUntilAtLeast(ctx, tt.second))
+
+			got := promises.GetRecruitBlockedUntil()
+			assert.Equal(t, tt.wantTerm, got.GetPosition().GetDecision().GetCoordinatorTerm())
+			assert.Equal(t, tt.wantLSN, got.GetLsn())
+
+			// The kept floor must also be what a restart recovers.
+			reloaded := NewConsensusPromises(dir, nil)
+			_, err = reloaded.Load()
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantTerm, reloaded.GetRecruitBlockedUntil().GetPosition().GetDecision().GetCoordinatorTerm())
+			assert.Equal(t, tt.wantLSN, reloaded.GetRecruitBlockedUntil().GetLsn())
+		})
+	}
+}
+
+func TestConsensusPromises_RecruitBlockedUntilRejectsUnparsableLSNOverFloor(t *testing.T) {
+	ctx := withTestActionLock(t)
+	promises := NewConsensusPromises(t.TempDir(), nil)
+	_, err := promises.Load()
+	require.NoError(t, err)
+
+	require.NoError(t, promises.EnsureRecruitBlockedUntilAtLeast(ctx, &clustermetadatapb.LsnPosition{Lsn: "0/5000"}))
+	err = promises.EnsureRecruitBlockedUntilAtLeast(ctx, &clustermetadatapb.LsnPosition{Lsn: "garbage"})
+
+	require.ErrorContains(t, err, "failed to compare recruit position floors")
+	assert.Equal(t, "0/5000", promises.GetRecruitBlockedUntil().GetLsn(), "a rejected update must keep the existing floor")
 }
