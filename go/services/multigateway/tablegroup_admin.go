@@ -39,27 +39,31 @@ const tableGroupAdminCallTimeout = 30 * time.Second
 // existing connection to it. GetOperation goes to the same pooler, so a
 // statement never reads a replica that lags its own write.
 type tableGroupAdmin struct {
-	pg *poolergateway.PoolerGateway
+	// client returns a manager client for the catalog shard's writable pooler
+	// of the database.
+	client func(database string) (multipoolermanagerpb.MultipoolerManagerClient, error)
 }
 
 var _ engine.TableGroupAdmin = (*tableGroupAdmin)(nil)
 
-func (a *tableGroupAdmin) client(database string) (multipoolermanagerpb.MultipoolerManagerClient, error) {
-	conn, err := a.pg.GetConnection(&querypb.Target{
-		ShardRef: &clustermetadatapb.ShardRef{
-			Database:   database,
-			TableGroup: constants.DefaultTableGroup,
-			Shard:      constants.DefaultShard,
-		},
-		Mode: querypb.Mode_MODE_WRITABLE,
-	})
-	if err != nil {
-		return nil, status.Errorf(codes.Unavailable, "no writable pooler for the catalog shard of database %q: %v", database, err)
-	}
-	if conn == nil {
-		return nil, status.Errorf(codes.Unavailable, "no writable pooler for the catalog shard of database %q", database)
-	}
-	return conn.ManagerClient(), nil
+func newTableGroupAdmin(pg *poolergateway.PoolerGateway) *tableGroupAdmin {
+	return &tableGroupAdmin{client: func(database string) (multipoolermanagerpb.MultipoolerManagerClient, error) {
+		conn, err := pg.GetConnection(&querypb.Target{
+			ShardRef: &clustermetadatapb.ShardRef{
+				Database:   database,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
+			Mode: querypb.Mode_MODE_WRITABLE,
+		})
+		if err != nil {
+			return nil, status.Errorf(codes.Unavailable, "no writable pooler for the catalog shard of database %q: %v", database, err)
+		}
+		if conn == nil {
+			return nil, status.Errorf(codes.Unavailable, "no writable pooler for the catalog shard of database %q", database)
+		}
+		return conn.ManagerClient(), nil
+	}}
 }
 
 func (a *tableGroupAdmin) CreateTableGroup(ctx context.Context, database string, req *multipoolermanagerdatapb.CreateTableGroupRequest) (*multipoolermanagerdatapb.CreateTableGroupResponse, error) {
