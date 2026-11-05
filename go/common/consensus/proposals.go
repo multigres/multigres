@@ -632,7 +632,7 @@ func deduplicateStatuses(statuses []*clustermetadatapb.ConsensusStatus) []*clust
 			continue
 		}
 		key := topoclient.ClusterIDString(cs.GetId())
-		if prev, exists := best[key]; !exists || ComparePoolerPosition(cs.GetCurrentPosition(), prev.GetCurrentPosition()) > 0 {
+		if prev, exists := best[key]; !exists || CompareWALProgress(cs.GetCurrentPosition(), prev.GetCurrentPosition()) > 0 {
 			best[key] = cs
 		}
 	}

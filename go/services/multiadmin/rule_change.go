@@ -193,7 +193,7 @@ func (s *MultiadminServer) buildCert(
 		return decision, cert, nil
 
 	case *multiadminpb.ApplyCertifiedRuleChangeRequest_UnsafeDeriveCert:
-		pos, err := s.probeMostAdvanced(ctx, proposedRule.GetCohortMembers(), proposedRule.GetDurabilityPolicy())
+		pos, highestDecision, err := s.probeMostAdvanced(ctx, proposedRule.GetCohortMembers(), proposedRule.GetDurabilityPolicy())
 		if err != nil {
 			return nil, nil, err
 		}
@@ -207,12 +207,9 @@ func (s *MultiadminServer) buildCert(
 				OutgoingRule:           outgoingRule.GetRuleNumber(),
 				CoordinatorInitiatedAt: timestamppb.Now(),
 				RecruitIntent: &clustermetadatapb.RecruitIntent{
-					// pos is the position ComparePoolerPosition ranks highest
-					// among the probed cohort, and decision strictly
-					// dominates that comparator (see CompareRulePosition) —
-					// so pos.Decision is guaranteed to be the highest decision
-					// among the probed set, not just pos's own.
-					ReplaceDecision: pos.GetPosition().GetDecision().GetRuleNumber(),
+					// pos holds the most WAL, which need not be the node that
+					// knows the highest decision, so take that across the probed set.
+					ReplaceDecision: highestDecision,
 					// Starts at 1 per the proto's documented contract, so a
 					// subsequent multiorch failover against this same decision
 					// (see consensus.recruitAttempt) counts this as the first
@@ -303,7 +300,8 @@ func (s *MultiadminServer) probeCohort(
 
 // probeMostAdvanced calls MultipoolerManager.Status on every proposed cohort
 // member and returns the highest position observed across the reachable
-// subset (by ComparePoolerPosition — decision, then proposal, then LSN).
+// subset (by CompareWALProgress — latest rule, then LSN), and the highest
+// decision any reachable member reports.
 //
 // Insufficient responses is a hard failure: per
 // commonconsensus.CheckSufficientRecruitment, the reachable subset must be
@@ -313,29 +311,33 @@ func (s *MultiadminServer) probeMostAdvanced(
 	ctx context.Context,
 	cohortMembers []*clustermetadatapb.ID,
 	durabilityPolicy *clustermetadatapb.DurabilityPolicy,
-) (*clustermetadatapb.PoolerPosition, error) {
+) (*clustermetadatapb.PoolerPosition, *clustermetadatapb.RuleNumber, error) {
 	policy, err := commonconsensus.NewPolicyFromProto(durabilityPolicy)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid durability_policy: %v", err)
+		return nil, nil, status.Errorf(codes.InvalidArgument, "invalid durability_policy: %v", err)
 	}
 	probed, total, err := s.probeCohort(ctx, cohortMembers)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var best *clustermetadatapb.PoolerPosition
+	var highestDecision *clustermetadatapb.RuleNumber
 	reachable := make([]*clustermetadatapb.ID, 0, len(probed))
 	for _, p := range probed {
 		reachable = append(reachable, p.id)
-		if best == nil || commonconsensus.ComparePoolerPosition(p.pos, best) > 0 {
+		if best == nil || commonconsensus.CompareWALProgress(p.pos, best) > 0 {
 			best = p.pos
+		}
+		if d := p.pos.GetPosition().GetDecision().GetRuleNumber(); highestDecision == nil || commonconsensus.CompareRuleNumbers(d, highestDecision) > 0 {
+			highestDecision = d
 		}
 	}
 
 	// Require a quorum of the proposed cohort to respond. Without that,
 	// the derived cert could understate the cohort's most-advanced position.
 	if err := commonconsensus.CheckSufficientRecruitment(policy, cohortMembers, reachable); err != nil {
-		return nil, status.Errorf(codes.Unavailable, "insufficient cohort responses to derive cert: %v", err)
+		return nil, nil, status.Errorf(codes.Unavailable, "insufficient cohort responses to derive cert: %v", err)
 	}
 
 	s.logger.InfoContext(ctx, "derived cert from reachable cohort",
@@ -343,10 +345,10 @@ func (s *MultiadminServer) probeMostAdvanced(
 
 	frozenLSN := best.GetLsn()
 	if frozenLSN == "" {
-		return nil, status.Error(codes.Unavailable, "most-advanced cohort member reported an empty LSN")
+		return nil, nil, status.Error(codes.Unavailable, "most-advanced cohort member reported an empty LSN")
 	}
 
-	return best, nil
+	return best, highestDecision, nil
 }
 
 // findRuleByNumber probes every cohort member and returns the full ShardRule

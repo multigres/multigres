@@ -354,7 +354,17 @@ func TestMergeReplicationPrimary(t *testing.T) {
 	})
 }
 
-func TestComparePosition(t *testing.T) {
+func TestCompareWALProgress(t *testing.T) {
+	with := func(decision, proposal int64, lsn string) *clustermetadatapb.PoolerPosition {
+		rule := func(term int64) *clustermetadatapb.ShardRule {
+			return &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term}}
+		}
+		position := &clustermetadatapb.RulePosition{Decision: rule(decision)}
+		if proposal != 0 {
+			position.Proposal = rule(proposal)
+		}
+		return &clustermetadatapb.PoolerPosition{Position: position, Lsn: lsn}
+	}
 	tests := []struct {
 		name string
 		a, b *clustermetadatapb.PoolerPosition
@@ -379,6 +389,11 @@ func TestComparePosition(t *testing.T) {
 		{"same rule both empty LSN", pos(3, ""), pos(3, ""), 0},
 		{"same rule both unparsable LSN", pos(3, "bad"), pos(3, "also-bad"), 0},
 
+		// The latest rule counts, decided or not; what a node knows is decided does not.
+		{"same latest rule: LSN decides, not the decision", with(3, 0, "0/100"), with(2, 3, "0/200"), -1},
+		{"same latest rule: knowing the decision does not outrank more WAL", with(2, 3, "0/200"), with(3, 0, "0/100"), 1},
+		{"a proposal beyond the other's decision wins", with(3, 4, "0/100"), with(3, 0, "0/900"), 1},
+
 		// Nil positions are treated as the minimum.
 		{"both nil", nil, nil, 0},
 		{"nil less than non-nil", nil, pos(1, "0/100"), -1},
@@ -386,7 +401,7 @@ func TestComparePosition(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ComparePoolerPosition(tt.a, tt.b)
+			got := CompareWALProgress(tt.a, tt.b)
 			assert.Equal(t, tt.want, got)
 		})
 	}
