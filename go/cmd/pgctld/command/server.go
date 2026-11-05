@@ -860,6 +860,23 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 		"source_port", req.GetSourcePort(),
 		"dry_run", req.GetDryRun())
 
+	// Tell the pooler while a mutating pg_rewind runs, so that after a failed call
+	// it can wait until the process has exited before judging what it modified. A
+	// call that failed on a timeout can return before the process is gone. The record
+	// is written before the crash recovery below, which also writes to the data
+	// directory and can be cut short in the same way.
+	if !req.GetDryRun() {
+		running := filepath.Join(s.pgConfig.PoolerDir, constants.RewindRunningFile)
+		if err := os.WriteFile(running, []byte("pg_rewind running\n"), 0o644); err != nil {
+			return nil, fmt.Errorf("failed to record that pg_rewind is running: %w", err)
+		}
+		defer func() {
+			if err := os.Remove(running); err != nil && !os.IsNotExist(err) {
+				s.logger.ErrorContext(ctx, "failed to remove pg_rewind running marker", "path", running, "error", err)
+			}
+		}()
+	}
+
 	// Check if postgres is cleanly stopped before pg_rewind
 	// If not, try crash recovery - this is needed for rewind dry-run to work
 	// This check is best effort. It's not harmful to try the pg_rewind if
@@ -884,21 +901,6 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 		req.GetSourceHost(), req.GetSourcePort(), s.ctldConfig.User)
 	if req.GetApplicationName() != "" {
 		sourceServer = fmt.Sprintf("%s application_name=%s", sourceServer, req.GetApplicationName())
-	}
-
-	// Tell the pooler while a mutating pg_rewind runs, so that after a failed call
-	// it can wait until the process has exited before judging what it modified. A
-	// call that failed on a timeout can return before the process is gone.
-	if !req.GetDryRun() {
-		running := filepath.Join(s.pgConfig.PoolerDir, constants.RewindRunningFile)
-		if err := os.WriteFile(running, []byte("pg_rewind running\n"), 0o644); err != nil {
-			return nil, fmt.Errorf("failed to record that pg_rewind is running: %w", err)
-		}
-		defer func() {
-			if err := os.Remove(running); err != nil && !os.IsNotExist(err) {
-				s.logger.ErrorContext(ctx, "failed to remove pg_rewind running marker", "path", running, "error", err)
-			}
-		}()
 	}
 
 	// Use the shared rewind function with detailed result, passing password separately

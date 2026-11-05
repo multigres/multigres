@@ -1078,3 +1078,55 @@ exit %d
 		})
 	}
 }
+
+// TestPgCtldService_PgRewindRunningMarkerCoversCrashRecovery verifies that the
+// record exists before the crash recovery pgctld runs on an unclean target, since
+// that also writes to the data directory and can be cut short like pg_rewind itself.
+// A dry-run writes no record.
+func TestPgCtldService_PgRewindRunningMarkerCoversCrashRecovery(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		dryRun     bool
+		wantMarker bool
+	}{
+		{name: "mutating", dryRun: false, wantMarker: true},
+		{name: "dry-run", dryRun: true, wantMarker: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			baseDir := t.TempDir()
+			dataDir := filepath.Join(baseDir, "pg_data")
+			t.Setenv(constants.PgDataDirEnvVar, dataDir)
+
+			binDir := filepath.Join(baseDir, "bin")
+			require.NoError(t, os.MkdirAll(binDir, 0o755))
+			testutil.CreateMockPostgreSQLBinaries(t, binDir)
+			running := filepath.Join(baseDir, constants.RewindRunningFile)
+			// pg_controldata runs first, to decide whether crash recovery is needed.
+			seen := filepath.Join(baseDir, "seen-marker")
+			testutil.MockBinary(t, binDir, "pg_controldata", fmt.Sprintf(`
+if [ -f %q ]; then touch %q; fi
+echo "Database cluster state:               shut down"
+`, running, seen))
+			testutil.MockBinary(t, binDir, "pg_rewind", "exit 0")
+			t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+			require.NoError(t, os.MkdirAll(dataDir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16\n"), 0o644))
+
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+			require.NoError(t, err)
+			defer service.Close()
+
+			_, err = service.PgRewind(context.Background(), &pb.PgRewindRequest{
+				SourceHost: "127.0.0.1", SourcePort: 5433, DryRun: tc.dryRun,
+			})
+			require.NoError(t, err)
+			if tc.wantMarker {
+				assert.FileExists(t, seen, "the marker must exist before the crash recovery check")
+			} else {
+				assert.NoFileExists(t, seen, "a dry-run must not write the marker")
+			}
+			assert.NoFileExists(t, running)
+		})
+	}
+}
