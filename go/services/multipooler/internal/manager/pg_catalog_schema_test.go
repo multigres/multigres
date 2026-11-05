@@ -43,14 +43,17 @@ func exactPattern(stmt string) string {
 	return "^" + regexp.QuoteMeta(stmt) + "$"
 }
 
-// addCatalogEnsureTail registers catalogTables, catalogSeed and the
-// format_version write, which ensureCatalogSchema runs on every call that is
+// addCatalogEnsureTail registers catalogTables, catalogSeed, catalogObjects
+// and the format_version write, which ensureCatalogSchema runs on every call that is
 // not at a newer format.
 func addCatalogEnsureTail(m *mock.QueryService) {
 	for _, stmt := range catalogTables {
 		m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
 	}
 	for _, stmt := range catalogSeed {
+		m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+	}
+	for _, stmt := range catalogObjects {
 		m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
 	}
 	m.AddQueryPatternOnce(catalogFormatWritePattern, mock.MakeQueryResult(nil, nil))
@@ -105,6 +108,7 @@ func catalogEnsureTail() []string {
 	var tail []string
 	tail = append(tail, catalogTables...)
 	tail = append(tail, catalogSeed...)
+	tail = append(tail, catalogObjects...)
 	return append(tail, "UPDATE multigres.catalog_state SET format_version = $1 WHERE format_version IS DISTINCT FROM $1", "COMMIT")
 }
 
@@ -379,6 +383,20 @@ func TestEnsureCatalogSchema_Errors(t *testing.T) {
 			errorContains: "failed to seed catalog",
 		},
 		{
+			name: "catalog object statement fails",
+			setupMock: func(m *mock.QueryService) {
+				addExistingCatalogState(m, latestCatalogFormat())
+				for _, stmt := range catalogTables {
+					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+				}
+				for _, stmt := range catalogSeed {
+					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+				}
+				m.AddQueryPatternOnceWithError(exactPattern(catalogObjects[0]), errors.New("connection reset"))
+			},
+			errorContains: "failed to ensure catalog objects",
+		},
+		{
 			name: "format write fails",
 			setupMock: func(m *mock.QueryService) {
 				addExistingCatalogState(m, latestCatalogFormat())
@@ -386,6 +404,9 @@ func TestEnsureCatalogSchema_Errors(t *testing.T) {
 					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
 				}
 				for _, stmt := range catalogSeed {
+					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+				}
+				for _, stmt := range catalogObjects {
 					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
 				}
 				m.AddQueryPatternOnceWithError(catalogFormatWritePattern, errors.New("permission denied"))

@@ -46,6 +46,11 @@ All four need the primary. A replica's catalog can lag: `GetOperation` would
 miss a write the caller just made, and a `ListTableGroups` that omits a
 tablegroup it has not replayed yet would tell the provisioner to remove it.
 
+The catalog primary also creates `multigres_topo`, a role without login, when
+it sets up the catalog. Membership in it, or superuser, is what lets a role
+create and drop tablegroups. An admin user that may not create roles logs a
+warning instead, and until the role exists only superusers qualify.
+
 **Multiadmin** serves `ListDesiredTableGroups(database)` for provisioners. It
 finds the catalog shard's primary in topology and forwards to its
 `ListTableGroups`. Multiadmin owns no state and no workflow.

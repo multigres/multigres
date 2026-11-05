@@ -61,6 +61,14 @@ func TestTableGroupCreation(t *testing.T) {
 	var op string
 	var tg *multipoolermanagerdatapb.TableGroup
 
+	t.Run("the catalog creates multigres_topo", func(t *testing.T) {
+		resp, err := primary.Pooler.ExecuteQuery(t.Context(),
+			"SELECT rolcanlogin FROM pg_catalog.pg_roles WHERE rolname = 'multigres_topo'", 1)
+		require.NoError(t, err)
+		require.Len(t, resp.Rows, 1, "multigres_topo does not exist")
+		assert.Equal(t, "f", string(resp.Rows[0].Values[0]), "multigres_topo must not log in")
+	})
+
 	t.Run("records the intent", func(t *testing.T) {
 		resp, err := manager.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{
 			Name:   "commerce",
