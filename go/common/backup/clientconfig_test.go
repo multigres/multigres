@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/ini.v1"
 
+	"github.com/multigres/multigres/go/common/constants"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -102,6 +103,8 @@ func TestWriteClientConfig_Filesystem(t *testing.T) {
 		"[global:archive-push] section must contain process-max")
 	assert.Regexp(t, `(?m)^\[multigres:backup\]\s*\nprocess-max=\d+`, string(content),
 		"[multigres:backup] section must contain process-max")
+	assert.Equal(t, constants.RewindTaintedFile, cfg.Section("multigres:backup").Key("exclude").String(),
+		"a backup must not carry a failed-rewind verdict into a restored data directory")
 }
 
 func TestWriteClientConfig_S3(t *testing.T) {

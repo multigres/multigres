@@ -68,9 +68,9 @@ func (pm *MultipoolerManager) rewindSentinel() sentinel {
 //     the directory as modified if the exit cannot be confirmed.
 //   - After a failure, or on restart with the marker still present, any entry
 //     in the data directory modified at or after the reference means the run
-//     started modifying it. The pooler then writes rewindTainted, a durable
-//     verdict that blocks further rewinds and quarantines the node so it is
-//     replaced from backup.
+//     started modifying it. The pooler then writes rewindTainted into the data
+//     directory, a durable verdict that blocks further rewinds and quarantines
+//     the node so it is replaced from backup.
 //   - The marker is removed once a run succeeds or a failure is verified to have
 //     left the directory untouched, so a later postgres start (which legitimately
 //     writes to the directory) is never mistaken for a rewind.
@@ -93,10 +93,14 @@ func (pm *MultipoolerManager) rewindAttempt() sentinel {
 }
 
 // rewindTainted returns the verdict marker for a data directory modified by a
-// pg_rewind run that did not complete. Like every sentinel it lives in
-// pooler_dir; see sentinel.go.
+// pg_rewind run that did not complete. It lives in the data directory it
+// describes, unlike the other sentinels, so that replacing the directory removes
+// it; see constants.RewindTaintedFile.
 func (pm *MultipoolerManager) rewindTainted() sentinel {
-	return pm.newSentinel(constants.RewindTaintedFile, "pg_rewind modified the data directory and did not complete\n")
+	return sentinel{
+		path:     filepath.Join(postgresDataDir(), constants.RewindTaintedFile),
+		contents: "pg_rewind modified the data directory and did not complete\n",
+	}
 }
 
 // rewindTaintedReason is the quarantine reason for a tainted data directory.
