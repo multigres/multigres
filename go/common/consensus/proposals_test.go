@@ -1938,6 +1938,15 @@ func TestRecruitmentThroughUndecidedProposal(t *testing.T) {
 			build:    keepOutgoing,
 		},
 		{
+			// A removal is decided under the incoming policy, which b and c satisfy,
+			// and nothing in its cohort is left unrecruited.
+			name:     "recruiting a removal's whole cohort suffices",
+			decision: makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c),
+			proposal: makeRule(ruleNum(3, 1), atLeast(2), zone1.b, zone1.c),
+			recruits: id(zone1.b, zone1.c),
+			build:    keepOutgoing,
+		},
+		{
 			// Deciding the proposal needs 3 acks under the "Both" policy (the
 			// larger N), but only 2 members are recruited.
 			name:     "a proposal that lowers N is decided under the stricter Both policy",
