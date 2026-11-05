@@ -80,11 +80,35 @@ func (pm *MultipoolerManager) rewindSentinel() sentinel {
 // leaves the target cleanly stopped, so it is never mistaken for the rewind and a
 // failed dry-run is always retryable.
 //
-// Limitation: if the target is still not cleanly stopped when the mutating call
-// starts, the real pg_rewind crash-recovers it before it plans. That recovery
-// writes to the directory, so a failure after it is reported as modified even if
-// pg_rewind never got further. The error is on the safe side: the node is
-// re-seeded instead of repaired.
+// Limitations. Every one of them errs on the safe side: the node is replaced
+// from backup when it might have been repaired, never the other way round.
+//
+//   - If the target is still not cleanly stopped when the mutating call starts,
+//     the real pg_rewind crash-recovers it before it plans. That recovery writes
+//     to the directory, so a failure after it is reported as modified even if
+//     pg_rewind never got further.
+//   - Timestamps are compared at the resolution the filesystem keeps, which can be
+//     coarse. A write that lands in the same tick as the marker is read as made
+//     after it (hence the >= comparison), so a directory can be reported as
+//     modified when only the marker's own tick overlapped.
+//   - The marker is in pooler_dir and the scanned entries are in the data
+//     directory. Both are on the same host and normally on the same clock, so the
+//     comparison is meaningful. If they were on volumes whose timestamps come from
+//     different clocks, skew larger than the time pg_rewind takes to start writing
+//     could hide a modification. This is not expected for the supported
+//     deployments, and is noted here so that a change in volume layout revisits it.
+//   - If pgctld cannot be confirmed to have reaped pg_rewind within
+//     rewindRunningWait (for example pgctld died while it was running and left its
+//     running record behind), the directory is treated as modified.
+//   - If the verdict cannot be written into the data directory (for example the
+//     disk is full, which is also a likely reason pg_rewind failed), it is logged
+//     rather than returned as an error: pg_rewind cannot run on a directory that
+//     cannot be written anyway. The pooler is quarantined directly, which is
+//     durable on its own, and the attempt marker is kept so the verdict is derived
+//     again on the next settle.
+//   - The rewind sentinel itself is only removed by a successful rewind, not by a
+//     restore of the data directory. That predates the taint verdict and is not
+//     changed here.
 
 // rewindAttempt returns the marker for a launched, not yet assessed pg_rewind
 // run. Like every sentinel it lives in pooler_dir; see sentinel.go.
@@ -229,7 +253,13 @@ func (pm *MultipoolerManager) settleRewindAttempt(ctx context.Context) (tainted 
 
 	if modified {
 		if err := pm.rewindTainted().write(); err != nil {
-			return true, err
+			// Not an error for the caller: the directory cannot be rewound while it
+			// cannot be written, and the quarantine below is durable without the
+			// marker. Keep the attempt marker so the next settle derives the verdict
+			// again and retries recording it.
+			pm.logger.ErrorContext(ctx, "pg_rewind modified the data directory but the verdict could not be recorded in it; quarantining the pooler instead", "error", err, "first_modified", evidence)
+			pm.markPoolerQuarantinedLocked(ctx, rewindTaintedReason)
+			return true, nil
 		}
 		pm.logger.ErrorContext(ctx, "pg_rewind modified the data directory and did not complete; it will not be rewound again", "first_modified", evidence)
 		if err := attempt.remove(); err != nil {
@@ -243,7 +273,7 @@ func (pm *MultipoolerManager) settleRewindAttempt(ctx context.Context) (tainted 
 // failRewindRun settles the attempt marker after a pg_rewind run failed with
 // runErr and returns the error the caller should return: runErr itself when the
 // data directory is untouched (the rewind may be retried), or runErr annotated as
-// tainted once the verdict is durably recorded. The monitor quarantines a tainted
+// tainted once the verdict is recorded. The monitor quarantines a tainted
 // node; see determineRemedialAction.
 func (pm *MultipoolerManager) failRewindRun(ctx context.Context, runErr error) error {
 	tainted, err := pm.settleRewindAttempt(ctx)
