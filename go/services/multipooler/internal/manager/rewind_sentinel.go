@@ -61,6 +61,11 @@ func (pm *MultipoolerManager) rewindSentinel() sentinel {
 //
 //   - rewindAttempt is written just before the mutating pg_rewind call, after the
 //     dry-run. Its modification time is the reference.
+//   - pgctld records that a mutating pg_rewind is running (RewindRunningFile) and
+//     removes the record when the process has exited. A call that failed on a
+//     timeout can return while pg_rewind is still being killed, so the pooler
+//     waits for the record to clear before it assesses the directory, and treats
+//     the directory as modified if the exit cannot be confirmed.
 //   - After a failure, or on restart with the marker still present, any entry
 //     in the data directory modified at or after the reference means the run
 //     started modifying it. The pooler then writes rewindTainted, a durable
@@ -152,6 +157,37 @@ func firstModifiedSince(root string, ref time.Time, excluded string) (string, er
 	return found, err
 }
 
+// rewindRunningWait bounds how long settleRewindAttempt waits for pgctld to report
+// that the pg_rewind it launched has exited, and rewindRunningPoll is how often it
+// looks. Variables so that tests need not wait in real time.
+var (
+	rewindRunningWait = 30 * time.Second
+	rewindRunningPoll = 200 * time.Millisecond
+)
+
+// awaitRewindExit waits until pgctld has removed its running marker, meaning the
+// pg_rewind it launched has exited. A call that failed on a timeout or
+// cancellation can return before the process is gone, and a process that is still
+// being killed can still write, so the data directory must not be assessed before
+// then. It returns false when the marker is still there after rewindRunningWait,
+// which also happens if pgctld died with a pg_rewind running.
+func (pm *MultipoolerManager) awaitRewindExit(ctx context.Context) bool {
+	running := pm.newSentinel(constants.RewindRunningFile, "")
+	// The caller's context may already be cancelled, which is why we are here.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rewindRunningWait)
+	defer cancel()
+	for {
+		if present, err := running.present(); err == nil && !present {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(rewindRunningPoll):
+		}
+	}
+}
+
 // settleRewindAttempt resolves a rewind attempt marker whose outcome has not been
 // assessed: after a failed run, and on restart when a run was interrupted. It
 // returns true when the run modified the data directory, after durably writing
@@ -159,6 +195,9 @@ func firstModifiedSince(root string, ref time.Time, excluded string) (string, er
 // removed so that later writes by postgres are not attributed to the rewind. No
 // marker means there is nothing to settle. If the evidence cannot be read, the
 // directory is treated as modified.
+//
+// Before assessing, it waits for pgctld to report that the pg_rewind has exited;
+// if that cannot be confirmed the directory is treated as modified.
 //
 // Postgres must not have been started since the run was launched. Callers hold
 // the action lock.
@@ -173,7 +212,10 @@ func (pm *MultipoolerManager) settleRewindAttempt(ctx context.Context) (tainted 
 	}
 
 	modified, evidence := true, "unknown"
-	if info, statErr := os.Stat(attempt.path); statErr != nil {
+	if !pm.awaitRewindExit(ctx) {
+		pm.logger.ErrorContext(ctx, "pgctld still reports a pg_rewind running; treating the data directory as modified")
+		evidence = "pg_rewind not confirmed to have exited"
+	} else if info, statErr := os.Stat(attempt.path); statErr != nil {
 		pm.logger.ErrorContext(ctx, "cannot read the rewind attempt marker; treating the data directory as modified", "error", statErr)
 	} else if path, scanErr := firstModifiedSince(postgresDataDir(), info.ModTime(), filepath.Join(postgresDataDir(), autoConfFileName)); scanErr != nil {
 		pm.logger.ErrorContext(ctx, "cannot scan the data directory after pg_rewind; treating it as modified", "error", scanErr)

@@ -435,6 +435,69 @@ func TestRewindAttemptErrors(t *testing.T) {
 	})
 }
 
+func TestSettleRewindAttempt_WaitsForPgRewindToExit(t *testing.T) {
+	setWait := func(t *testing.T, wait time.Duration) {
+		t.Helper()
+		oldWait, oldPoll := rewindRunningWait, rewindRunningPoll
+		rewindRunningWait, rewindRunningPoll = wait, 10*time.Millisecond
+		t.Cleanup(func() { rewindRunningWait, rewindRunningPoll = oldWait, oldPoll })
+	}
+
+	t.Run("a write made while pg_rewind is still being killed is seen", func(t *testing.T) {
+		dir := newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		setWait(t, 5*time.Second)
+		require.NoError(t, pm.rewindAttempt().write())
+		running := pm.newSentinel(constants.RewindRunningFile, "running\n")
+		require.NoError(t, running.write())
+
+		// The call failed on a timeout and returned while pg_rewind was still alive:
+		// it writes after the pooler started settling and then exits.
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			_ = os.WriteFile(filepath.Join(dir, "base/1/16384"), []byte("late write"), 0o600)
+			_ = running.remove()
+		}()
+
+		tainted, err := pm.settleRewindAttempt(t.Context())
+		require.NoError(t, err)
+		assert.True(t, tainted, "the scan must wait until pg_rewind has exited")
+	})
+
+	t.Run("a pg_rewind that cannot be confirmed to have exited counts as modified", func(t *testing.T) {
+		newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		setWait(t, 50*time.Millisecond)
+		require.NoError(t, pm.rewindAttempt().write())
+		require.NoError(t, pm.newSentinel(constants.RewindRunningFile, "running\n").write())
+
+		tainted, err := pm.settleRewindAttempt(t.Context())
+		require.NoError(t, err)
+		assert.True(t, tainted)
+		requirePresent(t, pm.rewindTainted(), true, "")
+	})
+
+	t.Run("a cancelled caller context does not cut the wait short", func(t *testing.T) {
+		dir := newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		setWait(t, 5*time.Second)
+		require.NoError(t, pm.rewindAttempt().write())
+		running := pm.newSentinel(constants.RewindRunningFile, "running\n")
+		require.NoError(t, running.write())
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			_ = os.WriteFile(filepath.Join(dir, "base/1/16384"), []byte("late write"), 0o600)
+			_ = running.remove()
+		}()
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		tainted, err := pm.settleRewindAttempt(ctx)
+		require.NoError(t, err)
+		assert.True(t, tainted)
+	})
+}
+
 func TestMonitor_TaintedRewind(t *testing.T) {
 	t.Run("the verdict is rediscovered from disk and decides before everything else", func(t *testing.T) {
 		pm := newSentinelTestManager(t)

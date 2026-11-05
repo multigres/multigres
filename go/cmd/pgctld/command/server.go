@@ -886,6 +886,21 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 		sourceServer = fmt.Sprintf("%s application_name=%s", sourceServer, req.GetApplicationName())
 	}
 
+	// Tell the pooler while a mutating pg_rewind runs, so that after a failed call
+	// it can wait until the process has exited before judging what it modified. A
+	// call that failed on a timeout can return before the process is gone.
+	if !req.GetDryRun() {
+		running := filepath.Join(s.pgConfig.PoolerDir, constants.RewindRunningFile)
+		if err := os.WriteFile(running, []byte("pg_rewind running\n"), 0o644); err != nil {
+			return nil, fmt.Errorf("failed to record that pg_rewind is running: %w", err)
+		}
+		defer func() {
+			if err := os.Remove(running); err != nil && !os.IsNotExist(err) {
+				s.logger.ErrorContext(ctx, "failed to remove pg_rewind running marker", "path", running, "error", err)
+			}
+		}()
+	}
+
 	// Use the shared rewind function with detailed result, passing password separately
 	result, err := PgRewindWithResult(ctx, s.logger, sourceServer, s.ctldConfig.Password, req.GetDryRun(), req.GetExtraArgs())
 	if err != nil {
