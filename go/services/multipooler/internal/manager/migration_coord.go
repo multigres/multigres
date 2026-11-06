@@ -151,10 +151,12 @@ func (pm *MultipoolerManager) MigrationCoordinatorIfPrimary(ctx context.Context)
 	return coord, nil
 }
 
-// ensureMigrationSchema runs EnsureSchema at most once per process. The table
-// is normally created at shard bootstrap and replicated in; this covers
-// shards bootstrapped before the table existed. Primary-only, since the
-// caller has already passed primary guardrails.
+// ensureMigrationSchema runs EnsureSchema at most once per process. The schema
+// is normally created at shard bootstrap and replicated in, and on the catalog
+// shard ensureSidecarSchemas re-ensures it on every open (see
+// ensureCatalogMigrationSchema); this covers shards bootstrapped before a table
+// existed. Primary-only, since the caller has already passed primary
+// guardrails.
 //
 // EnsureSchema reports ErrNoConnectionsTable when multigres.connections is
 // absent. Off the catalog shard that is the normal state, and the schema is

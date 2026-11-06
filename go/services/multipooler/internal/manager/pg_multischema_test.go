@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
@@ -131,6 +132,27 @@ func addMigrationTableCreate(m *mock.QueryService) {
 	m.AddQueryPatternOnce("CREATE INDEX IF NOT EXISTS migration_journal_migration_id_idx", mock.MakeQueryResult(nil, nil))
 }
 
+// addCatalogMigrationEnsure registers the migration store's EnsureSchema that
+// ensureSidecarSchemas runs on the catalog shard after the catalog
+// (ensureCatalogMigrationSchema), with multigres.connections present. A
+// non-nil fkErr fails the foreign key statement, and the ensure stops there.
+func addCatalogMigrationEnsure(m *mock.QueryService, fkErr error) {
+	for _, stmt := range []string{
+		migration.CreateMigrationSQL, migration.CreateMigrationTablesSQL, migration.CreateMigrationJournalSQL,
+		migration.MigrationNameUniqueIndexSQL, migration.MigrationJournalMigrationIndexSQL,
+	} {
+		m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+	}
+	m.AddQueryPatternOnce(connectionsProbePattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{true}}))
+	if fkErr != nil {
+		m.AddQueryPatternOnceWithError(exactPattern(migration.AddConnectionForeignKeySQL), fkErr)
+		return
+	}
+	m.AddQueryPatternOnce(exactPattern(migration.AddConnectionForeignKeySQL), mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce(exactPattern(migration.CreateStatMigrationViewSQL), mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce(exactPattern(migration.GrantStatMigrationSQL), mock.MakeQueryResult(nil, nil))
+}
+
 func TestCreateSidecarSchema(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -153,6 +175,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				addFreshCatalogEnsure(m)
 				addShardRefEnsure(m, nil)
 				addMigrationTableCreate(m)
+				addCatalogMigrationEnsure(m, nil)
 			},
 			expectError: false,
 		},
@@ -246,6 +269,25 @@ func TestCreateSidecarSchema(t *testing.T) {
 			errorContains: "failed to apply catalog format 1 migration",
 		},
 		{
+			name:       "migration schema ensure fails",
+			tableGroup: constants.DefaultTableGroup,
+			setupMock: func(m *mock.QueryService) {
+				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
+				addFreshCatalogEnsure(m)
+				addShardRefEnsure(m, nil)
+				addMigrationTableCreate(m)
+				addCatalogMigrationEnsure(m, errors.New("add constraint failed"))
+			},
+			expectError:   true,
+			errorContains: "failed to ensure migration schema",
+		},
+		{
 			name:       "non-catalog shard skips catalog schema",
 			tableGroup: "commerce",
 			setupMock: func(m *mock.QueryService) {
@@ -287,8 +329,9 @@ func TestCreateSidecarSchema(t *testing.T) {
 
 // TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard verifies that every
 // shard gets the shard-local sidecar tables, but only the catalog shard
-// (default/0-inf) runs the catalog schema ensure, and that it runs as part of
-// ensureSidecarSchemas, after every other bootstrap step.
+// (default/0-inf) runs the catalog schema ensure and then the migrator's schema
+// that depends on it, both as part of ensureSidecarSchemas, after every other
+// bootstrap step.
 func TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard(t *testing.T) {
 	shardLocal := []string{
 		"CREATE SCHEMA multigres",
@@ -320,6 +363,8 @@ func TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard(t *testing.T) {
 			addShardRefEnsure(mockQueryService, record)
 			mockQueryService.AddQueryPatternWithCallback(catalogStatePresentPattern,
 				mock.MakeQueryResult([]string{"exists"}, [][]any{{false}}), record)
+			mockQueryService.AddQueryPatternWithCallback(connectionsProbePattern,
+				mock.MakeQueryResult([]string{"exists"}, [][]any{{true}}), record)
 			mockQueryService.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), record)
 
 			require.NoError(t, pm.createSidecarSchema(context.Background(), testBootstrapPolicy()))
@@ -338,8 +383,12 @@ func TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard(t *testing.T) {
 			}
 
 			firstCatalog := slices.IndexFunc(queries, catalogRef.MatchString)
+			fkey := slices.Index(queries, migration.AddConnectionForeignKeySQL)
+			view := slices.Index(queries, migration.CreateStatMigrationViewSQL)
 			if !tt.wantCatalog {
 				assert.Equal(t, -1, firstCatalog, "non-catalog shard must not touch catalog tables: %v", queries)
+				assert.Equal(t, -1, fkey, "non-catalog shard must not add the connections foreign key")
+				assert.Equal(t, -1, view, "non-catalog shard must not create stat_migration")
 				return
 			}
 			// The catalog ensure runs inside ensureSidecarSchemas, after
@@ -349,7 +398,14 @@ func TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard(t *testing.T) {
 			for _, stmt := range slices.Concat(catalogMigrations[0].statements, catalogTables, catalogSeed) {
 				assert.Contains(t, queries, stmt)
 			}
-			assert.Equal(t, "COMMIT", queries[len(queries)-1])
+			// The migrator's foreign key into multigres.connections and its
+			// stat_migration view come right after the catalog commits, so a
+			// bootstrap has them before its first backup.
+			commit := slices.Index(queries, "COMMIT")
+			require.GreaterOrEqual(t, commit, 0, "catalog ensure must commit")
+			assert.Greater(t, fkey, commit, "foreign key must be added after the catalog: %v", queries)
+			assert.Greater(t, view, fkey, "stat_migration must be created after the foreign key: %v", queries)
+			assert.Equal(t, migration.GrantStatMigrationSQL, queries[len(queries)-1])
 		})
 	}
 }
