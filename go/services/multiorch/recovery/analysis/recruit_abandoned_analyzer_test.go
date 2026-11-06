@@ -45,7 +45,7 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 
 	primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
 	replicaID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"}
-	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"}
 
 	now := time.Now()
 
@@ -61,7 +61,7 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 
 	leaderHealth := func() *multiorchdatapb.PoolerHealthState {
 		return &multiorchdatapb.PoolerHealthState{
-			Multipooler: &clustermetadatapb.Multipooler{Id: primaryID, ShardKey: shardKey, Hostname: "primary.example.com"},
+			Multipooler: &clustermetadatapb.Multipooler{Id: primaryID, ShardRef: shardRef, Hostname: "primary.example.com"},
 			LastSeen:    timestamppb.New(now),
 			Status: &multipoolermanagerdatapb.Status{
 				PostgresReady:  true,
@@ -76,7 +76,7 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 	// recruit. initiatedAt controls the revocation's age for the grace gate.
 	strandedFollower := func(initiatedAt time.Time, ownRule *clustermetadatapb.RulePosition, initialized bool) *multiorchdatapb.PoolerHealthState {
 		return &multiorchdatapb.PoolerHealthState{
-			Multipooler: &clustermetadatapb.Multipooler{Id: replicaID, ShardKey: shardKey},
+			Multipooler: &clustermetadatapb.Multipooler{Id: replicaID, ShardRef: shardRef},
 			LastSeen:    timestamppb.New(now),
 			Status:      &multipoolermanagerdatapb.Status{IsInitialized: initialized},
 			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
@@ -96,7 +96,7 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 	// the shard's committed rule at term 1.
 	newSA := func(analyses ...*multiorchdatapb.PoolerHealthState) *snapshot.Shard {
 		return newTestShard(&snapshot.Shard{
-			ShardKey:           shardKey,
+			ShardRef:           shardRef,
 			Poolers:            analyses,
 			Now:                now,
 			AvailabilityPolicy: DefaultAvailabilityPolicy(),

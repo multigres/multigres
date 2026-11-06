@@ -29,6 +29,7 @@ import (
 	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -91,7 +92,7 @@ func (m *mockIExecute) StreamExecute(
 	tableGroup string,
 	shard string,
 	sql string,
-	preparedStatement *query.ExecuteSqlPreparedStatement,
+	preparedStatement *query.PreparedStatement,
 	state *handler.MultigatewayConnectionState,
 	info PlanExecInfo,
 	keepStructured bool,
@@ -226,7 +227,7 @@ func (m *mockIExecute) StreamReplication(
 	string,
 	*handler.MultigatewayConnectionState,
 	*multipoolerpb.StreamReplicationInit,
-) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+) (queryservice.ReplicationStream, error) {
 	return nil, nil
 }
 

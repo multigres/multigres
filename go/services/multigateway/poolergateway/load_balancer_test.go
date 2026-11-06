@@ -47,7 +47,7 @@ func createTestMultipooler(name, cell, tableGroup, shard string, poolerType clus
 			Name:      name,
 		},
 		Hostname: name + ".example.com",
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   constants.DefaultPostgresDatabase,
 			TableGroup: tableGroup,
 			Shard:      shard,
@@ -294,7 +294,7 @@ func TestLoadBalancer_WriteResumeWaitsForServingSelfNamedLeader(t *testing.T) {
 	lb := newTestLB(t, "zone1")
 
 	var resumed int
-	lb.onLeaderServing = func(_ *clustermetadatapb.ShardKey) { resumed++ }
+	lb.onLeaderServing = func(_ *clustermetadatapb.ShardRef) { resumed++ }
 
 	p := createTestMultipooler("primary1", "zone1", constants.DefaultTableGroup, "0", clustermetadatapb.PoolerType_PRIMARY)
 	addPoolerForTest(t, lb, p)
@@ -905,8 +905,8 @@ func TestLoadBalancer_ShardSummaryAutoClear(t *testing.T) {
 // recent health snapshot self-identifies as leader — the gateway-side
 // replacement for the dropped Target.PoolerType == PRIMARY check.
 func TestLoadBalancer_OnLeaderServingRequiresSelfNamedLeader(t *testing.T) {
-	var calls []*clustermetadatapb.ShardKey
-	lb := newTestLBWithLeaderServing(t, "zone1", func(sk *clustermetadatapb.ShardKey) {
+	var calls []*clustermetadatapb.ShardRef
+	lb := newTestLBWithLeaderServing(t, "zone1", func(sk *clustermetadatapb.ShardRef) {
 		calls = append(calls, sk)
 	})
 

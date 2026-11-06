@@ -37,7 +37,7 @@ import (
 // primaryReplTarget builds the routing target for the primary pooler.
 func primaryReplTarget() *querypb.Target {
 	// WRITABLE = leader-bound (#1183); the primary pooler is the consensus leader,
-	// so this admits. An empty ShardKey skips the tablegroup/shard checks in the
+	// so this admits. An empty ShardRef skips the tablegroup/shard checks in the
 	// single-shard test cluster.
 	return &querypb.Target{Mode: querypb.Mode_MODE_WRITABLE}
 }

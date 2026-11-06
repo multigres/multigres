@@ -36,8 +36,6 @@ fi
 
 gotestsum \
   --format=testname \
-  --rerun-fails=3 \
-  --rerun-fails-max-failures=10 \
   --packages="${packages[*]}" \
   --jsonfile=integration-test-results.jsonl \
   --junitfile=integration-test-results.xml \

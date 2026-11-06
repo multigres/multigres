@@ -991,7 +991,7 @@ func (s *ShardSetup) WaitForHealthStreamsEstablished(t *testing.T, orchName stri
 	for {
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		resp, err := client.GetShardStatus(ctx, &multiorchpb.ShardStatusRequest{
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "postgres",
 				TableGroup: "default",
 				Shard:      "0-inf",
@@ -2255,7 +2255,7 @@ func logMultiorchStatus(ctx context.Context, t *testing.T, setup *ShardSetup, la
 		// Query shard status for the default shard
 		// TODO: Handle multiple shards if needed
 		resp, err := client.GetShardStatus(ctx, &multiorchpb.ShardStatusRequest{
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "postgres",
 				TableGroup: constants.DefaultTableGroup, // "default" - must match multipooler registration
 				Shard:      constants.DefaultShard,      // "0-inf" - must match multipooler registration

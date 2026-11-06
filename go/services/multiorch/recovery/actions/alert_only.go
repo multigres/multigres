@@ -50,9 +50,9 @@ func (a *AlertOnlyAction) Execute(ctx context.Context, rechecked types.Rechecked
 	problem := rechecked.Problem
 	a.logger.WarnContext(ctx, "non-actionable problem detected; human intervention required",
 		"problem_code", problem.Code,
-		"database", problem.ShardKey.GetDatabase(),
-		"tablegroup", problem.ShardKey.GetTableGroup(),
-		"shard", problem.ShardKey.GetShard(),
+		"database", problem.ShardRef.GetDatabase(),
+		"tablegroup", problem.ShardRef.GetTableGroup(),
+		"shard", problem.ShardRef.GetShard(),
 		"description", problem.Description,
 	)
 	return nil

@@ -39,10 +39,15 @@ package callerid
 import (
 	"context"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
-// Telemetry keys for the caller identity, used as span attributes on the pooler.
+// Telemetry keys for the caller identity, used as span attributes on the
+// pooler's operation span, or the gateway's current span when it calls the
+// pooler directly (minigres).
 const (
 	KeyAuthenticatedUser = "mg.caller.authenticated_user"
 	KeyApplicationName   = "mg.caller.application_name"
@@ -71,4 +76,21 @@ func NewContext(ctx context.Context, cid *mtrpcpb.CallerID) context.Context {
 func FromContext(ctx context.Context) *mtrpcpb.CallerID {
 	cid, _ := ctx.Value(callerIDKey{}).(*mtrpcpb.CallerID)
 	return cid
+}
+
+// AnnotateSpan records caller's identity on ctx's current span, so a trace
+// attributes a query to the app that issued it, not just the shared database
+// user. No-op when caller is nil or the span is not recording.
+func AnnotateSpan(ctx context.Context, caller *mtrpcpb.CallerID) {
+	if caller == nil {
+		return
+	}
+	span := trace.SpanFromContext(ctx)
+	if !span.IsRecording() {
+		return
+	}
+	span.SetAttributes(
+		attribute.String(KeyAuthenticatedUser, caller.GetPrincipal()),
+		attribute.String(KeyApplicationName, caller.GetComponent()),
+	)
 }

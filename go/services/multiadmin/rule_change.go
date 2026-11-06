@@ -39,8 +39,8 @@ import (
 // or timing fields the caller omitted, and (3) forwards the fully-populated
 // request to the chosen multiorch.
 func (s *MultiadminServer) ApplyCertifiedRuleChange(ctx context.Context, req *multiadminpb.ApplyCertifiedRuleChangeRequest) (*multiadminpb.ApplyCertifiedRuleChangeResponse, error) {
-	if req.GetShardKey() == nil {
-		return nil, status.Error(codes.InvalidArgument, "shard_key is required")
+	if req.GetShardRef() == nil {
+		return nil, status.Error(codes.InvalidArgument, "shard_ref is required")
 	}
 	if req.GetProposedTransition().GetProposal() == nil {
 		return nil, status.Error(codes.InvalidArgument, "proposed_transition.proposal is required")
@@ -72,7 +72,7 @@ func (s *MultiadminServer) ApplyCertifiedRuleChange(ctx context.Context, req *mu
 	defer conn.Close()
 
 	if _, err := multiorchpb.NewMultiorchServiceClient(conn).ApplyCertifiedRuleChange(ctx, &multiorchpb.ApplyCertifiedRuleChangeRequest{
-		ShardKey:           req.GetShardKey(),
+		ShardRef:           req.GetShardRef(),
 		ProposedTransition: &clustermetadatapb.RulePosition{Decision: decision, Proposal: proposedRule},
 		Cert:               cert,
 		Reason:             req.GetReason(),

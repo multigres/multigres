@@ -162,7 +162,7 @@ func (c *testCapture) opts() store.SnapshotOptions {
 	return store.SnapshotOptions{Now: c.now, AvailabilityPolicy: DefaultAvailabilityPolicy()}
 }
 
-func (c *testCapture) shard(key *clustermetadatapb.ShardKey) (*snapshot.Shard, error) {
+func (c *testCapture) shard(key *clustermetadatapb.ShardRef) (*snapshot.Shard, error) {
 	return store.SnapshotShard(c.cache, key, c.opts())
 }
 

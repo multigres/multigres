@@ -396,7 +396,7 @@ func triggerFailover(t *testing.T, setup *shardsetup.ShardSetup) {
 
 	t.Logf("Triggering planned failover via SwitchPrimary on %s", currentPrimaryName)
 	_, err = adminClient.SwitchPrimary(utils.WithTimeout(t, 30*time.Second), &multiadminpb.SwitchPrimaryRequest{
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "postgres",
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,

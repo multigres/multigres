@@ -114,7 +114,7 @@ func TestQueueDepthMetricTracksDrain(t *testing.T) {
 
 	buf.StopBuffering(shard1Key)
 	wg.Wait()
-	sb := buf.buffers[commontypes.FormatShardKey(shard1Key)]
+	sb := buf.buffers[commontypes.FormatShardRef(shard1Key)]
 	sb.drainWg.Wait()
 
 	assert.Equal(t, int64(0), readSumInt64(t, reader, "multigateway.buffer.queue.depth"),
@@ -167,7 +167,7 @@ func TestQueueDepthMetricOnEviction(t *testing.T) {
 
 	buf.StopBuffering(shard1Key)
 	wg.Wait()
-	sb := buf.buffers[commontypes.FormatShardKey(shard1Key)]
+	sb := buf.buffers[commontypes.FormatShardRef(shard1Key)]
 	sb.drainWg.Wait()
 
 	assert.Equal(t, int64(0), readSumInt64(t, reader, "multigateway.buffer.queue.depth"))
@@ -272,7 +272,7 @@ func TestFailedUnbufferedMetric(t *testing.T) {
 	// Back to idle after the drain: no longer records.
 	buf.StopBuffering(shard1Key)
 	wg.Wait()
-	sb := buf.buffers[commontypes.FormatShardKey(shard1Key)]
+	sb := buf.buffers[commontypes.FormatShardRef(shard1Key)]
 	sb.drainWg.Wait()
 	buf.RecordUnbufferedFailure(ctx, shard1Key, "UNAVAILABLE")
 	assert.Equal(t, int64(1), readSumInt64(t, reader, "multigateway.buffer.requests.failed_unbuffered"),

@@ -116,6 +116,17 @@ func (pm *MultipoolerManager) GracefulShutdown(ctx context.Context) {
 			"error", err)
 	}
 
+	// An unmanaged pooler leaves the external PostgreSQL running: close our own
+	// pools and finish. There is no cohort to advertise ineligibility to.
+	if pm.IsUnmanaged() {
+		pm.closeLocked(lockCtx, "unmanaged shutdown")
+		if pm.shutdownCancel != nil {
+			pm.shutdownCancel()
+		}
+		pm.logger.InfoContext(lockCtx, "graceful shutdown sequence complete")
+		return
+	}
+
 	if err := pm.pgctldStopWithEscalation(lockCtx); err != nil {
 		pm.logger.ErrorContext(lockCtx, "pgctld.Stop failed during graceful shutdown", "error", err)
 	}

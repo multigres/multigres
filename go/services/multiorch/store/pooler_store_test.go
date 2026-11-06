@@ -27,9 +27,9 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 )
 
-// shard returns the ShardKey used across this file's fixtures.
-func shard() *clustermetadatapb.ShardKey {
-	return &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
+// shard returns the ShardRef used across this file's fixtures.
+func shard() *clustermetadatapb.ShardRef {
+	return &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"}
 }
 
 // poolerID builds a stable component ID for a fixture pooler.
@@ -43,7 +43,7 @@ func poolerID(cell, name string) *clustermetadatapb.ID {
 // number).
 func withRule(id *clustermetadatapb.ID, coordinatorTerm, leaderSubterm int64, leaderID *clustermetadatapb.ID) *Pooler {
 	return NewPooler(&multiorchdatapb.PoolerHealthState{
-		Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shard()},
+		Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardRef: shard()},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
 				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{
@@ -63,7 +63,7 @@ func withRule(id *clustermetadatapb.ID, coordinatorTerm, leaderSubterm int64, le
 // reported consensus state yet.
 func withoutRule(id *clustermetadatapb.ID) *Pooler {
 	return NewPooler(&multiorchdatapb.PoolerHealthState{
-		Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shard()},
+		Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardRef: shard()},
 	}, nil)
 }
 
@@ -73,7 +73,7 @@ func withoutRule(id *clustermetadatapb.ID) *Pooler {
 // node's WAL but was never marked decided.
 func withProposal(id *clustermetadatapb.ID, decisionTerm int64, decisionLeaderID *clustermetadatapb.ID, proposalTerm int64, proposalLeaderID *clustermetadatapb.ID) *Pooler {
 	return NewPooler(&multiorchdatapb.PoolerHealthState{
-		Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardKey: shard()},
+		Multipooler: &clustermetadatapb.Multipooler{Id: id, ShardRef: shard()},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			CurrentPosition: &clustermetadatapb.PoolerPosition{
 				Position: &clustermetadatapb.RulePosition{
@@ -231,7 +231,7 @@ func TestFindShardMembers_OnlyShardScoped(t *testing.T) {
 	otherShard := NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       poolerID("zone1", "other"),
-			ShardKey: &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "other"},
+			ShardRef: &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "other"},
 		},
 	}, nil)
 	SeedCache(t, cache, inShard)

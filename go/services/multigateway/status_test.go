@@ -41,7 +41,7 @@ func newTestPooler(cell, name, tableGroup, shard string, lifecycle clustermetada
 		},
 		Hostname: name + ".example.com",
 		PortMap:  map[string]int32{"grpc": 50051},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "db",
 			TableGroup: tableGroup,
 			Shard:      shard,

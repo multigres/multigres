@@ -43,7 +43,7 @@ func (c *testCapture) all() []*snapshot.Shard {
 	return SnapshotShards(c.cache, SnapshotOptions{Now: c.now})
 }
 
-func (c *testCapture) shard(key *clustermetadatapb.ShardKey) (*snapshot.Shard, error) {
+func (c *testCapture) shard(key *clustermetadatapb.ShardRef) (*snapshot.Shard, error) {
 	return SnapshotShard(c.cache, key, SnapshotOptions{Now: c.now})
 }
 
@@ -93,7 +93,7 @@ func TestSnapshotShards_SinglePrimary(t *testing.T) {
 	primary := &multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: primaryID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "testtg",
 				Shard:      "0",
@@ -118,25 +118,25 @@ func TestSnapshotShards_SinglePrimary(t *testing.T) {
 	require.Len(t, analyses, 1, "should generate one analysis")
 
 	analysis := analyses[0]
-	assert.Equal(t, "testdb", analysis.GetMultipooler().GetShardKey().GetDatabase())
-	assert.Equal(t, "testtg", analysis.GetMultipooler().GetShardKey().GetTableGroup())
-	assert.Equal(t, "0", analysis.GetMultipooler().GetShardKey().GetShard())
+	assert.Equal(t, "testdb", analysis.GetMultipooler().GetShardRef().GetDatabase())
+	assert.Equal(t, "testtg", analysis.GetMultipooler().GetShardRef().GetTableGroup())
+	assert.Equal(t, "0", analysis.GetMultipooler().GetShardRef().GetShard())
 	assert.True(t, commonconsensus.SelfConsensusRole(analysis.GetConsensusStatus()) == commonconsensus.ConsensusRoleLeader)
 }
 
 func TestSnapshotShard_IsFrozenAtCapture(t *testing.T) {
 	ps := NewTestCache(t)
-	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "testtg", Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "testtg", Shard: "0"}
 	rider := NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "pooler-1"},
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 		},
 		Status: &multipoolermanagerdatapb.Status{PostgresReady: true},
 	}, nil)
 	SeedCache(t, ps, rider)
 
-	sa, err := newTestCapture(ps).shard(shardKey)
+	sa, err := newTestCapture(ps).shard(shardRef)
 	require.NoError(t, err)
 
 	// A later health update must not show through a snapshot already taken.
@@ -171,7 +171,7 @@ func TestSnapshotShards_PrimaryWithReplicas(t *testing.T) {
 	primary := &multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: primaryID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "testtg",
 				Shard:      "0",
@@ -196,7 +196,7 @@ func TestSnapshotShards_PrimaryWithReplicas(t *testing.T) {
 	replica1 := &multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replica1ID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "testtg",
 				Shard:      "0",
@@ -218,7 +218,7 @@ func TestSnapshotShards_PrimaryWithReplicas(t *testing.T) {
 	replica2 := &multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replica2ID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "testtg",
 				Shard:      "0",
@@ -273,7 +273,7 @@ func TestSnapshotShards_Replica(t *testing.T) {
 	primary := &multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: primaryID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "testtg",
 				Shard:      "0",
@@ -293,7 +293,7 @@ func TestSnapshotShards_Replica(t *testing.T) {
 	replica := &multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: replicaID,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "testtg",
 				Shard:      "0",
@@ -343,7 +343,7 @@ func TestSnapshotShards_MultipleTableGroups(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "tg1-primary",
 			},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "tg1",
 				Shard:      "0",
@@ -364,7 +364,7 @@ func TestSnapshotShards_MultipleTableGroups(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "tg2-primary",
 			},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "tg2",
 				Shard:      "0",
@@ -386,7 +386,7 @@ func TestSnapshotShards_MultipleTableGroups(t *testing.T) {
 	// Verify both table groups are present
 	tableGroups := make(map[string]bool)
 	for _, a := range analyses {
-		tableGroups[a.GetMultipooler().GetShardKey().GetTableGroup()] = true
+		tableGroups[a.GetMultipooler().GetShardRef().GetTableGroup()] = true
 	}
 
 	assert.True(t, tableGroups["tg1"])
@@ -408,7 +408,7 @@ func TestSnapshotShards_SkipsNilEntries(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "valid",
 			},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "db1",
 				TableGroup: "tg1",
 				Shard:      "shard1",
@@ -424,7 +424,7 @@ func TestSnapshotShards_SkipsNilEntries(t *testing.T) {
 
 	// Should only generate one analysis for the valid pooler, skipping the nil entry
 	assert.Len(t, analyses, 1)
-	assert.Equal(t, "db1", analyses[0].GetMultipooler().GetShardKey().GetDatabase())
+	assert.Equal(t, "db1", analyses[0].GetMultipooler().GetShardRef().GetDatabase())
 }
 
 // Test for no primary in shard
@@ -438,7 +438,7 @@ func TestSnapshotShard_NoLeaderInShard(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "replica",
 			},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "db1",
 				TableGroup: "tg1",
 				Shard:      "shard1",
@@ -453,7 +453,7 @@ func TestSnapshotShard_NoLeaderInShard(t *testing.T) {
 	}, nil))
 
 	gen := newTestCapture(ps)
-	sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+	sa, err := gen.shard(&clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 	require.NoError(t, err)
 
 	// When no primary exists in the shard, topology primary fields should be nil.
@@ -469,7 +469,7 @@ func TestSnapshotShard_NoLeaderInShard(t *testing.T) {
 // pooler claims leadership for itself — otherwise the stale leader would be
 // mistaken for the primary and failover suppressed.
 func TestSnapshotShard_StaleLeaderSupersededViaFollowerRule(t *testing.T) {
-	shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"}
 
 	staleLeaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-leader"}
 	newLeaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-leader"}
@@ -480,14 +480,14 @@ func TestSnapshotShard_StaleLeaderSupersededViaFollowerRule(t *testing.T) {
 	// reachable and ready. Under the old self-claim-only logic this would be
 	// picked as the leader.
 	SeedCache(t, ps, NewPooler(&multiorchdatapb.PoolerHealthState{
-		Multipooler:     &clustermetadatapb.Multipooler{Id: staleLeaderID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_PRIMARY},
+		Multipooler:     &clustermetadatapb.Multipooler{Id: staleLeaderID, ShardRef: shardRef, Type: clustermetadatapb.PoolerType_PRIMARY},
 		ConsensusStatus: primaryConsensusStatus(staleLeaderID, 5),
 		Status:          &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_PRIMARY, PostgresReady: true, PostgresRunning: true},
 	}, nil))
 	// Follower: already replicating from the new leader at the higher term (6).
 	// The new leader itself has not reported health yet (absent from the store).
 	SeedCache(t, ps, NewPooler(&multiorchdatapb.PoolerHealthState{
-		Multipooler: &clustermetadatapb.Multipooler{Id: followerID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_REPLICA},
+		Multipooler: &clustermetadatapb.Multipooler{Id: followerID, ShardRef: shardRef, Type: clustermetadatapb.PoolerType_REPLICA},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
 			Id: followerID,
 			ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
@@ -502,7 +502,7 @@ func TestSnapshotShard_StaleLeaderSupersededViaFollowerRule(t *testing.T) {
 	}, nil))
 
 	gen := newTestCapture(ps)
-	sa, err := gen.shard(shardKey)
+	sa, err := gen.shard(shardRef)
 	require.NoError(t, err)
 
 	require.NotNil(t, sa.HighestIntendedRule().IntendedLeaderID())
@@ -513,7 +513,7 @@ func TestSnapshotShard_StaleLeaderSupersededViaFollowerRule(t *testing.T) {
 }
 
 func TestSnapshotShard_HighestRuleLeaderWins(t *testing.T) {
-	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default", Shard: "0"}
 
 	// leaderName returns the shard leader's name and rule term from the generated
 	// analysis. Leadership is the highest known consensus rule, regardless of
@@ -527,7 +527,7 @@ func TestSnapshotShard_HighestRuleLeaderWins(t *testing.T) {
 			{id: "primary-1", primaryTerm: 5, consensusTerm: 10},
 			{id: "primary-2", primaryTerm: 6, consensusTerm: 11},
 		})
-		sa, err := newTestCapture(store).shard(shardKey)
+		sa, err := newTestCapture(store).shard(shardRef)
 		require.NoError(t, err)
 		name, term := leaderOf(sa)
 		assert.Equal(t, "primary-2", name)
@@ -540,7 +540,7 @@ func TestSnapshotShard_HighestRuleLeaderWins(t *testing.T) {
 			{id: "primary-2", primaryTerm: 4, consensusTerm: 10},
 			{id: "primary-3", primaryTerm: 6, consensusTerm: 9},
 		})
-		sa, err := newTestCapture(store).shard(shardKey)
+		sa, err := newTestCapture(store).shard(shardRef)
 		require.NoError(t, err)
 		// primary-3 has the highest rule term (6) even though primary-1 has the
 		// highest consensus term (11) — ranking is by rule, not consensus term.
@@ -553,7 +553,7 @@ func TestSnapshotShard_HighestRuleLeaderWins(t *testing.T) {
 		store := setupMultiplePrimariesStore(t, []primaryConfig{
 			{id: "primary-1", primaryTerm: 5, consensusTerm: 10},
 		})
-		sa, err := newTestCapture(store).shard(shardKey)
+		sa, err := newTestCapture(store).shard(shardRef)
 		require.NoError(t, err)
 		name, term := leaderOf(sa)
 		assert.Equal(t, "primary-1", name)
@@ -568,7 +568,7 @@ func TestSnapshotShard_HighestRuleLeaderWins(t *testing.T) {
 			{primaryConfig: primaryConfig{id: "primary-1", primaryTerm: 5, consensusTerm: 10}, reachable: true},
 			{primaryConfig: primaryConfig{id: "primary-2", primaryTerm: 6, consensusTerm: 11}, reachable: false},
 		})
-		sa, err := newTestCapture(store).shard(shardKey)
+		sa, err := newTestCapture(store).shard(shardRef)
 		require.NoError(t, err)
 		name, term := leaderOf(sa)
 		assert.Equal(t, "primary-2", name)
@@ -612,7 +612,7 @@ func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []prima
 		poolerState := &multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id: id,
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "testdb",
 					TableGroup: "default",
 					Shard:      "0",
@@ -641,14 +641,14 @@ func setupMultiplePrimariesStoreWithReachability(t *testing.T, primaries []prima
 	return ps
 }
 
-func TestSnapshotShards_GroupsByShardKey(t *testing.T) {
+func TestSnapshotShards_GroupsByShardRef(t *testing.T) {
 	ps := NewTestCache(t)
 
 	makePooler := func(name, db, tg, shard string, typ clustermetadatapb.PoolerType) *Pooler {
 		return NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "c1", Name: name},
-				ShardKey: &clustermetadatapb.ShardKey{Database: db, TableGroup: tg, Shard: shard},
+				ShardRef: &clustermetadatapb.ShardRef{Database: db, TableGroup: tg, Shard: shard},
 				Type:     typ,
 			},
 			Status: &multipoolermanagerdatapb.Status{
@@ -669,7 +669,7 @@ func TestSnapshotShards_GroupsByShardKey(t *testing.T) {
 
 	countByShard := make(map[string]int)
 	for _, sa := range shards {
-		countByShard[sa.ShardKey.Shard] = len(sa.Poolers)
+		countByShard[sa.ShardRef.Shard] = len(sa.Poolers)
 	}
 	assert.Equal(t, 2, countByShard["0"], "shard 0 should have 2 analyses")
 	assert.Equal(t, 1, countByShard["1"], "shard 1 should have 1 analysis")
@@ -679,8 +679,8 @@ func TestSnapshotShard_ErrorOnMissingShard(t *testing.T) {
 	ps := NewTestCache(t)
 	gen := newTestCapture(ps)
 
-	shardKey := &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"}
-	_, err := gen.shard(shardKey)
+	shardRef := &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"}
+	_, err := gen.shard(shardRef)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "shard not found")
 }
@@ -691,7 +691,7 @@ func TestSnapshotShard_ReturnsAllPoolersInShard(t *testing.T) {
 	SeedCache(t, ps, NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "c1", Name: "primary"},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "db",
 				TableGroup: "tg",
 				Shard:      "0",
@@ -705,7 +705,7 @@ func TestSnapshotShard_ReturnsAllPoolersInShard(t *testing.T) {
 	SeedCache(t, ps, NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "c1", Name: "replica"},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "db",
 				TableGroup: "tg",
 				Shard:      "0",
@@ -718,7 +718,7 @@ func TestSnapshotShard_ReturnsAllPoolersInShard(t *testing.T) {
 	}, nil))
 
 	gen := newTestCapture(ps)
-	sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"})
+	sa, err := gen.shard(&clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"})
 	require.NoError(t, err)
 	assert.Len(t, sa.Poolers, 2)
 }

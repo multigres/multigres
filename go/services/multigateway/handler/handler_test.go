@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerservice "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -117,7 +118,7 @@ func (m *mockExecutor) ReleaseAll(ctx context.Context, conn *server.Conn, state 
 	return nil
 }
 
-func (m *mockExecutor) StreamReplication(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, init *multipoolerservice.StreamReplicationInit) (multipoolerservice.MultipoolerService_StreamReplicationClient, error) {
+func (m *mockExecutor) StreamReplication(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, init *multipoolerservice.StreamReplicationInit) (queryservice.ReplicationStream, error) {
 	return nil, nil
 }
 

@@ -221,25 +221,21 @@ func (cm *CancelManager) forwardCancel(ctx context.Context, targetPrefix, proces
 // rebuildPrefixCache reads all gateways from topo and atomically replaces the
 // prefix cache.
 func (cm *CancelManager) rebuildPrefixCache(ctx context.Context) {
-	cells, err := cm.ts.GetCellNames(ctx)
+	gateways, err := listMultigateways(ctx, cm.ts, func(cell string, err error) error {
+		cm.logger.WarnContext(ctx, "failed to get gateways for cell", "cell", cell, "error", err)
+		return nil
+	})
 	if err != nil {
 		cm.logger.WarnContext(ctx, "failed to get cell names for prefix cache rebuild", "error", err)
 		return
 	}
 
 	cache := make(map[uint32]string)
-	for _, cell := range cells {
-		gateways, err := cm.ts.GetMultigatewaysByCell(ctx, cell)
-		if err != nil {
-			cm.logger.WarnContext(ctx, "failed to get gateways for cell", "cell", cell, "error", err)
-			continue
-		}
-		for _, gw := range gateways {
-			prefix := gw.GetPidPrefix()
-			grpcPort := gw.PortMap["grpc"]
-			if prefix > 0 && grpcPort > 0 {
-				cache[prefix] = fmt.Sprintf("%s:%d", gw.GetHostname(), grpcPort)
-			}
+	for _, gw := range gateways {
+		prefix := gw.GetPidPrefix()
+		grpcPort := gw.PortMap["grpc"]
+		if prefix > 0 && grpcPort > 0 {
+			cache[prefix] = fmt.Sprintf("%s:%d", gw.GetHostname(), grpcPort)
 		}
 	}
 

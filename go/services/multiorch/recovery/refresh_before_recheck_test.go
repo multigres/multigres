@@ -57,7 +57,7 @@ func (a *staleHealthAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Problem, erro
 	return []types.Problem{{
 		Code:                  types.ProblemLeaderUnhealthy,
 		CheckName:             a.Name(),
-		ShardKey:              sa.ShardKey,
+		ShardRef:              sa.ShardRef,
 		Priority:              types.PriorityEmergency,
 		Scope:                 types.ScopeShard,
 		RecoveryAction:        a.action,
@@ -77,7 +77,7 @@ func newRefreshEngine(t *testing.T, action types.RecoveryAction, skipRefresh boo
 	cfg := config.NewTestConfig(config.WithCell("cell1"))
 
 	poolerID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"}
-	shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "0"}
 
 	fakeClient := rpcclient.NewFakeClient()
 	fakeClient.SetStatusResponse("multipooler-cell1-p1", &multipoolermanagerdatapb.StatusResponse{
@@ -89,7 +89,7 @@ func newRefreshEngine(t *testing.T, action types.RecoveryAction, skipRefresh boo
 	t.Cleanup(analysis.ResetAnalyzers)
 
 	store.SeedCache(t, engine.poolerCache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		Multipooler: &clustermetadatapb.Multipooler{Id: poolerID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_PRIMARY},
+		Multipooler: &clustermetadatapb.Multipooler{Id: poolerID, ShardRef: shardRef, Type: clustermetadatapb.PoolerType_PRIMARY},
 		LastSeen:    timestamppb.Now(),
 		Status:      &multipoolermanagerdatapb.Status{PoolerType: clustermetadatapb.PoolerType_PRIMARY, PostgresReady: false},
 	}, nil))
@@ -152,7 +152,7 @@ func TestAttemptRecovery_RegatesAFailoverAfterTheRecheck(t *testing.T) {
 	action := appointAction(0)
 	engine, _, problem := newRefreshEngine(t, action, false)
 
-	poolers := store.FindPoolersInShard(engine.poolerCache, problem.ShardKey)
+	poolers := store.FindPoolersInShard(engine.poolerCache, problem.ShardRef)
 	require.Len(t, poolers, 1)
 	poolers[0].Mutate(func(h *multiorchdatapb.PoolerHealthState) {
 		h.ConsensusStatus = &clustermetadatapb.ConsensusStatus{
@@ -186,7 +186,7 @@ func TestAttemptRecovery_RefreshRefutesAStaleLeaderGuessWithTheRealAnalyzer(t *t
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
 	cfg := config.NewTestConfig(config.WithCell("cell1"))
 
-	shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "0"}
 	id := func(name string) *clustermetadatapb.ID {
 		return &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: name}
 	}
@@ -223,7 +223,7 @@ func TestAttemptRecovery_RefreshRefutesAStaleLeaderGuessWithTheRealAnalyzer(t *t
 
 	seed := func(self *clustermetadatapb.ID, status *multipoolermanagerdatapb.Status, readyAt *timestamppb.Timestamp) {
 		store.SeedCache(t, engine.poolerCache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-			Multipooler:           &clustermetadatapb.Multipooler{Id: self, ShardKey: shardKey},
+			Multipooler:           &clustermetadatapb.Multipooler{Id: self, ShardRef: shardRef},
 			LastSeen:              timestamppb.Now(),
 			LastPostgresReadyTime: readyAt,
 			Status:                status,

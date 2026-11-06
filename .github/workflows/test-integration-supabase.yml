@@ -72,11 +72,12 @@ jobs:
           TEST_PRINT_LOGS: "1"
           AWS_ACCESS_KEY_ID: test-access-key
           AWS_SECRET_ACCESS_KEY: test-secret-key
-          RERUN_FAILS: "3"
-        run: .github/scripts/run-integration-tests-supabase.sh
+        run: |
+          rm -f integration-test-results.{jsonl,xml}
+          .github/scripts/run-integration-tests-supabase.sh
 
-      - name: Upload test results to Trunk
-        if: ${{ !cancelled() }}
+      - name: Upload results and apply Trunk quarantine
+        if: ${{ !cancelled() && steps.integration-tests.outcome != 'skipped' }}
         uses: ./.github/actions/upload-test-results
         with:
           junit-paths: integration-test-results.xml
@@ -100,6 +101,7 @@ jobs:
           name: Integration Tests (Supabase Postgres)
           path: integration-test-results.jsonl
           reporter: golang-json
+          fail-on-error: "false" # Trunk owns the test failure decision.
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() && github.event_name == 'push' }}

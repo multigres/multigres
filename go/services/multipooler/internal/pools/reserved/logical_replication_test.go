@@ -17,6 +17,7 @@ package reserved
 import (
 	"context"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -341,4 +342,58 @@ func TestNewLogicalReplicationConnAfterCloseReturnsErrPoolClosed(t *testing.T) {
 
 	_, err := pool.NewLogicalReplicationConn(context.Background())
 	require.ErrorIs(t, err, connpool.ErrPoolClosed, "must be retryable by the manager's closed-pool path")
+}
+
+// TestServingDrainPreservesLogicalReplicationTunnel verifies the fix for the
+// migration DEACTIVATE deadlock: a not-serving transition's reserved-connection
+// drain must NOT count or force-close a logical-replication streaming tunnel. A
+// streaming walsender is a read-only WAL producer, so the serving gate (which
+// stops client writes to a subscriber-mode target) must leave it running — the
+// migration drain barrier depends on the reverse stream surviving the gate. A
+// normal reserved connection is still counted and force-closed.
+func TestServingDrainPreservesLogicalReplicationTunnel(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+	server.SetCredentialProvider(fakeReplicationCredentialProvider{})
+
+	var reserveCalls, releaseCalls atomic.Int64
+	pool := NewPool(context.Background(), &PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig:   server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{Capacity: 4, MaxIdleCount: 4},
+		},
+		OnReserve: func() { reserveCalls.Add(1) },
+		OnRelease: func() { releaseCalls.Add(1) },
+	})
+	defer pool.Close()
+
+	// A normal reserved connection IS tracked by the serving-drain counter.
+	normal, err := pool.NewConn(context.Background(), nil)
+	require.NoError(t, err)
+	// A logical-replication tunnel is NOT tracked (read-only walsender).
+	tunnel, err := pool.NewLogicalReplicationConn(context.Background())
+	require.NoError(t, err)
+
+	assert.Equal(t, int64(1), reserveCalls.Load(),
+		"OnReserve must fire for the normal reserved conn but not the logical-replication tunnel")
+
+	// The serving-drain force-close kills the normal conn and preserves the tunnel.
+	killed := pool.KillAllForDrain(context.Background())
+	assert.Equal(t, 1, killed, "only the normal reserved conn should be force-closed")
+
+	stats := pool.Stats()
+	assert.Equal(t, 1, stats.Active, "the logical-replication tunnel must survive the drain")
+	assert.Equal(t, 1, stats.LogicalReplicationActive)
+
+	// The counter stays balanced: OnRelease fired for the killed normal conn only.
+	assert.Equal(t, int64(1), releaseCalls.Load(),
+		"OnRelease must fire for the killed normal conn, not the exempt tunnel")
+
+	// Releasing the exempt tunnel must also skip the counter (symmetry), netting to zero.
+	tunnel.Release(ReleaseError, nil)
+	assert.Equal(t, int64(1), releaseCalls.Load(),
+		"releasing the exempt tunnel must not fire OnRelease")
+	_ = normal
 }

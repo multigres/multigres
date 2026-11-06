@@ -44,7 +44,11 @@ func (g *grpcQueryService) openCopy(ctx context.Context, req *pb.CopyBidiExecute
 	}
 	if err := stream.Send(req); err != nil {
 		_ = stream.CloseSend()
-		_, _ = stream.Recv()
+		// Send returns io.EOF once the server has ended the stream; only Recv
+		// reports the stream's actual status.
+		if _, recvErr := stream.Recv(); errors.Is(err, io.EOF) && recvErr != nil && !errors.Is(recvErr, io.EOF) {
+			err = recvErr
+		}
 		return nil, mterrors.Wrapf(mterrors.FromGRPC(dedicatedTimeoutError(ctx, err)), "failed to send INITIATE")
 	}
 	return &dedicatedCopyStream{MultipoolerService_CopyBidiExecuteClient: stream, ctx: ctx}, nil

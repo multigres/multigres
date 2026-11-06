@@ -12,15 +12,14 @@ Minigres evolves.
 ## What runs
 
 - **One process** with one servenv, one HTTP server and one etcd connection,
-  shared by both halves, and two gRPC servers: an in-memory one for the
-  queries between the halves, and a TCP one for the admin services.
+  shared by both halves, and one gRPC server, on a TCP port, for the admin
+  services. The pooler's query service is not served over gRPC.
 - **The multipooler as a static leader.** It is the only pooler of its shard, so
   it leads without consensus and without Multiorch.
-- **The multigateway reaches the pooler in memory.** Queries, authentication,
-  LISTEN/NOTIFY and the health stream go over the in-memory gRPC server and
-  never leave the process. The gateway learns of the pooler from the pooler
-  itself, not from etcd, so it never sees other instances' poolers. An
-  in-process health subscription, replacing the health stream, is planned work.
+- **The multigateway calls the pooler directly.** Queries, credential
+  lookups, the health subscription, LISTEN/NOTIFY and logical replication are
+  plain Go calls into the pooler. None leave the process. The gateway learns of the pooler from the pooler
+  itself, not from etcd, so it never sees other instances' poolers.
 - **pgctld runs as its own process**, as in Multigres.
 
 Many Minigres processes can share one etcd and one Multiadmin. Once a database
@@ -146,22 +145,21 @@ file's rules are in `cmd/minigres/config.go`.
 then runs the pooler's `Init`, the gateway's `Init`, and the serving loop.
 
 `ProcessResources` also names the server the pooler serves its query service
-(`MultipoolerService`) on, `QueryGrpcServer`. The Multigres binaries set it to
-their one gRPC server. `cmd/minigres` sets it to an in-memory server
-(`servenv.NewInMemoryGrpcServer`), which nothing outside the process can reach:
-no port, no TLS and no auth, and the external server's limits. The serving loop
-starts both servers (`RunDefault(grpcServer, queryGrpcServer)`). `cmd/minigres`
-also gives the gateway its pooler (`poolergateway.LocalPooler`): the pooler's ID
-the in-memory server's dial options (`DialOptions`) and the pooler's record
-(`Record`). The gateway then reads that pooler's record in memory instead of
-watching etcd, keeps only that pooler (the pooler cache's filter), and connects
-to it in memory; the Multigres binaries pass none and use every pooler
-in the topology.
+(`MultipoolerService`) on over gRPC, `QueryGrpcServer`. The Multigres binaries
+set it to their one gRPC server. `cmd/minigres` leaves it unset, so the pooler
+does not serve its query service over gRPC at all. `cmd/minigres` instead gives
+the gateway its pooler (`poolergateway.LocalPooler`): the pooler's ID, its
+record (`Record`), and the pooler itself (`Service`, from
+`Multipooler.LocalPoolerService`: its query service, credential lookup, health,
+notifications and replication). The gateway then reads that pooler's record in
+memory instead of watching etcd, keeps only that pooler (the pooler cache's
+filter), and calls it directly, opening no gRPC connection to it; the Multigres
+binaries pass none and use every pooler in the topology.
 
 ## The process
 
-- **One servenv, initialized once.** `main` creates the servenv, both gRPC
-  servers and the etcd connection for both halves, and calls `servenv.Init`
+- **One servenv, initialized once.** `main` creates the servenv, the gRPC
+  server and the etcd connection for both halves, and calls `servenv.Init`
   once (a second call is fatal).
 - **One identity.** The process reports the service name `minigres` with the
   pooler's cell, service ID, database and shard, so it appears once in logs,
@@ -177,14 +175,41 @@ in the topology.
 - **It uses only its own pooler.** The gateway reads the record of the pooler
   in its own process once, when it starts (`Multipooler.Record`), and never
   watches etcd for poolers. It needs nothing more: the fields it uses (ID and
-  shard) never change, and the pooler's role and serving status come from the
-  health stream. Even when many Minigres
+  shard) never change, and the pooler's role and serving status come from its
+  health subscription. Even when many Minigres
   instances share one etcd, queries never reach another instance and readiness
   counts only its own pooler.
-- **It connects in memory.** The pooler serves its query service
-  (`MultipoolerService`) only on an in-memory gRPC server, and the
-  gateway connects there, without TLS. Queries, authentication, LISTEN/NOTIFY
-  and the health stream never leave the process.
+- **Queries are direct calls.** Every query-path call (statements, portals,
+  Describe, COPY, transaction ends, reserved-connection release) calls the
+  pooler's query service directly, in the gateway's goroutine and context: the
+  same admission (`StartRequest`, reservation-reason validation) and executor
+  the pooler's gRPC handler calls, with nothing marshalled. A statement timeout
+  or cancellation reaches the client as the same error as over gRPC. At
+  shutdown the pooler refuses new direct calls and waits for running ones
+  before closing its pools, as the gRPC server's graceful stop does.
+- **Credentials, health and notifications are direct calls too.** The gateway
+  looks up a role's credentials with the same code the pooler's gRPC handler
+  runs, and subscribes to the pooler's health in-process: the same messages as
+  the gRPC health stream, read by the same loop, with the same staleness
+  timeout and retry. Each client session's LISTEN/NOTIFY stream runs the
+  pooler's notification loop in-process, joined to the gateway by Go channels,
+  so ordering, the wait for LISTEN to be active and reconnecting work as over
+  gRPC. At shutdown the pooler ends health subscriptions and notification
+  streams instead of waiting for them, as a gRPC stream ends at the server's
+  graceful stop.
+- **Logical replication is direct too.** A `replication=database` session's
+  tunnel runs the pooler's replication code in-process (the same code its gRPC
+  `StreamReplication` handler runs): the same open handshake, admission,
+  backend, byte tunnel, metrics and errors, joined to the gateway by Go
+  channels that copy each chunk of data, as gRPC does when it marshals. At
+  shutdown the pooler ends replication tunnels instead of waiting for them.
+- **Observability differs on the query path.** The direct path has no
+  pooler-side operation span and no transport metrics: traces go from the
+  gateway's spans straight to the pooler's internal spans, and the gateway's
+  stream-pool metrics (`mg.gateway.query_stream.*`) stay empty in Minigres.
+  The caller's identity (`mg.caller.authenticated_user`,
+  `mg.caller.application_name`), which Multigres puts on the pooler's operation
+  span, goes on the gateway's span for the call instead.
 - **The external gRPC port carries the admin services.** The pooler manager and
   gateway manager services stay on the TCP port, for Multiadmin and the test
   harness. Calling the query service on that port returns `Unimplemented`.
@@ -201,7 +226,7 @@ can turn them on, and their flags are rejected as unknown.
 | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Replica reads (`--pg-replica-port`, `--low-replication-lag-ms`, `--high-replication-lag-tolerance-ms`) | There are no replicas                                                                                                                                                                                                                             |
 | Failover buffering (`--buffer-*`)                                                                      | There is no failover: the static leader is never switched over, and nothing promotes another pooler                                                                                                                                               |
-| Multipooler gRPC TLS (`--multipooler-grpc-*`)                                                          | The gateway reaches its pooler in memory, and the settings otherwise secure only cancel forwarding                                                                                                                                                |
+| Multipooler gRPC TLS (`--multipooler-grpc-*`)                                                          | The gateway calls its pooler directly, and the settings otherwise secure only cancel forwarding                                                                                                                                                   |
 | Cross-gateway cancel forwarding                                                                        | A client sends its cancel request to the address it connected to, which is this gateway. The gateway cancels its own connections and ignores a cancel request for any other, instead of forwarding it to another instance through the shared etcd |
 
 Without cancel forwarding the gateway claims no connection-ID prefix: connection
@@ -223,8 +248,9 @@ etcd is down:
 | The database record        | The static leader keeps a copy of the database record it last read (`topo-database.pb` in the pooler directory) and starts from it when etcd is unreachable. Nothing else can change the record while it runs |
 
 The first bootstrap still needs etcd: the first backup reads the durability
-policy and takes a backup lease. Backups and the other admin RPCs that read
-the topology fail until etcd is back.
+policy. Backups themselves take no etcd lease (see [Backups](#backups)), but
+Multiadmin finds the pooler through etcd, so backups requested through it, and
+the other admin RPCs that read the topology, wait for etcd.
 
 ## The static leader
 
@@ -259,6 +285,34 @@ answers every question about its role:
   while the routing role is PRIMARY. The write waits for a single-pooler
   durability policy: with `AT_LEAST_2`, the rule would make
   `synchronous_standby_names` wait for a standby that cannot exist.
+
+## Backups
+
+The static leader is the only pooler of its shard, so its backups are taken on
+it, locally (`pg1` only):
+
+- **No `ForcePrimary` needed.** A coordinated primary refuses a backup without
+  `ForcePrimary`, to keep backup load off the primary; a static leader does not
+  (`allowBackupOnPrimary`). `multigres cluster backup` works without
+  `--primary`.
+- **Multiadmin chooses it.** The pooler publishes
+  `leadership_mode: LEADERSHIP_MODE_STATIC` in its topology record. For a shard
+  whose pooler is a static leader, Multiadmin sends backups, listing, expiry,
+  verification and job status to it, whatever "force primary" says
+  (`findPoolerForBackup`); other shards still use a replica. A shard with a
+  static leader and any other pooler is misconfigured, and Multiadmin refuses
+  its backup operations rather than guess.
+- **No etcd lease.** The backup, expire and first-backup leases exist so that
+  only one pooler of a shard works on its repository at a time. A static leader
+  is the only one, and the action lock already serializes its own operations,
+  so it takes none of them (`withBackupLease`). This assumes each Minigres
+  instance has its own topology root and backup location, as Multigres projects
+  do, so two instances never share a shard's keys.
+- **No pgBackRest TLS server.** It exists so a replica can reach the primary
+  during a replica backup; a static leader backs up and restores locally.
+- **Restore** is automatic, as in Multigres: with an empty data directory and a
+  backup in the repository, the pooler restores the latest backup, starts
+  PostgreSQL as a standby and promotes itself.
 
 ## Testing
 
@@ -315,10 +369,9 @@ run daily.
 - `multigres cluster init --topology minigres` only generates a single
   all-minigres cell; mixing a minigres cell with full-Multigres cells in one
   cluster config is not supported yet.
-- Backups need `ForcePrimary` on a primary, and the standby backup path relies on
-  a consensus-recorded primary that a static leader does not have.
-- Several Minigres instances serving the same database name in one etcd look
-  like one shard to the topology.
+- Several Minigres instances serving the same database name under one
+  topology root look like one shard to the topology. Each instance needs its
+  own topology root (`--topo-global-root`), as Multigres projects have.
 - Shutdown uses the Multigres hooks, which run the halves' shutdowns
   concurrently, so shutdown under load does not yet drain the gateway before the
   pooler stops.

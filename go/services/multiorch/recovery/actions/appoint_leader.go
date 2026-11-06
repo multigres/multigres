@@ -76,11 +76,11 @@ func NewAppointLeaderAction(
 func (a *AppointLeaderAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
 	problem := rechecked.Problem
 	a.logger.InfoContext(ctx, "executing appoint leader action",
-		"shard_key", commontypes.FormatShardKey(problem.ShardKey))
+		"shard_key", commontypes.FormatShardRef(problem.ShardRef))
 
-	shard := store.FindShardMembers(a.poolerStore, problem.ShardKey)
+	shard := store.FindShardMembers(a.poolerStore, problem.ShardRef)
 	if len(shard.Poolers) == 0 {
-		return fmt.Errorf("no poolers found for shard %s", commontypes.FormatShardKey(problem.ShardKey))
+		return fmt.Errorf("no poolers found for shard %s", commontypes.FormatShardRef(problem.ShardRef))
 	}
 
 	// Use the coordinator's AppointLeader to handle the election.
@@ -90,12 +90,12 @@ func (a *AppointLeaderAction) Execute(ctx context.Context, rechecked types.Reche
 	for i, p := range shard.Poolers {
 		cohort[i] = p.Health()
 	}
-	if err := a.consensus.AppointLeader(ctx, problem.ShardKey, cohort, reason); err != nil {
+	if err := a.consensus.AppointLeader(ctx, problem.ShardRef, cohort, reason); err != nil {
 		return mterrors.Wrap(err, "failed to appoint leader")
 	}
 
 	a.logger.InfoContext(ctx, "appoint leader action completed successfully",
-		"shard_key", commontypes.FormatShardKey(problem.ShardKey))
+		"shard_key", commontypes.FormatShardRef(problem.ShardRef))
 
 	return nil
 }

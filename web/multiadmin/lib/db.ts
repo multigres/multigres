@@ -23,28 +23,27 @@ export async function query<T>(text: string, params?: unknown[]): Promise<T[]> {
 }
 
 export interface TableGroupRow {
-  oid: number;
+  tablegroup_id: number;
   name: string;
-  type: string;
+  state: string;
 }
 
 export interface ShardRow {
-  oid: number;
-  tablegroup_oid: number;
+  shard_id: number;
+  tablegroup_id: number;
   shard_name: string;
-  key_range_start: string | null;
-  key_range_end: string | null;
+  state: string;
 }
 
 export async function getTableGroups(): Promise<TableGroupRow[]> {
   return query<TableGroupRow>(
-    "SELECT oid, name, type FROM multigres.tablegroup",
+    "SELECT tablegroup_id, name, state FROM multigres.tablegroup",
   );
 }
 
 export async function getShards(): Promise<ShardRow[]> {
   return query<ShardRow>(
-    "SELECT oid, tablegroup_oid, shard_name, key_range_start, key_range_end FROM multigres.shard",
+    "SELECT shard_id, tablegroup_id, shard_name, state FROM multigres.shard",
   );
 }
 
@@ -56,6 +55,6 @@ export async function getTableGroupsWithShards() {
 
   return tableGroups.map((tg) => ({
     ...tg,
-    shards: shards.filter((s) => s.tablegroup_oid === tg.oid),
+    shards: shards.filter((s) => s.tablegroup_id === tg.tablegroup_id),
   }));
 }

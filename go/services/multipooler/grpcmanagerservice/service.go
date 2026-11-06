@@ -19,6 +19,7 @@ import (
 	"context"
 	"time"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -42,12 +43,20 @@ func RegisterPoolerManagerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServ
 	// Register ourselves to be invoked when the manager starts
 	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultipoolerManager) {
 		if grpc.CheckServiceMap("poolermanager", senv) {
-			srv := &managerService{
-				manager: pm,
-			}
-			multipoolermanagerpb.RegisterMultipoolerManagerServer(grpc.Server, srv)
+			registerManagerService(grpc.Server, pm)
 		}
 	})
+}
+
+// registerManagerService registers the service for a pooler that has a postgres to manage. An
+// unmanaged pooler has no lifecycle RPCs: the service is not registered at all, so every method,
+// any added later included, answers Unimplemented and none can reach the external database.
+// The mode is immutable for the process, so deciding once, here, is enough.
+func registerManagerService(server grpc.ServiceRegistrar, pm *manager.MultipoolerManager) {
+	if pm.IsUnmanaged() {
+		return
+	}
+	multipoolermanagerpb.RegisterMultipoolerManagerServer(server, &managerService{manager: pm})
 }
 
 // WaitForLSN waits for PostgreSQL server to reach a specific LSN position

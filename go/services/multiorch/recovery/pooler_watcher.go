@@ -49,8 +49,13 @@ func newPoolerCache(
 	logger *slog.Logger,
 ) *store.PoolerCache {
 	matchesAnyTarget := func(p *clustermetadatapb.Multipooler) bool {
+		// Unmanaged poolers front an external postgres we neither repair nor
+		// elect, so they never enter the orchestrator's cache.
+		if !topoclient.IsManagedPooler(p) {
+			return false
+		}
 		for _, t := range targets() {
-			if t.MatchesShard(p.GetShardKey().GetDatabase(), p.GetShardKey().GetTableGroup(), p.GetShardKey().GetShard()) {
+			if t.MatchesShard(p.GetShardRef().GetDatabase(), p.GetShardRef().GetTableGroup(), p.GetShardRef().GetShard()) {
 				return true
 			}
 		}
@@ -92,9 +97,9 @@ func poolerCacheHooks(ctx context.Context, cache *store.PoolerCache, factory *st
 		OnLive: func(p *clustermetadatapb.Multipooler, _ *store.Pooler) *store.Pooler {
 			logger.InfoContext(ctx, "pooler discovered live",
 				"pooler_id", topoclient.ComponentIDString(p.Id),
-				"database", p.GetShardKey().GetDatabase(),
-				"tablegroup", p.GetShardKey().GetTableGroup(),
-				"shard", p.GetShardKey().GetShard(),
+				"database", p.GetShardRef().GetDatabase(),
+				"tablegroup", p.GetShardRef().GetTableGroup(),
+				"shard", p.GetShardRef().GetShard(),
 			)
 			return store.NewPooler(
 				&multiorchdatapb.PoolerHealthState{

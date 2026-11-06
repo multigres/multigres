@@ -221,3 +221,10 @@ func (h *testHandlerWithState) ConnectionClosed(conn *Conn) {}
 func (h *testHandlerWithState) GetPreparedStatementInfo(connID uint32, name string) *preparedstatement.PreparedStatementInfo {
 	return nil
 }
+
+func (h *testHandlerWithState) SetResolvedParamTypes(connID uint32, name string, desc *query.StatementDescription) {
+}
+
+func (h *testHandlerWithState) ResolvedParamTypeOids(connID uint32, name string) []uint32 {
+	return nil
+}

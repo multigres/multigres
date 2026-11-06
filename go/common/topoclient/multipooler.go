@@ -29,7 +29,7 @@ import (
 )
 
 // NewMultipooler creates a new Multipooler record with the given name, cell,
-// and hostname. The caller is responsible for setting ShardKey before
+// and hostname. The caller is responsible for setting ShardRef before
 // registering the record — leaving it partially filled here invited subtle
 // bugs (a missing Database lets two databases collide on the same
 // tableGroup/shard pair).
@@ -98,6 +98,27 @@ func PoolerAddressFor(mp *clustermetadatapb.Multipooler) *clustermetadatapb.Pool
 		Id:           mp.GetId(),
 		Host:         mp.GetHostname(),
 		PostgresPort: mp.GetPortMap()["postgres"],
+	}
+}
+
+// IsManagedPooler reports whether multigres manages the PostgreSQL behind p,
+// so that multiorch may repair and elect it. An unmanaged pooler fronts an
+// external PostgreSQL, and a leadership mode this build does not know is not
+// authority to manage a database either.
+func IsManagedPooler(p *clustermetadatapb.Multipooler) bool {
+	return IsManagedLeadershipMode(p.GetLeadershipMode())
+}
+
+// IsManagedLeadershipMode reports whether a pooler in this leadership mode is
+// managed by multigres; see IsManagedPooler.
+func IsManagedLeadershipMode(mode clustermetadatapb.LeadershipMode) bool {
+	switch mode {
+	case clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNSPECIFIED,
+		clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_CONSENSUS,
+		clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -223,7 +244,7 @@ func (ts *store) GetMultipoolersByCell(ctx context.Context, cellName string, opt
 			continue
 		}
 		if opt != nil && opt.DatabaseShard != nil && opt.DatabaseShard.Database != "" {
-			sk := multipooler.GetShardKey()
+			sk := multipooler.GetShardRef()
 			// Database must match
 			if opt.DatabaseShard.Database != sk.GetDatabase() {
 				continue
@@ -321,8 +342,17 @@ func (ts *store) UnregisterMultipooler(ctx context.Context, id *clustermetadatap
 	return nil
 }
 
+// ErrManagementChanged is returned by RegisterMultipooler when an update would
+// change whether an existing record is managed (IsManagedLeadershipMode). A
+// pooler id keeps that for life: a managed member of a cohort and an unmanaged
+// pooler are different components even under the same name. A record in a mode
+// this build does not know counts as unmanaged, so it is never overwritten as
+// managed.
+var ErrManagementChanged = errors.New("multipooler cannot change between managed and unmanaged")
+
 // RegisterMultipooler creates or updates a multipooler. If allowUpdate is true,
-// and a multipooler with the same ID exists, just update it.
+// and a multipooler with the same ID exists, just update it, unless the update
+// would change whether the record is managed (ErrManagementChanged).
 func (ts *store) RegisterMultipooler(ctx context.Context, mtpooler *clustermetadatapb.Multipooler, allowUpdate bool) error {
 	err := ts.CreateMultipooler(ctx, mtpooler)
 	if errors.Is(err, &TopoError{Code: NodeExists}) && allowUpdate {
@@ -330,6 +360,10 @@ func (ts *store) RegisterMultipooler(ctx context.Context, mtpooler *clustermetad
 		oldMtPooler, err := ts.GetMultipooler(ctx, mtpooler.Id)
 		if err != nil {
 			return fmt.Errorf("failed reading existing mtpooler %v: %w", ComponentIDString(mtpooler.Id), err)
+		}
+		if was, now := oldMtPooler.GetLeadershipMode(), mtpooler.GetLeadershipMode(); IsManagedLeadershipMode(was) != IsManagedLeadershipMode(now) {
+			return fmt.Errorf("%w: mtpooler %v is registered as %s, not %s",
+				ErrManagementChanged, ComponentIDString(mtpooler.Id), was, now)
 		}
 		oldMtPooler.Multipooler = proto.Clone(mtpooler).(*clustermetadatapb.Multipooler)
 		if err := ts.UpdateMultipooler(ctx, oldMtPooler); err != nil {

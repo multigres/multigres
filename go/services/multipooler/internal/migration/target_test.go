@@ -525,21 +525,39 @@ func TestSlotReady(t *testing.T) {
 
 func TestCreateSubscriptionSQL(t *testing.T) {
 	dsn := "host=gw port=5432 dbname=postgres"
-
-	// Default (slotName ""): the subscription creates its own slot. Safe
-	// lowercase identifiers are not quoted.
-	got := createSubscriptionSQL("mt_sub", dsn, "mt_pub", true, "")
-	require.Contains(t, got, "CREATE SUBSCRIPTION mt_sub ")
-	require.Contains(t, got, "PUBLICATION mt_pub ")
-	require.Contains(t, got, "copy_data = true")
-	require.NotContains(t, got, "create_slot")
-	require.NotContains(t, got, "slot_name")
-
-	// EXPORT reverse subscription: attaches to a pre-created slot, no copy.
-	got = createSubscriptionSQL("mt_sub", dsn, "mt_pub", false, "mt_sub")
-	require.Contains(t, got, "copy_data = false")
-	require.Contains(t, got, "create_slot = false")
-	require.Contains(t, got, "slot_name = mt_sub")
+	cases := []struct {
+		name     string
+		copyData bool
+		slotName string
+	}{
+		{"copy with a new slot", true, ""},
+		{"no copy with a new slot", false, ""},
+		{"copy with a pre-created slot", true, "mt_sub"},
+		{"no copy with a pre-created slot", false, "mt_sub"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := createSubscriptionSQL("mt_sub", dsn, "mt_pub", c.copyData, c.slotName)
+			// Safe lowercase identifiers are not quoted.
+			require.Contains(t, got, "CREATE SUBSCRIPTION mt_sub ")
+			require.Contains(t, got, "PUBLICATION mt_pub ")
+			require.Contains(t, got, "synchronous_commit = on")
+			if c.copyData {
+				require.Contains(t, got, "copy_data = true")
+			} else {
+				require.Contains(t, got, "copy_data = false")
+			}
+			if c.slotName == "" {
+				// The subscription creates its own slot.
+				require.NotContains(t, got, "create_slot")
+				require.NotContains(t, got, "slot_name")
+			} else {
+				// Reverse subscriptions attach to a pre-created slot.
+				require.Contains(t, got, "create_slot = false")
+				require.Contains(t, got, "slot_name = mt_sub")
+			}
+		})
+	}
 }
 
 // TestCreateSubscription_UsesNoQueryTextPath is the regression test for the

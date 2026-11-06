@@ -53,7 +53,7 @@ func TestManagerServiceMethods_ManagerNotReady(t *testing.T) {
 		Id:       serviceID,
 		Hostname: "localhost",
 		PortMap:  map[string]int32{"grpc": 8080},
-		ShardKey: &clustermetadata.ShardKey{
+		ShardRef: &clustermetadata.ShardRef{
 			Database:   "testdb",
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,

@@ -170,6 +170,21 @@ func FunctionCall2Coll(flinfo *FmgrInfo, collation Oid, arg1, arg2 datum.Datum) 
 	return result
 }
 
+// FunctionCall3Coll calls a three-argument function through its FmgrInfo
+// with known non-NULL arguments - fmgr.c:1169 (FunctionCall3Coll). The type
+// input and receive functions take this shape: (value, typioparam, typmod).
+func FunctionCall3Coll(flinfo *FmgrInfo, collation Oid, arg1, arg2, arg3 datum.Datum) datum.Datum {
+	fcinfo := NewFunctionCallInfo(flinfo, 3, collation)
+	fcinfo.Args[0] = datum.NullableDatum{Value: arg1}
+	fcinfo.Args[1] = datum.NullableDatum{Value: arg2}
+	fcinfo.Args[2] = datum.NullableDatum{Value: arg3}
+	result := flinfo.FnAddr(fcinfo)
+	if fcinfo.IsNull {
+		pgerror.Elogf("function %d returned NULL", flinfo.FnOid)
+	}
+	return result
+}
+
 // DirectFunctionCall1Coll calls a function pointer directly, without an
 // FmgrInfo - fmgr.c:791 (DirectFunctionCall1Coll). Neither the argument nor
 // the result may be NULL; a NULL result is an internal error. Only usable for

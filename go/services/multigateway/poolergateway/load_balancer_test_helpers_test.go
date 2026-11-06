@@ -39,7 +39,7 @@ func newTestLB(t *testing.T, localCell string) *loadBalancer {
 // newTestLBWithLeaderServing is the variant of newTestLB used by tests that
 // need to observe the OnLeaderServing callback (the buffer-drain trigger).
 // Pass nil to behave exactly like newTestLB.
-func newTestLBWithLeaderServing(t *testing.T, localCell string, onLeaderServing func(*clustermetadatapb.ShardKey)) *loadBalancer {
+func newTestLBWithLeaderServing(t *testing.T, localCell string, onLeaderServing func(*clustermetadatapb.ShardRef)) *loadBalancer {
 	t.Helper()
 	logger := slog.Default()
 	ctx := t.Context()
@@ -113,12 +113,12 @@ func connForTest(t *testing.T, lb *loadBalancer, p *clustermetadatapb.Multipoole
 // the given rule.
 func setLeaderForTest(t *testing.T, lb *loadBalancer, database, tableGroup, shard string, leaderID *clustermetadatapb.ID, rule *clustermetadatapb.RuleNumber) {
 	t.Helper()
-	sk := &clustermetadatapb.ShardKey{
+	sk := &clustermetadatapb.ShardRef{
 		Database:   database,
 		TableGroup: tableGroup,
 		Shard:      shard,
 	}
-	summary := &shardSummary{shardKey: sk}
+	summary := &shardSummary{shardRef: sk}
 	if leaderID != nil {
 		summary.setPrimary(topoclient.ComponentIDString(leaderID), &clustermetadatapb.RoutingState{
 			Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY,
@@ -127,5 +127,5 @@ func setLeaderForTest(t *testing.T, lb *loadBalancer, database, tableGroup, shar
 	}
 	lb.mu.Lock()
 	defer lb.mu.Unlock()
-	lb.shards[shardKeyOf(sk)] = summary
+	lb.shards[shardRefOf(sk)] = summary
 }

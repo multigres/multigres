@@ -138,7 +138,7 @@ func TestBootstrap_ViaExternalAPI(t *testing.T) {
 	require.NoError(t, err)
 
 	req := &multiadminpb.ApplyCertifiedRuleChangeRequest{
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "postgres",
 			TableGroup: "default",
 			Shard:      "0-inf",

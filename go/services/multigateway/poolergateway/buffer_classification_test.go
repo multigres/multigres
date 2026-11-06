@@ -57,7 +57,7 @@ func deadTCPAddr(t *testing.T) string {
 
 // queryServiceAt builds a grpcQueryService over a real (lazy) gRPC client
 // connection to addr, mirroring how poolerConnection wires it in production.
-func queryServiceAt(t *testing.T, addr string) queryservice.QueryService {
+func queryServiceAt(t *testing.T, addr string) queryservice.Pooler {
 	t.Helper()
 	cc, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
@@ -215,7 +215,7 @@ func (s *promotedPoolerServer) ExecuteStream(stream multipoolerservice.Multipool
 // claim. This is the deterministic version of the production stale-endpoint
 // window: the pod is dead, but the gateway has not yet observed the health
 // stream error, so routing still targets the dead address.
-func newTestLBFrozenHealth(t *testing.T, onLeaderServing func(*clustermetadatapb.ShardKey), frozenPooler string) *loadBalancer {
+func newTestLBFrozenHealth(t *testing.T, onLeaderServing func(*clustermetadatapb.ShardRef), frozenPooler string) *loadBalancer {
 	t.Helper()
 	logger := slog.New(slog.DiscardHandler)
 	ctx := t.Context()
@@ -310,7 +310,7 @@ func TestPoolerGateway_BuffersDialFailureAgainstStalePrimary(t *testing.T) {
 		}
 		probeCtx, cancelProbe := context.WithCancel(requestCtx)
 		cancelProbe()
-		_, err := failoverBuffer.WaitIfAlreadyBuffering(probeCtx, target.GetShardKey())
+		_, err := failoverBuffer.WaitIfAlreadyBuffering(probeCtx, target.GetShardRef())
 		if errors.Is(err, context.Canceled) {
 			break
 		}

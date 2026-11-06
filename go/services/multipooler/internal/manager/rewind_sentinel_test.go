@@ -33,41 +33,6 @@ import (
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 )
 
-// newSentinelTestManager builds a manager whose pooler directory is a writable
-// temp dir, so the on-disk rewind-sentinel helpers can be exercised.
-func newSentinelTestManager(t *testing.T) *MultipoolerManager {
-	t.Helper()
-	return newTestManager(t, withRecord(newRecordFromProto(&clustermetadatapb.Multipooler{
-		Type:          clustermetadatapb.PoolerType_REPLICA,
-		ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
-		PoolerDir:     t.TempDir(),
-	})))
-}
-
-func TestRewindSentinel_RoundTrip(t *testing.T) {
-	pm := newSentinelTestManager(t)
-
-	present, err := pm.hasRewindSentinel()
-	require.NoError(t, err)
-	assert.False(t, present, "no sentinel initially")
-
-	require.NoError(t, pm.writeRewindSentinel())
-	present, err = pm.hasRewindSentinel()
-	require.NoError(t, err)
-	assert.True(t, present, "sentinel present after write")
-
-	// Writing again is idempotent.
-	require.NoError(t, pm.writeRewindSentinel())
-
-	require.NoError(t, pm.removeRewindSentinel())
-	present, err = pm.hasRewindSentinel()
-	require.NoError(t, err)
-	assert.False(t, present, "sentinel gone after remove")
-
-	// Removing a missing sentinel is not an error.
-	require.NoError(t, pm.removeRewindSentinel())
-}
-
 // TestDiscoverPostgresState_RewindSentinel verifies discoverPostgresState surfaces
 // the on-disk rewind sentinel, the durable signal the monitor gates on.
 func TestDiscoverPostgresState_RewindSentinel(t *testing.T) {
@@ -82,7 +47,7 @@ func TestDiscoverPostgresState_RewindSentinel(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, state.rewindSentinelPresent, "no rewind sentinel initially")
 
-	require.NoError(t, pm.writeRewindSentinel())
+	require.NoError(t, pm.rewindSentinel().write())
 
 	state, err = pm.discoverPostgresState(ctx)
 	require.NoError(t, err)
@@ -205,7 +170,7 @@ func TestRunPgRewind_SentinelBracket(t *testing.T) {
 			pgRewindResponse: &pgctldpb.PgRewindResponse{Output: "servers diverged at 0/5000000 on timeline 2"},
 		}
 		client.pgRewindOnCall = func(*pgctldpb.PgRewindRequest) {
-			present, err := pm.hasRewindSentinel()
+			present, err := pm.rewindSentinel().present()
 			require.NoError(t, err)
 			assert.True(t, present, "sentinel must precede every pg_rewind call")
 		}
@@ -213,7 +178,7 @@ func TestRunPgRewind_SentinelBracket(t *testing.T) {
 		performed, err := pm.runPgRewind(t.Context(), "leader", 5432)
 		require.NoError(t, err)
 		assert.True(t, performed, "a diverged rewind is performed")
-		present, err := pm.hasRewindSentinel()
+		present, err := pm.rewindSentinel().present()
 		require.NoError(t, err)
 		assert.True(t, present, "sentinel must be written before the mutating pg_rewind")
 	})
@@ -224,7 +189,7 @@ func TestRunPgRewind_SentinelBracket(t *testing.T) {
 			pgRewindResponse: &pgctldpb.PgRewindResponse{Output: "no rewind required"},
 		}
 		client.pgRewindOnCall = func(*pgctldpb.PgRewindRequest) {
-			present, err := pm.hasRewindSentinel()
+			present, err := pm.rewindSentinel().present()
 			require.NoError(t, err)
 			assert.True(t, present, "sentinel must precede the dry-run")
 		}
@@ -232,7 +197,7 @@ func TestRunPgRewind_SentinelBracket(t *testing.T) {
 		performed, err := pm.runPgRewind(t.Context(), "leader", 5432)
 		require.NoError(t, err)
 		assert.False(t, performed, "no divergence means no rewind")
-		present, err := pm.hasRewindSentinel()
+		present, err := pm.rewindSentinel().present()
 		require.NoError(t, err)
 		assert.True(t, present, "caller must clear sentinel only after standby recovery succeeds")
 	})
@@ -303,7 +268,7 @@ func TestRunPgRewind_RestoreTargetWAL(t *testing.T) {
 		require.ErrorContains(t, err, "pg_rewind boom")
 		require.Len(t, client.pgRewindReqs, 2, "the mutating rewind must be the failing call")
 		assert.False(t, strings.Contains(read(t, autoConf), "restore_command"))
-		present, err := pm.hasRewindSentinel()
+		present, err := pm.rewindSentinel().present()
 		require.NoError(t, err)
 		assert.True(t, present, "failed mutating rewind must remain guarded across restart")
 	})
@@ -317,7 +282,7 @@ func TestRunPgRewind_RestoreTargetWAL(t *testing.T) {
 		require.ErrorContains(t, err, "dry-run boom")
 		require.Len(t, client.pgRewindReqs, 1)
 		assert.NotContains(t, read(t, autoConf), "restore_command")
-		present, err := pm.hasRewindSentinel()
+		present, err := pm.rewindSentinel().present()
 		require.NoError(t, err)
 		assert.True(t, present, "early failure must remain guarded until a complete recovery")
 	})
@@ -336,7 +301,7 @@ func TestRunPgRewind_RestoreTargetWAL(t *testing.T) {
 
 		_, err := pm.runPgRewind(t.Context(), "leader", 5432)
 		require.ErrorContains(t, err, "remove temporary restore_command after pg_rewind")
-		present, err := pm.hasRewindSentinel()
+		present, err := pm.rewindSentinel().present()
 		require.NoError(t, err)
 		assert.True(t, present, "cleanup failure must leave the durable restart guard")
 
@@ -377,7 +342,7 @@ func TestRunPgRewind_RestoreTargetWAL(t *testing.T) {
 		require.Len(t, client.pgRewindReqs, 1)
 		assert.Equal(t, []string{"--restore-target-wal"}, client.pgRewindReqs[0].ExtraArgs)
 		assert.NotContains(t, read(t, autoConf), "restore_command")
-		present, err := pm.hasRewindSentinel()
+		present, err := pm.rewindSentinel().present()
 		require.NoError(t, err)
 		assert.True(t, present, "no-divergence recovery remains guarded until standby verification")
 	})
@@ -399,28 +364,6 @@ func TestRunPgRewind_RestoreTargetWAL(t *testing.T) {
 			assert.NotContains(t, conf, "restore_command")
 		}
 	})
-}
-
-// TestRewindSentinel_ErrorPaths covers the sentinel helpers' error branches so a
-// failure to record/clear the marker is surfaced rather than silently ignored.
-func TestRewindSentinel_ErrorPaths(t *testing.T) {
-	// fsyncPath surfaces an open error for a path that does not exist.
-	require.Error(t, fsyncPath(filepath.Join(t.TempDir(), "does-not-exist")))
-
-	// writeRewindSentinel surfaces a write error when the pooler dir is missing.
-	missingDir := newTestManager(t, withRecord(newRecordFromProto(&clustermetadatapb.Multipooler{
-		Type:      clustermetadatapb.PoolerType_REPLICA,
-		PoolerDir: filepath.Join(t.TempDir(), "no", "such", "dir"),
-	})))
-	require.Error(t, missingDir.writeRewindSentinel(), "write to a nonexistent pooler dir should error")
-
-	// removeRewindSentinel surfaces a non-NotExist error: a non-empty directory at
-	// the sentinel path cannot be removed by os.Remove.
-	pm := newSentinelTestManager(t)
-	sentinelPath := pm.rewindSentinelPath()
-	require.NoError(t, os.Mkdir(sentinelPath, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(sentinelPath, "child"), []byte("x"), 0o644))
-	require.Error(t, pm.removeRewindSentinel(), "removing a non-empty directory at the sentinel path should error")
 }
 
 // TestTrackRecoveryOutcome_ResetsWhenRunningWithoutSentinel guards the boundary:

@@ -24,7 +24,7 @@ import (
 )
 
 func TestClaimShardInitialization(t *testing.T) {
-	shardKey := &clustermetadatapb.ShardKey{Database: "mydb", TableGroup: "tg0", Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "mydb", TableGroup: "tg0", Shard: "0"}
 	coord := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell1", Name: "orch-1"}
 	cohort := []*clustermetadatapb.ID{
 		{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p1"},
@@ -36,7 +36,7 @@ func TestClaimShardInitialization(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 		defer ts.Close()
 
-		won, committed, err := ts.ClaimShardInitialization(ctx, shardKey, coord, cohort)
+		won, committed, err := ts.ClaimShardInitialization(ctx, shardRef, coord, cohort)
 		require.NoError(t, err)
 		require.True(t, won)
 		require.Len(t, committed, 2)
@@ -47,12 +47,12 @@ func TestClaimShardInitialization(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 		defer ts.Close()
 
-		won, _, err := ts.ClaimShardInitialization(ctx, shardKey, coord, cohort)
+		won, _, err := ts.ClaimShardInitialization(ctx, shardRef, coord, cohort)
 		require.NoError(t, err)
 		require.True(t, won)
 
 		coord2 := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell2", Name: "orch-2"}
-		won, _, err = ts.ClaimShardInitialization(ctx, shardKey, coord2, cohort)
+		won, _, err = ts.ClaimShardInitialization(ctx, shardRef, coord2, cohort)
 		require.NoError(t, err)
 		require.False(t, won)
 	})
@@ -62,7 +62,7 @@ func TestClaimShardInitialization(t *testing.T) {
 		ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 		defer ts.Close()
 
-		won, _, err := ts.ClaimShardInitialization(ctx, shardKey, coord, cohort)
+		won, _, err := ts.ClaimShardInitialization(ctx, shardRef, coord, cohort)
 		require.NoError(t, err)
 		require.True(t, won)
 
@@ -70,7 +70,7 @@ func TestClaimShardInitialization(t *testing.T) {
 		newCohort := []*clustermetadatapb.ID{
 			{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "p3"},
 		}
-		won, committed, err := ts.ClaimShardInitialization(ctx, shardKey, coord, newCohort)
+		won, committed, err := ts.ClaimShardInitialization(ctx, shardRef, coord, newCohort)
 		require.NoError(t, err)
 		require.True(t, won)
 		require.Len(t, committed, 2)

@@ -34,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
@@ -48,7 +49,7 @@ type mockExec struct {
 	streamExecuteCalls              atomic.Int32
 	portalStreamExecuteCalls        atomic.Int32
 	lastStreamExecuteSQL            atomic.Value // string
-	lastExecuteSQLPreparedStatement atomic.Pointer[querypb.ExecuteSqlPreparedStatement]
+	lastEagerParsePreparedStatement atomic.Pointer[querypb.PreparedStatement]
 	lastPortalStreamExecuteQS       atomic.Value // string
 
 	// StreamReplication tracking
@@ -61,7 +62,7 @@ type mockExec struct {
 
 func (m *mockExec) StreamExecute(
 	_ context.Context, _ *server.Conn, _, _ string, sql string,
-	preparedStatement *querypb.ExecuteSqlPreparedStatement,
+	preparedStatement *querypb.PreparedStatement,
 	_ *handler.MultigatewayConnectionState,
 	_ engine.PlanExecInfo,
 	_ bool,
@@ -69,7 +70,7 @@ func (m *mockExec) StreamExecute(
 ) error {
 	m.streamExecuteCalls.Add(1)
 	m.lastStreamExecuteSQL.Store(sql)
-	m.lastExecuteSQLPreparedStatement.Store(preparedStatement)
+	m.lastEagerParsePreparedStatement.Store(preparedStatement)
 	return callback(context.Background(), &sqltypes.Result{})
 }
 
@@ -126,7 +127,7 @@ func (m *mockExec) CopyOutStream(context.Context, *server.Conn, string, string, 
 	return nil, nil
 }
 
-func (m *mockExec) StreamReplication(_ context.Context, _ *server.Conn, tableGroup, shard string, _ *handler.MultigatewayConnectionState, init *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+func (m *mockExec) StreamReplication(_ context.Context, _ *server.Conn, tableGroup, shard string, _ *handler.MultigatewayConnectionState, init *multipoolerpb.StreamReplicationInit) (queryservice.ReplicationStream, error) {
 	m.streamReplicationTableGroup.Store(tableGroup)
 	m.streamReplicationShard.Store(shard)
 	m.streamReplicationInit.Store(init)
@@ -182,8 +183,11 @@ func TestPrepareInTransaction(t *testing.T) {
 	require.NoError(t, exec.PrepareInTransaction(context.Background(), testConn(), handler.NewMultigatewayConnectionState(), "SELECT $1", []uint32{23}))
 	assert.Equal(t, int32(1), mock.streamExecuteCalls.Load())
 	assert.Empty(t, mock.lastStreamExecuteSQL.Load())
-	assert.True(t, mock.lastExecuteSQLPreparedStatement.Load().GetPrepareOnly())
-	assert.True(t, mock.lastExecuteSQLPreparedStatement.Load().GetPreparedStatement().GetForceReparse())
+	ps := mock.lastEagerParsePreparedStatement.Load()
+	require.NotNil(t, ps)
+	assert.Equal(t, "SELECT $1", ps.GetQuery())
+	assert.Equal(t, []uint32{23}, ps.GetParamTypes())
+	assert.True(t, ps.GetForceReparse())
 }
 
 // ---------- StreamExecute plan cache tests ----------

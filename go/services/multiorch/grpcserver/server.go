@@ -65,28 +65,28 @@ func (s *MultiorchServer) GetShardStatus(
 	req *multiorchpb.ShardStatusRequest,
 ) (*multiorchpb.ShardStatusResponse, error) {
 	// Validate that this shard is in our watch targets
-	if req.ShardKey == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "shard_key is required")
+	if req.ShardRef == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "shard_ref is required")
 	}
-	sk := req.ShardKey
+	sk := req.ShardRef
 	if !s.engine.IsWatchingShard(sk.Database, sk.TableGroup, sk.Shard) {
 		return nil, status.Errorf(codes.NotFound,
-			"shard %s is not in watch targets for this multiorch instance", commontypes.FormatShardKey(sk))
+			"shard %s is not in watch targets for this multiorch instance", commontypes.FormatShardRef(sk))
 	}
 
 	// Get all detected problems from the engine
 	allProblems := s.engine.GetDetectedProblems()
 
 	// Filter problems for the requested shard
-	skStr := commontypes.FormatShardKey(sk)
+	skStr := commontypes.FormatShardRef(sk)
 	var shardProblems []*multiorchpb.DetectedProblem
 	for _, p := range allProblems {
-		if commontypes.FormatShardKey(p.ShardKey) == skStr {
+		if commontypes.FormatShardRef(p.ShardRef) == skStr {
 			shardProblems = append(shardProblems, &multiorchpb.DetectedProblem{
 				Code:        string(p.Code),
 				CheckName:   string(p.CheckName),
 				PoolerId:    p.PoolerID,
-				ShardKey:    p.ShardKey,
+				ShardRef:    p.ShardRef,
 				Description: p.Description,
 				Priority:    int32(p.Priority),
 				Scope:       string(p.Scope),
@@ -173,13 +173,13 @@ func (s *MultiorchServer) ApplyCertifiedRuleChange(
 	ctx context.Context,
 	req *multiorchpb.ApplyCertifiedRuleChangeRequest,
 ) (*multiorchpb.ApplyCertifiedRuleChangeResponse, error) {
-	if req.GetShardKey() == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "shard_key is required")
+	if req.GetShardRef() == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "shard_ref is required")
 	}
-	sk := req.GetShardKey()
+	sk := req.GetShardRef()
 	if !s.engine.IsWatchingShard(sk.Database, sk.TableGroup, sk.Shard) {
 		return nil, status.Errorf(codes.NotFound,
-			"shard %s is not in watch targets for this multiorch instance", commontypes.FormatShardKey(sk))
+			"shard %s is not in watch targets for this multiorch instance", commontypes.FormatShardRef(sk))
 	}
 
 	if err := s.coordinator.ApplyCertifiedRuleChange(ctx, sk, req.GetProposedTransition(), req.GetCert(), req.GetReason()); err != nil {
@@ -190,7 +190,7 @@ func (s *MultiorchServer) ApplyCertifiedRuleChange(
 
 // buildPoolerHealthList creates pooler health snapshots for the requested shard.
 func (s *MultiorchServer) buildPoolerHealthList(req *multiorchpb.ShardStatusRequest) []*multiorchpb.PoolerHealth {
-	sk := req.ShardKey
+	sk := req.ShardRef
 	poolers := s.engine.GetPoolerHealthForShard(sk.Database, sk.TableGroup, sk.Shard)
 
 	healthList := make([]*multiorchpb.PoolerHealth, 0, len(poolers))

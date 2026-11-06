@@ -78,6 +78,10 @@ func (h *recordingHandler) GetPreparedStatementInfo(uint32, string) *preparedsta
 	return nil
 }
 
+func (h *recordingHandler) SetResolvedParamTypes(uint32, string, *query.StatementDescription) {}
+
+func (h *recordingHandler) ResolvedParamTypeOids(uint32, string) []uint32 { return nil }
+
 func newDiscardTestConn(t *testing.T, h server.Handler) *server.Conn {
 	t.Helper()
 	return server.NewTestConn(&bytes.Buffer{}, server.WithTestHandler(h)).Conn
