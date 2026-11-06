@@ -20,10 +20,15 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
 // rewind_sentinel.go implements a durable, on-disk marker for an in-progress
@@ -60,7 +65,14 @@ func (pm *MultipoolerManager) rewindSentinel() sentinel {
 // pooler derives the evidence itself:
 //
 //   - rewindAttempt is written just before the mutating pg_rewind call, after the
-//     dry-run. Its modification time is the reference.
+//     dry-run. Its modification time is the reference, and it records the run id
+//     that the request carries.
+//   - Before judging a run the pooler fences that id through pgctld
+//     (PgRewindAbort): afterwards the run is not running and cannot start, so a
+//     request that pgctld had not handled yet when the call ended cannot start
+//     after the directory was judged untouched. If pgctld cannot say, nothing is
+//     judged and the marker stays for the next settle. A pgctld without the RPC,
+//     or a marker without an id, falls back to the running record below.
 //   - pgctld records that a mutating pg_rewind is running (RewindRunningFile) and
 //     removes the record when the process has exited. A call that failed on a
 //     timeout can return while pg_rewind is still being killed, so the pooler
@@ -115,7 +127,35 @@ func (pm *MultipoolerManager) rewindSentinel() sentinel {
 // rewindAttempt returns the marker for a launched, not yet assessed pg_rewind
 // run. Like every sentinel it lives in pooler_dir; see sentinel.go.
 func (pm *MultipoolerManager) rewindAttempt() sentinel {
-	return pm.newSentinel(constants.RewindAttemptFile, "pg_rewind run launched\n")
+	return pm.rewindAttemptFor("")
+}
+
+// rewindAttemptFor is rewindAttempt carrying the id of the run it describes, which
+// is what the pooler fences through pgctld before it judges the outcome. A marker
+// without an id (an older pooler wrote it) is judged without the fence.
+func (pm *MultipoolerManager) rewindAttemptFor(runID string) sentinel {
+	contents := "pg_rewind run launched\n"
+	if runID != "" {
+		contents += rewindRunIDKey + runID + "\n"
+	}
+	return pm.newSentinel(constants.RewindAttemptFile, contents)
+}
+
+const rewindRunIDKey = "run_id="
+
+// rewindAttemptRunID returns the run id recorded in the attempt marker, or "" if
+// it has none or cannot be read.
+func (pm *MultipoolerManager) rewindAttemptRunID() string {
+	data, err := os.ReadFile(pm.rewindAttempt().path)
+	if err != nil {
+		return ""
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if id, ok := strings.CutPrefix(line, rewindRunIDKey); ok {
+			return strings.TrimSpace(id)
+		}
+	}
+	return ""
 }
 
 // rewindTainted returns the verdict marker for a data directory modified by a
@@ -230,6 +270,32 @@ func (pm *MultipoolerManager) awaitRewindExit(ctx context.Context) bool {
 	}
 }
 
+// fenceRewindRun asks pgctld to abort the run id: after it returns nil the run is
+// not running and cannot start, so the data directory can be judged. The running
+// record alone cannot say that, because it does not exist yet for a request pgctld
+// has not handled. A pgctld without the RPC, or a marker without a run id, falls
+// back to the running record. Any other failure means the run's state is unknown;
+// the caller must not judge the directory then.
+func (pm *MultipoolerManager) fenceRewindRun(ctx context.Context, runID string) error {
+	if runID == "" || pm.pgctldClient == nil {
+		return nil
+	}
+	// The caller's context may already be cancelled, which is why we are here.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rewindRunningWait)
+	defer cancel()
+	resp, err := pm.pgctldClient.PgRewindAbort(ctx, &pgctldpb.PgRewindAbortRequest{RunId: runID})
+	if err != nil {
+		if status.Code(err) == codes.Unimplemented {
+			return nil
+		}
+		return err
+	}
+	if resp.GetTerminated() {
+		pm.logger.WarnContext(ctx, "terminated a pg_rewind that was still running", "run_id", runID)
+	}
+	return nil
+}
+
 // settleRewindAttempt resolves a rewind attempt marker whose outcome has not been
 // assessed: after a failed run, and on restart when a run was interrupted. It
 // returns true when the run modified the data directory, after durably writing
@@ -251,6 +317,13 @@ func (pm *MultipoolerManager) settleRewindAttempt(ctx context.Context) (tainted 
 	}
 	if !present {
 		return false, nil
+	}
+
+	// Fence the run first, so a request pgctld has not handled yet cannot start
+	// after the directory is judged. If pgctld cannot say, keep the marker and try
+	// again later rather than judge on a guess.
+	if err := pm.fenceRewindRun(ctx, pm.rewindAttemptRunID()); err != nil {
+		return false, mterrors.Wrap(err, "cannot confirm what happened to the pg_rewind run")
 	}
 
 	modified, evidence := true, "unknown"
