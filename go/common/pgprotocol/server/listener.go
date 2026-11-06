@@ -23,12 +23,15 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/bufpool"
 	"github.com/multigres/multigres/go/common/pgprotocol/pid"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 // Listener listens for incoming PostgreSQL client connections.
@@ -61,6 +64,9 @@ type Listener struct {
 	// requireTLS rejects plaintext StartupMessage if true. Mirrors PG's
 	// hostssl posture. Validated against tlsConfig at construction.
 	requireTLS bool
+
+	trustedProxyCIDRs []netip.Prefix
+	tlsOffload        bool
 
 	// authenticationTimeout bounds the startup phase (SSL/GSS negotiation,
 	// StartupMessage read, SCRAM exchange) — equivalent to PostgreSQL's
@@ -199,7 +205,17 @@ type ListenerConfig struct {
 	// plaintext (matches libpq behavior). Requires TLSConfig != nil.
 	RequireTLS bool
 
-	// AuthenticationTimeout bounds the startup phase: SSL/GSS negotiation,
+	// TrustedProxyCIDRs restricts PROXY protocol v2 headers to these immediate
+	// TCP peers. Empty accepts headers from any TCP peer and relies on network
+	// access controls for trust. Headerless clients remain supported.
+	TrustedProxyCIDRs []string
+
+	// TLSOffload permits direct TLS without ALPN after a trusted PROXY v2
+	// header supplies a client address. Requires TLS. TrustedProxyCIDRs is optional.
+	// Use only behind a proxy that performs PostgreSQL SSL negotiation.
+	TLSOffload bool
+
+	// AuthenticationTimeout bounds the startup phase: optional PROXY header, SSL/GSS negotiation,
 	// StartupMessage read, and the SCRAM exchange. A stalled or malicious
 	// client cannot pin a goroutine past this deadline. Zero falls back to
 	// DefaultAuthenticationTimeout (60s, matching PostgreSQL's default).
@@ -236,6 +252,23 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		return nil, errors.New("RequireTLS=true requires TLSConfig to be set")
 	}
 
+	trustedProxyCIDRs := make([]netip.Prefix, 0, len(config.TrustedProxyCIDRs))
+	for _, cidr := range config.TrustedProxyCIDRs {
+		prefix, err := netip.ParsePrefix(cidr)
+		if err != nil {
+			return nil, mterrors.Wrapf(err, "invalid trusted proxy CIDR %q", cidr)
+		}
+		// Normalize ranges within ::ffff:0:0/96 to match the unmapped IPv4
+		// peers used by trustsProxy. Broader ranges remain IPv6 prefixes.
+		if prefix.Addr().Is4In6() && prefix.Bits() >= 96 {
+			prefix = netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()-96)
+		}
+		trustedProxyCIDRs = append(trustedProxyCIDRs, prefix.Masked())
+	}
+	if config.TLSOffload && config.TLSConfig == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "TLSOffload requires TLSConfig")
+	}
+
 	netListener, err := net.Listen("tcp", config.Address)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %s: %w", config.Address, err)
@@ -265,6 +298,8 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		trustAuthProvider:     config.TrustAuthProvider,
 		tlsConfig:             config.TLSConfig,
 		requireTLS:            config.RequireTLS,
+		trustedProxyCIDRs:     trustedProxyCIDRs,
+		tlsOffload:            config.TLSOffload,
 		authenticationTimeout: authTimeout,
 		authMetrics:           authMetrics,
 		logger:                logger,

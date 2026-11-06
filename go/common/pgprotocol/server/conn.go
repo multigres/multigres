@@ -63,6 +63,10 @@ type Conn struct {
 	// conn is the underlying network connection.
 	conn net.Conn
 
+	// proxyClientAddress is true only after a trusted PROXY v2 address header.
+	proxyClientAddress  bool
+	proxyProtocolFailed bool
+
 	// bufferedReader is used for reading from the connection.
 	bufferedReader *bufio.Reader
 
@@ -693,7 +697,7 @@ func (c *Conn) abortWriterBuffering() {
 // applicable — make sense on the wire. Every other startup state (raw
 // plaintext or fully upgraded TLS) can carry the reply.
 func (c *Conn) canSendPlaintextStartupError() bool {
-	if c.directTLSFailed {
+	if c.directTLSFailed || c.proxyProtocolFailed {
 		return false
 	}
 	return !(c.sslDone && c.tlsConfig != nil && !c.tlsHandshakeComplete)
