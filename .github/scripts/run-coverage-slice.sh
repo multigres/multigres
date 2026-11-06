@@ -43,9 +43,8 @@ export MULTIGRES_SUBPROCESS_GOCOVERDIR="$PWD/coverage-subprocess-raw"
 # `go test` against the failing package and overwrite the single -coverprofile
 # file, truncating coverage for packages that passed the first time. We instead
 # retry the whole slice on failure, which preserves coverage correctness at the
-# cost of one extra pass on a flake. test-short / test-race / test-integration
-# handle per-package retries and feed the flake aggregator; coverage just needs
-# to converge on a clean profile without manual restarts.
+# cost of extra passes on a flake. Unlike the run-once Trunk test jobs, coverage
+# keeps its retries to produce a complete profile without manual restarts.
 attempt=1
 max_attempts=3
 while [ $attempt -le $max_attempts ]; do

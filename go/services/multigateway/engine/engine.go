@@ -25,6 +25,7 @@ import (
 	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -158,11 +159,10 @@ type IExecute interface {
 	//   tableGroup: Target tablegroup for the query
 	//   shard: Target shard (empty string for unsharded or any shard)
 	//   sql: SQL query to execute
-	//   executeSQLPreparedStatement: Optional SQL-level EXECUTE wrapper. When set,
-	//     the multipooler resolves the prepared statement through its pooler-level
-	//     consolidator and substitutes the resulting backend name into the wrapper
-	//     before executing the query. Pass nil for queries that do not reference a
-	//     gateway-managed prepared statement through SQL EXECUTE.
+	//   eagerParsePreparedStatement: Optional prepared statement to eagerly prepare
+	//     on the reserved backend (for PREPARE/Parse issued inside an explicit
+	//     transaction, so transaction-time validation and locks match PostgreSQL).
+	//     Presence is the request; pass nil otherwise.
 	//   state: Connection state containing session information and reserved connections
 	//   info: Per-query reservation intent (temp-table / advisory-lock / portal
 	//     pin-release signals) the calling primitive derived; folded into the
@@ -180,7 +180,7 @@ type IExecute interface {
 		tableGroup string,
 		shard string,
 		sql string,
-		executeSQLPreparedStatement *query.ExecuteSqlPreparedStatement,
+		eagerParsePreparedStatement *query.PreparedStatement,
 		state *handler.MultigatewayConnectionState,
 		info PlanExecInfo,
 		keepStructured bool,
@@ -395,7 +395,7 @@ type IExecute interface {
 		shard string,
 		state *handler.MultigatewayConnectionState,
 		init *multipoolerpb.StreamReplicationInit,
-	) (multipoolerpb.MultipoolerService_StreamReplicationClient, error)
+	) (queryservice.ReplicationStream, error)
 }
 
 // Primitive is the building block of the query execution plan.

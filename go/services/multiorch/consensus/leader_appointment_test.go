@@ -146,8 +146,8 @@ func TestAppointLeader(t *testing.T) {
 		cohort = append(cohort, mp)
 	}
 
-	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "shard0"}
-	require.NoError(t, c.AppointLeader(ctx, shardKey, cohort, "test_failover"))
+	shardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default", Shard: "shard0"}
+	require.NoError(t, c.AppointLeader(ctx, shardRef, cohort, "test_failover"))
 
 	// The designated leader (mp1) should receive a Promote with the full
 	// CoordinatorProposal.
@@ -231,8 +231,8 @@ func TestAppointLeader_PropagatesUndecidedMostAdvancedPosition(t *testing.T) {
 		},
 	}
 
-	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "shard0"}
-	require.NoError(t, c.AppointLeader(ctx, shardKey, []*multiorchdatapb.PoolerHealthState{mp}, "test_failover"))
+	shardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default", Shard: "shard0"}
+	require.NoError(t, c.AppointLeader(ctx, shardRef, []*multiorchdatapb.PoolerHealthState{mp}, "test_failover"))
 
 	leaderKey := topoclient.ComponentIDString(mpID)
 	propReq, ok := fakeClient.PromoteRequests[leaderKey]
@@ -317,8 +317,8 @@ func TestAppointInitialLeader(t *testing.T) {
 		cohort = append(cohort, mp)
 	}
 
-	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "shard0"}
-	require.NoError(t, c.AppointInitialLeader(ctx, shardKey, cohort))
+	shardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default", Shard: "shard0"}
+	require.NoError(t, c.AppointInitialLeader(ctx, shardRef, cohort))
 
 	// The designated leader (mp1) should receive a Promote carrying the
 	// bootstrap proposal.
@@ -421,9 +421,9 @@ func TestAppointLeader_TiebreaksByResignation(t *testing.T) {
 	}
 
 	cohort := []*multiorchdatapb.PoolerHealthState{resigned, standby}
-	shardKey := &clustermetadatapb.ShardKey{Database: "postgres", TableGroup: "default", Shard: "0-inf"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "postgres", TableGroup: "default", Shard: "0-inf"}
 
-	require.NoError(t, c.AppointLeader(ctx, shardKey, cohort, "test_resignation_tiebreak"))
+	require.NoError(t, c.AppointLeader(ctx, shardRef, cohort, "test_resignation_tiebreak"))
 
 	// The standby (non-resigning) should have been promoted, not the resigned primary.
 	standbyKey := topoclient.ComponentIDString(cohortIDs[1])
@@ -512,8 +512,8 @@ func TestAppointLeader_IneligibleMemberExcludedFromOutgoingRule(t *testing.T) {
 		cohort = append(cohort, mp)
 	}
 
-	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "shard0"}
-	require.NoError(t, c.AppointLeader(ctx, shardKey, cohort, "test_ineligible_outgoing_rule"))
+	shardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default", Shard: "shard0"}
+	require.NoError(t, c.AppointLeader(ctx, shardRef, cohort, "test_ineligible_outgoing_rule"))
 
 	// mp3 (highest LSN among the eligible pair) should be elected.
 	leaderKey := topoclient.ComponentIDString(cohortIDs[2])
@@ -592,9 +592,9 @@ func TestAppointLeader_TiebreaksBySlotReadiness(t *testing.T) {
 	}
 
 	cohort := []*multiorchdatapb.PoolerHealthState{slotEmpty, slotReady}
-	shardKey := &clustermetadatapb.ShardKey{Database: "postgres", TableGroup: "default", Shard: "0-inf"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "postgres", TableGroup: "default", Shard: "0-inf"}
 
-	require.NoError(t, c.AppointLeader(ctx, shardKey, cohort, "test_slot_readiness_tiebreak"))
+	require.NoError(t, c.AppointLeader(ctx, shardRef, cohort, "test_slot_readiness_tiebreak"))
 
 	readyKey := topoclient.ComponentIDString(cohortIDs[1])
 	_, promoted := fakeClient.PromoteRequests[readyKey]
@@ -740,8 +740,8 @@ func TestAppointLeader_TiebreaksByPostgresReadiness(t *testing.T) {
 		cohort = append(cohort, mp)
 	}
 
-	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "shard0"}
-	require.NoError(t, c.AppointLeader(ctx, shardKey, cohort, "tiebreak_test"))
+	shardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default", Shard: "shard0"}
+	require.NoError(t, c.AppointLeader(ctx, shardRef, cohort, "tiebreak_test"))
 
 	// "ready" must be elected: both standbys are tied on LSN, but postgresReadyLess
 	// sorts the ready node before the not-yet-ready one in the eligible-leaders slice.

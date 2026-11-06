@@ -48,8 +48,8 @@ func FindPoolerByID(cache *PoolerCache, id *clustermetadatapb.ID) (*Pooler, erro
 
 // FindPoolersInShard returns every pooler the cache holds for the given
 // shard. The returned slice is empty if no poolers match.
-func FindPoolersInShard(cache *PoolerCache, shardKey *clustermetadatapb.ShardKey) []*Pooler {
-	entries := cache.GetByShard(shardKey.GetDatabase(), shardKey.GetTableGroup(), shardKey.GetShard())
+func FindPoolersInShard(cache *PoolerCache, shardRef *clustermetadatapb.ShardRef) []*Pooler {
+	entries := cache.GetByShard(shardRef.GetDatabase(), shardRef.GetTableGroup(), shardRef.GetShard())
 	out := make([]*Pooler, 0, len(entries))
 	for _, e := range entries {
 		out = append(out, e.Rider)
@@ -100,8 +100,8 @@ func CohortEligibleFollowerIDs(members ShardMembers) []*clustermetadatapb.ID {
 
 // FindShardMembers identifies the shard's members, consensus position, and
 // leader's health.
-func FindShardMembers(cache *PoolerCache, shardKey *clustermetadatapb.ShardKey) ShardMembers {
-	poolers := FindPoolersInShard(cache, shardKey)
+func FindShardMembers(cache *PoolerCache, shardRef *clustermetadatapb.ShardRef) ShardMembers {
+	poolers := FindPoolersInShard(cache, shardRef)
 
 	statuses := make([]*clustermetadatapb.ConsensusStatus, 0, len(poolers))
 	for _, pooler := range poolers {

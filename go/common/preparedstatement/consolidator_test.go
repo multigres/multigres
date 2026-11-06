@@ -415,3 +415,94 @@ func TestConsolidator_Stats(t *testing.T) {
 	require.Contains(t, stmtMap, "SELECT 2")
 	require.Equal(t, 1, stmtMap["SELECT 2"].UsageCount)
 }
+
+func descWithOid(oid uint32) *querypb.StatementDescription {
+	return &querypb.StatementDescription{
+		Parameters: []*querypb.ParameterDescription{{DataTypeOid: oid}},
+	}
+}
+
+// TestResolvedParamTypes_RePrepareRefreshes verifies that re-Describing the same
+// (connID, name) — as every PREPARE on that name does — refreshes the resolved
+// parameter types rather than keeping the first resolution. This is the
+// re-PREPARE-after-DDL self-heal on a single connection: a parameter inferred as
+// uuid before an ALTER, then bigint after.
+func TestResolvedParamTypes_RePrepareRefreshes(t *testing.T) {
+	psc := NewConsolidator()
+	const connID = uint32(1)
+	_, err := psc.AddPreparedStatement(connID, "p", "SELECT $1", nil)
+	require.NoError(t, err)
+
+	// First PREPARE: parameter inferred as uuid (2950).
+	psc.SetResolvedParamTypes(connID, "p", descWithOid(2950))
+	require.Equal(t, []uint32{2950}, psc.ResolvedParamTypeOids(connID, "p"))
+
+	// A later PREPARE after DDL re-Describes: bigint (20) now wins.
+	psc.SetResolvedParamTypes(connID, "p", descWithOid(20))
+	require.Equal(t, []uint32{20}, psc.ResolvedParamTypeOids(connID, "p"))
+
+	// A nil description is ignored and leaves the last resolution intact.
+	psc.SetResolvedParamTypes(connID, "p", nil)
+	require.Equal(t, []uint32{20}, psc.ResolvedParamTypeOids(connID, "p"))
+}
+
+// TestResolvedParamTypes_PerRegistrationIsolation is the regression test for the
+// shared-resolution bug: two connections issue identical SQL with identical
+// declared types (none), so the consolidator hands them ONE shared
+// PreparedStatementInfo — but their parameters resolve to different concrete
+// types (e.g. different search_path makes an unqualified column int4 for one and
+// uuid for the other). Each connection's resolution must stay independent;
+// neither PREPARE may retroactively change the other's frozen types.
+func TestResolvedParamTypes_PerRegistrationIsolation(t *testing.T) {
+	psc := NewConsolidator()
+	const aliceConn, bobConn = uint32(1), uint32(2)
+
+	aliceStmt, err := psc.AddPreparedStatement(aliceConn, "p", "SELECT $1", nil)
+	require.NoError(t, err)
+	bobStmt, err := psc.AddPreparedStatement(bobConn, "p", "SELECT $1", nil)
+	require.NoError(t, err)
+	// Precondition: they really do share one consolidated statement.
+	require.Same(t, aliceStmt, bobStmt, "identical SQL + declared types must dedup to one psi")
+
+	// Alice resolves $1 to int4 (23); Bob later resolves the same SQL to uuid (2950).
+	psc.SetResolvedParamTypes(aliceConn, "p", descWithOid(23))
+	psc.SetResolvedParamTypes(bobConn, "p", descWithOid(2950))
+
+	// Bob's PREPARE must NOT have overwritten Alice's frozen resolution.
+	require.Equal(t, []uint32{23}, psc.ResolvedParamTypeOids(aliceConn, "p"),
+		"Alice's resolved types were corrupted by Bob's PREPARE of the same SQL")
+	require.Equal(t, []uint32{2950}, psc.ResolvedParamTypeOids(bobConn, "p"))
+
+	// Closing Bob's registration leaves Alice's intact.
+	psc.RemovePreparedStatement(bobConn, "p")
+	require.Equal(t, []uint32{23}, psc.ResolvedParamTypeOids(aliceConn, "p"))
+}
+
+// TestResolvedParamTypes_FallsBackToDeclared verifies that with no Describe
+// recorded, the declared parameter types are returned, and that an unregistered
+// (connID, name) yields nil rather than panicking.
+func TestResolvedParamTypes_FallsBackToDeclared(t *testing.T) {
+	psc := NewConsolidator()
+	const connID = uint32(1)
+	_, err := psc.AddPreparedStatement(connID, "p", "SELECT $1", []uint32{23})
+	require.NoError(t, err)
+
+	// No SetResolvedParamTypes yet: fall back to the declared types.
+	require.Equal(t, []uint32{23}, psc.ResolvedParamTypeOids(connID, "p"))
+
+	// Unregistered name: nil, no panic (the declared-type lookup guards nil psi).
+	require.Nil(t, psc.ResolvedParamTypeOids(connID, "missing"))
+}
+
+// TestResolvedParamTypes_RemoveConnectionClears verifies the resolution map does
+// not leak after a connection closes.
+func TestResolvedParamTypes_RemoveConnectionClears(t *testing.T) {
+	psc := NewConsolidator()
+	const connID = uint32(1)
+	_, err := psc.AddPreparedStatement(connID, "p", "SELECT $1", nil)
+	require.NoError(t, err)
+	psc.SetResolvedParamTypes(connID, "p", descWithOid(23))
+
+	psc.RemoveConnection(connID)
+	require.Nil(t, psc.ResolvedParamTypeOids(connID, "p"))
+}

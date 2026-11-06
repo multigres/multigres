@@ -89,7 +89,7 @@ func TestPrimaryDeletedDataFilesDoesNotFailOver(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		resp, err := orchClient.GetShardStatus(utils.WithShortDeadline(t), &multiorchpb.ShardStatusRequest{
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "postgres",
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
@@ -222,7 +222,7 @@ func TestPrimaryReadOnlyTransactionModeEventuallyFailsOver(t *testing.T) {
 	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		resp, err := orchClient.GetShardStatus(utils.WithShortDeadline(t), &multiorchpb.ShardStatusRequest{
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "postgres",
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,

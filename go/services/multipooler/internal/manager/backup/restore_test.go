@@ -18,11 +18,16 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // TestShellQuoteSingle round-trips values through an actual shell (not just
@@ -82,6 +87,103 @@ func TestRestore_ErrorsWhenConfigPathMissing(t *testing.T) {
 	err := e.Restore(context.Background(), "20250104-100000F", poolerDir)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pgbackrest config not found")
+	assert.True(t, e.Health().Snapshot().RestoreInProgressStart.IsZero())
+}
+
+// Observe the real execution path while the command is blocked, then verify
+// that every outcome clears the gauges. Repeated collection must not consume
+// the timer, and restore activity must not affect the backup timer.
+func TestRestore_InProgressMetrics(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		exitCode int
+		cancel   bool
+	}{
+		{name: "success"},
+		{name: "failure", exitCode: 1},
+		{name: "cancellation", cancel: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			setup := telemetry.SetupTestTelemetry(t)
+			require.NoError(t, setup.Telemetry.InitTelemetry(t.Context(), "test-service"))
+			t.Cleanup(func() { _ = setup.Telemetry.ShutdownTelemetry(context.Background()) })
+			reader := setup.MetricReader
+			poolerDir := t.TempDir()
+			started := filepath.Join(poolerDir, "started")
+			release := filepath.Join(poolerDir, "release")
+			t.Setenv("RESTORE_TEST_STARTED", started)
+			t.Setenv("RESTORE_TEST_RELEASE", release)
+			stubPgbackrest(t, fmt.Sprintf(`#!/bin/sh
+: > "$RESTORE_TEST_STARTED"
+while [ ! -f "$RESTORE_TEST_RELEASE" ]; do sleep 0.01; done
+exit %d
+`, tt.exitCode))
+			e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
+			e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
+
+			assertIdle := func() {
+				t.Helper()
+				active, ok := gaugeInt64(t, reader, "pgbackrest.restore.in_progress")
+				require.True(t, ok)
+				assert.Zero(t, active)
+				elapsed, ok := gaugeFloat64(t, reader, "pgbackrest.restore.in_progress_duration_seconds")
+				require.True(t, ok)
+				assert.Zero(t, elapsed)
+			}
+			assertIdle()
+
+			ctx, cancel := context.WithCancel(t.Context())
+			done := make(chan error, 1)
+			finished := make(chan struct{})
+			go func() {
+				defer close(finished)
+				done <- e.Restore(ctx, "20250104-100000F", poolerDir)
+			}()
+			t.Cleanup(func() {
+				cancel()
+				select {
+				case <-finished:
+				case <-time.After(5 * time.Second):
+					t.Error("restore command did not stop")
+				}
+			})
+			require.Eventually(t, func() bool {
+				_, err := os.Stat(started)
+				return err == nil
+			}, 5*time.Second, 5*time.Millisecond)
+
+			active, ok := gaugeInt64(t, reader, "pgbackrest.restore.in_progress")
+			require.True(t, ok)
+			assert.Equal(t, int64(1), active)
+			elapsed, ok := gaugeFloat64(t, reader, "pgbackrest.restore.in_progress_duration_seconds")
+			require.True(t, ok)
+			assert.Positive(t, elapsed)
+			nextElapsed, ok := gaugeFloat64(t, reader, "pgbackrest.restore.in_progress_duration_seconds")
+			require.True(t, ok)
+			assert.GreaterOrEqual(t, nextElapsed, elapsed, "collection must not clear the timer")
+			backupActive, ok := gaugeInt64(t, reader, "pgbackrest.backup.in_progress")
+			require.True(t, ok)
+			assert.Zero(t, backupActive)
+
+			if tt.cancel {
+				cancel()
+			} else {
+				require.NoError(t, os.WriteFile(release, nil, 0o600))
+			}
+			select {
+			case err := <-done:
+				if tt.cancel || tt.exitCode != 0 {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("restore did not return")
+			}
+			assert.True(t, e.Health().Snapshot().RestoreInProgressStart.IsZero())
+			assertIdle()
+		})
+	}
 }
 
 func TestRestoreCommand(t *testing.T) {

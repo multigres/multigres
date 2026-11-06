@@ -205,7 +205,7 @@ func TestLoadDurabilityPolicy(t *testing.T) {
 
 	pm := &MultipoolerManager{
 		topoClient: store,
-		record:     newRecordFromProto(&clustermetadatapb.Multipooler{ShardKey: &clustermetadatapb.ShardKey{Database: dbName}}),
+		record:     newRecordFromProto(&clustermetadatapb.Multipooler{ShardRef: &clustermetadatapb.ShardRef{Database: dbName}}),
 	}
 
 	got, err := pm.loadDurabilityPolicy(ctx)
@@ -232,7 +232,7 @@ func TestLoadDurabilityPolicy_NoPolicyConfigured(t *testing.T) {
 
 	pm := &MultipoolerManager{
 		topoClient: store,
-		record:     newRecordFromProto(&clustermetadatapb.Multipooler{ShardKey: &clustermetadatapb.ShardKey{Database: dbName}}),
+		record:     newRecordFromProto(&clustermetadatapb.Multipooler{ShardRef: &clustermetadatapb.ShardRef{Database: dbName}}),
 	}
 
 	_, err = pm.loadDurabilityPolicy(ctx)
@@ -268,7 +268,7 @@ func TestCreateFirstBackupAndInitialize_NoDurabilityPolicy(t *testing.T) {
 		pgctldClient: &stubPgctldClient{},
 		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			PoolerDir: poolerDir,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   dbName,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
@@ -312,7 +312,7 @@ func TestCreateFirstBackupAndInitialize_DataDirExists(t *testing.T) {
 		pgctldClient: &stubPgctldClient{},
 		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			PoolerDir: poolerDir,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
@@ -362,7 +362,7 @@ func TestCreateFirstBackupAndInitialize_InitDataDirFails(t *testing.T) {
 		pgctldClient: &stubPgctldClient{}, // InitDataDir returns UNAVAILABLE
 		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			PoolerDir: poolerDir,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   dbName,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
@@ -411,7 +411,7 @@ func TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure(t *testing.T) 
 		pgctldClient: pgctld,
 		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			PoolerDir: poolerDir,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   dbName,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
@@ -491,7 +491,7 @@ func TestCreateFirstBackupAndInitialize_StartFails(t *testing.T) {
 		pgctldClient: pgctld,
 		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			PoolerDir: poolerDir,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   dbName,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
@@ -556,7 +556,7 @@ func TestCreateFirstBackupAndInitialize_StopFailureStillRemovesDataDir(t *testin
 		pgctldClient: pgctld,
 		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			PoolerDir: poolerDir,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   dbName,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
@@ -612,7 +612,7 @@ func TestCreateFirstBackupAndInitialize_CleanupUsesFreshContextForStop(t *testin
 		pgctldClient: pgctld,
 		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			PoolerDir: poolerDir,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   dbName,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
@@ -680,7 +680,7 @@ func TestCreateFirstBackupAndInitialize_CleanupStopCarriesActionLock(t *testing.
 		pgctldClient: pgctld,
 		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			PoolerDir: poolerDir,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   dbName,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
@@ -742,7 +742,7 @@ func TestCreateFirstBackupAndInitialize_StaleSentinelCleansUpDataDir(t *testing.
 		pgctldClient: &stubPgctldClient{},
 		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			PoolerDir: poolerDir,
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   dbName,
 				TableGroup: constants.DefaultTableGroup,
 				Shard:      constants.DefaultShard,
@@ -768,6 +768,110 @@ func TestCreateFirstBackupAndInitialize_StaleSentinelCleansUpDataDir(t *testing.
 	assert.FileExists(t, sentinelPath, "sentinel should remain until bootstrap completes")
 }
 
+// restoreSentinelAtStartPgctldClient records whether the restore sentinel was
+// on disk when Start was called. pgctld refuses to start postgres while it is,
+// so bootstrap must have cleared it by then.
+type restoreSentinelAtStartPgctldClient struct {
+	successStubPgctldClient
+	sentinelPath    string
+	startCalled     bool
+	sentinelAtStart bool
+}
+
+func (c *restoreSentinelAtStartPgctldClient) Start(ctx context.Context, req *pgctldpb.StartRequest, opts ...grpc.CallOption) (*pgctldpb.StartResponse, error) {
+	c.startCalled = true
+	_, err := os.Stat(c.sentinelPath)
+	c.sentinelAtStart = err == nil
+	return c.successStubPgctldClient.Start(ctx, req, opts...)
+}
+
+// TestCreateFirstBackupAndInitialize_ClearsRestoreSentinel verifies bootstrap
+// clears a restore sentinel left by an interrupted restore before it starts
+// postgres, which pgctld would otherwise refuse, and that it fails without
+// starting postgres if the sentinel can't be cleared.
+func TestCreateFirstBackupAndInitialize_ClearsRestoreSentinel(t *testing.T) {
+	setup := func(t *testing.T) (*MultipoolerManager, *restoreSentinelAtStartPgctldClient) {
+		t.Helper()
+		ctx := t.Context()
+
+		store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+		t.Cleanup(func() { store.Close() })
+
+		const dbName = "testdb"
+		require.NoError(t, store.CreateDatabase(ctx, dbName, &clustermetadatapb.Database{
+			Name:                      dbName,
+			BootstrapDurabilityPolicy: topoclient.AtLeastN(2),
+		}))
+
+		poolerDir := t.TempDir()
+		dataDir := filepath.Join(poolerDir, "pg_data")
+		t.Setenv(constants.PgDataDirEnvVar, dataDir)
+		configPath := writeMockPgBackRestConfig(t, poolerDir)
+
+		// Start fails, so the bootstrap stops right after it.
+		pgctld := &restoreSentinelAtStartPgctldClient{
+			successStubPgctldClient: successStubPgctldClient{
+				pgDataDir: dataDir,
+				startErr:  mterrors.New(mtrpcpb.Code_UNAVAILABLE, "stub: start failed"),
+			},
+			sentinelPath: filepath.Join(poolerDir, constants.RestoreSentinelFile),
+		}
+
+		pm := &MultipoolerManager{
+			logger:       slog.Default(),
+			topoClient:   store,
+			actionLock:   actionlock.NewActionLock(),
+			pgctldClient: pgctld,
+			record: newRecordFromProto(&clustermetadatapb.Multipooler{
+				PoolerDir: poolerDir,
+				ShardRef: &clustermetadatapb.ShardRef{
+					Database:   dbName,
+					TableGroup: constants.DefaultTableGroup,
+					Shard:      constants.DefaultShard,
+				},
+			}),
+			config: &Config{},
+		}
+		pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: dataDir})
+		// Configure the engine so ConfigureArchiveMode succeeds and execution reaches Start.
+		pm.backup.SetConfigPath(configPath)
+		backupCfg, err := commonbackup.NewConfig(utils.FilesystemBackupLocation(filepath.Join(poolerDir, "backups")))
+		require.NoError(t, err)
+		pm.backup.SetBackupConfig(backupCfg)
+		return pm, pgctld
+	}
+
+	t.Run("cleared before postgres starts", func(t *testing.T) {
+		pm, pgctld := setup(t)
+		require.NoError(t, pm.restoreSentinel().write())
+
+		withLock(t, pm, func(ctx context.Context) {
+			_, _, err := pm.createFirstBackupAndInitializeLocked(ctx)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "failed to start PostgreSQL")
+		})
+
+		assert.True(t, pgctld.startCalled, "bootstrap should reach the postgres start")
+		assert.False(t, pgctld.sentinelAtStart, "the restore sentinel must be gone before postgres starts")
+	})
+
+	t.Run("failure to clear it aborts before postgres starts", func(t *testing.T) {
+		pm, pgctld := setup(t)
+		// A non-empty directory at the sentinel path cannot be removed.
+		sentinelPath := pm.restoreSentinel().path
+		require.NoError(t, os.Mkdir(sentinelPath, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(sentinelPath, "child"), []byte("x"), 0o644))
+
+		withLock(t, pm, func(ctx context.Context) {
+			_, _, err := pm.createFirstBackupAndInitializeLocked(ctx)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "failed to remove restore sentinel")
+		})
+
+		assert.False(t, pgctld.startCalled, "postgres must not be started")
+	})
+}
+
 // TestBootstrapSentinelPlacement guards the load-bearing invariant that the
 // sentinel lives in pooler_dir and never under PGDATA — pgBackRest backs up
 // PGDATA only, so placement here keeps the sentinel out of backups.
@@ -780,7 +884,7 @@ func TestBootstrapSentinelPlacement(t *testing.T) {
 		record: newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir}),
 	}
 
-	require.NoError(t, pm.writeBootstrapSentinel())
+	require.NoError(t, pm.bootstrapSentinel().write())
 	assert.FileExists(t, filepath.Join(poolerDir, constants.BootstrapSentinelFile))
 	assert.NoFileExists(t, filepath.Join(dataDir, constants.BootstrapSentinelFile),
 		"sentinel must NOT live under PGDATA — it would be backed up")
@@ -796,20 +900,20 @@ func TestWithBackupLease_ReturnsNodeExistsWhenHeld(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
 	defer ts.Close()
 
-	shardKey := &clustermetadatapb.ShardKey{
+	shardRef := &clustermetadatapb.ShardRef{
 		Database:   "testdb",
 		TableGroup: constants.DefaultTableGroup,
 		Shard:      constants.DefaultShard,
 	}
 
 	// Another pooler holds the lease.
-	_, otherUnlock, err := ts.TryLockBackup(ctx, shardKey, "other-pooler-backup")
+	_, otherUnlock, err := ts.TryLockBackup(ctx, shardRef, "other-pooler-backup")
 	require.NoError(t, err)
 	var otherErr error
 	defer otherUnlock(&otherErr)
 
 	// WithBackupLease should fail with NodeExists.
-	err = ts.WithBackupLease(ctx, shardKey, "our-pooler", "create-first-backup", slog.Default(), func(context.Context) error {
+	err = ts.WithBackupLease(ctx, shardRef, "our-pooler", "create-first-backup", slog.Default(), func(context.Context) error {
 		t.Fatal("fn must not be called when lease is held")
 		return nil
 	})

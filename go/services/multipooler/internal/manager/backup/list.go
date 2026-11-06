@@ -171,7 +171,7 @@ func (e *Engine) parseBackups(ctx context.Context, infoData []pgBackRestInfo) []
 		return []*multipoolermanagerdata.BackupMetadata{}
 	}
 
-	currentTableGroup := e.id.ShardKey().GetTableGroup()
+	currentTableGroup := e.id.ShardRef().GetTableGroup()
 	currentShard := e.shardID()
 
 	// Extract backups from the first stanza (should be the only one)

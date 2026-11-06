@@ -19,8 +19,8 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { Cell, ConsensusStatus, Database, ExternallyCertifiedRevocation, ID, Multigateway, Multiorch, Multipooler, RoutingRole, RulePosition, ShardKey, ShardRule } from "./clustermetadata_pb";
-import { Status } from "./multipoolermanagerdata_pb";
+import { Cell, ConsensusStatus, Database, ExternallyCertifiedRevocation, ID, Multigateway, Multiorch, Multipooler, RoutingRole, RulePosition, ShardRef, ShardRule } from "./clustermetadata_pb";
+import { Status, TableGroup } from "./multipoolermanagerdata_pb";
 import { ConsolidatorStats, QueryRegistrySnapshot } from "./multigatewaymanagerdata_pb";
 
 /**
@@ -286,6 +286,86 @@ export class GetDatabaseResponse extends Message<GetDatabaseResponse> {
 
   static equals(a: GetDatabaseResponse | PlainMessage<GetDatabaseResponse> | undefined, b: GetDatabaseResponse | PlainMessage<GetDatabaseResponse> | undefined): boolean {
     return proto3.util.equals(GetDatabaseResponse, a, b);
+  }
+}
+
+/**
+ * ListDesiredTableGroupsRequest names the database whose tablegroups to list.
+ *
+ * @generated from message multiadmin.ListDesiredTableGroupsRequest
+ */
+export class ListDesiredTableGroupsRequest extends Message<ListDesiredTableGroupsRequest> {
+  /**
+   * database is the database name (required).
+   *
+   * @generated from field: string database = 1;
+   */
+  database = "";
+
+  constructor(data?: PartialMessage<ListDesiredTableGroupsRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.ListDesiredTableGroupsRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "database", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListDesiredTableGroupsRequest {
+    return new ListDesiredTableGroupsRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListDesiredTableGroupsRequest {
+    return new ListDesiredTableGroupsRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListDesiredTableGroupsRequest {
+    return new ListDesiredTableGroupsRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListDesiredTableGroupsRequest | PlainMessage<ListDesiredTableGroupsRequest> | undefined, b: ListDesiredTableGroupsRequest | PlainMessage<ListDesiredTableGroupsRequest> | undefined): boolean {
+    return proto3.util.equals(ListDesiredTableGroupsRequest, a, b);
+  }
+}
+
+/**
+ * ListDesiredTableGroupsResponse lists the catalog's tablegroups for the database.
+ *
+ * @generated from message multiadmin.ListDesiredTableGroupsResponse
+ */
+export class ListDesiredTableGroupsResponse extends Message<ListDesiredTableGroupsResponse> {
+  /**
+   * @generated from field: repeated multipoolermanagerdata.TableGroup table_groups = 1;
+   */
+  tableGroups: TableGroup[] = [];
+
+  constructor(data?: PartialMessage<ListDesiredTableGroupsResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.ListDesiredTableGroupsResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "table_groups", kind: "message", T: TableGroup, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListDesiredTableGroupsResponse {
+    return new ListDesiredTableGroupsResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListDesiredTableGroupsResponse {
+    return new ListDesiredTableGroupsResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListDesiredTableGroupsResponse {
+    return new ListDesiredTableGroupsResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListDesiredTableGroupsResponse | PlainMessage<ListDesiredTableGroupsResponse> | undefined, b: ListDesiredTableGroupsResponse | PlainMessage<ListDesiredTableGroupsResponse> | undefined): boolean {
+    return proto3.util.equals(ListDesiredTableGroupsResponse, a, b);
   }
 }
 
@@ -1846,9 +1926,9 @@ export class ApplyCertifiedRuleChangeRequest extends Message<ApplyCertifiedRuleC
   /**
    * Shard to apply the rule change to.
    *
-   * @generated from field: clustermetadata.ShardKey shard_key = 1;
+   * @generated from field: clustermetadata.ShardRef shard_ref = 1;
    */
-  shardKey?: ShardKey;
+  shardRef?: ShardRef;
 
   /**
    * The transition to install. The caller must populate proposal's leader_id,
@@ -1917,7 +1997,7 @@ export class ApplyCertifiedRuleChangeRequest extends Message<ApplyCertifiedRuleC
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "multiadmin.ApplyCertifiedRuleChangeRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "shard_key", kind: "message", T: ShardKey },
+    { no: 1, name: "shard_ref", kind: "message", T: ShardRef },
     { no: 2, name: "proposed_transition", kind: "message", T: RulePosition },
     { no: 3, name: "cert", kind: "message", T: ExternallyCertifiedRevocation, oneof: "cert_source" },
     { no: 4, name: "unsafe_derive_cert", kind: "message", T: UnsafeDeriveCertOptions, oneof: "cert_source" },
@@ -2046,9 +2126,9 @@ export class SwitchPrimaryRequest extends Message<SwitchPrimaryRequest> {
   /**
    * Shard to perform the switchover on (required).
    *
-   * @generated from field: clustermetadata.ShardKey shard_key = 1;
+   * @generated from field: clustermetadata.ShardRef shard_ref = 1;
    */
-  shardKey?: ShardKey;
+  shardRef?: ShardRef;
 
   /**
    * Free-text reason recorded in rule_history for audit.
@@ -2065,7 +2145,7 @@ export class SwitchPrimaryRequest extends Message<SwitchPrimaryRequest> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "multiadmin.SwitchPrimaryRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
-    { no: 1, name: "shard_key", kind: "message", T: ShardKey },
+    { no: 1, name: "shard_ref", kind: "message", T: ShardRef },
     { no: 2, name: "reason", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 

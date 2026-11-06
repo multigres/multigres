@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerservice "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -95,7 +96,7 @@ type Executor interface {
 	// returns the live bidi stream the handler tunnels raw replication bytes
 	// through. The init's User/UserAuth/Mode are populated by the caller; the
 	// executor fills in the routing Target.
-	StreamReplication(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, init *multipoolerservice.StreamReplicationInit) (multipoolerservice.MultipoolerService_StreamReplicationClient, error)
+	StreamReplication(ctx context.Context, conn *server.Conn, state *MultigatewayConnectionState, init *multipoolerservice.StreamReplicationInit) (queryservice.ReplicationStream, error)
 }
 
 // MultigatewayHandler implements the pgprotocol Handler interface for multigateway.
@@ -241,6 +242,18 @@ func (h *MultigatewayHandler) GetPreparedStatementInfo(connID uint32, name strin
 	return h.psc.GetPreparedStatementInfo(connID, name)
 }
 
+// SetResolvedParamTypes records the resolved parameter types from the eager
+// Describe at SQL PREPARE time, scoped to (connID, name).
+func (h *MultigatewayHandler) SetResolvedParamTypes(connID uint32, name string, desc *query.StatementDescription) {
+	h.psc.SetResolvedParamTypes(connID, name, desc)
+}
+
+// ResolvedParamTypeOids returns the resolved parameter type OIDs for
+// (connID, name), falling back to the statement's declared parameter types.
+func (h *MultigatewayHandler) ResolvedParamTypeOids(connID uint32, name string) []uint32 {
+	return h.psc.ResolvedParamTypeOids(connID, name)
+}
+
 // errAbortedTransaction is the error returned when queries are executed in an aborted transaction.
 // PostgreSQL returns SQLSTATE 25P02 (in_failed_sql_transaction) for this condition.
 var errAbortedTransaction = mterrors.NewPgError("ERROR", mterrors.PgSSInFailedTransaction,
@@ -331,15 +344,6 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 		return callback(ctx, nil)
 	}
 
-	// Fold gateway-provided functions (e.g. multigres.version()) into constants
-	// in the statements we just parsed — reusing the parse rather than re-parsing.
-	// The batch execution paths re-render each statement via SqlString, so the
-	// rewritten AST flows through; only the single-statement path below sends
-	// queryStr, so refresh it from the rewritten AST when a fold happened.
-	if containsGatewayFunction(queryStr) && foldGatewayFunctionsInStatements(asts) {
-		queryStr = renderStatements(asts)
-	}
-
 	// TODO: For multi-statement batches, this only captures the first statement's
 	// operation name. Consider recording per-statement metrics or using "MULTI" as
 	// the operation name when len(asts) > 1.
@@ -357,6 +361,26 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 			h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, 0, time.Since(queryStart), 0, nil, errAbortedTransaction)
 			recordSpanError(span, errAbortedTransaction, mterrors.ExtractSQLSTATE(errAbortedTransaction))
 			return errAbortedTransaction
+		}
+	}
+
+	// Fold gateway-provided functions (e.g. multigres.version()) into constants
+	// in the statements we just parsed — reusing the parse rather than re-parsing.
+	// The batch execution paths re-render each statement via SqlString, so the
+	// rewritten AST flows through; only the single-statement path below sends
+	// queryStr, so refresh it from the rewritten AST when a fold happened.
+	if containsGatewayFunction(queryStr) {
+		changed, err := foldGatewayFunctionsInStatements(asts)
+		if err != nil {
+			if conn.TxnStatus() == protocol.TxnStatusInBlock && h.abortsTransactionOnError(err) {
+				conn.SetTxnStatus(protocol.TxnStatusFailed)
+			}
+			h.recordQueryCompletion(ctx, conn, operationName, "simple", parseDuration, 0, time.Since(queryStart), 0, nil, err)
+			recordSpanError(span, err, mterrors.ExtractSQLSTATE(err))
+			return err
+		}
+		if changed {
+			queryStr = renderStatements(asts)
 		}
 	}
 
@@ -495,7 +519,13 @@ func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 	// before storing or eagerly parsing the prepared statement, so the folded
 	// text is what Describe and Execute later forward to the backend. A no-op for
 	// queries that don't use one.
-	queryStr = foldGatewayFunctions(queryStr)
+	queryStr, err := foldGatewayFunctions(queryStr)
+	if err != nil {
+		if conn.TxnStatus() == protocol.TxnStatusInBlock && h.abortsTransactionOnError(err) {
+			conn.SetTxnStatus(protocol.TxnStatusFailed)
+		}
+		return err
+	}
 
 	// PostgreSQL sends Parse/PREPARE to the backend immediately inside an explicit
 	// transaction. That parse takes transaction-scoped AccessShareLocks and raises

@@ -271,14 +271,14 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Pr
 	// A non-empty cohort with no designated leader needs one recruited.
 	if intendedLeaderID == nil {
 		return a.emitFailover(sa, nil, policy, intendedCohort, types.ProblemLeaderUnspecified,
-			fmt.Sprintf("Shard %s has cohort members but no designated leader", sa.ShardKey)), nil
+			fmt.Sprintf("Shard %s has cohort members but no designated leader", sa.ShardRef)), nil
 	}
 
 	// Suppress failover briefly while the leader is mid-promotion (see
 	// inPromotionGrace).
 	if inPromotionGrace(sa) {
 		a.factory.Logger().Info("primary promotion in progress within grace, suppressing failover",
-			"shard_key", sa.ShardKey.String(),
+			"shard_key", sa.ShardRef.String(),
 			"promoting_primary", topoclient.ComponentIDString(intendedLeaderID),
 			"rule_age", sa.Now.Sub(intendedRule.GetCreationTime().AsTime()))
 		return nil, nil
@@ -314,7 +314,7 @@ func (a *LeaderNeedsReplacementAnalyzer) atRiskProblemIfDegraded(sa *snapshot.Sh
 	recoverableIfFullyReachable := recruitmentFeasible(policy, cohort, cohortWithout(cohort, leaderID))
 	if !recoverableIfLeaderLost && recoverableIfFullyReachable {
 		return a.atRiskProblem(sa, leaderID,
-			fmt.Sprintf("Shard %s could not recover if its leader were lost: cohort members are unreachable", sa.ShardKey))
+			fmt.Sprintf("Shard %s could not recover if its leader were lost: cohort members are unreachable", sa.ShardRef))
 	}
 	return nil
 }
@@ -348,7 +348,7 @@ func recruitmentFeasible(policy commonconsensus.DurabilityPolicy, cohort, reacha
 func (a *LeaderNeedsReplacementAnalyzer) emitFailover(sa *snapshot.Shard, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy, cohort []*clustermetadatapb.ID, cause types.ProblemCode, description string) []types.Problem {
 	if !recruitmentFeasible(policy, cohort, recruitableCohort(sa, cohort, nil)) {
 		return a.blindOrStuck(sa, leaderID, cohort,
-			fmt.Sprintf("Shard %s needs a new leader (%s) but cannot reach a sufficient recruitment quorum", sa.ShardKey, cause))
+			fmt.Sprintf("Shard %s needs a new leader (%s) but cannot reach a sufficient recruitment quorum", sa.ShardRef, cause))
 	}
 	return a.shardProblem(sa, leaderID, cause, types.PriorityEmergency, a.factory.NewAppointLeaderAction(), description)
 }
@@ -380,10 +380,10 @@ func causeIsConclusive(cause types.ProblemCode) bool {
 func (a *LeaderNeedsReplacementAnalyzer) emitInconclusive(sa *snapshot.Shard, leaderID *clustermetadatapb.ID, policy commonconsensus.DurabilityPolicy, cohort []*clustermetadatapb.ID) []types.Problem {
 	if recruitmentFeasible(policy, cohort, recruitableCohort(sa, cohort, nil)) {
 		return a.shardProblem(sa, leaderID, types.ProblemLeaderHealthUnknown, types.PriorityNormal, a.factory.NewAlertOnlyAction(),
-			fmt.Sprintf("Shard %s leader health is unknown: orch cannot confirm it is serving a quorum nor that its cohort is cut off from it", sa.ShardKey))
+			fmt.Sprintf("Shard %s leader health is unknown: orch cannot confirm it is serving a quorum nor that its cohort is cut off from it", sa.ShardRef))
 	}
 	return a.blindOrStuck(sa, leaderID, cohort,
-		fmt.Sprintf("Shard %s cannot confirm leader progress and cannot reach a sufficient recruitment quorum", sa.ShardKey))
+		fmt.Sprintf("Shard %s cannot confirm leader progress and cannot reach a sufficient recruitment quorum", sa.ShardRef))
 }
 
 // blindOrStuck returns the alert-only problem for an infeasible failover: no usable
@@ -392,7 +392,7 @@ func (a *LeaderNeedsReplacementAnalyzer) emitInconclusive(sa *snapshot.Shard, le
 func (a *LeaderNeedsReplacementAnalyzer) blindOrStuck(sa *snapshot.Shard, leaderID *clustermetadatapb.ID, cohort []*clustermetadatapb.ID, stuckDescription string) []types.Problem {
 	if !hasUsableShardHealth(sa, cohort) {
 		return a.shardProblem(sa, leaderID, types.ProblemNoHealthyCohortMembers, types.PriorityEmergency, a.factory.NewAlertOnlyAction(),
-			fmt.Sprintf("Shard %s has no healthy cohort members: no initialized pooler has a fresh, valid health report, so the leader cannot be judged", sa.ShardKey))
+			fmt.Sprintf("Shard %s has no healthy cohort members: no initialized pooler has a fresh, valid health report, so the leader cannot be judged", sa.ShardRef))
 	}
 	return a.shardProblem(sa, leaderID, types.ProblemShardStuck, types.PriorityEmergency, a.factory.NewAlertOnlyAction(), stuckDescription)
 }
@@ -405,7 +405,7 @@ func (a *LeaderNeedsReplacementAnalyzer) atRiskProblem(sa *snapshot.Shard, leade
 		Code:           types.ProblemShardAtRisk,
 		CheckName:      a.Name(),
 		PoolerID:       leaderID,
-		ShardKey:       sa.ShardKey,
+		ShardRef:       sa.ShardRef,
 		Description:    description,
 		Priority:       types.PriorityNormal,
 		Scope:          types.ScopePooler,
@@ -435,7 +435,7 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 	// Recruit CAS), cutting the write outage.
 	if intendedLeaderHasResigned(sa) || intendedLeaderShutdownTombstoned(sa, leaderID) {
 		return types.ProblemLeaderResigned,
-			fmt.Sprintf("Leader for shard %s is stepping down", sa.ShardKey), false
+			fmt.Sprintf("Leader for shard %s is stepping down", sa.ShardRef), false
 	}
 
 	// A live leader whose postgres is in recovery (a STANDBY) cannot accept writes:
@@ -456,7 +456,7 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 	// leadership — replace this guard once that lands.
 	if leaderLive && intendedLeaderInRecovery(sa) {
 		return types.ProblemLeaderUnhealthy,
-			fmt.Sprintf("Leader for shard %s is reachable but its postgres is in recovery (not a primary)", sa.ShardKey), false
+			fmt.Sprintf("Leader for shard %s is reachable but its postgres is in recovery (not a primary)", sa.ShardRef), false
 	}
 
 	// Healthy and serving as a postgres primary — but still check the
@@ -479,7 +479,7 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 			}
 		}
 		return types.ProblemLeaderUnhealthy,
-			fmt.Sprintf("Leader for shard %s is reachable but its postgres is unhealthy", sa.ShardKey), false
+			fmt.Sprintf("Leader for shard %s is reachable but its postgres is unhealthy", sa.ShardRef), false
 	}
 
 	// Observer-derived: we hold no fresh healthy observation of the leader, so we
@@ -492,7 +492,7 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 	// feasibility gate: same conclusive revocation to detect the failure as to act.
 	if revocationSufficient(policy, cohort, cutOff) {
 		return types.ProblemLeaderUnreachableByCohort,
-			fmt.Sprintf("Leader for shard %s is unreachable by a durability-sufficient set of its cohort", sa.ShardKey), false
+			fmt.Sprintf("Leader for shard %s is unreachable by a durability-sufficient set of its cohort", sa.ShardRef), false
 	}
 
 	// POSITIVE — a durability-sufficient set streaming from the leader proves it alive
@@ -655,7 +655,7 @@ func (a *LeaderNeedsReplacementAnalyzer) quorumCommitStuckCause(sa *snapshot.Sha
 		return "", "", false
 	}
 	return types.ProblemLeaderQuorumWritesStalled,
-		fmt.Sprintf("Leader for shard %s appears healthy but quorum commits have not advanced in over %s", sa.ShardKey, sa.AvailabilityPolicy.QuorumCommitStaleAfter), false
+		fmt.Sprintf("Leader for shard %s appears healthy but quorum commits have not advanced in over %s", sa.ShardRef, sa.AvailabilityPolicy.QuorumCommitStaleAfter), false
 }
 
 // classifyCohortReachability sorts cohort followers by their relation to the leader,
@@ -779,7 +779,7 @@ func (a *LeaderNeedsReplacementAnalyzer) shardProblem(sa *snapshot.Shard, leader
 		Code:           code,
 		CheckName:      a.Name(),
 		PoolerID:       leaderID,
-		ShardKey:       sa.ShardKey,
+		ShardRef:       sa.ShardRef,
 		Description:    description,
 		Priority:       priority,
 		Scope:          types.ScopeShard,

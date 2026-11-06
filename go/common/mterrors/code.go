@@ -30,7 +30,9 @@ const (
 	PgSSFeatureNotSupported       = "0A000" // feature_not_supported
 	PgSSInvalidTextRepresentation = "22P02" // invalid_text_representation
 	PgSSInvalidParameterValue     = "22023" // invalid_parameter_value
+	PgSSForeignKeyViolation       = "23503" // foreign_key_violation
 	PgSSUndefinedFunction         = "42883" // undefined_function
+	PgSSUndefinedTable            = "42P01" // undefined_table
 	PgSSActiveTransaction         = "25001" // active_sql_transaction
 	PgSSNoActiveTransaction       = "25P01" // no_active_sql_transaction
 	PgSSInFailedTransaction       = "25P02" // in_failed_sql_transaction
@@ -56,6 +58,7 @@ const (
 	PgSSNumericValueOutOfRange          = "22003" // numeric_value_out_of_range
 	PgSSDivisionByZero                  = "22012" // division_by_zero
 	PgSSInvalidPrecedingOrFollowingSize = "22013" // invalid_preceding_or_following_size
+	PgSSInvalidBinaryRepresentation     = "22P03" // invalid_binary_representation
 )
 
 // SQLSTATEs raised by expression analysis (postgres src/backend/parser).
@@ -336,6 +339,15 @@ func NewUnrecognizedParameter(name string) *PgDiagnostic {
 func NewInvalidPreparedStatementError(name string) *PgDiagnostic {
 	return NewPgError("ERROR", PgSSInvalidSQLStatementName,
 		fmt.Sprintf("prepared statement \"%s\" does not exist", name), "")
+}
+
+// NewWrongNumberOfParametersError creates a PgDiagnostic for an EXECUTE whose
+// argument count does not match the prepared statement's parameter count.
+// SQLSTATE 42601 (syntax_error), matching PostgreSQL's ExecuteQuery check.
+func NewWrongNumberOfParametersError(name string, expected, got int) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSSyntaxError,
+		fmt.Sprintf("wrong number of parameters for prepared statement \"%s\"", name),
+		fmt.Sprintf("Expected %d parameters but got %d.", expected, got))
 }
 
 // NewInvalidPortalError creates a PgDiagnostic for a reference to

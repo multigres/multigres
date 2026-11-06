@@ -138,8 +138,8 @@ func (c *Coordinator) CreateConnection(ctx context.Context, conn *Connection) er
 	return c.store.InsertConnection(ctx, conn)
 }
 
-// DropConnection removes a connection. Fails with a foreign-key-violation error
-// if a migration still references it. Takes c.mu, the same lock every other
+// DropConnection removes a connection. Fails with ErrConnectionInUse if a
+// migration still references it. Takes c.mu, the same lock every other
 // coordinator method that mutates migration/connection state holds.
 func (c *Coordinator) DropConnection(ctx context.Context, id int64) error {
 	c.mu.Lock()
@@ -270,6 +270,18 @@ func (c *Coordinator) CreateMigration(ctx context.Context, p CreateParams) (*Pro
 		return nil, err
 	} else if len(existing) > 0 {
 		return nil, fmt.Errorf("migration %d already exists (phase %s); only one migration is supported at a time, drop it first", existing[0].ID, existing[0].Phase)
+	}
+
+	// The connection was resolved before the (slow) source validation above,
+	// outside c.mu, so a DropConnection may have removed it since. DropConnection
+	// holds c.mu too, so the connection cannot go away between this check and the
+	// insert in this process; on the catalog shard the foreign key on
+	// migration.connection_id covers another process (see AddConnectionForeignKeySQL).
+	if _, err := c.store.GetConnectionByRef(ctx, Ref{ID: conn.ID}); err != nil {
+		if errors.Is(err, ErrConnectionNotFound) {
+			return nil, fmt.Errorf("connection %q does not exist", p.ConnectionName)
+		}
+		return nil, err
 	}
 
 	m := &Migration{
@@ -1228,6 +1240,11 @@ func (c *Coordinator) markReverseLinkDegraded(ctx context.Context, m *Migration,
 // Idempotent: if the link is already healthy by the time this runs (someone
 // else already fixed it, or the detection was transient), it is a no-op
 // beyond clearing a stale degraded marker.
+//
+// Currently has no caller: the gRPC/CLI/multiadmin exposure of this RPC has
+// been pulled out of the migrator stack pending a design decision (see PR
+// #1535 review discussion) and will land as its own commit later. Remove
+// this method too if that exposure ends up not coming back.
 func (c *Coordinator) ReseedReverseLink(ctx context.Context, ref Ref) (*Projection, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

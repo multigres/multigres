@@ -16,10 +16,14 @@
 package manager
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/multigres/multigres/go/common/backup"
+	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 )
 
@@ -37,10 +41,21 @@ type Config struct {
 	// for logical-replication connection metrics. Zero selects the built-in
 	// default (10s).
 	ReplicationStatsPollIntervalMs int
-	PgctldAddr                     string                  // Address of pgctld gRPC service
-	ConsensusEnabled               bool                    // Whether consensus gRPC service is enabled
-	ConnPoolConfig                 *connpoolmanager.Config // Connection pool config (manager created in MultipoolerManager)
-	BackendVpidTrackingEnabled     bool                    // Whether to write active gateway-vpid/backend-pid mappings
+	PgctldAddr                     string // Address of pgctld gRPC service
+	ConsensusEnabled               bool   // Whether consensus gRPC service is enabled
+	// MigrationTargetAdvertiseHost is the gateway address an external source uses
+	// to reach this Multigres shard for the EXPORT-direction reverse subscription.
+	// It must be the multigateway, whose replication=database tunnel proxies the
+	// stream to the current primary and re-pins it across failover, not this
+	// pooler's cluster-internal topo Hostname, which an external source cannot
+	// resolve. Empty makes EXPORT unavailable.
+	MigrationTargetAdvertiseHost string
+	// MigrationTargetAdvertisePort is the Postgres-facing port paired with
+	// MigrationTargetAdvertiseHost. Zero selects the gateway's default Postgres
+	// protocol port.
+	MigrationTargetAdvertisePort int
+	ConnPoolConfig               *connpoolmanager.Config // Connection pool config (manager created in MultipoolerManager)
+	BackendVpidTrackingEnabled   bool                    // Whether to write active gateway-vpid/backend-pid mappings
 	// SlotBasedReplicationEnabled reads whether slot-based physical replication is
 	// enabled. It is a getter (not a bool) so the value is read live: the backing
 	// flag is dynamic and reloadable at runtime. Nil reads as disabled (see
@@ -82,4 +97,48 @@ type Config struct {
 	// fixed consensus status naming this pooler as leader, and the postgres
 	// monitor starts postgres as a primary rather than a standby.
 	StaticLeader bool
+
+	// ExternalBackend is the external PostgreSQL an unmanaged pooler fronts: required for an
+	// unmanaged pooler, refused for a managed one. It is the resolved form of
+	// --backing-connection, and the one place the endpoint of an unmanaged pooler is kept:
+	// what the pooler dials, probes and validates TLS against.
+	ExternalBackend *ExternalBackend
+}
+
+// ExternalBackend is the endpoint of an externally owned PostgreSQL.
+type ExternalBackend struct {
+	Host     string
+	Port     int
+	Database string
+}
+
+// validateUnmanagedConfig checks that a pooler has an external backend exactly when it is
+// unmanaged, that the backend names an endpoint and the pooler's own database, and that an
+// unmanaged pooler is not also a static leader: a static leader is a pooler multigres
+// manages, and an external database has no one to lead it.
+func validateUnmanagedConfig(unmanaged bool, database string, config *Config) error {
+	backend := config.ExternalBackend
+	switch {
+	case unmanaged && backend == nil:
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "an unmanaged pooler requires an external backend")
+	case unmanaged && (backend.Host == "" || backend.Port < 1 || backend.Database == ""):
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "the external backend of an unmanaged pooler requires a host, a port and a database")
+	case unmanaged && backend.Database != database:
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, fmt.Sprintf("the external backend serves database %q, which does not match the pooler's database %q", backend.Database, database))
+	case unmanaged && config.StaticLeader:
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "a static leader cannot be unmanaged")
+	case !unmanaged && backend != nil:
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "a managed pooler cannot have an external backend")
+	}
+	return nil
+}
+
+// ValidateUnmanagedTableGroup refuses the tablegroup an unmanaged pooler cannot serve: it
+// fronts an external database, never the default cohort that holds cluster metadata. It is
+// checked at startup, before anything is registered, and again by the manager.
+func ValidateUnmanagedTableGroup(tableGroup string) error {
+	if tableGroup == constants.DefaultTableGroup {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "an unmanaged pooler cannot serve the default tablegroup")
+	}
+	return nil
 }

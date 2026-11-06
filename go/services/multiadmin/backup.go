@@ -104,18 +104,32 @@ func (s *MultiadminServer) executeBackup(ctx context.Context, jobID string, pool
 	return nil
 }
 
-// findPoolerForBackup finds a pooler for backup operations. forceLeader=true
-// returns the serving consensus leader (highest-rule routing_state wins if more
-// than one pooler self-claims PRIMARY, which can happen briefly during a rule
-// change); forceLeader=false returns a serving follower (any serving pooler
-// whose routing_state role is not PRIMARY).
+// findPoolerForBackup finds a pooler for backup operations, which always
+// require a SERVING pooler. See findPooler for the forceLeader/requireServing
+// semantics.
+func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, tableGroup, shard string, forceLeader bool) (*clustermetadatapb.Multipooler, error) {
+	return s.findPooler(ctx, database, tableGroup, shard, forceLeader, true)
+}
+
+// findPoolerForMigration finds the leader pooler for a migration RPC, including
+// a DRAINING one, since an in-progress migration holds the leader non-serving.
+// A nil target searches every database, table group and shard, which is
+// correct only while the cluster has a single shard.
+func (s *MultiadminServer) findPoolerForMigration(ctx context.Context, target *clustermetadatapb.ShardRef) (*clustermetadatapb.Multipooler, error) {
+	return s.findPooler(ctx, target.GetDatabase(), target.GetTableGroup(), target.GetShard(), true, false)
+}
+
+// findPooler finds a pooler for backup or migration operations. forceLeader
+// selects the serving consensus leader (highest rule wins if several claim
+// PRIMARY) rather than a serving follower. requireServing=false also admits a
+// DRAINING pooler.
 //
 // Leader identity is read from each pooler's routing_state.role topology
 // field, never from the deprecated Multipooler.Type label — the topology Type
 // can lag the true consensus state (e.g. a demoted-then-restarted pooler that
 // re-asserts Type=PRIMARY), and a backup taken from a stale leader on a
 // divergent timeline would be unrestorable.
-func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, tableGroup, shard string, forceLeader bool) (*clustermetadatapb.Multipooler, error) {
+func (s *MultiadminServer) findPooler(ctx context.Context, database, tableGroup, shard string, forceLeader, requireServing bool) (*clustermetadatapb.Multipooler, error) {
 	allCells, err := s.ts.GetCellNames(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cell names: %w", err)
@@ -127,6 +141,10 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 	// self-claim).
 	// TODO: Pick the replica with the least replica lag, as measured by the heartbeat service
 	var poolers []*clustermetadatapb.Multipooler
+	// The shard's static leader, if any, and its other poolers, serving or not.
+	var staticLeader *clustermetadatapb.Multipooler
+	var others int
+	var unreadCells []string
 	for _, cellName := range allCells {
 		opts := &topoclient.GetMultipoolersByCellOptions{
 			DatabaseShard: &topoclient.DatabaseShard{
@@ -139,13 +157,53 @@ func (s *MultiadminServer) findPoolerForBackup(ctx context.Context, database, ta
 		poolerInfos, err := s.ts.GetMultipoolersByCell(ctx, cellName, opts)
 		if err != nil {
 			s.logger.DebugContext(ctx, "failed to get poolers for cell", "cell", cellName, "error", err)
+			unreadCells = append(unreadCells, cellName)
 			continue
 		}
 		for _, info := range poolerInfos {
-			if info.Multipooler.GetServingStatus() == clustermetadatapb.PoolerServingStatus_SERVING {
+			// Exclude poolers from other shards. An empty shard on either side matches:
+			// "" is the caller's wildcard, or the pooler hasn't registered one yet.
+			if poolerShard := info.Multipooler.GetShardRef().GetShard(); shard != "" && poolerShard != "" && poolerShard != shard {
+				continue
+			}
+			// A pooler that shut down is gone; its record stays in topology,
+			// for example after a restart under a new service ID.
+			if info.Multipooler.GetLifecycleStatus().GetStatus() == clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN {
+				continue
+			}
+			if !requireServing || info.Multipooler.GetServingStatus() == clustermetadatapb.PoolerServingStatus_SERVING {
 				poolers = append(poolers, info.Multipooler)
 			}
+			if info.Multipooler.GetLeadershipMode() == clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC && staticLeader == nil {
+				staticLeader = info.Multipooler
+			} else {
+				others++
+			}
 		}
+	}
+
+	// A static leader is the only pooler of its shard, so every backup
+	// operation runs on it, whatever forceLeader says. A shard with a static
+	// leader and other poolers is misconfigured: refuse rather than guess.
+	// Only enforced for a single-shard search; a wildcard search can
+	// legitimately see several shards, each with its own static leader.
+	if shard != "" && staticLeader != nil {
+		// A static leader takes no backup lease, so a pooler hidden in an
+		// unreadable cell could back up the same shard concurrently: fail
+		// closed instead.
+		if len(unreadCells) > 0 {
+			return nil, fmt.Errorf("cannot confirm static leader %s is the only pooler of database=%s, table_group=%s, shard=%s: cells %v could not be read",
+				topoclient.ComponentIDString(staticLeader.Id), database, tableGroup, shard, unreadCells)
+		}
+		if others > 0 {
+			return nil, fmt.Errorf("database=%s, table_group=%s, shard=%s has a static leader (%s) and %d other pooler(s); a static leader must be the only pooler of its shard",
+				database, tableGroup, shard, topoclient.ComponentIDString(staticLeader.Id), others)
+		}
+		if requireServing && staticLeader.GetServingStatus() != clustermetadatapb.PoolerServingStatus_SERVING {
+			return nil, fmt.Errorf("static leader %s of database=%s, table_group=%s, shard=%s is not serving",
+				topoclient.ComponentIDString(staticLeader.Id), database, tableGroup, shard)
+		}
+		return staticLeader, nil
 	}
 
 	if forceLeader {

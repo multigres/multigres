@@ -1,0 +1,94 @@
+[
+  {
+    "comment": "CREATE TABLEGROUP without SHARDS: a single 0-inf shard",
+    "query": "CREATE TABLEGROUP commerce"
+  },
+  {
+    "comment": "CREATE TABLEGROUP with one explicit shard",
+    "query": "CREATE TABLEGROUP commerce SHARDS ('0-inf')"
+  },
+  {
+    "comment": "CREATE TABLEGROUP sharded",
+    "query": "CREATE TABLEGROUP commerce SHARDS ('0-80', '80-inf')"
+  },
+  {
+    "comment": "CREATE TABLEGROUP with a quoted name",
+    "query": "CREATE TABLEGROUP \"Commerce Group\" SHARDS ('0-inf')"
+  },
+  {
+    "comment": "CREATE TABLEGROUP IF NOT EXISTS",
+    "query": "CREATE TABLEGROUP IF NOT EXISTS commerce SHARDS ('0-80', '80-inf')"
+  },
+  {
+    "comment": "ALTER TABLEGROUP RENAME",
+    "query": "ALTER TABLEGROUP commerce RENAME TO shop"
+  },
+  {
+    "comment": "ALTER TABLEGROUP RESHARD a single shard into many (makes the tablegroup sharded)",
+    "query": "ALTER TABLEGROUP commerce RESHARD ('0-inf') INTO ('0-80', '80-inf')"
+  },
+  {
+    "comment": "ALTER TABLEGROUP RESHARD a contiguous range",
+    "query": "ALTER TABLEGROUP commerce RESHARD ('10-30', '30-40') INTO ('10-20', '20-40')"
+  },
+  {
+    "comment": "ALTER TABLEGROUP RESHARD back into one shard (makes the tablegroup unsharded)",
+    "query": "ALTER TABLEGROUP commerce RESHARD ('0-80', '80-inf') INTO ('0-inf')"
+  },
+  {
+    "comment": "DROP TABLEGROUP",
+    "query": "DROP TABLEGROUP commerce"
+  },
+  {
+    "comment": "DROP TABLEGROUP IF EXISTS",
+    "query": "DROP TABLEGROUP IF EXISTS commerce CASCADE"
+  },
+  {
+    "comment": "DROP TABLEGROUP CASCADE",
+    "query": "DROP TABLEGROUP commerce CASCADE"
+  },
+  {
+    "comment": "DROP TABLEGROUP RESTRICT is the default and is not echoed",
+    "query": "DROP TABLEGROUP commerce RESTRICT",
+    "expected": "DROP TABLEGROUP commerce"
+  },
+  {
+    "comment": "the default tablegroup must be quoted: DEFAULT is a reserved word. Parses; the implementation rejects renaming it",
+    "query": "ALTER TABLEGROUP \"default\" RENAME TO main"
+  },
+  {
+    "comment": "new keywords stay usable as column names",
+    "query": "CREATE TABLE t (tablegroup text, shards int, reshard int)",
+    "expected": "CREATE TABLE t (tablegroup TEXT, shards INT, reshard INT)"
+  },
+  {
+    "comment": "new keywords stay usable as bare column labels and table names",
+    "query": "SELECT 1 AS tablegroup, 2 AS shards, 3 reshard FROM tablegroup, shards, reshard",
+    "expected": "SELECT 1 AS tablegroup, 2 AS shards, 3 AS reshard FROM tablegroup, shards, reshard"
+  },
+  {
+    "comment": "new keywords stay usable in ALTER TABLE",
+    "query": "ALTER TABLE tablegroup DROP shards, ADD reshard int",
+    "expected": "ALTER TABLE tablegroup DROP COLUMN shards, ADD COLUMN reshard INT"
+  },
+  {
+    "comment": "SHARDS needs at least one range",
+    "query": "CREATE TABLEGROUP commerce SHARDS ()",
+    "error": "syntax error"
+  },
+  {
+    "comment": "RESHARD needs INTO",
+    "query": "ALTER TABLEGROUP commerce RESHARD ('0-inf')",
+    "error": "syntax error"
+  },
+  {
+    "comment": "ranges are string literals, not identifiers",
+    "query": "CREATE TABLEGROUP commerce SHARDS (0-inf)",
+    "error": "syntax error"
+  },
+  {
+    "comment": "unquoted default is the reserved word, not the tablegroup name",
+    "query": "DROP TABLEGROUP default",
+    "error": "syntax error"
+  }
+]

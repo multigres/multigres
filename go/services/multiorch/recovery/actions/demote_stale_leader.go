@@ -101,7 +101,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, rechecked types.R
 	poolerIDStr := topoclient.ComponentIDString(problem.PoolerID)
 
 	a.logger.InfoContext(ctx, "executing demote stale leader action",
-		"shard_key", commontypes.FormatShardKey(problem.ShardKey),
+		"shard_key", commontypes.FormatShardRef(problem.ShardRef),
 		"stale_leader", poolerIDStr)
 
 	// Get the stale leader from the store
@@ -124,10 +124,10 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, rechecked types.R
 	// node's local self-claim). It may not have promoted yet; that is safe because the
 	// stale leader can no longer commit (see StaleLeaderAnalyzer), and the relayed
 	// rewind_ready defers pg_rewind until the leader is ready.
-	members := store.FindShardMembers(a.poolerStore, problem.ShardKey)
+	members := store.FindShardMembers(a.poolerStore, problem.ShardRef)
 	if members.Leader == nil || members.HighestIntendedRule.IsEmpty() {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"no consensus leader known for shard %s", commontypes.FormatShardKey(problem.ShardKey))
+			"no consensus leader known for shard %s", commontypes.FormatShardRef(problem.ShardRef))
 	}
 
 	// If the supposedly-stale node is itself the highest intended consensus leader,
@@ -137,7 +137,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, rechecked types.R
 	if proto.Equal(members.Leader.Health().GetMultipooler().GetId(), problem.PoolerID) {
 		a.logger.InfoContext(ctx, "stale leader is the current consensus leader, nothing to demote",
 			"leader", members.Leader.Health().Multipooler.Id.Name,
-			"shard_key", commontypes.FormatShardKey(problem.ShardKey))
+			"shard_key", commontypes.FormatShardRef(problem.ShardRef))
 		return nil
 	}
 
@@ -181,7 +181,7 @@ func (a *DemoteStaleLeaderAction) Execute(ctx context.Context, rechecked types.R
 		"stale_leader", poolerIDStr)
 
 	a.logger.InfoContext(ctx, "demote stale leader action completed",
-		"shard_key", commontypes.FormatShardKey(problem.ShardKey),
+		"shard_key", commontypes.FormatShardRef(problem.ShardRef),
 		"demoted_leader", poolerIDStr)
 
 	return nil

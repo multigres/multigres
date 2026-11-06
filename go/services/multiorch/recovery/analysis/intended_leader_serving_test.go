@@ -38,7 +38,7 @@ func TestIntendedLeaderServing_PostgresDown(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "primary",
 			},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "db1",
 				TableGroup: "tg1",
 				Shard:      "shard1",
@@ -59,7 +59,7 @@ func TestIntendedLeaderServing_PostgresDown(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "replica",
 			},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "db1",
 				TableGroup: "tg1",
 				Shard:      "shard1",
@@ -74,7 +74,7 @@ func TestIntendedLeaderServing_PostgresDown(t *testing.T) {
 	}, nil))
 
 	gen := newTestCapture(ps)
-	sa, err := gen.shard(&clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
+	sa, err := gen.shard(&clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"})
 	require.NoError(t, err)
 	analysis := findPoolerByName(sa, "replica")
 	require.NotNil(t, analysis)
@@ -98,7 +98,7 @@ func TestIntendedLeaderServing_DemotedViaRecruit(t *testing.T) {
 				Cell:      "cell1",
 				Name:      "replica",
 			},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "db1",
 				TableGroup: "tg1",
 				Shard:      "shard1",
@@ -110,7 +110,7 @@ func TestIntendedLeaderServing_DemotedViaRecruit(t *testing.T) {
 		},
 	}
 
-	shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"}
 
 	t.Run("topology type PRIMARY, PoolerType REPLICA, primary term > 0 via ConsensusStatus", func(t *testing.T) {
 		// Former primary promoted at term 4; etcd topology updated to PRIMARY.
@@ -126,7 +126,7 @@ func TestIntendedLeaderServing_DemotedViaRecruit(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id: formerPrimaryID,
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -151,7 +151,7 @@ func TestIntendedLeaderServing_DemotedViaRecruit(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(replica, nil))
 
 		gen := newTestCapture(ps)
-		sa, err := gen.shard(shardKey)
+		sa, err := gen.shard(shardRef)
 		require.NoError(t, err)
 		assert.NotNil(t, sa.HighestIntendedRule().IntendedLeaderID(), "demoted primary should still be tracked (primary term > 0)")
 		assert.Equal(t, "primary", sa.HighestIntendedRule().IntendedLeaderID().Name)
@@ -171,7 +171,7 @@ func TestIntendedLeaderServing_DemotedViaRecruit(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 			Multipooler: &clustermetadatapb.Multipooler{
 				Id: formerPrimaryID,
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "db1",
 					TableGroup: "tg1",
 					Shard:      "shard1",
@@ -196,7 +196,7 @@ func TestIntendedLeaderServing_DemotedViaRecruit(t *testing.T) {
 		store.SeedCache(t, ps, store.NewPooler(replica, nil))
 
 		gen := newTestCapture(ps)
-		sa, err := gen.shard(shardKey)
+		sa, err := gen.shard(shardRef)
 		require.NoError(t, err)
 		assert.NotNil(t, sa.HighestIntendedRule().IntendedLeaderID(), "stale-topology former primary should be found via ConsensusStatus")
 		assert.Equal(t, "former-primary", sa.HighestIntendedRule().IntendedLeaderID().Name)
@@ -210,7 +210,7 @@ func TestIntendedLeaderServing_DemotedViaRecruit(t *testing.T) {
 // state is not in the store. The leader is then identified by consensus but has no
 // health to attach, so Leader is nil and the leader is treated as unreachable.
 func TestIntendedLeaderServing_LeaderAbsentFromStore(t *testing.T) {
-	shardKey := &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "tg1", Shard: "shard1"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "shard1"}
 
 	absentLeaderID := &clustermetadatapb.ID{
 		Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -229,7 +229,7 @@ func TestIntendedLeaderServing_LeaderAbsentFromStore(t *testing.T) {
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       followerID,
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 		},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
@@ -246,7 +246,7 @@ func TestIntendedLeaderServing_LeaderAbsentFromStore(t *testing.T) {
 	}, nil))
 
 	gen := newTestCapture(ps)
-	sa, err := gen.shard(shardKey)
+	sa, err := gen.shard(shardRef)
 	require.NoError(t, err)
 
 	require.NotNil(t, sa.HighestIntendedRule().IntendedLeaderID(), "consensus must still identify the leader")
@@ -280,7 +280,7 @@ func TestIntendedLeaderServing_HighestRuleLeader(t *testing.T) {
 	shardConfig := func(id *clustermetadatapb.ID) *clustermetadatapb.Multipooler {
 		return &clustermetadatapb.Multipooler{
 			Id:       id,
-			ShardKey: &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"},
+			ShardRef: &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 		}
 	}
@@ -329,7 +329,7 @@ func TestIntendedLeaderServing_HighestRuleLeader(t *testing.T) {
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       replicaID,
-			ShardKey: &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"},
+			ShardRef: &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default", Shard: "0"},
 			Type:     clustermetadatapb.PoolerType_REPLICA,
 		},
 		LastSeen: timestamppb.Now(),
@@ -339,7 +339,7 @@ func TestIntendedLeaderServing_HighestRuleLeader(t *testing.T) {
 	}, nil))
 
 	capture := newTestCapture(ps)
-	sa, err := capture.shard(&clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"})
+	sa, err := capture.shard(&clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default", Shard: "0"})
 	require.NoError(t, err)
 	analysis := findPoolerByName(sa, "replica-1")
 	require.NotNil(t, analysis)

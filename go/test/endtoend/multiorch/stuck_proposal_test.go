@@ -274,7 +274,7 @@ func TestApplyCertifiedRuleChange_FromStuckProposal(t *testing.T) {
 	newTerm := stuckTerm + 1
 
 	req := &multiadminpb.ApplyCertifiedRuleChangeRequest{
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "postgres",
 			TableGroup: "default",
 			Shard:      "0-inf",

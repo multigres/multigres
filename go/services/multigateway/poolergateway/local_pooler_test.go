@@ -18,18 +18,16 @@ import (
 	"context"
 	"log/slog"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/health/grpc_health_v1"
 
-	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/tools/viperutil"
+	"github.com/multigres/multigres/go/pb/multipoolerservice"
 )
 
 // unreachablePooler returns a pooler record whose address cannot be reached.
@@ -50,27 +48,35 @@ func TestLocalPooler_IsLocal(t *testing.T) {
 	assert.False(t, local.isLocal(unreachablePooler("zone2", "pooler-1")), "the same name in another cell")
 }
 
-// TestLocalPooler_ConnectsInMemory reaches an in-memory server through the
-// local pooler's dial options although the record's address is unreachable.
-func TestLocalPooler_ConnectsInMemory(t *testing.T) {
-	sv := servenv.NewServEnv(viperutil.NewRegistry())
-	server := servenv.NewInMemoryGrpcServer(servenv.NewGrpcServer(viperutil.NewRegistry()))
-	require.NoError(t, server.Create(sv))
-	require.NoError(t, server.Serve(sv))
-	t.Cleanup(server.Server.Stop)
+// quietPooler stands in for the local pooler: its health subscription sends
+// nothing until ctx ends. Other methods panic through the nil embedded
+// interface.
+type quietPooler struct {
+	queryservice.Pooler
+}
 
+func (quietPooler) SubscribeHealth(ctx context.Context) (func() (*multipoolerservice.StreamPoolerHealthResponse, error), error) {
+	return func() (*multipoolerservice.StreamPoolerHealthResponse, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}, nil
+}
+
+// TestLocalPooler_CalledDirectly checks that the connection to a local pooler
+// calls its Service and opens no gRPC connection, although the record's
+// address is unreachable.
+func TestLocalPooler_CalledDirectly(t *testing.T) {
 	pooler := unreachablePooler("zone1", "pooler-1")
-	local := &LocalPooler{ID: func() *clustermetadatapb.ID { return pooler.Id }, DialOptions: server.DialOptions()}
+	local := &LocalPooler{ID: func() *clustermetadatapb.ID { return pooler.Id }, Service: quietPooler{}}
 	conn, err := newPoolerConnection(context.Background(), pooler, slog.New(slog.DiscardHandler),
 		grpc.WithTransportCredentials(insecure.NewCredentials()), local, nil)
 	require.NoError(t, err)
 	defer func() { _ = conn.Shutdown() }()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	resp, err := grpc_health_v1.NewHealthClient(conn.conn).Check(ctx, &grpc_health_v1.HealthCheckRequest{})
-	require.NoError(t, err)
-	assert.Equal(t, grpc_health_v1.HealthCheckResponse_SERVING, resp.GetStatus())
+	assert.Nil(t, conn.conn, "no gRPC connection to a local pooler")
+	direct, ok := conn.Pooler().(*directQueryService)
+	require.True(t, ok, "the local pooler is called directly, got %T", conn.Pooler())
+	assert.Equal(t, local.Service, direct.local)
 }
 
 // TestLocalPooler_RecordFindsPoolerWithoutTopology discovers the local pooler
@@ -78,8 +84,9 @@ func TestLocalPooler_ConnectsInMemory(t *testing.T) {
 func TestLocalPooler_RecordFindsPoolerWithoutTopology(t *testing.T) {
 	pooler := unreachablePooler("zone1", "pooler-1")
 	local := &LocalPooler{
-		ID:     func() *clustermetadatapb.ID { return pooler.Id },
-		Record: func() *clustermetadatapb.Multipooler { return pooler },
+		ID:      func() *clustermetadatapb.ID { return pooler.Id },
+		Record:  func() *clustermetadatapb.Multipooler { return pooler },
+		Service: quietPooler{},
 	}
 
 	gw := NewPoolerGateway(PoolerGatewayOpts{

@@ -42,6 +42,7 @@ const (
 	PlanTypeSetSeedRoute                = "SetSeedRoute"
 	PlanTypeHoldCursorRoute             = "HoldCursorRoute"
 	PlanTypeCloseCursorRoute            = "CloseCursorRoute"
+	PlanTypeClusterViewRoute            = "ClusterViewRoute"
 	PlanTypeDiscardAll                  = "DiscardAll"
 	PlanTypeUnknown                     = "Unknown"
 )
@@ -130,7 +131,14 @@ func (p *Plan) CachedSize(_ bool) int64 {
 	for _, t := range p.TablesUsed {
 		size += int64(len(t)) + 16 // string header + content
 	}
-	if r, ok := p.Primitive.(*Route); ok {
+	var r *Route
+	switch prim := p.Primitive.(type) {
+	case *Route:
+		r = prim
+	case *ClusterViewRoute:
+		r = prim.route
+	}
+	if r != nil {
 		size += int64(len(r.Query)) + int64(len(r.TableGroup)) + int64(len(r.Shard))
 		// NormalizedAST is a cloned AST tree. Rough estimate: ~10x the query
 		// string length accounts for node structs, pointers, and metadata.

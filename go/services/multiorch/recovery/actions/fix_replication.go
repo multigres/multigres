@@ -108,7 +108,7 @@ func NewFixReplicationAction(
 func (a *FixReplicationAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
 	problem := rechecked.Problem
 	a.logger.InfoContext(ctx, "executing fix replication action",
-		"shard_key", problem.ShardKey.String(),
+		"shard_key", problem.ShardRef.String(),
 		"pooler", problem.PoolerID.Name,
 		"problem_code", string(problem.Code))
 
@@ -118,11 +118,11 @@ func (a *FixReplicationAction) Execute(ctx context.Context, rechecked types.Rech
 		return mterrors.Wrap(err, "failed to find affected replica")
 	}
 
-	members := store.FindShardMembers(a.poolerStore, problem.ShardKey)
+	members := store.FindShardMembers(a.poolerStore, problem.ShardRef)
 	leader := members.Leader
 	if leader == nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"no consensus leader known for shard %s", problem.ShardKey)
+			"no consensus leader known for shard %s", problem.ShardRef)
 	}
 
 	a.logger.InfoContext(ctx, "found primary for replication",
@@ -136,7 +136,7 @@ func (a *FixReplicationAction) Execute(ctx context.Context, rechecked types.Rech
 	}
 	if !needsFix {
 		a.logger.InfoContext(ctx, "replication already configured correctly, problem resolved",
-			"shard_key", problem.ShardKey.String(),
+			"shard_key", problem.ShardRef.String(),
 			"pooler", problem.PoolerID.Name)
 		return nil
 	}

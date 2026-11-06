@@ -130,7 +130,7 @@ func setupStreamingTestWithCallback(
 			Name:      "test-pooler",
 		},
 		Hostname: "127.0.0.1",
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			TableGroup: "default",
 			Shard:      "0",
 		},

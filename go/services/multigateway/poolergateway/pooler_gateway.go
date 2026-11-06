@@ -63,7 +63,7 @@ type Gateway interface {
 	// for the init's target, sends the Init, awaits Ready, and returns the live
 	// bidi stream. Unlike the query path it is not buffered across failover: a
 	// replication stream is pinned to one pooler for its lifetime.
-	StreamReplication(ctx context.Context, init *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error)
+	StreamReplication(ctx context.Context, init *multipoolerpb.StreamReplicationInit) (queryservice.ReplicationStream, error)
 }
 
 // modeRequiresLeader reports whether a mode must route to the consensus
@@ -143,7 +143,7 @@ type PoolerGatewayOpts struct {
 	// update in which the elected leader attests PRIMARY and SERVING. The
 	// notification manager uses it to reopen streams after a leader change.
 	// Optional.
-	OnLeaderServing func(*clustermetadatapb.ShardKey)
+	OnLeaderServing func(*clustermetadatapb.ShardRef)
 	// LowLag is the preferred replication-lag threshold for replicas.
 	LowLag time.Duration
 	// HighTolerance is the absolute maximum replication lag for replicas.
@@ -159,14 +159,15 @@ type LocalPooler struct {
 	// ID returns the pooler's topology ID. It is read when poolers are
 	// discovered, after flags are parsed.
 	ID func() *clustermetadatapb.ID
-	// DialOptions connect to the pooler's query service in the same process,
-	// replacing the topology address and DialOpt.
-	DialOptions []grpc.DialOption
 	// Record, when set, returns the pooler's record, read when the gateway
 	// starts. The gateway then learns of its pooler from it instead of the
 	// topology: the fields it uses (ID, shard) never change, and role and
 	// serving status come from the health stream. Optional.
 	Record func() *clustermetadatapb.Multipooler
+	// Service is the pooler's query service, credential lookup, health,
+	// notifications and replication, which the gateway calls directly: it
+	// opens no gRPC connection to the local pooler.
+	Service queryservice.Pooler
 }
 
 // isLocal reports whether pooler is the local pooler.
@@ -214,9 +215,9 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 		Logger: opts.Logger,
 	})
 
-	var onLeaderServing func(*clustermetadatapb.ShardKey)
+	var onLeaderServing func(*clustermetadatapb.ShardRef)
 	if opts.Buffer != nil || opts.OnLeaderServing != nil {
-		onLeaderServing = func(sk *clustermetadatapb.ShardKey) {
+		onLeaderServing = func(sk *clustermetadatapb.ShardRef) {
 			if opts.Buffer != nil {
 				opts.Buffer.StopBuffering(sk)
 			}
@@ -371,9 +372,9 @@ func (pg *PoolerGateway) withBuffering(
 	inner func(conn *poolerConnection) error,
 ) error {
 	bufferedOnce := false
-	// Buffer operations are keyed on the target's full ShardKey
+	// Buffer operations are keyed on the target's full ShardRef
 	// (database + tableGroup + shard) — no need to copy field-by-field.
-	sk := target.GetShardKey()
+	sk := target.GetShardRef()
 
 	var err error
 	for range constants.MaxBufferingRetries + 1 {
@@ -419,8 +420,8 @@ func (pg *PoolerGateway) withBuffering(
 		}
 
 		pg.logger.DebugContext(ctx, "selected pooler for target",
-			"tablegroup", target.GetShardKey().GetTableGroup(),
-			"shard", target.GetShardKey().GetShard(),
+			"tablegroup", target.GetShardRef().GetTableGroup(),
+			"shard", target.GetShardRef().GetShard(),
 			"mode", target.GetMode().String(),
 			"pooler_id", conn.ID())
 
@@ -456,7 +457,7 @@ func isClientDrivenFailure(err error) bool {
 // error classifyError passed through as actionFail while the shard's buffer
 // was active. The buffer itself checks the shard state so idle-shard failures
 // (ordinary query errors) cost one map lookup and record nothing.
-func (pg *PoolerGateway) recordUnbufferedFailure(ctx context.Context, sk *clustermetadatapb.ShardKey, err error) {
+func (pg *PoolerGateway) recordUnbufferedFailure(ctx context.Context, sk *clustermetadatapb.ShardRef, err error) {
 	if pg.buffer == nil || isClientDrivenFailure(err) {
 		return
 	}
@@ -476,8 +477,8 @@ func (pg *PoolerGateway) QueryServiceByID(ctx context.Context, id *clustermetada
 
 	pg.logger.DebugContext(ctx, "got connection by pooler ID",
 		"pooler_id", conn.ID(),
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard())
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard())
 
 	// Return the connection's QueryService
 	return conn.QueryService(), nil
@@ -646,8 +647,8 @@ func (pg *PoolerGateway) CopyOutStream(
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
@@ -690,7 +691,7 @@ var _ Gateway = (*PoolerGateway)(nil)
 // just like query execution.
 func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
 	target := &query.Target{
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   req.GetDatabase(),
 			TableGroup: "default", // TODO: discover the auth tablegroup from cluster config
 			Shard:      constants.DefaultShard,
@@ -701,9 +702,7 @@ func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoole
 	var resp *multipoolerpb.GetAuthCredentialsResponse
 	err := pg.withBuffering(ctx, target, false, false, func(conn *poolerConnection) error {
 		var err error
-		resp, err = conn.ServiceClient().GetAuthCredentials(ctx, req)
-		// Convert gRPC error so classifyError can read the PgDiagnostic SQLSTATE.
-		err = mterrors.FromGRPC(err)
+		resp, err = conn.pooler.GetAuthCredentials(ctx, req)
 		// Authentication has no query side effects. A generic UNAVAILABLE from
 		// the selected pooler is therefore safe to turn into the same typed
 		// pre-execution signal used by query connection acquisition.
@@ -753,8 +752,8 @@ func (pg *PoolerGateway) CopySendData(
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
@@ -777,8 +776,8 @@ func (pg *PoolerGateway) CopyFinalize(
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
@@ -801,8 +800,8 @@ func (pg *PoolerGateway) CopyAbort(
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
@@ -829,8 +828,8 @@ func (pg *PoolerGateway) ConcludeTransaction(
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
@@ -852,8 +851,8 @@ func (pg *PoolerGateway) DiscardTempTables(
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
@@ -875,8 +874,8 @@ func (pg *PoolerGateway) ReleaseReservedConnection(
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for target",
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"mode", target.GetMode().String(),
 		"pooler_id", conn.ID())
 
@@ -905,7 +904,7 @@ func (pg *PoolerGateway) ReleaseReservedConnection(
 func (pg *PoolerGateway) StreamReplication(
 	ctx context.Context,
 	init *multipoolerpb.StreamReplicationInit,
-) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+) (queryservice.ReplicationStream, error) {
 	target, _ := proto.Clone(init.GetTarget()).(*query.Target)
 	if target == nil {
 		target = &query.Target{}
@@ -918,8 +917,8 @@ func (pg *PoolerGateway) StreamReplication(
 	}
 
 	pg.logger.DebugContext(ctx, "selected pooler for replication target",
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"mode", target.Mode.String(),
 		"pooler_id", conn.ID())
 

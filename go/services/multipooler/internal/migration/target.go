@@ -741,7 +741,9 @@ func (t *target) AdvanceSequences(ctx context.Context, tables []string, margin i
 // by the EXPORT reverse subscription, whose slot is pre-created on the target
 // during the switch so it captures every post-switch write.
 func createSubscriptionSQL(name, conninfo, publication string, copyData bool, slotName string) string {
-	opts := fmt.Sprintf("copy_data = %t", copyData)
+	// PostgreSQL defaults subscriptions to asynchronous commits, which bypass
+	// the configured physical replication quorum.
+	opts := fmt.Sprintf("copy_data = %t, synchronous_commit = on", copyData)
 	if slotName != "" {
 		opts += ", create_slot = false, slot_name = " + ast.QuoteIdentifier(slotName)
 	}

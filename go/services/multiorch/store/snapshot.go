@@ -45,10 +45,10 @@ type SnapshotOptions struct {
 // appear in both.
 func SnapshotShards(cache *PoolerCache, opts SnapshotOptions) []*snapshot.Shard {
 	type shardEntry struct {
-		key     *clustermetadatapb.ShardKey
+		key     *clustermetadatapb.ShardRef
 		poolers []*multiorchdatapb.PoolerHealthState
 	}
-	byKey := make(map[commontypes.ShardKeyString]*shardEntry)
+	byKey := make(map[commontypes.ShardRefString]*shardEntry)
 	for _, entry := range cache.All() {
 		health := healthOf(entry.Rider)
 		if health == nil {
@@ -57,8 +57,8 @@ func SnapshotShards(cache *PoolerCache, opts SnapshotOptions) []*snapshot.Shard 
 		// TODO: a pooler that keeps its ID but switches shards is not handled: between
 		// the cache entry and its rider's metadata updating, its old health can be
 		// filed under the new shard. Poolers normally get a new ID instead.
-		key := entry.Pooler.GetShardKey()
-		id := commontypes.FormatShardKey(key)
+		key := entry.Pooler.GetShardRef()
+		id := commontypes.FormatShardRef(key)
 		if byKey[id] == nil {
 			byKey[id] = &shardEntry{key: key}
 		}
@@ -75,17 +75,17 @@ func SnapshotShards(cache *PoolerCache, opts SnapshotOptions) []*snapshot.Shard 
 
 // SnapshotShard freezes one shard. It returns NOT_FOUND if the cache holds no
 // poolers for it.
-func SnapshotShard(cache *PoolerCache, shardKey *clustermetadatapb.ShardKey, opts SnapshotOptions) (*snapshot.Shard, error) {
+func SnapshotShard(cache *PoolerCache, shardRef *clustermetadatapb.ShardRef, opts SnapshotOptions) (*snapshot.Shard, error) {
 	var poolers []*multiorchdatapb.PoolerHealthState
-	for _, entry := range cache.GetByShard(shardKey.GetDatabase(), shardKey.GetTableGroup(), shardKey.GetShard()) {
+	for _, entry := range cache.GetByShard(shardRef.GetDatabase(), shardRef.GetTableGroup(), shardRef.GetShard()) {
 		if health := healthOf(entry.Rider); health != nil {
 			poolers = append(poolers, health)
 		}
 	}
 	if len(poolers) == 0 {
-		return nil, mterrors.Errorf(mtrpcpb.Code_NOT_FOUND, "shard not found: %s", commontypes.FormatShardKey(shardKey))
+		return nil, mterrors.Errorf(mtrpcpb.Code_NOT_FOUND, "shard not found: %s", commontypes.FormatShardRef(shardRef))
 	}
-	return newShard(shardKey, poolers, tombstoneIDs(cache), opts), nil
+	return newShard(shardRef, poolers, tombstoneIDs(cache), opts), nil
 }
 
 // healthOf returns the rider's current health, or nil if the rider has no
@@ -111,7 +111,7 @@ func tombstoneIDs(cache *PoolerCache) map[topoclient.ComponentID]struct{} {
 }
 
 func newShard(
-	shardKey *clustermetadatapb.ShardKey,
+	shardRef *clustermetadatapb.ShardRef,
 	poolers []*multiorchdatapb.PoolerHealthState,
 	tombstones map[topoclient.ComponentID]struct{},
 	opts SnapshotOptions,
@@ -127,14 +127,14 @@ func newShard(
 		)
 	})
 	s := &snapshot.Shard{
-		ShardKey:           shardKey,
+		ShardRef:           shardRef,
 		Poolers:            poolers,
 		Now:                opts.Now,
 		AvailabilityPolicy: opts.AvailabilityPolicy,
 		TombstoneIDs:       tombstones,
 	}
 	if opts.BootstrapDurabilityPolicy != nil {
-		s.BootstrapDurabilityPolicy = opts.BootstrapDurabilityPolicy(shardKey.GetDatabase())
+		s.BootstrapDurabilityPolicy = opts.BootstrapDurabilityPolicy(shardRef.GetDatabase())
 	}
 	return s
 }

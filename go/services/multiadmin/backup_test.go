@@ -140,7 +140,7 @@ func TestGetBackupJobStatus_FallbackToPooler(t *testing.T) {
 		},
 		Hostname: "replica-pooler.cell1",
 		PortMap:  map[string]int32{"grpc": 8081},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 		},
@@ -247,7 +247,7 @@ func TestGetBackups_PropagatesLSNAndPgVersion(t *testing.T) {
 		Id:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica-pooler"},
 		Hostname: "replica-pooler.cell1",
 		PortMap:  map[string]int32{"grpc": 8081},
-		ShardKey: &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default"},
+		ShardRef: &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default"},
 		Type:     clustermetadatapb.PoolerType_REPLICA,
 	}
 	require.NoError(t, ts.CreateMultipooler(ctx, replicaPooler))
@@ -308,6 +308,190 @@ func TestFindPoolerForBackup_SkipsNonServingReplicas(t *testing.T) {
 	require.Equal(t, serving.Id.Name, got.Id.Name)
 }
 
+func TestFindPoolerForBackup_StaticLeader(t *testing.T) {
+	ctx := t.Context()
+	server := newTestServer(t, "cell1")
+	defer server.Stop()
+
+	leader := makeRoutedPooler("cell1", "static-leader", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	leader.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
+	leader.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
+	require.NoError(t, server.ts.CreateMultipooler(ctx, leader))
+	_, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	require.ErrorContains(t, err, "is not serving", "a static leader is never replaced by a guess")
+
+	_, err = server.ts.UpdateMultipoolerFields(ctx, leader.Id, func(p *clustermetadatapb.Multipooler) error {
+		p.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+		return nil
+	})
+	require.NoError(t, err)
+	for _, forceLeader := range []bool{false, true} {
+		got, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", forceLeader)
+		require.NoError(t, err, "a static leader is chosen with forceLeader=%v", forceLeader)
+		require.Equal(t, leader.Id.Name, got.Id.Name)
+	}
+
+	// A stopped consensus pooler in the same shard makes it mixed.
+	replica := makeRoutedPooler("cell1", "consensus-replica", clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA)
+	replica.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
+	require.NoError(t, server.ts.CreateMultipooler(ctx, replica))
+	_, err = server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	require.ErrorContains(t, err, "has a static leader (multipooler-cell1-static-leader) and 1 other pooler(s)")
+}
+
+// TestFindPoolerForBackup_StaticLeaderIgnoresShutDownPoolers: a static leader
+// restarted under a new service ID leaves its old record, shut down, behind.
+func TestFindPoolerForBackup_StaticLeaderIgnoresShutDownPoolers(t *testing.T) {
+	ctx := t.Context()
+	server := newTestServer(t, "cell1")
+	defer server.Stop()
+
+	old := makeRoutedPooler("cell1", "old-static-leader", clustermetadatapb.RoutingRole_ROUTING_ROLE_UNKNOWN)
+	old.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
+	old.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
+	old.LifecycleStatus = &clustermetadatapb.PoolerLifecycle{Status: clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN}
+	require.NoError(t, server.ts.CreateMultipooler(ctx, old))
+	leader := makeRoutedPooler("cell1", "new-static-leader", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	leader.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	leader.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
+	require.NoError(t, server.ts.CreateMultipooler(ctx, leader))
+
+	got, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	require.NoError(t, err, "the shut-down record is not another pooler")
+	require.Equal(t, leader.Id.Name, got.Id.Name)
+}
+
+// TestFindPoolerForBackup_StaticLeaderWithUnreadableCell fails closed: a cell
+// that cannot be read could hide another pooler of the static leader's shard.
+func TestFindPoolerForBackup_StaticLeaderWithUnreadableCell(t *testing.T) {
+	ctx := t.Context()
+	server := newTestServer(t, "cell1")
+	defer server.Stop()
+
+	leader := makeRoutedPooler("cell1", "static-leader", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	leader.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	leader.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
+	require.NoError(t, server.ts.CreateMultipooler(ctx, leader))
+	// cell2 is listed in the global topology but its topology server cannot
+	// be reached.
+	require.NoError(t, server.ts.CreateCell(ctx, "cell2", &clustermetadatapb.Cell{ServerAddresses: []string{"unreachable"}, Root: "/cell2"}))
+
+	_, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	require.ErrorContains(t, err, "cannot confirm static leader multipooler-cell1-static-leader is the only pooler")
+	require.ErrorContains(t, err, "[cell2]")
+}
+
+// TestFindPoolerForMigration_ReachesDrainingPrimary: a migration in progress
+// holds the target primary DRAINING; the migration control plane must still
+// reach it (findPoolerForMigration's requireServing=false), while the backup
+// path (findPoolerForBackup, always requireServing=true) correctly does not.
+func TestFindPoolerForMigration_ReachesDrainingPrimary(t *testing.T) {
+	ctx := t.Context()
+	server := newTestServer(t, "cell1")
+	defer server.Stop()
+
+	primary := makeRoutedPooler("cell1", "draining-primary", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	primary.ServingStatus = clustermetadatapb.PoolerServingStatus_DRAINING
+	require.NoError(t, server.ts.CreateMultipooler(ctx, primary))
+
+	// Backup path: a non-serving leader is invisible.
+	_, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", true)
+	require.ErrorContains(t, err, "serving leader pooler not found")
+
+	// Migration path: the DRAINING primary is reached.
+	got, err := server.findPoolerForMigration(ctx, &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "default", Shard: "0-inf"})
+	require.NoError(t, err)
+	require.Equal(t, primary.Id.Name, got.Id.Name)
+}
+
+// TestFindPoolerForMigration_StaticLeaderDraining covers the same
+// requireServing=false need for a static-leader-topology shard: the migration
+// control plane must reach a DRAINING static leader too.
+func TestFindPoolerForMigration_StaticLeaderDraining(t *testing.T) {
+	ctx := t.Context()
+	server := newTestServer(t, "cell1")
+	defer server.Stop()
+
+	leader := makeRoutedPooler("cell1", "static-leader", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	leader.ServingStatus = clustermetadatapb.PoolerServingStatus_DRAINING
+	leader.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
+	require.NoError(t, server.ts.CreateMultipooler(ctx, leader))
+
+	// Backup path: a non-serving static leader is refused.
+	_, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", false)
+	require.ErrorContains(t, err, "is not serving")
+
+	// Migration path: the DRAINING static leader is reached.
+	got, err := server.findPoolerForMigration(ctx, &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "default", Shard: "0-inf"})
+	require.NoError(t, err)
+	require.Equal(t, leader.Id.Name, got.Id.Name)
+}
+
+// TestFindPooler_ExcludesOtherShards: a target for one shard never resolves to
+// another shard's primary.
+func TestFindPooler_ExcludesOtherShards(t *testing.T) {
+	ctx := t.Context()
+	server := newTestServer(t, "cell1")
+	defer server.Stop()
+
+	wrongShard := makeRoutedPooler("cell1", "wrong-shard-primary", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	wrongShard.ShardRef.Shard = "80-inf"
+	require.NoError(t, server.ts.CreateMultipooler(ctx, wrongShard))
+
+	// A caller asking for "0-inf" must not resolve to the "80-inf" primary,
+	// even though it is the only serving primary registered.
+	_, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", true)
+	require.ErrorContains(t, err, "serving leader pooler not found")
+
+	// Once the right shard's primary is registered too, it — and only it —
+	// is selected.
+	rightShard := makeRoutedPooler("cell1", "right-shard-primary", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	require.NoError(t, server.ts.CreateMultipooler(ctx, rightShard))
+
+	got, err := server.findPoolerForBackup(ctx, "db1", "default", "0-inf", true)
+	require.NoError(t, err)
+	require.Equal(t, rightShard.Id.Name, got.Id.Name)
+}
+
+// TestFindPoolerForMigration_ExcludesShutDownPooler: a LIFECYCLE_SHUTDOWN pooler
+// is never selected, even with requireServing=false.
+func TestFindPoolerForMigration_ExcludesShutDownPooler(t *testing.T) {
+	ctx := t.Context()
+	server := newTestServer(t, "cell1")
+	defer server.Stop()
+
+	stale := makeRoutedPooler("cell1", "stale-primary", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	stale.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
+	stale.LifecycleStatus = &clustermetadatapb.PoolerLifecycle{Status: clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN}
+	require.NoError(t, server.ts.CreateMultipooler(ctx, stale))
+
+	_, err := server.findPoolerForMigration(ctx, &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "default", Shard: "0-inf"})
+	require.ErrorContains(t, err, "serving leader pooler not found", "a shut-down pooler's stale record must never be selected as the leader")
+}
+
+// TestFindPoolerForMigration_StaticLeaderElsewhereDoesNotBreakWildcardSearch: a
+// static-leader shard elsewhere doesn't break a wildcard search.
+func TestFindPoolerForMigration_StaticLeaderElsewhereDoesNotBreakWildcardSearch(t *testing.T) {
+	ctx := t.Context()
+	server := newTestServer(t, "cell1")
+	defer server.Stop()
+
+	// A static-leader single-node shard ("80-inf")...
+	staticLeader := makeRoutedPooler("cell1", "static-leader", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	staticLeader.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
+	staticLeader.ShardRef.Shard = "80-inf"
+	require.NoError(t, server.ts.CreateMultipooler(ctx, staticLeader))
+
+	// ...coexisting with an ordinary consensus primary on a different shard ("0-inf").
+	ordinary := makeRoutedPooler("cell1", "ordinary-primary", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	require.NoError(t, server.ts.CreateMultipooler(ctx, ordinary))
+
+	// target=nil is the match-any-pooler wildcard used by ref-addressed migration
+	// RPCs (GetMigration, DropMigration, etc.).
+	_, err := server.findPoolerForMigration(ctx, nil)
+	require.NoError(t, err, "a static leader on an unrelated shard must not break an unscoped wildcard search")
+}
+
 func TestBackup_ForcePrimary(t *testing.T) {
 	ctx := t.Context()
 	ts := memorytopo.NewServer(ctx, "cell1")
@@ -325,7 +509,7 @@ func TestBackup_ForcePrimary(t *testing.T) {
 		},
 		Hostname: "primary-pooler.cell1",
 		PortMap:  map[string]int32{"grpc": 8081},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 		},
@@ -343,7 +527,7 @@ func TestBackup_ForcePrimary(t *testing.T) {
 		},
 		Hostname: "replica-pooler.cell1",
 		PortMap:  map[string]int32{"grpc": 8081},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 		},
@@ -419,7 +603,7 @@ func TestBackup_ForcePrimary(t *testing.T) {
 			},
 			Hostname: "primary-only.cell2",
 			PortMap:  map[string]int32{"grpc": 8081},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "default",
 			},
@@ -514,7 +698,7 @@ func TestVerifyBackups(t *testing.T) {
 			},
 			Hostname: "replica-pooler.cell1",
 			PortMap:  map[string]int32{"grpc": 8081},
-			ShardKey: &clustermetadatapb.ShardKey{
+			ShardRef: &clustermetadatapb.ShardRef{
 				Database:   "testdb",
 				TableGroup: "default",
 			},

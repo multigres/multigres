@@ -74,11 +74,11 @@ func (re *Engine) cleanupOldShutdownEntries() {
 }
 
 // audit logs an audit message with consistent formatting.
-func (re *Engine) audit(auditType string, poolerID topoclient.ComponentID, shardKey *clustermetadatapb.ShardKey, message string) {
+func (re *Engine) audit(auditType string, poolerID topoclient.ComponentID, shardRef *clustermetadatapb.ShardRef, message string) {
 	re.logger.Info("audit",
 		"audit_type", auditType,
 		"pooler_id", poolerID,
-		"shard_key", commontypes.FormatShardKey(shardKey),
+		"shard_key", commontypes.FormatShardRef(shardRef),
 		"message", message,
 	)
 }

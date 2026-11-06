@@ -41,7 +41,7 @@ import (
 // (current_position.rule.leader_id == self.id).
 func makeDemoteScenarioPoolers(t *testing.T, poolerStore *store.PoolerCache) (staleLeaderID *clustermetadatapb.ID) {
 	t.Helper()
-	shardKey := &clustermetadatapb.ShardKey{
+	shardRef := &clustermetadatapb.ShardRef{
 		Database:   "testdb",
 		TableGroup: "default",
 		Shard:      "0",
@@ -63,7 +63,7 @@ func makeDemoteScenarioPoolers(t *testing.T, poolerStore *store.PoolerCache) (st
 			Id:       staleLeaderID,
 			Hostname: "stale.example.com",
 			PortMap:  map[string]int32{"postgres": 5432},
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 		},
 		Status: &multipoolermanagerdatapb.Status{
@@ -83,7 +83,7 @@ func makeDemoteScenarioPoolers(t *testing.T, poolerStore *store.PoolerCache) (st
 			Id:       correctLeaderID,
 			Hostname: "correct.example.com",
 			PortMap:  map[string]int32{"postgres": 5433},
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 		},
 		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
@@ -130,7 +130,7 @@ func TestDemoteStaleLeaderAction_Execute(t *testing.T) {
 
 	problem := types.Problem{
 		Code: types.ProblemStaleLeader,
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: "default",
 			Shard:      "0",
@@ -167,7 +167,7 @@ func TestDemoteStaleLeaderAction_ExecuteNoCorrectLeader(t *testing.T) {
 		Cell:      "cell1",
 		Name:      "stale-leader",
 	}
-	shardKey := &clustermetadatapb.ShardKey{
+	shardRef := &clustermetadatapb.ShardRef{
 		Database:   "testdb",
 		TableGroup: "default",
 		Shard:      "0",
@@ -176,7 +176,7 @@ func TestDemoteStaleLeaderAction_ExecuteNoCorrectLeader(t *testing.T) {
 	store.SeedCache(t, poolerStore, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
 			Id:       staleLeaderID,
-			ShardKey: shardKey,
+			ShardRef: shardRef,
 			Type:     clustermetadatapb.PoolerType_PRIMARY,
 		},
 	}, nil))
@@ -186,7 +186,7 @@ func TestDemoteStaleLeaderAction_ExecuteNoCorrectLeader(t *testing.T) {
 
 	err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 		Code:     types.ProblemStaleLeader,
-		ShardKey: shardKey,
+		ShardRef: shardRef,
 		PoolerID: staleLeaderID,
 	}})
 	require.Error(t, err)
@@ -204,7 +204,7 @@ func TestDemoteStaleLeaderAction_ExecuteRewindsTowardRuleNamedLeader(t *testing.
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	defer ts.Close()
 
-	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default", Shard: "0"}
 	staleID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-leader"}
 	newID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "new-leader"}
 	replicaID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica"}
@@ -215,26 +215,26 @@ func TestDemoteStaleLeaderAction_ExecuteRewindsTowardRuleNamedLeader(t *testing.
 
 	// Stale leader: still self-claims term 5 and is the demote target.
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		Multipooler:     &clustermetadatapb.Multipooler{Id: staleID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_PRIMARY},
+		Multipooler:     &clustermetadatapb.Multipooler{Id: staleID, ShardRef: shardRef, Type: clustermetadatapb.PoolerType_PRIMARY},
 		ConsensusStatus: selfLeaderRule(staleID, 5),
 	}, nil))
 	// New leader: has not published its own snapshot yet; only its address is known.
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
 		Multipooler: &clustermetadatapb.Multipooler{
-			Id: newID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_REPLICA,
+			Id: newID, ShardRef: shardRef, Type: clustermetadatapb.PoolerType_REPLICA,
 			Hostname: "new.example.com", PortMap: map[string]int32{"postgres": 5433},
 		},
 	}, nil))
 	// Replica replicating from the new leader at the higher term 6.
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		Multipooler:     &clustermetadatapb.Multipooler{Id: replicaID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_REPLICA},
+		Multipooler:     &clustermetadatapb.Multipooler{Id: replicaID, ShardRef: shardRef, Type: clustermetadatapb.PoolerType_REPLICA},
 		ConsensusStatus: replicaFollowingRule(replicaID, newID, 6),
 	}, nil))
 
 	action := NewDemoteStaleLeaderAction(config.NewTestConfig(), fakeClient, ps, ts, slog.Default())
 	require.NoError(t, action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 		Code:     types.ProblemStaleLeader,
-		ShardKey: shardKey,
+		ShardRef: shardRef,
 		PoolerID: staleID,
 	}}))
 
@@ -256,21 +256,21 @@ func TestDemoteStaleLeaderAction_ExecuteNoOpWhenNodeIsCurrentLeader(t *testing.T
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	defer ts.Close()
 
-	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default", Shard: "0"}
 	nodeID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-leader"}
 
 	fakeClient := rpcclient.NewFakeClient()
 	ps := store.NewTestCache(t)
 	// The node multiorch flagged as stale is actually the highest known leader.
 	store.SeedCache(t, ps, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		Multipooler:     &clustermetadatapb.Multipooler{Id: nodeID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_PRIMARY},
+		Multipooler:     &clustermetadatapb.Multipooler{Id: nodeID, ShardRef: shardRef, Type: clustermetadatapb.PoolerType_PRIMARY},
 		ConsensusStatus: selfLeaderRule(nodeID, 7),
 	}, nil))
 
 	action := NewDemoteStaleLeaderAction(config.NewTestConfig(), fakeClient, ps, ts, slog.Default())
 	require.NoError(t, action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 		Code:     types.ProblemStaleLeader,
-		ShardKey: shardKey,
+		ShardRef: shardRef,
 		PoolerID: nodeID,
 	}}))
 

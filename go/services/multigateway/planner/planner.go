@@ -50,6 +50,12 @@ type Planner struct {
 	// handler.MultigatewayHandler.SetSlotBasedReplicationEnabled, which gates
 	// the same feature for the replication-protocol preamble.
 	slotBasedReplicationEnabled func() bool
+
+	// clusterViews supplies the rows of the gateway's cluster views
+	// (multigres.multigateways, multigres.multipoolers) at execution time.
+	// Set via SetClusterViewSource; nil (the default) keeps the views off, and
+	// every statement naming one is forwarded to the backend unchanged.
+	clusterViews engine.ClusterViewSource
 }
 
 // NewPlanner creates a new query planner.
@@ -68,6 +74,19 @@ func NewPlanner(defaultTableGroup string, logger *slog.Logger, txnMetrics *engin
 // before.
 func (p *Planner) SetSlotBasedReplicationEnabled(enabled func() bool) {
 	p.slotBasedReplicationEnabled = enabled
+}
+
+// SetClusterViewSource wires the source the cluster views read from and so
+// turns the views on (see --enable-cluster-views). Must be called before
+// connections are accepted. Left nil, the views are off: a reference to
+// multigres.multipoolers is an ordinary unknown relation to the backend.
+func (p *Planner) SetClusterViewSource(source engine.ClusterViewSource) {
+	p.clusterViews = source
+}
+
+// ClusterViewsEnabled reports whether the gateway serves the cluster views.
+func (p *Planner) ClusterViewsEnabled() bool {
+	return p.clusterViews != nil
 }
 
 // admitsFailoverSlots reports whether the planner should admit a
@@ -204,17 +223,17 @@ func (p *Planner) Plan(
 	}
 
 	// Handle wrapped EXECUTE forms (EXPLAIN EXECUTE / CREATE TABLE AS EXECUTE)
-	// before normal dispatch. The wrapper's inner ExecuteStmt references a
-	// gateway-managed prepared statement by user-facing name (e.g. "p"); we
-	// attach a SQL prefix/suffix template plus PreparedStatement metadata so the
-	// multipooler can resolve a pooler-consolidated backend name before running
-	// the query. See execute_unwrap.go.
+	// before normal dispatch. The inner ExecuteStmt names a gateway-managed
+	// prepared statement (e.g. "p") the backend session never sees;
+	// tryUnwrapWrappedExecute substitutes the EXECUTE arguments into the prepared
+	// body and splices the result in place of the ExecuteStmt, so `EXPLAIN EXECUTE
+	// p(5)` runs as `EXPLAIN SELECT ...` — an ordinary query. See execute_unwrap.go.
 	//
-	// Simple protocol only: the rewrite produces a Route carrying the SQL EXECUTE
-	// template, but Route.PortalStreamExecute forwards the portal as-is and
-	// ignores that metadata, so the unwrap is a no-op (or worse, an error if the
-	// statement is missing) over the extended protocol. In portal mode these
-	// wrapped forms fall through to normal dispatch and route like any query.
+	// Gated to the simple protocol: this call site passes no portal (nil), so an
+	// EXECUTE argument that is an outer bound parameter ($N from an extended-protocol
+	// Bind) cannot be resolved. Extended-protocol wrapped EXECUTE therefore falls
+	// through to normal dispatch. The substitution itself is protocol-agnostic;
+	// lifting this gate needs the portal threaded through so bound args resolve.
 	if !opts.IsPortal {
 		if unwrappedPlan, err := p.tryUnwrapWrappedExecute(sql, stmt, conn); err != nil {
 			return nil, err
@@ -239,6 +258,14 @@ func (p *Planner) Plan(
 	opts.PinForLogicalReplicationSlot = analysis.CreatesLogicalReplicationSlot
 	opts.PinForSetSeed = analysis.CallsSetSeed
 	opts.RewriteCurrentSetting = analysis.NeedsCurrentSettingRewrite
+
+	// Writes to a cluster view and definitions persisted over one are
+	// rejected before dispatch; see CheckClusterViewStatement.
+	if p.ClusterViewsEnabled() && engine.MayReferenceClusterView(sql) {
+		if err := CheckClusterViewStatement(stmt); err != nil {
+			return nil, err
+		}
+	}
 
 	// Dispatch to appropriate planner function based on statement type
 	// This follows PostgreSQL's utility.c pattern with switch on node tag
@@ -280,12 +307,18 @@ func (p *Planner) Plan(
 
 	case ast.T_CreateStmt:
 		if cs := stmt.(*ast.CreateStmt); cs.Relation != nil && cs.Relation.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			if err := p.noClusterView(sql, stmt); err != nil {
+				return nil, err
+			}
 			return p.planTempTableCreation(sql, conn)
 		}
 		plan, err = p.planDefault(sql, stmt, conn, opts)
 
 	case ast.T_CreateTableAsStmt:
 		if cs := stmt.(*ast.CreateTableAsStmt); cs.Into != nil && cs.Into.Rel != nil && cs.Into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			if err := p.noClusterView(sql, stmt); err != nil {
+				return nil, err
+			}
 			return p.planTempTableCreation(sql, conn)
 		}
 		plan, err = p.planDefault(sql, stmt, conn, opts)
@@ -294,6 +327,9 @@ func (p *Planner) Plan(
 		// Temp sequences are session-scoped like temp tables: nextval/currval
 		// on later statements must land on the same backend connection.
 		if cs := stmt.(*ast.CreateSeqStmt); cs.Sequence != nil && cs.Sequence.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			if err := p.noClusterView(sql, stmt); err != nil {
+				return nil, err
+			}
 			return p.planTempTableCreation(sql, conn)
 		}
 		plan, err = p.planDefault(sql, stmt, conn, opts)
@@ -301,12 +337,18 @@ func (p *Planner) Plan(
 	case ast.T_SelectStmt:
 		ss := stmt.(*ast.SelectStmt)
 		if into := ss.LeafIntoClause(); into != nil && into.Rel != nil && into.Rel.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			if err := p.noClusterView(sql, stmt); err != nil {
+				return nil, err
+			}
 			return p.planTempTableCreation(sql, conn)
 		}
 		plan, err = p.planSelectStmt(sql, ss, conn, analysis.SetConfigs, analysis.DynamicSetConfig, opts)
 
 	case ast.T_ViewStmt:
 		if vs := stmt.(*ast.ViewStmt); vs.View != nil && vs.View.RelPersistence == ast.RELPERSISTENCE_TEMP {
+			if err := p.noClusterView(sql, stmt); err != nil {
+				return nil, err
+			}
 			return p.planTempTableCreation(sql, conn)
 		}
 		plan, err = p.planDefault(sql, stmt, conn, opts)
@@ -314,6 +356,9 @@ func (p *Planner) Plan(
 	case ast.T_DeclareCursorStmt:
 		dcs := stmt.(*ast.DeclareCursorStmt)
 		if dcs.Options&ast.CURSOR_OPT_HOLD != 0 {
+			if err := p.noClusterView(sql, stmt); err != nil {
+				return nil, err
+			}
 			return p.planHoldCursorDeclare(sql, dcs)
 		}
 		plan, err = p.planDefault(sql, stmt, conn, opts)
@@ -327,6 +372,10 @@ func (p *Planner) Plan(
 	}
 
 	if err != nil {
+		return nil, err
+	}
+
+	if plan, err = p.wrapClusterViews(sql, stmt, plan); err != nil {
 		return nil, err
 	}
 
@@ -661,6 +710,8 @@ func primitiveName(p engine.Primitive) string {
 		return engine.PlanTypeHoldCursorRoute
 	case *engine.CloseCursorRoute:
 		return engine.PlanTypeCloseCursorRoute
+	case *engine.ClusterViewRoute:
+		return engine.PlanTypeClusterViewRoute
 	case *engine.TransactionPrimitive:
 		return engine.PlanTypeTransaction
 	case *engine.CopyStatement:

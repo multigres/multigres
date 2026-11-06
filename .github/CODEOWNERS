@@ -17,6 +17,13 @@ go/services/pgctld/       @multigres/owners-cluster-management
 # Pooler service
 go/services/multipooler/  @multigres/owners-cluster-management
 
+# Migrator (must follow the pooler service rule)
+go/services/multipooler/internal/migration/                   @multigres/owners-data-movement
+go/services/multipooler/internal/manager/migration_coord*.go  @multigres/owners-data-movement
+go/services/multipooler/grpcmigrationservice/                 @multigres/owners-data-movement
+go/pb/migrator/                                               @multigres/owners-data-movement
+go/test/endtoend/migrator/                                    @multigres/owners-data-movement
+
 # SQL parser
 go/common/parser/         @multigres/owners-query-serving
 
@@ -36,6 +43,7 @@ go/common/topoclient/     @multigres/owners-cluster-management
 proto/clustermetadata.proto         @multigres/owners-cluster-management @multigres/owners-operator
 proto/consensusdata.proto           @multigres/owners-cluster-management @multigres/owners-operator
 proto/consensusservice.proto        @multigres/owners-cluster-management
+proto/migratorservice.proto         @multigres/owners-data-movement
 proto/multiadminservice.proto       @multigres/Maintainers
 proto/multigatewayservice.proto     @multigres/owners-query-serving
 proto/multiorchdata.proto           @multigres/owners-cluster-management

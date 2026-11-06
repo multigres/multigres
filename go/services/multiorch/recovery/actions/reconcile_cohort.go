@@ -90,7 +90,7 @@ func NewReconcileCohortAction(
 func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
 	problem := rechecked.Problem
 	a.logger.InfoContext(ctx, "executing reconcile cohort action",
-		"shard_key", problem.ShardKey.String(),
+		"shard_key", problem.ShardRef.String(),
 		"pooler", problem.PoolerID.Name,
 		"problem_code", string(problem.Code))
 
@@ -107,7 +107,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.Rec
 
 	if rechecked.HighestIntendedRule.IsEmpty() {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"no consensus rule known for shard %s", problem.ShardKey)
+			"no consensus rule known for shard %s", problem.ShardRef)
 	}
 	// A cohort change is leader-led: it's meaningless to compute one from an
 	// outstanding, not-yet-decided proposal (no cohort is settled to add to
@@ -119,7 +119,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.Rec
 	// decision.
 	if !rechecked.HighestIntendedRule.IsDecided() {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"shard %s has an undecided rule proposal; cohort reconciliation requires a decided rule", problem.ShardKey)
+			"shard %s has an undecided rule proposal; cohort reconciliation requires a decided rule", problem.ShardRef)
 	}
 	decidedRule := rechecked.HighestIntendedRule.Decision()
 
@@ -152,7 +152,7 @@ func (a *ReconcileCohortAction) Execute(ctx context.Context, rechecked types.Rec
 
 	if !snapshot.LeaderWritesProgressing(leader.Health(), rechecked.HighestIntendedRule, time.Now(), snapshot.DefaultLeaderWriteFreshness) {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"leader for shard %s does not look able to commit writes right now", problem.ShardKey)
+			"leader for shard %s does not look able to commit writes right now", problem.ShardRef)
 	}
 
 	// TODO: batch multiple cohort changes into a single UpdateConsensusRule

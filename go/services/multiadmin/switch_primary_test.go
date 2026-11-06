@@ -38,7 +38,7 @@ func makeRoutedPooler(cell, name string, role clustermetadatapb.RoutingRole) *cl
 	return p
 }
 
-func TestSwitchPrimary_NoShardKey(t *testing.T) {
+func TestSwitchPrimary_NoShardRef(t *testing.T) {
 	s := newTestServer(t, "cell1")
 	_, err := s.SwitchPrimary(t.Context(), &multiadminpb.SwitchPrimaryRequest{})
 	require.Error(t, err)
@@ -54,10 +54,33 @@ func TestSwitchPrimary_NoPrimaryFound(t *testing.T) {
 	require.NoError(t, s.ts.CreateMultipooler(ctx, replica))
 
 	_, err := s.SwitchPrimary(ctx, &multiadminpb.SwitchPrimaryRequest{
-		ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"},
+		ShardRef: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "default", Shard: "0-inf"},
 	})
 	require.Error(t, err)
 	assert.Equal(t, codes.NotFound, status.Code(err))
+}
+
+func TestSwitchPrimary_IgnoresUnmanagedPoolers(t *testing.T) {
+	ctx := t.Context()
+	s := newTestServer(t, "cell1")
+
+	// The only primary is unmanaged: its leadership is external, so there is
+	// nothing for multigres to resign.
+	primary := makeRoutedPooler("cell1", "mp-unmanaged", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	primary.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNMANAGED
+	replica := makeRoutedPooler("cell1", "mp-replica", clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA)
+	require.NoError(t, s.ts.CreateMultipooler(ctx, primary))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, replica))
+
+	fc := rpcclient.NewFakeClient()
+	s.SetRPCClient(fc)
+
+	_, err := s.SwitchPrimary(ctx, &multiadminpb.SwitchPrimaryRequest{
+		ShardRef: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "default", Shard: "0-inf"},
+	})
+	require.Error(t, err)
+	assert.Equal(t, codes.NotFound, status.Code(err))
+	assert.Empty(t, fc.GetCallLog())
 }
 
 func TestSwitchPrimary_NoStandby(t *testing.T) {
@@ -69,7 +92,7 @@ func TestSwitchPrimary_NoStandby(t *testing.T) {
 	require.NoError(t, s.ts.CreateMultipooler(ctx, primary))
 
 	_, err := s.SwitchPrimary(ctx, &multiadminpb.SwitchPrimaryRequest{
-		ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"},
+		ShardRef: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "default", Shard: "0-inf"},
 	})
 	require.Error(t, err)
 	assert.Equal(t, codes.FailedPrecondition, status.Code(err))
@@ -92,7 +115,7 @@ func TestSwitchPrimary_Success(t *testing.T) {
 	s.SetRPCClient(fc)
 
 	resp, err := s.SwitchPrimary(ctx, &multiadminpb.SwitchPrimaryRequest{
-		ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"},
+		ShardRef: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "default", Shard: "0-inf"},
 		Reason:   "unit test",
 	})
 	require.NoError(t, err)
@@ -128,7 +151,7 @@ func TestSwitchPrimary_BackoffWait(t *testing.T) {
 	s.SetRPCClient(fc)
 
 	resp, err := s.SwitchPrimary(ctx, &multiadminpb.SwitchPrimaryRequest{
-		ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"},
+		ShardRef: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "default", Shard: "0-inf"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "mp-primary", resp.GetOldLeaderId().GetName())
@@ -149,7 +172,7 @@ func TestSwitchPrimary_ResignLeadershipError(t *testing.T) {
 	s.SetRPCClient(fc)
 
 	_, err := s.SwitchPrimary(ctx, &multiadminpb.SwitchPrimaryRequest{
-		ShardKey: &clustermetadatapb.ShardKey{Database: "db1", TableGroup: "default", Shard: "0-inf"},
+		ShardRef: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "default", Shard: "0-inf"},
 	})
 	require.Error(t, err)
 	assert.Equal(t, codes.Internal, status.Code(err))

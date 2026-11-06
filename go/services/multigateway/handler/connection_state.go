@@ -449,7 +449,7 @@ func (m *MultigatewayConnectionState) HasReservedConnectionFor(tableGroup, shard
 		if ss.ReservedState.GetReservedConnectionId() == 0 {
 			continue
 		}
-		key := ss.Target.GetShardKey()
+		key := ss.Target.GetShardRef()
 		if key.GetTableGroup() == tableGroup && key.GetShard() == shard {
 			return true
 		}

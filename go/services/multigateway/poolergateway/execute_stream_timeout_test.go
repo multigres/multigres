@@ -101,7 +101,7 @@ func TestOperationTimeoutWithoutCompletionIsFatal(t *testing.T) {
 	require.ErrorAs(t, err, &diagnostic)
 	require.Equal(t, "FATAL", diagnostic.Severity)
 	require.Equal(t, mterrors.PgSSConnectionFailure, diagnostic.Code)
-	require.Empty(t, g.executeStreams.idle)
+	require.Empty(t, g.executeStreams.idleSnapshot())
 }
 
 func TestStreamingCallbackTimeoutWaitsForCleanup(t *testing.T) {
