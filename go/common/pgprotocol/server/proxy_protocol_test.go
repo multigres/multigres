@@ -31,6 +31,8 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 )
 
+var proxyV2Signature = []byte("\r\n\r\n\x00\r\nQUIT\n")
+
 func proxyTestHeader(command, family byte, payload []byte) []byte {
 	header := append([]byte(nil), proxyV2Signature...)
 	header = append(header, command, family, byte(len(payload)>>8), byte(len(payload)))
@@ -49,6 +51,11 @@ func proxyTestAddress(ipv6 bool) []byte {
 	return binary.BigEndian.AppendUint16(data, 5432)
 }
 
+func proxyTestTLV(length int) []byte {
+	data := binary.BigEndian.AppendUint16([]byte{4}, uint16(length))
+	return append(data, make([]byte, length)...)
+}
+
 func TestProxyProtocolParsing(t *testing.T) {
 	v4 := proxyTestHeader(0x21, 0x11, proxyTestAddress(false))
 	v6 := proxyTestHeader(0x21, 0x21, proxyTestAddress(true))
@@ -64,15 +71,24 @@ func TestProxyProtocolParsing(t *testing.T) {
 		{"unrestricted IPv4", v4, "", "192.0.2.10:45678", false},
 		{"unrestricted IPv6", v6, "", "[2001:db8::1]:45678", false},
 		{"TLV", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), 4, 0, 2, 1, 2)), "127.0.0.1/32", "192.0.2.10:45678", false},
+		{"empty TLV", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), proxyTestTLV(0)...)), "", "192.0.2.10:45678", false},
+		{"multiple TLVs", proxyTestHeader(0x21, 0x11, append(append(proxyTestAddress(false), proxyTestTLV(2)...), proxyTestTLV(3)...)), "", "192.0.2.10:45678", false},
+		{"maximum payload", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), proxyTestTLV(4096-12-3)...)), "", "192.0.2.10:45678", false},
+		{"oversized payload", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), proxyTestTLV(4097-12-3)...)), "", "", true},
 		{"headerless", nil, "127.0.0.1/32", "127.0.0.1:1234", false},
 		{"unrestricted headerless", nil, "", "127.0.0.1:1234", false},
 		{"headerless outside CIDRs", nil, "192.0.2.0/24", "127.0.0.1:1234", false},
 		{"untrusted", v4, "192.0.2.0/24", "", true},
-		{"LOCAL", proxyTestHeader(0x20, 0xff, []byte{1, 2, 3}), "127.0.0.1/32", "127.0.0.1:1234", false},
-		{"UNSPEC", proxyTestHeader(0x21, 0, nil), "127.0.0.1/32", "127.0.0.1:1234", false},
+		{"LOCAL", proxyTestHeader(0x20, 0, nil), "127.0.0.1/32", "127.0.0.1:1234", false},
+		{"LOCAL payload", proxyTestHeader(0x20, 0, []byte{1, 2, 3}), "", "127.0.0.1:1234", false},
+		{"LOCAL address", proxyTestHeader(0x20, 0x11, proxyTestAddress(false)), "", "127.0.0.1:1234", false},
+		{"LOCAL empty address", proxyTestHeader(0x20, 0x11, nil), "", "127.0.0.1:1234", false},
+		{"LOCAL undefined family", proxyTestHeader(0x20, 0xff, []byte{1, 2, 3}), "", "", true},
+		{"UNSPEC", proxyTestHeader(0x21, 0, nil), "127.0.0.1/32", "", true},
 		{"version", proxyTestHeader(0x31, 0x11, proxyTestAddress(false)), "", "", true},
 		{"command", proxyTestHeader(0x22, 0x11, proxyTestAddress(false)), "", "", true},
 		{"UDP", proxyTestHeader(0x21, 0x12, proxyTestAddress(false)), "", "", true},
+		{"UNIX", proxyTestHeader(0x21, 0x31, make([]byte, 216)), "", "", true},
 		{"short address", proxyTestHeader(0x21, 0x11, []byte{1}), "", "", true},
 		{"short TLV", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), 1)), "", "", true},
 		{"long TLV", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), 1, 0, 8)), "", "", true},
@@ -97,11 +113,20 @@ func TestProxyProtocolParsing(t *testing.T) {
 				err := c.maybeHandleProxyProtocol()
 				if tt.wantError {
 					require.Error(t, err)
+					require.True(t, c.proxyProtocolFailed)
+					require.False(t, c.proxyClientAddress)
 					continue
 				}
 				require.NoError(t, err)
 				require.Equal(t, tt.remote, c.RemoteAddr().String())
 				require.Equal(t, tt.remote != "127.0.0.1:1234", c.proxyClientAddress)
+				if c.proxyClientAddress {
+					if tt.remote == "[2001:db8::1]:45678" {
+						require.Equal(t, "[2001:db8::2]:5432", c.conn.LocalAddr().String())
+					} else {
+						require.Equal(t, "192.0.2.20:5432", c.conn.LocalAddr().String())
+					}
+				}
 				tail, err := io.ReadAll(c.bufferedReader)
 				require.NoError(t, err)
 				require.Equal(t, []byte{0x16, 3, 1}, tail)
@@ -119,21 +144,28 @@ func TestProxyProtocolParsing(t *testing.T) {
 }
 
 func TestProxyProtocolTLSOffload(t *testing.T) {
+	v4 := proxyTestHeader(0x21, 0x11, proxyTestAddress(false))
+	v6 := proxyTestHeader(0x21, 0x21, proxyTestAddress(true))
 	for _, tt := range []struct {
-		name                                    string
-		offload, header, classic, restrictProxy bool
-		alpn                                    []string
-		success                                 bool
+		name                            string
+		offload, classic, restrictProxy bool
+		header                          []byte
+		alpn                            []string
+		success                         bool
 	}{
-		{"offloaded with CIDRs", true, true, false, true, nil, true},
-		{"offloaded without CIDRs", true, true, false, false, nil, true},
-		{"offloaded ALPN", true, true, false, false, []string{protocol.ALPNProtocol}, true},
-		{"offload disabled", false, true, false, false, nil, false},
-		{"direct no header", true, false, false, false, nil, false},
-		{"direct ALPN", true, false, false, false, []string{protocol.ALPNProtocol}, true},
-		{"classic direct", true, false, true, false, nil, true},
-		{"classic proxied", true, true, true, false, nil, true},
-		{"wrong negotiated ALPN", true, true, false, false, []string{"h2"}, false},
+		{"offloaded with CIDRs", true, false, true, v4, nil, true},
+		{"offloaded without CIDRs", true, false, false, v4, nil, true},
+		{"offloaded IPv6", true, false, false, v6, nil, true},
+		{"offloaded ALPN", true, false, false, v4, []string{protocol.ALPNProtocol}, true},
+		{"offload disabled", false, false, false, v4, nil, false},
+		{"direct no header", true, false, false, nil, nil, false},
+		{"direct ALPN", true, false, false, nil, []string{protocol.ALPNProtocol}, true},
+		{"classic direct", true, true, false, nil, nil, true},
+		{"classic proxied", true, true, false, v4, nil, true},
+		{"wrong negotiated ALPN", true, false, false, v4, []string{"h2"}, false},
+		{"LOCAL requires ALPN", true, false, false, proxyTestHeader(0x20, 0, nil), nil, false},
+		{"LOCAL address requires ALPN", true, false, false, proxyTestHeader(0x20, 0x11, proxyTestAddress(false)), nil, false},
+		{"LOCAL ALPN", true, false, false, proxyTestHeader(0x20, 0x11, proxyTestAddress(false)), []string{protocol.ALPNProtocol}, true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tlsConfig, ca := generateTestTLSConfig(t)
@@ -150,8 +182,8 @@ func TestProxyProtocolTLSOffload(t *testing.T) {
 			require.NoError(t, err)
 			defer raw.Close()
 			require.NoError(t, raw.SetDeadline(time.Now().Add(5*time.Second)))
-			if tt.header {
-				_, err = raw.Write(proxyTestHeader(0x21, 0x11, proxyTestAddress(false)))
+			if tt.header != nil {
+				_, err = raw.Write(tt.header)
 				require.NoError(t, err)
 			}
 			if tt.classic {
@@ -164,8 +196,15 @@ func TestProxyProtocolTLSOffload(t *testing.T) {
 				writeStartupPacketToPipe(t, conn, protocol.ProtocolVersionNumber, map[string]string{"user": "proxy_user", "database": "proxy_db"})
 				scramClientHelper(t, conn, "proxy_user", "postgres")
 				require.NoError(t, <-errCh)
-				if tt.header {
+				if bytes.Equal(tt.header, v4) {
 					require.Equal(t, "192.0.2.10:45678", serverConn.RemoteAddr().String())
+					require.Equal(t, "192.0.2.20:5432", serverConn.conn.LocalAddr().String())
+				} else if bytes.Equal(tt.header, v6) {
+					require.Equal(t, "[2001:db8::1]:45678", serverConn.RemoteAddr().String())
+					require.Equal(t, "[2001:db8::2]:5432", serverConn.conn.LocalAddr().String())
+				} else {
+					require.Equal(t, raw.LocalAddr().String(), serverConn.RemoteAddr().String())
+					require.False(t, serverConn.proxyClientAddress)
 				}
 			} else {
 				require.ErrorContains(t, <-errCh, "without ALPN")
@@ -208,14 +247,33 @@ func TestProxyProtocolStartupDeadline(t *testing.T) {
 		require.NoError(t, l.Close())
 		require.NoError(t, <-serveErr)
 	})
-	raw, err := net.Dial("tcp", l.Addr().String())
-	require.NoError(t, err)
-	defer raw.Close()
-	require.NoError(t, raw.SetDeadline(time.Now().Add(3*time.Second)))
-	_, err = raw.Write([]byte("\r\n"))
-	require.NoError(t, err)
-	var reply [1]byte
-	n, err := raw.Read(reply[:])
-	require.Zero(t, n, "must not send plaintext on an incomplete PROXY header")
-	require.ErrorIs(t, err, io.EOF)
+	for _, tt := range []struct {
+		name           string
+		header         []byte
+		wantErrorReply bool
+	}{
+		{"incomplete header", []byte("\r\n"), false},
+		{"complete header then stalled startup", proxyTestHeader(0x21, 0x11, proxyTestAddress(false)), true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, err := net.Dial("tcp", l.Addr().String())
+			require.NoError(t, err)
+			defer raw.Close()
+			require.NoError(t, raw.SetDeadline(time.Now().Add(3*time.Second)))
+			_, err = raw.Write(tt.header)
+			require.NoError(t, err)
+			if tt.wantErrorReply {
+				// A complete header returns to normal PostgreSQL startup. The
+				// existing deadline must still terminate a stalled client.
+				msgType, body := readMessage(t, raw)
+				require.Equal(t, byte(protocol.MsgErrorResponse), msgType)
+				require.True(t, containsErrField(body, 'C', "08006"))
+				require.True(t, containsErrField(body, 'M', "canceling authentication due to timeout"))
+			}
+			var reply [1]byte
+			n, err := raw.Read(reply[:])
+			require.Zero(t, n, "must close without an additional reply")
+			require.ErrorIs(t, err, io.EOF)
+		})
+	}
 }

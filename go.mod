@@ -36,6 +36,7 @@ require (
 	github.com/pb33f/libopenapi v0.33.11
 	github.com/pb33f/libopenapi-validator v0.11.4
 	github.com/pganalyze/pg_query_go/v6 v6.2.2
+	github.com/pires/go-proxyproto v0.15.0
 	github.com/prometheus/otlptranslator v1.0.0
 	github.com/quasilyte/go-ruleguard/dsl v0.3.23
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2

@@ -64,9 +64,11 @@ To restrict proxy peers, add `--pg-trusted-proxy-cidrs=10.0.0.10/32,fd00::10/128
 
 PROXY v2 does not say whether a proxy answered SSLRequest. The exception therefore covers both direct and negotiated clients forwarded by a trusted proxy. Keep this mode on an endpoint dedicated to PostgreSQL traffic.
 
-Clients without a PROXY header retain their existing behavior. They can send a normal SSLRequest or a permitted plaintext startup. Direct TLS without a header still requires `postgresql` ALPN. `LOCAL` and `UNSPEC` headers retain the TCP peer address and do not enable the ALPN exception.
+Clients without a PROXY header retain their existing behavior. They can send a normal SSLRequest or a permitted plaintext startup. Direct TLS without a header still requires `postgresql` ALPN. Valid `LOCAL` headers retain the TCP peer address and do not enable the ALPN exception. `PROXY` headers with an `UNSPEC` address family are rejected.
 
-The parser accepts TCP addresses for IPv4 and IPv6. It consumes optional metadata fields but does not use them for authentication. The authentication deadline covers the header, TLS handshake, and login. Malformed or untrusted headers close the connection without a plaintext PostgreSQL reply.
+Multigateway uses [pires/go-proxyproto](https://github.com/pires/go-proxyproto) to decode headers, as [Traefik does](https://github.com/traefik/traefik/blob/e237cc4e64db8a6a97c8f9e49d4a7718e3f77422/pkg/server/server_entrypoint_tcp.go#L464). Multigateway reads through its existing startup buffer so that the authentication deadline covers the header, TLS handshake, and login.
+
+The parser accepts TCP addresses for IPv4 and IPv6. It limits the address block and optional metadata to 4 KiB, excluding the fixed 16-byte header. For address headers, it validates optional metadata fields but does not use them for authentication. Undefined address-family values, malformed headers, and untrusted headers close the connection without a plaintext PostgreSQL reply.
 
 After a valid address header, `Conn.RemoteAddr()` returns the original client IP and port, including after TLS starts. Authentication logs include this address in `client_addr`. This change does not add IP allowlists or automatic bans.
 

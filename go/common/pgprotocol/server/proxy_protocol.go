@@ -15,15 +15,12 @@
 package server
 
 import (
-	"bytes"
-	"encoding/binary"
 	"errors"
-	"io"
 	"net"
 	"net/netip"
-)
 
-var proxyV2Signature = []byte("\r\n\r\n\x00\r\nQUIT\n")
+	"github.com/pires/go-proxyproto"
+)
 
 // maybeHandleProxyProtocol runs once, before TLS detection, under the startup
 // deadline. Peeking one byte preserves headerless clients and avoids waiting
@@ -33,7 +30,7 @@ func (c *Conn) maybeHandleProxyProtocol() (err error) {
 	if err != nil {
 		return err
 	}
-	if first[0] != proxyV2Signature[0] {
+	if first[0] != proxyproto.SIGV2[0] {
 		return nil
 	}
 	defer func() { c.proxyProtocolFailed = err != nil }()
@@ -41,65 +38,26 @@ func (c *Conn) maybeHandleProxyProtocol() (err error) {
 	if !ok || !c.listener.trustsProxy(peer.AddrPort().Addr()) {
 		return errors.New("header from untrusted peer")
 	}
-	var header [16]byte
-	if _, err := io.ReadFull(c.bufferedReader, header[:]); err != nil {
+	// Read uses the existing buffer and authentication deadline. The listener
+	// wrapper's lazy parsing and separate header timeout do not fit this startup
+	// sequence. The library owns framing, length limits, and address decoding.
+	header, err := proxyproto.Read(c.bufferedReader)
+	if err != nil {
 		return err
 	}
-	if !bytes.Equal(header[:12], proxyV2Signature) || header[12]>>4 != 2 {
-		return errors.New("invalid v2 header")
+	if header.Command == proxyproto.LOCAL {
+		// LOCAL carries no authoritative address or offload permission.
+		return nil
 	}
-	length := int(binary.BigEndian.Uint16(header[14:16]))
-	switch header[12] & 0x0f {
-	case 0: // LOCAL carries no authoritative address or offload permission.
-		_, err := c.bufferedReader.Discard(length)
-		return err
-	case 1: // PROXY
-	default:
-		return errors.New("invalid v2 command")
-	}
-	var ipLength int
-	switch header[13] {
-	case 0x00: // UNSPEC has no client address.
-		_, err := c.bufferedReader.Discard(length)
-		return err
-	case 0x11: // TCP over IPv4
-		ipLength = net.IPv4len
-	case 0x21: // TCP over IPv6
-		ipLength = net.IPv6len
-	default:
+	remote, local, ok := header.TCPAddrs()
+	if !ok {
 		return errors.New("unsupported v2 address family or transport")
 	}
-	addressLength := 2*ipLength + 4
-	if length < addressLength {
-		return errors.New("truncated v2 address")
-	}
-	var address [36]byte
-	if _, err := io.ReadFull(c.bufferedReader, address[:addressLength]); err != nil {
+	// Read retains optional metadata as raw bytes. Validate its framing before
+	// accepting the address, without using metadata for authentication.
+	if _, err := header.TLVs(); err != nil {
 		return err
 	}
-	// Skip bounded TLVs without allocating the declared payload length. Reject
-	// truncated TLVs instead of consuming bytes from the following TLS record.
-	remaining := length - addressLength
-	for remaining > 0 {
-		if remaining < 3 {
-			return errors.New("truncated v2 TLV")
-		}
-		var tlv [3]byte
-		if _, err := io.ReadFull(c.bufferedReader, tlv[:]); err != nil {
-			return err
-		}
-		n := int(binary.BigEndian.Uint16(tlv[1:]))
-		remaining -= 3
-		if n > remaining {
-			return errors.New("invalid v2 TLV length")
-		}
-		if _, err := c.bufferedReader.Discard(n); err != nil {
-			return err
-		}
-		remaining -= n
-	}
-	remote := &net.TCPAddr{IP: append(net.IP(nil), address[:ipLength]...), Port: int(binary.BigEndian.Uint16(address[2*ipLength:]))}
-	local := &net.TCPAddr{IP: append(net.IP(nil), address[ipLength:2*ipLength]...), Port: int(binary.BigEndian.Uint16(address[2*ipLength+2:]))}
 	c.conn = &proxyAddressConn{Conn: c.conn, remote: remote, local: local}
 	c.proxyClientAddress = true
 	c.logger.Debug("accepted PROXY v2 client address", "proxy_addr", peer, "remote_addr", remote)
