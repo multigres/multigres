@@ -2,6 +2,10 @@
 
 Multigateway can accept optional PROXY protocol v2 headers before PostgreSQL negotiation or TLS. These headers carry the original client address across a TCP proxy. The primary and replica listeners use the same configuration.
 
+A shared proxy can provide one entry point for multiple Multigres clusters. It routes each connection to the destination cluster, where Multigateway handles TLS and PostgreSQL authentication.
+
+![A shared proxy routes PostgreSQL clients to Multigateway in the destination Multigres cluster.](../img/proxy-cluster-routing.png)
+
 By default, Multigateway accepts PROXY headers from any TCP peer and relies on network access controls for trust. Use this mode when the network restricts access to trusted proxies and clients.
 
 The optional `--pg-trusted-proxy-cidrs` flag restricts which TCP peers can send a PROXY header. It accepts a comma-separated list of networks in CIDR notation, which describes an IP address range. When the list is set, Multigateway tests the immediate TCP peer against these ranges before it reads a header.
