@@ -96,7 +96,7 @@ func TestPlanPortal_RegularSelect(t *testing.T) {
 	p := NewPlanner("default", logger, nil)
 	testConn := server.NewTestConn(&bytes.Buffer{})
 
-	plan, err := planPortal(t, p, testConn.Conn, "SELECT 1")
+	plan, err := planPortal(t, p, testConn.Conn, "SELECT * FROM t")
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 	_, ok := plan.Primitive.(*engine.Route)

@@ -145,7 +145,7 @@ func TestSessionScrubberReplacesHiddenState(t *testing.T) {
 	warmup, err := sql.Open("postgres", gatewayDSN)
 	require.NoError(t, err)
 	var one int
-	require.NoError(t, warmup.QueryRowContext(ctx, "SELECT 1").Scan(&one))
+	require.NoError(t, warmup.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&one))
 	require.NoError(t, warmup.Close())
 	time.Sleep(15 * time.Second)
 	quietLog, err := os.ReadFile(setup.PoolerLogFile(t))

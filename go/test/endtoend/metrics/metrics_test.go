@@ -41,7 +41,9 @@ func TestPoolerMetricsExposed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Execute a query through multigateway to generate metrics.
+	// Execute a query through multigateway to generate metrics. A constant
+	// SELECT is answered by the gateway itself, so ask for something only a
+	// backend knows.
 	conn, err := client.Connect(ctx, ctx, &client.Config{
 		Host:        "localhost",
 		Port:        setup.MultigatewayPgPort,
@@ -53,7 +55,7 @@ func TestPoolerMetricsExposed(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 
-	_, err = conn.Query(ctx, "SELECT 1")
+	_, err = conn.Query(ctx, "SELECT pg_backend_pid()")
 	require.NoError(t, err)
 
 	// Scrape multipooler Prometheus metrics from the primary.
@@ -213,8 +215,9 @@ func TestQueryPathMetricsExposed(t *testing.T) {
 	defer conn.Close()
 
 	// Successful autocommit query: exercises query.duration/rows/pool_acquire on
-	// the regular pool and the gateway parse/plan/exec phase histograms.
-	_, err = conn.Query(ctx, "SELECT 1")
+	// the regular pool and the gateway parse/plan/exec phase histograms. It must
+	// reach a backend: a constant SELECT is answered by the gateway itself.
+	_, err = conn.Query(ctx, "SELECT pg_backend_pid()")
 	require.NoError(t, err)
 
 	// Explicit transaction: reserves a connection and concludes with COMMIT,
@@ -228,9 +231,10 @@ func TestQueryPathMetricsExposed(t *testing.T) {
 
 	// Query that parses/plans cleanly but fails at execution (division by zero,
 	// SQLSTATE 22012) so the error surfaces from PostgreSQL through the pooler,
-	// exercising query.errors with a backend error_source.
-	_, err = conn.Query(ctx, "SELECT 1/0")
-	require.Error(t, err, "SELECT 1/0 should fail at execution")
+	// exercising query.errors with a backend error_source. `SELECT 1/0` would
+	// be evaluated, and fail, in the gateway, so divide a backend-only value.
+	_, err = conn.Query(ctx, "SELECT pg_backend_pid() / 0")
+	require.Error(t, err, "the division should fail on the backend")
 
 	// Scrape multipooler metrics from the primary (writes/transactions route there).
 	primary := setup.GetPrimary(t)

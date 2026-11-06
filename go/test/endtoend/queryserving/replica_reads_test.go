@@ -38,7 +38,7 @@ func getReplicaSetup(t *testing.T) *shardsetup.ShardSetup {
 	return replicaSetupManager.Get(t)
 }
 
-// TestReplicaReads_SelectWorks verifies that SELECT queries succeed on the replica port.
+// TestReplicaReads_SelectWorks verifies that a SELECT on the replica port runs on a standby.
 func TestReplicaReads_SelectWorks(t *testing.T) {
 	setup := getReplicaSetup(t)
 	setup.SetupTest(t)
@@ -49,10 +49,10 @@ func TestReplicaReads_SelectWorks(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close(ctx)
 
-	var result int
-	err = conn.QueryRow(ctx, "SELECT 1").Scan(&result)
+	var inRecovery bool
+	err = conn.QueryRow(ctx, "SELECT pg_is_in_recovery()").Scan(&inRecovery)
 	require.NoError(t, err)
-	assert.Equal(t, 1, result)
+	assert.True(t, inRecovery, "the replica port must route to a standby")
 }
 
 // TestReplicaReads_WritesRejectedByPostgres verifies that write operations fail

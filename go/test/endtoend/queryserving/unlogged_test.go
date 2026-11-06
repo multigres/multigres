@@ -166,7 +166,7 @@ func TestUnloggedTablesAfterFailover(t *testing.T) {
 		}
 		defer c.Close(ctx)
 		var one int
-		return c.QueryRow(ctx, "SELECT 1").Scan(&one) == nil
+		return c.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&one) == nil
 	}, 30*time.Second, 500*time.Millisecond, "gateway did not resume serving after failover")
 
 	// Reuse the original client connection: it must survive the failover and

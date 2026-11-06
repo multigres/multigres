@@ -82,7 +82,7 @@ func TestReservedExecuteStaleAcrossClients(t *testing.T) {
 	// the one reserved backend.
 	settleDB, err := sql.Open("postgres", gatewayDSN)
 	require.NoError(t, err)
-	_, err = settleDB.ExecContext(ctx, "SELECT 1")
+	_, err = settleDB.ExecContext(ctx, "SELECT pg_backend_pid()")
 	require.NoError(t, err, "warmup query should succeed")
 	time.Sleep(5 * time.Second)
 	settleDB.Close()

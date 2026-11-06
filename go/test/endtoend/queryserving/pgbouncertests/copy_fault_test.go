@@ -124,7 +124,7 @@ func TestCopyInterruptedByBackendCrash(t *testing.T) {
 	require.Eventually(t, func() bool {
 		recoverCtx := utils.WithShortDeadline(t)
 		var n int
-		return conn2.QueryRow(recoverCtx, "SELECT 1").Scan(&n) == nil && n == 1
+		return conn2.QueryRow(recoverCtx, "SELECT pg_backend_pid()").Scan(&n) == nil && n > 0
 	}, 30*time.Second, 250*time.Millisecond, "a fresh connection must work after the COPY-fault recovery")
 
 	// COPY FROM is all-or-nothing: the interrupted stream committed nothing, so

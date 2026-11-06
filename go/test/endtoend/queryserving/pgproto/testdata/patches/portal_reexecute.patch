@@ -1,0 +1,34 @@
+# Known divergence: a gateway-answered portal keeps no position.
+#
+# `SELECT 1 AS one` is a constant-only SELECT that the multigateway evaluates
+# itself, without a backend. PostgreSQL's portal remembers how far it has been
+# read: a second Execute of a completed portal returns no rows and
+# CommandComplete(SELECT 0), and an Execute whose maxrows equals the rows
+# available returns PortalSuspended instead of CommandComplete. The
+# multigateway's evaluated portal has no such state, so every Execute returns
+# the row and CommandComplete(SELECT 1) again, and maxrows is ignored. No
+# supported driver re-executes a completed portal (each execution binds a fresh
+# portal), and a driver fetching with a row limit simply finishes one round
+# early, so the divergence is recorded rather than fixed. Removing it would
+# need a per-portal done flag and PortalSuspended support in the gateway.
+#
+# Effect: replace PostgreSQL's empty re-execution and suspension with the
+# repeated DataRow/CommandComplete(SELECT 1) the multigateway produces.
+--- a
++++ b
+@@ -10,10 +10,12 @@
+ <= BE BindComplete
+ <= BE DataRow
+ <= BE CommandComplete(SELECT 1)
+-<= BE CommandComplete(SELECT 0)
++<= BE DataRow
++<= BE CommandComplete(SELECT 1)
+ <= BE BindComplete
+ <= BE DataRow
+-<= BE PortalSuspended
+-<= BE CommandComplete(SELECT 0)
++<= BE CommandComplete(SELECT 1)
++<= BE DataRow
++<= BE CommandComplete(SELECT 1)
+ <= BE ReadyForQuery(I)
+ FE=> Terminate

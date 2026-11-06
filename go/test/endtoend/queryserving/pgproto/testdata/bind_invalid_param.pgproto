@@ -1,0 +1,33 @@
+#
+# Bind rejected by PostgreSQL at Bind time, with Describe(P) and Sync but no
+# Execute.
+#
+# PostgreSQL decodes every parameter while processing Bind, so a value the
+# type's input function refuses yields ParseComplete -> ErrorResponse(22P02)
+# -> ReadyForQuery: no BindComplete, no RowDescription, no portal. A Bind
+# with the wrong parameter count is ErrorResponse(08P01) at the same point.
+#
+# The statement is a constant-only SELECT the multigateway answers itself
+# (engine.GatewayEval), so no backend ever sees these Binds; the gateway must
+# make the same checks at Bind rather than return metadata for a portal
+# PostgreSQL would never have created. A valid Bind then proves the session
+# recovered and the portal is served.
+#
+
+'P'	"s"	"SELECT $1::int4"	0
+'B'	"p"	"s"	0	1	3	"abc"	0
+'D'	'P'	"p"
+'S'
+'Y'
+
+'B'	"p"	"s"	0	0	0
+'D'	'P'	"p"
+'S'
+'Y'
+
+'B'	"p"	"s"	0	1	1	"7"	0
+'D'	'P'	"p"
+'E'	"p"	0
+'S'
+'Y'
+'X'

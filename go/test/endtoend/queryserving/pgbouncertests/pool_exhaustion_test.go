@@ -183,10 +183,12 @@ func TestPoolExhaustionWaiterCancelledCleanly(t *testing.T) {
 	time.Sleep(time.Second)
 
 	// The probe must block on the full pool, then be cancelled by its deadline.
+	// It must need a backend: a constant SELECT such as `SELECT 1` is answered
+	// by the gateway itself and would return at once.
 	const probeDeadline = 800 * time.Millisecond
 	probeCtx, probeCancel := context.WithTimeout(ctx, probeDeadline)
 	start := time.Now()
-	_, probeErr := gatewayDB.ExecContext(probeCtx, "SELECT 1")
+	_, probeErr := gatewayDB.ExecContext(probeCtx, "SELECT pg_backend_pid()")
 	elapsed := time.Since(start)
 	probeCancel()
 
@@ -202,7 +204,7 @@ func TestPoolExhaustionWaiterCancelledCleanly(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		recoverCtx := utils.WithShortDeadline(t)
-		_, err := gatewayDB.ExecContext(recoverCtx, "SELECT 1")
+		_, err := gatewayDB.ExecContext(recoverCtx, "SELECT pg_backend_pid()")
 		return err == nil
 	}, 20*time.Second, 250*time.Millisecond,
 		"after the holders release, the pool must serve again — a leaked or deadlocked waiter would block this forever")
@@ -241,7 +243,7 @@ func openDirectPostgresDB(t *testing.T, setup *shardsetup.ShardSetup) *sql.DB {
 // to its small global allocation before the test measures capacity.
 func settleConnpool(t *testing.T, ctx context.Context, gatewayDB *sql.DB) {
 	t.Helper()
-	_, err := gatewayDB.ExecContext(ctx, "SELECT 1")
+	_, err := gatewayDB.ExecContext(ctx, "SELECT pg_backend_pid()")
 	require.NoError(t, err, "warmup query should succeed")
 	time.Sleep(5 * time.Second)
 }

@@ -144,7 +144,7 @@ func probeConnect(t *testing.T, ctx context.Context, port int, dbname, password 
 	defer conn.Close(ctx)
 
 	var n int
-	if qerr := conn.QueryRow(ctx, "SELECT 1").Scan(&n); qerr != nil {
+	if qerr := conn.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&n); qerr != nil {
 		return sqlState(qerr), "query", qerr
 	}
 	return "", "none", nil

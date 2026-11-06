@@ -121,6 +121,13 @@ type PlanOptions struct {
 	// StreamExecute, not in plan content.
 	IsPortal bool
 
+	// ParamTypes are the parameter type OIDs the client declared at Parse (0
+	// for "deduce"), in the extended protocol only. The gateway expression
+	// engine needs them to analyze a $n the way PostgreSQL's Parse would.
+	// Like IsPortal, this is set only on the non-cacheable path: a plan that
+	// depends on it is never shared.
+	ParamTypes []uint32
+
 	// PinForAdvisoryLock indicates the statement acquires a session-level
 	// advisory lock, so its route must keep the backend pinned for the lock's
 	// lifetime (AdvisoryLockRoute rather than a plain Route). Derived by Plan.
@@ -164,6 +171,20 @@ type PlanOptions struct {
 	// IsPortal invariant above applies: State-conditional planning must stay
 	// off any plan that can be served from the cache to a different connection.
 	State *handler.MultigatewayConnectionState
+}
+
+// applyAnalysis folds the per-statement routing signals the expression
+// analysis derived onto the options. These ride on ordinary queries that may
+// simultaneously do other things the planner tracks (e.g. set_config), so
+// rather than diverting to a dedicated path, the options are threaded into
+// the normal routing builders (planDefault / planSelectStmt), which fold them
+// into whatever plan they would otherwise produce.
+func (o *PlanOptions) applyAnalysis(analysis *statementAnalysis) {
+	o.PinForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock
+	o.RecheckForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock || analysis.ReleasesSessionAdvisoryLock
+	o.PinForLogicalReplicationSlot = analysis.CreatesLogicalReplicationSlot
+	o.PinForSetSeed = analysis.CallsSetSeed
+	o.RewriteCurrentSetting = analysis.NeedsCurrentSettingRewrite
 }
 
 // Plan creates an execution plan for the given SQL query and AST.
@@ -247,17 +268,7 @@ func (p *Planner) Plan(
 		}
 	}
 
-	// Fold the per-statement routing signals derived from the expression
-	// analysis onto opts. These ride on ordinary queries that may simultaneously
-	// do other things the planner tracks (e.g. set_config), so rather than
-	// diverting to a dedicated path, the options are threaded into the normal
-	// routing builders (planDefault / planSelectStmt), which fold them into
-	// whatever plan they would otherwise produce.
-	opts.PinForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock
-	opts.RecheckForAdvisoryLock = analysis.AcquiresSessionAdvisoryLock || analysis.ReleasesSessionAdvisoryLock
-	opts.PinForLogicalReplicationSlot = analysis.CreatesLogicalReplicationSlot
-	opts.PinForSetSeed = analysis.CallsSetSeed
-	opts.RewriteCurrentSetting = analysis.NeedsCurrentSettingRewrite
+	opts.applyAnalysis(analysis)
 
 	// Writes to a cluster view and definitions persisted over one are
 	// rejected before dispatch; see CheckClusterViewStatement.
@@ -724,6 +735,8 @@ func primitiveName(p engine.Primitive) string {
 		return engine.PlanTypeGatewaySessionState
 	case *engine.GatewayShowVariable:
 		return engine.PlanTypeGatewayShowVariable
+	case *engine.GatewayEval:
+		return engine.PlanTypeGatewayEval
 	case *engine.ListenNotifyPrimitive:
 		return engine.PlanTypeListenNotify
 	case *engine.Sequence:

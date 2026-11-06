@@ -354,9 +354,9 @@ func TestMultigateway_CopyCommands(t *testing.T) {
 
 				// Verify connection still usable with regular queries
 				var result int
-				err = conn.QueryRow(ctx, "SELECT 1").Scan(&result)
+				err = conn.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&result)
 				require.NoError(t, err, "connection should still be usable after COPY error")
-				assert.Equal(t, 1, result)
+				assert.Positive(t, result)
 
 				// Execute CREATE TABLE to verify DDL works
 				tableName := "copy_resilience_test"
@@ -426,9 +426,9 @@ func TestMultigateway_CopyCommands(t *testing.T) {
 				}
 
 				// Final verification: connection still works
-				err = conn.QueryRow(ctx, "SELECT 1").Scan(&count)
+				err = conn.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&count)
 				require.NoError(t, err, "connection should still be usable after multiple empty COPYs")
-				assert.Equal(t, int64(1), count)
+				assert.Positive(t, count)
 			})
 
 			// Test 10: COPY initiation error recovery
@@ -449,9 +449,9 @@ func TestMultigateway_CopyCommands(t *testing.T) {
 
 				// Verify connection is still usable
 				var count int64
-				err = conn.QueryRow(ctx, "SELECT 1").Scan(&count)
+				err = conn.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&count)
 				require.NoError(t, err, "connection should still be usable after failed COPY")
-				assert.Equal(t, int64(1), count)
+				assert.Positive(t, count)
 
 				// Create the table
 				createCopyTestTable(t, conn, ctx, tableName, "id INT, name TEXT")
@@ -491,9 +491,9 @@ func TestMultigateway_CopyCommands(t *testing.T) {
 
 				// Verify connection is still usable (Bug 3: this used to hang)
 				var count int64
-				err = conn.QueryRow(ctx, "SELECT 1").Scan(&count)
+				err = conn.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&count)
 				require.NoError(t, err, "connection should still be usable after COPY data validation error")
-				assert.Equal(t, int64(1), count)
+				assert.Positive(t, count)
 
 				// Retry COPY with valid data - should succeed now (Bug 3: this used to hang)
 				data := [][]any{
@@ -677,9 +677,9 @@ func TestMultigateway_CopyInTransaction(t *testing.T) {
 
 				// Confirm session is fully recovered and reusable.
 				var x int
-				err = conn.QueryRow(ctx, "SELECT 1").Scan(&x)
+				err = conn.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&x)
 				require.NoError(t, err)
-				assert.Equal(t, 1, x)
+				assert.Positive(t, x)
 
 				// Pre-bad-COPY INSERT must have been rolled back.
 				var count int64
@@ -715,9 +715,9 @@ func TestMultigateway_CopyInTransaction(t *testing.T) {
 
 				// Conn fully recovered.
 				var x int
-				err = conn.QueryRow(ctx, "SELECT 1").Scan(&x)
+				err = conn.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&x)
 				require.NoError(t, err)
-				assert.Equal(t, 1, x)
+				assert.Positive(t, x)
 			})
 
 			t.Run("COPY followed by error rolls back entire transaction", func(t *testing.T) {

@@ -534,7 +534,8 @@ func processAlive(pid int) bool {
 
 // waitForMultigatewayReady waits for a multigateway to be ready to execute queries.
 // This is necessary because PoolerDiscovery is async and may not have discovered
-// poolers yet, and lib/pq Ping uses an empty query (";") that bypasses pooler discovery.
+// poolers yet, and lib/pq Ping uses an empty query (";") that bypasses pooler discovery,
+// as does a constant SELECT such as `SELECT 1`, which the gateway answers itself.
 // With multi-cell discovery, any multigateway can find the primary in any zone,
 // so we only need to wait on the first port.
 //
@@ -562,7 +563,7 @@ func waitForMultigatewayReady(t *testing.T, ctx context.Context, pgPort int, pid
 		}
 
 		queryCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		_, err = db.ExecContext(queryCtx, "SELECT 1")
+		_, err = db.ExecContext(queryCtx, "SELECT pg_backend_pid()")
 		cancel()
 		db.Close()
 

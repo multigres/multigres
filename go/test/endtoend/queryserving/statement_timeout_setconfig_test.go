@@ -105,7 +105,7 @@ func TestStatementTimeoutSetConfig(t *testing.T) {
 
 				// An unrelated query in between must not clear it.
 				var one int
-				require.NoError(t, db.QueryRowContext(ctx, "SELECT 1").Scan(&one))
+				require.NoError(t, db.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&one))
 				assert.Equal(t, "1s", show(t, db), "session value persists across queries")
 			})
 

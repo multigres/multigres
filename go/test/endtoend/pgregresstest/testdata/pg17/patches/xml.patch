@@ -4,39 +4,6 @@
 # Error state, SQLSTATE, and message text are preserved.
 --- a
 +++ b
-@@ -725,27 +725,27 @@
- -- Test xmlexists and xpath_exists
- SELECT xmlexists('//town[text() = ''Toronto'']' PASSING BY REF '<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>');
- ERROR: unsupported XML feature
--LINE 1: ...sts('//town[text() = ''Toronto'']' PASSING BY REF '<towns><t...
-+LINE 1: ... xmlexists('//town[text() = ''Toronto'']' PASSING BY REF '<t...
- ^
- DETAIL: This functionality requires the server to be built with libxml support.
- SELECT xmlexists('//town[text() = ''Cwmbran'']' PASSING BY REF '<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>');
- ERROR: unsupported XML feature
--LINE 1: ...sts('//town[text() = ''Cwmbran'']' PASSING BY REF '<towns><t...
-+LINE 1: ... xmlexists('//town[text() = ''Cwmbran'']' PASSING BY REF '<t...
- ^
- DETAIL: This functionality requires the server to be built with libxml support.
- SELECT xmlexists('count(/nosuchtag)' PASSING BY REF '<root/>');
- ERROR: unsupported XML feature
--LINE 1: ...LECT xmlexists('count(/nosuchtag)' PASSING BY REF '<root/>')...
-+LINE 1: SELECT xmlexists('count(/nosuchtag)' PASSING BY REF '<root/>...
- ^
- DETAIL: This functionality requires the server to be built with libxml support.
- SELECT xpath_exists('//town[text() = ''Toronto'']','<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>'::xml);
- ERROR: unsupported XML feature
--LINE 1: ...ELECT xpath_exists('//town[text() = ''Toronto'']','<towns><t...
-+LINE 1: ...xpath_exists('//town[text() = ''Toronto'']','<towns><town>Bi...
- ^
- DETAIL: This functionality requires the server to be built with libxml support.
- SELECT xpath_exists('//town[text() = ''Cwmbran'']','<towns><town>Bidford-on-Avon</town><town>Cwmbran</town><town>Bristol</town></towns>'::xml);
- ERROR: unsupported XML feature
--LINE 1: ...ELECT xpath_exists('//town[text() = ''Cwmbran'']','<towns><t...
-+LINE 1: ...xpath_exists('//town[text() = ''Cwmbran'']','<towns><town>Bi...
- ^
- DETAIL: This functionality requires the server to be built with libxml support.
- SELECT xpath_exists('count(/nosuchtag)', '<root/>'::xml);
 @@ -1048,16 +1048,15 @@
  SELECT * FROM XMLTABLE (ROW () PASSING null COLUMNS v1 timestamp) AS f (v1, v2);
  ERROR: XMLTABLE function has 1 columns available but 2 columns specified

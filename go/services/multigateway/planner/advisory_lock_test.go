@@ -57,7 +57,7 @@ func TestPlan_SessionAdvisoryLockRouting(t *testing.T) {
 		{name: "xact_unlock", sql: "SELECT pg_advisory_xact_lock_shared(101)", wantAdvisory: false, wantPin: false},
 
 		// Unrelated queries are unaffected.
-		{name: "plain_select", sql: "SELECT 1", wantAdvisory: false, wantPin: false},
+		{name: "plain_select", sql: "SELECT * FROM t", wantAdvisory: false, wantPin: false},
 	}
 
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))

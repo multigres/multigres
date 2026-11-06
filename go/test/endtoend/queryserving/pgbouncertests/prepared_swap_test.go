@@ -144,7 +144,7 @@ func startPoolChurn(t *testing.T, ctx context.Context, gatewayDSN string, n int)
 			for churnCtx.Err() == nil {
 				// Cheap round-trip: borrow a pooled backend, return it. The
 				// error on cancellation is expected and ends the loop.
-				_, _ = conn.Exec(churnCtx, "SELECT 1")
+				_, _ = conn.Exec(churnCtx, "SELECT pg_backend_pid()")
 			}
 		})
 	}
