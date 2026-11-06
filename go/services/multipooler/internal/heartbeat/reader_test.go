@@ -15,10 +15,12 @@
 package heartbeat
 
 import (
+	"context"
 	"log/slog"
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 
 	"github.com/stretchr/testify/assert"
@@ -454,6 +456,159 @@ func TestReaderFallbackFailureIsOneError(t *testing.T) {
 	queryService.AddQueryPatternOnceWithError("SELECT ts, pg_last_wal_receive_lsn\\(\\)::text, quorum_commit_lsn", pgErr("42703"))
 	queryService.AddQueryPatternOnceWithError("SELECT ts, pg_last_wal_receive_lsn\\(\\)::text FROM", pgErr("42P01"))
 	tr.readHeartbeat(t.Context())
+	assert.EqualValues(t, 0, tr.Reads())
+	assert.EqualValues(t, 1, tr.ReadErrors())
+	assert.EqualValues(t, 1, tr.ReadSchemaErrors())
+}
+
+const (
+	fullReadPattern    = "SELECT ts, pg_last_wal_receive_lsn\\(\\)::text, quorum_commit_lsn"
+	lagOnlyReadPattern = "SELECT ts, pg_last_wal_receive_lsn\\(\\)::text FROM"
+)
+
+func fullReadResult(now time.Time, lsn string) *sqltypes.Result {
+	return mock.MakeQueryResult(
+		[]string{"ts", "receive_lsn", "quorum_commit_lsn", "quorum_commit_ts"},
+		[][]any{{now.Add(-time.Second).UnixNano(), "0/200", lsn, now.Add(-2 * time.Second).UTC().Format("2006-01-02 15:04:05.999999-07")}},
+	)
+}
+
+func lagOnlyReadResult(now time.Time) *sqltypes.Result {
+	return mock.MakeQueryResult([]string{"ts", "receive_lsn"}, [][]any{{now.Add(-time.Second).UnixNano(), "0/300"}})
+}
+
+// TestReaderFallbackForgetsStaleQuorumValues: once the table stops carrying the quorum
+// columns, the quorum values seen earlier are dropped. Kept, they would age and multiorch
+// would read the frozen quorum_commit_ts as a stalled quorum.
+func TestReaderFallbackForgetsStaleQuorumValues(t *testing.T) {
+	queryService := mock.NewQueryService()
+	now := time.Now()
+	tr := newTestReader(t, queryService, &now)
+	defer tr.Close()
+	ctx := t.Context()
+
+	queryService.AddQueryPatternOnce(fullReadPattern, fullReadResult(now, "0/150"))
+	tr.readHeartbeat(ctx)
+	_, haveLSN := tr.QuorumCommitLSN()
+	_, haveTs := tr.QuorumCommitTs()
+	require.True(t, haveLSN)
+	require.True(t, haveTs)
+
+	// The columns go away: the full query now fails with a schema error.
+	now = now.Add(time.Second)
+	queryService.AddQueryPatternOnceWithError(fullReadPattern, pgErr("42703"))
+	queryService.AddQueryPatternOnce(lagOnlyReadPattern, lagOnlyReadResult(now))
+	tr.readHeartbeat(ctx)
+
+	_, err := tr.Status()
+	require.NoError(t, err, "lag is still measured")
+	_, haveLSN = tr.QuorumCommitLSN()
+	_, haveTs = tr.QuorumCommitTs()
+	assert.False(t, haveLSN, "a stale quorum_commit_lsn must not be reported")
+	assert.False(t, haveTs, "a stale quorum_commit_ts must not be reported")
+
+	// And they come back when the columns do.
+	now = now.Add(quorumColumnsRetryInterval + time.Second)
+	queryService.AddQueryPatternOnce(fullReadPattern, fullReadResult(now, "0/400"))
+	tr.readHeartbeat(ctx)
+	lsn, haveLSN := tr.QuorumCommitLSN()
+	require.True(t, haveLSN)
+	assert.Equal(t, "0/400", lsn.String())
+}
+
+// TestReaderLagOnlyFailureInsideTheRetryWindow: while on the fallback, a failing lag-only
+// read is a plain read error. It neither counts as a schema error nor ends the window, so
+// the full query is not retried early.
+func TestReaderLagOnlyFailureInsideTheRetryWindow(t *testing.T) {
+	queryService := mock.NewQueryService()
+	now := time.Now()
+	tr := newTestReader(t, queryService, &now)
+	defer tr.Close()
+	ctx := t.Context()
+
+	queryService.AddQueryPatternOnceWithError(fullReadPattern, pgErr("42703"))
+	queryService.AddQueryPatternOnce(lagOnlyReadPattern, lagOnlyReadResult(now))
+	tr.readHeartbeat(ctx) // arms the window
+	require.EqualValues(t, 1, tr.ReadSchemaErrors())
+
+	queryService.AddQueryPatternOnceWithError(lagOnlyReadPattern, pgErr("57014"))
+	tr.readHeartbeat(ctx)
+	_, err := tr.Status()
+	require.Error(t, err)
+	assert.EqualValues(t, 2, tr.ReadErrors(), "the fallback's schema error plus this failure")
+	assert.EqualValues(t, 1, tr.ReadSchemaErrors(), "a transient failure is not a schema error")
+
+	// Still inside the window: the full query has no pattern and would fail the read.
+	queryService.AddQueryPatternOnce(lagOnlyReadPattern, lagOnlyReadResult(now))
+	tr.readHeartbeat(ctx)
+	_, err = tr.Status()
+	require.NoError(t, err)
+}
+
+// TestReaderRetryStillMissingRearmsTheWindow: when the retry finds the columns still
+// missing, the window is armed again and the gap is counted again, not retried every tick.
+func TestReaderRetryStillMissingRearmsTheWindow(t *testing.T) {
+	queryService := mock.NewQueryService()
+	now := time.Now()
+	tr := newTestReader(t, queryService, &now)
+	defer tr.Close()
+	ctx := t.Context()
+
+	queryService.AddQueryPatternOnceWithError(fullReadPattern, pgErr("42703"))
+	queryService.AddQueryPatternOnce(lagOnlyReadPattern, lagOnlyReadResult(now))
+	tr.readHeartbeat(ctx)
+
+	now = now.Add(quorumColumnsRetryInterval + time.Second)
+	queryService.AddQueryPatternOnceWithError(fullReadPattern, pgErr("42703"))
+	queryService.AddQueryPatternOnce(lagOnlyReadPattern, lagOnlyReadResult(now))
+	tr.readHeartbeat(ctx)
+	assert.EqualValues(t, 2, tr.ReadSchemaErrors())
+	assert.EqualValues(t, 2, tr.Reads())
+
+	now = now.Add(time.Second)
+	queryService.AddQueryPatternOnce(lagOnlyReadPattern, lagOnlyReadResult(now))
+	tr.readHeartbeat(ctx)
+	assert.EqualValues(t, 2, tr.ReadSchemaErrors(), "re-armed: no full query inside the new window")
+	assert.EqualValues(t, 3, tr.Reads())
+}
+
+// TestReaderFallbackTimeoutIsNotASchemaFailure: if the lag-only read fails for a reason
+// other than the table (here a timeout), the quorum columns are not declared missing, so
+// no retry window is armed and the next read tries the full query again.
+func TestReaderFallbackTimeoutIsNotASchemaFailure(t *testing.T) {
+	queryService := mock.NewQueryService()
+	now := time.Now()
+	tr := newTestReader(t, queryService, &now)
+	defer tr.Close()
+	ctx := t.Context()
+
+	queryService.AddQueryPatternOnceWithError(fullReadPattern, pgErr("42703"))
+	queryService.AddQueryPatternOnceWithError(lagOnlyReadPattern, context.DeadlineExceeded)
+	tr.readHeartbeat(ctx)
+	assert.EqualValues(t, 0, tr.Reads())
+	assert.EqualValues(t, 1, tr.ReadErrors())
+	assert.EqualValues(t, 0, tr.ReadSchemaErrors())
+
+	queryService.AddQueryPatternOnce(fullReadPattern, fullReadResult(now, "0/150"))
+	tr.readHeartbeat(ctx)
+	assert.EqualValues(t, 1, tr.Reads(), "the full query ran again straight away")
+	_, haveLSN := tr.QuorumCommitLSN()
+	assert.True(t, haveLSN)
+}
+
+// TestReaderMissingCoreColumnFailsBothQueries: if ts itself is gone the fallback cannot
+// help; the read fails once and is counted once as a schema error.
+func TestReaderMissingCoreColumnFailsBothQueries(t *testing.T) {
+	queryService := mock.NewQueryService()
+	tr := newTestReader(t, queryService, nil)
+	defer tr.Close()
+
+	queryService.AddQueryPatternOnceWithError(fullReadPattern, pgErr("42703"))
+	queryService.AddQueryPatternOnceWithError(lagOnlyReadPattern, pgErr("42703"))
+	tr.readHeartbeat(t.Context())
+
+	_, err := tr.Status()
+	require.Error(t, err)
 	assert.EqualValues(t, 0, tr.Reads())
 	assert.EqualValues(t, 1, tr.ReadErrors())
 	assert.EqualValues(t, 1, tr.ReadSchemaErrors())
