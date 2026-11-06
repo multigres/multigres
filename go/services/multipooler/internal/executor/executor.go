@@ -2287,6 +2287,12 @@ func (e *Executor) ConcludeTransaction(
 		result.CommandTag = commandTag
 	}
 
+	// A DISCARD TEMP in this transaction kept the temp table reason, because a
+	// rollback would have brought the tables back. Now the outcome is known.
+	if reservedConn.TakeTempDiscardedInTransaction() {
+		e.settleTempTableReason(ctx, reservedConn)
+	}
+
 	// Commit/Rollback already removed the transaction reason.
 	// If other reasons remain (e.g., temp tables, portals), the connection stays reserved.
 	remainingReasons := reservedConn.RemainingReasons()
@@ -2327,8 +2333,45 @@ func (e *Executor) ConcludeTransaction(
 	return result, e.buildReservedState(reservedConn), nil
 }
 
-// DiscardTempTables sends DISCARD TEMP on a reserved connection and removes the temp table reason.
-// The connection may remain reserved if there are other reasons to keep it (e.g., transaction).
+// settleTempTableReason checks, after a transaction in which DISCARD TEMP ran
+// concluded, whether the backend still has temp objects, and drops the temp
+// table reason if it has none. After COMMIT the objects are gone; after a
+// ROLLBACK they are back, and so is the reason's job. PostgreSQL is the source of
+// truth, so objects the gateway never saw (created in a function body, say) are
+// counted too.
+//
+// Like the advisory-lock probe, it errs on the side of staying reserved: if the
+// probe fails or returns something unexpected the reason is kept, because
+// releasing a backend that still has the session's temp tables would lose them.
+// The connection is reclaimed when the session ends regardless.
+func (e *Executor) settleTempTableReason(ctx context.Context, rc reservedConnAPI) {
+	if !protoutil.HasTempTableReason(rc.RemainingReasons()) {
+		return
+	}
+
+	results, err := rc.Query(ctx, constants.TempObjectsProbeSQL)
+	if err != nil {
+		e.logger.WarnContext(ctx, "temp object probe failed; keeping the temp table reservation",
+			"reserved_conn_id", rc.ConnID(), "error", err)
+		return
+	}
+	if len(results) != 1 {
+		e.logger.WarnContext(ctx, "temp object probe returned an unexpected result count; keeping the temp table reservation",
+			"reserved_conn_id", rc.ConnID(), "results", len(results))
+		return
+	}
+	if results[0].RowCount() > 0 {
+		return
+	}
+
+	rc.RemoveReservationReason(protoutil.ReasonTempTable)
+	e.logger.DebugContext(ctx, "dropped temp table reservation reason; no temp objects remain",
+		"reserved_conn_id", rc.ConnID())
+}
+
+// DiscardTempTables sends DISCARD TEMP on a reserved connection and, outside a transaction,
+// removes the temp table reason. The connection may remain reserved if there are other reasons
+// to keep it (e.g., transaction).
 // Returns ReservedState with the authoritative reservation state.
 func (e *Executor) DiscardTempTables(
 	ctx context.Context,
@@ -2358,8 +2401,18 @@ func (e *Executor) DiscardTempTables(
 		return nil, nil, fmt.Errorf("DISCARD TEMP failed: %w", err)
 	}
 
-	// Remove the temp table reason
-	reservedConn.RemoveReservationReason(protoutil.ReasonTempTable)
+	// DISCARD TEMP is transactional: inside a transaction, a ROLLBACK (or a ROLLBACK
+	// TO SAVEPOINT) brings the temp tables back. The temp table reason therefore
+	// stays while a transaction is open, so the connection is not handed to another
+	// session with the restored tables on it, and its own session keeps them. When
+	// the transaction concludes, ConcludeTransaction asks the backend which temp
+	// objects are left and drops the reason if there are none. A DISCARD TEMP
+	// outside a transaction is final.
+	if reservedConn.IsInTransaction() {
+		reservedConn.MarkTempDiscardedInTransaction()
+	} else {
+		reservedConn.RemoveReservationReason(protoutil.ReasonTempTable)
+	}
 
 	result := &sqltypes.Result{CommandTag: "DISCARD"}
 
