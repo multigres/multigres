@@ -99,7 +99,9 @@ func (pm *MultipoolerManager) rewindSentinel() sentinel {
 //     deployments, and is noted here so that a change in volume layout revisits it.
 //   - If pgctld cannot be confirmed to have reaped pg_rewind within
 //     rewindRunningWait (for example pgctld died while it was running and left its
-//     running record behind), the directory is treated as modified.
+//     running record behind), the directory is treated as modified. The attempt
+//     marker is kept then, because a pg_rewind that is still running can delete the
+//     verdict (a file only the target has), and the next settle derives it again.
 //   - If the verdict cannot be written into the data directory (for example the
 //     disk is full, which is also a likely reason pg_rewind failed), it is logged
 //     rather than returned as an error: pg_rewind cannot run on a directory that
@@ -139,9 +141,11 @@ const autoConfFileName = "postgresql.auto.conf"
 // the first entry whose modification time is not before ref, or "" if there is
 // none. A root that cannot be read, missing included, is an error and not proof
 // that nothing changed: a volume that disappeared during the assessment must not
-// read as an untouched directory. An entry below the root that disappears while
-// walking is tolerated, because removing it changed its parent's modification
-// time, which is compared. The root directory and subdirectories are included:
+// read as an untouched directory. The same holds for a symlink whose target
+// cannot be inspected, such as a pg_wal or tablespace volume that dropped out.
+// An entry below the root that disappears while walking is tolerated, because
+// removing it changed its parent's modification time, which is compared. The
+// root directory and subdirectories are included:
 // removing or creating an entry changes the parent's modification time. excluded
 // is skipped.
 func firstModifiedSince(root string, ref time.Time, excluded string) (string, error) {
@@ -162,11 +166,8 @@ func firstModifiedSince(root string, ref time.Time, excluded string) (string, er
 		if d.Type()&fs.ModeSymlink != 0 {
 			target, statErr := os.Stat(path)
 			if statErr != nil {
-				// A dangling symlink has nothing to inspect. Any other failure means
-				// the evidence cannot be read and must not read as untouched.
-				if errors.Is(statErr, fs.ErrNotExist) {
-					return nil
-				}
+				// A target that cannot be inspected, a vanished volume included, is
+				// evidence that cannot be read and must not read as untouched.
 				return statErr
 			}
 			if target.IsDir() {
@@ -253,9 +254,15 @@ func (pm *MultipoolerManager) settleRewindAttempt(ctx context.Context) (tainted 
 	}
 
 	modified, evidence := true, "unknown"
+	// A pg_rewind that may still be running can remove the verdict: the marker is
+	// a file only the target has, and pg_rewind deletes those. Then the attempt
+	// marker is the only evidence left, so it is kept and the verdict is derived
+	// again on the next settle.
+	keepAttempt := false
 	if !pm.awaitRewindExit(ctx) {
 		pm.logger.ErrorContext(ctx, "pgctld still reports a pg_rewind running; treating the data directory as modified")
 		evidence = "pg_rewind not confirmed to have exited"
+		keepAttempt = true
 	} else if info, statErr := os.Stat(attempt.path); statErr != nil {
 		pm.logger.ErrorContext(ctx, "cannot read the rewind attempt marker; treating the data directory as modified", "error", statErr)
 	} else if path, scanErr := firstModifiedSince(postgresDataDir(), info.ModTime(), filepath.Join(postgresDataDir(), autoConfFileName)); scanErr != nil {
@@ -275,6 +282,9 @@ func (pm *MultipoolerManager) settleRewindAttempt(ctx context.Context) (tainted 
 			return true, nil
 		}
 		pm.logger.ErrorContext(ctx, "pg_rewind modified the data directory and did not complete; it will not be rewound again", "first_modified", evidence)
+		if keepAttempt {
+			return true, nil
+		}
 		if err := attempt.remove(); err != nil {
 			pm.logger.WarnContext(ctx, "failed to remove rewind attempt marker after recording taint", "error", err)
 		}

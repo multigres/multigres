@@ -469,6 +469,19 @@ func (pm *MultipoolerManager) monitorPostgresIteration(noTimeoutCtx context.Cont
 func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgresState, error) {
 	state := postgresState{}
 
+	// A tainted data directory is unusable and the verdict is durable, so it needs
+	// no pgctld to act on: check it first, and let it decide even when pgctld is
+	// down. Without the verdict we cannot tell whether the directory may be started
+	// or rewound, so an unreadable marker skips the tick.
+	rewindTaintedPresent, err := pm.rewindTainted().present()
+	if err != nil {
+		return state, fmt.Errorf("check rewind taint marker: %w", err)
+	}
+	if rewindTaintedPresent {
+		state.rewindTaintedPresent = true
+		return state, nil
+	}
+
 	// Check if pgctld client is available
 	if pm.pgctldClient == nil {
 		return state, nil // All fields remain false
@@ -610,14 +623,6 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		return state, fmt.Errorf("check rewind sentinel: %w", err)
 	}
 	state.rewindSentinelPresent = rewindSentinelPresent
-
-	rewindTaintedPresent, err := pm.rewindTainted().present()
-	if err != nil {
-		// Without the verdict we cannot tell whether the directory may be started
-		// or rewound, so skip the tick.
-		return state, fmt.Errorf("check rewind taint marker: %w", err)
-	}
-	state.rewindTaintedPresent = rewindTaintedPresent
 
 	return state, nil
 }
