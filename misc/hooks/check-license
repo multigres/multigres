@@ -13,8 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Directories to exclude from license checks
-EXCLUDED_DIRS="^(site|pb|dist|bin)/"
+# Generated protobuf outputs live under go/pb; do not rewrite them after generation.
+# Keep the historical pb exclusion for checkouts using the older layout.
+EXCLUDED_DIRS="^(site|pb|go/pb|dist|bin)/"
 
 # Get list of staged files that need license headers
 staged_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(go|sh|proto)$' | grep -v -E "$EXCLUDED_DIRS")
