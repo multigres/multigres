@@ -42,9 +42,9 @@ It serves four RPCs on the pooler manager service:
 - `ListTableGroups()` returns every non-default tablegroup that is `creating`
   or `active`, with its shard layout and catalog id.
 
-`GetOperation` and `ListTableGroups` can be answered by any pooler of the
-catalog shard, since replicas hold the replicated catalog. `CreateTableGroup`
-and `DropTableGroup` need the primary.
+All four need the primary. A replica's catalog can lag: `GetOperation` would
+miss a write the caller just made, and a `ListTableGroups` that omits a
+tablegroup it has not replayed yet would tell the provisioner to remove it.
 
 **Multiadmin** serves `ListDesiredTableGroups(database)` for provisioners. It
 finds the catalog shard's primary in topology and forwards to its
@@ -63,6 +63,19 @@ is never an empty list.
 with its database, tablegroup, shard, and tablegroup id. Multiorch bootstraps
 each shard and appoints a primary.
 
+**Backups.** Every shard has its own pgBackRest repository under the
+database's backup location, since all shards use the same stanza name and
+cannot share one. The catalog shard's repository is the location's base path,
+where it has always been. Any other shard's is
+`tablegroups/<tablegroup>/<tablegroup id>/<shard>` below it:
+`<path>/tablegroups/commerce/7/0-80` on a filesystem,
+`/<prefix>/tablegroups/commerce/7/0-80/multigres` on S3. The fixed
+`tablegroups` directory keeps any tablegroup name out of the catalog shard's
+own repository layout. The catalog id keeps
+a tablegroup recreated under a dropped one's name from reusing its repository,
+whose backups are kept. A provisioner needs no per-shard backup
+configuration, only write access to everything under the location.
+
 ## Validation
 
 `CreateTableGroup` validates before touching the catalog:
@@ -78,12 +91,12 @@ each shard and appoints a primary.
 
 Idempotency on the name:
 
-| Existing row | `CreateTableGroup`                                                       | `DropTableGroup`                             |
-| ------------ | ------------------------------------------------------------------------ | -------------------------------------------- |
-| none         | new tablegroup, shards, and operation                                    | `NOT_FOUND`, or `not_found` with `if_exists` |
-| `creating`   | the existing operation if the layout matches, else `FAILED_PRECONDITION` | cancels the creation and returns it          |
-| `active`     | `ALREADY_EXISTS`, or `already_exists` with `if_not_exists`               | new drop operation                           |
-| `dropping`   | `FAILED_PRECONDITION`                                                    | the existing drop operation                  |
+| Existing row | `CreateTableGroup`                                                                               | `DropTableGroup`                             |
+| ------------ | ------------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| none         | new tablegroup, shards, and operation                                                            | `NOT_FOUND`, or `not_found` with `if_exists` |
+| `creating`   | the existing operation if the layout matches or with `if_not_exists`, else `FAILED_PRECONDITION` | cancels the creation and returns it          |
+| `active`     | `ALREADY_EXISTS`, or `already_exists` with `if_not_exists`                                       | new drop operation                           |
+| `dropping`   | `FAILED_PRECONDITION`                                                                            | the existing drop operation                  |
 
 `DropTableGroup` also refuses the default tablegroup, and any tablegroup that
 contains tables, with `FAILED_PRECONDITION`.

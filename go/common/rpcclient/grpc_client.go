@@ -378,3 +378,19 @@ func (c *Client) CloseTablet(pooler *clustermetadatapb.Multipooler) {
 	addr := getPoolerAddr(pooler)
 	c.cache.close(addr)
 }
+
+//
+// Manager Service Methods - Tablegroup operations
+//
+
+func (c *Client) ListTableGroups(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ListTableGroupsRequest) (*multipoolermanagerdatapb.ListTableGroupsResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.ListTableGroups(ctx, request)
+}
