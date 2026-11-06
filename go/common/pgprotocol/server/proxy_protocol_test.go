@@ -60,9 +60,7 @@ func proxyTestTLV(length int) []byte {
 	return append(data, make([]byte, length)...)
 }
 
-// TestProxyProtocolParsing covers Multigateway's adapter contract. These cases
-// were written here, not copied from Traefik or go-proxyproto. Traefik is the
-// reference for integrating the library, not the source of this test matrix.
+// TestProxyProtocolParsing covers Multigateway's adapter contract.
 //
 // Wire fixtures follow section 2.2 of the PROXY protocol specification:
 // https://github.com/haproxy/haproxy/blob/master/doc/proxy-protocol.txt
