@@ -129,17 +129,23 @@ func TestDropConnectionAgainstPostgres(t *testing.T) {
 		}()
 
 		// The delete is blocked on the writer's lock: wait until postgres says so, not for a
-		// fixed time, so the commit below always lands while the delete is waiting.
+		// fixed time, so the commit below always lands while the delete is waiting. A delete
+		// that returns instead never waited: stop polling and report what it returned.
+		var returned bool
+		var returnedErr error
 		require.Eventually(t, func() bool {
+			select {
+			case returnedErr = <-dropped:
+				returned = true
+				return true
+			default:
+			}
 			res, err := db.Query(ctx, "SELECT count(*) FROM pg_stat_activity WHERE pid <> pg_backend_pid() "+
 				"AND wait_event_type = 'Lock' AND query LIKE '%DELETE FROM multigres.connections%'")
 			return err == nil && len(res) > 0 && len(res[0].Rows) > 0 && string(res[0].Rows[0].Values[0]) == "1"
 		}, 30*time.Second, 50*time.Millisecond, "the delete must be waiting on the writer's lock")
-		select {
-		case err := <-dropped:
-			t.Fatalf("the delete returned while the writer's transaction was open: %v", err)
-		default:
-		}
+		require.False(t, returned, "the delete returned while the writer's transaction was open: %v "+
+			"(a nil error means it never waited, so the foreign key from multigres.migration is missing)", returnedErr)
 
 		_, err = writer.Query(ctx, "COMMIT")
 		require.NoError(t, err)

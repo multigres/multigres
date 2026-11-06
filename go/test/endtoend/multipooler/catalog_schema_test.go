@@ -125,8 +125,7 @@ func requireCatalogFormat1(t *testing.T, db *sql.DB) {
 	}
 
 	// multigres.migration references the connections table by a foreign key, which the
-	// migrator's schema ensure adds on this (the catalog) shard: the reconcile poller runs
-	// it within its first interval.
+	// migrator's schema ensure adds on this (the catalog) shard, right after the catalog.
 	requireMigrationForeignKey(t, db)
 
 	var formatVersion int
@@ -169,8 +168,10 @@ func requireCatalogFormat1(t *testing.T, db *sql.DB) {
 }
 
 // requireMigrationForeignKey waits until multigres.migration has exactly one foreign key,
-// to multigres.connections(connection_id). The migrator's schema ensure adds it, from the
-// reconcile poller (every 10 seconds) or on the first migration RPC, not the catalog ensure.
+// to multigres.connections(connection_id). The migrator's schema ensure adds it right after
+// the catalog ensure: at bootstrap, before the first backup, and on every pooler open. It
+// waits because a standby gets it by replication, and after a restart the pooler adds it
+// when it opens.
 func requireMigrationForeignKey(t *testing.T, db *sql.DB) {
 	t.Helper()
 	const want = "FOREIGN KEY (connection_id) REFERENCES multigres.connections(connection_id)"
