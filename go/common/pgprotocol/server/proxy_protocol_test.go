@@ -22,13 +22,17 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"os"
 	"testing"
 	"testing/iotest"
 	"time"
 
+	"github.com/pires/go-proxyproto"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 var proxyV2Signature = []byte("\r\n\r\n\x00\r\nQUIT\n")
@@ -56,6 +60,18 @@ func proxyTestTLV(length int) []byte {
 	return append(data, make([]byte, length)...)
 }
 
+// TestProxyProtocolParsing covers Multigateway's adapter contract. These cases
+// were written here, not copied from Traefik or go-proxyproto. Traefik is the
+// reference for integrating the library, not the source of this test matrix.
+//
+// Wire fixtures follow section 2.2 of the PROXY protocol specification:
+// https://github.com/haproxy/haproxy/blob/master/doc/proxy-protocol.txt
+// The 4 KiB limit and strict LOCAL/UNSPEC expectations follow our pinned parser:
+// https://github.com/pires/go-proxyproto/blob/v0.15.0/v2.go
+// https://github.com/pires/go-proxyproto/blob/v0.15.0/fuzz_test.go
+//
+// Optional headers, proxy trust, TCP-only addresses, ALPN eligibility, and
+// preservation of the following TLS bytes are Multigateway-specific assertions.
 func TestProxyProtocolParsing(t *testing.T) {
 	v4 := proxyTestHeader(0x21, 0x11, proxyTestAddress(false))
 	v6 := proxyTestHeader(0x21, 0x21, proxyTestAddress(true))
@@ -115,6 +131,7 @@ func TestProxyProtocolParsing(t *testing.T) {
 					require.Error(t, err)
 					require.True(t, c.proxyProtocolFailed)
 					require.False(t, c.proxyClientAddress)
+					require.False(t, c.canSendPlaintextStartupError())
 					continue
 				}
 				require.NoError(t, err)
@@ -140,6 +157,58 @@ func TestProxyProtocolParsing(t *testing.T) {
 			conn:           &proxyAddressConn{remote: &net.TCPAddr{IP: net.ParseIP("127.0.0.1")}},
 		}
 		require.Error(t, c.maybeHandleProxyProtocol(), "truncated at %d", n)
+	}
+}
+
+func TestProxyProtocolStartupErrors(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		reader    io.Reader
+		proxyCIDR string
+		wantCode  mtrpcpb.Code
+		wantCause error
+	}{
+		{
+			name: "untrusted peer", reader: bytes.NewReader(proxyTestHeader(0x21, 0x11, proxyTestAddress(false))),
+			proxyCIDR: "192.0.2.0/24", wantCode: mtrpcpb.Code_PERMISSION_DENIED,
+		},
+		{
+			name: "unsupported transport", reader: bytes.NewReader(proxyTestHeader(0x21, 0x12, proxyTestAddress(false))),
+			wantCode: mtrpcpb.Code_INVALID_ARGUMENT,
+		},
+		{
+			name: "library header error", reader: bytes.NewReader(proxyTestHeader(0x31, 0x11, proxyTestAddress(false))),
+			wantCode: mtrpcpb.Code_UNKNOWN, wantCause: proxyproto.ErrUnsupportedProtocolVersionAndCommand,
+		},
+		{
+			name: "library TLV error", reader: bytes.NewReader(proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), 1))),
+			wantCode: mtrpcpb.Code_UNKNOWN, wantCause: proxyproto.ErrTruncatedTLV,
+		},
+		{
+			name: "disconnect", reader: iotest.ErrReader(io.EOF),
+			wantCode: mtrpcpb.Code_UNKNOWN, wantCause: io.EOF,
+		},
+		{
+			name: "startup deadline", reader: iotest.ErrReader(os.ErrDeadlineExceeded),
+			wantCode: mtrpcpb.Code_UNKNOWN, wantCause: os.ErrDeadlineExceeded,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			l := &Listener{}
+			if tt.proxyCIDR != "" {
+				l.trustedProxyCIDRs = []netip.Prefix{netip.MustParsePrefix(tt.proxyCIDR)}
+			}
+			c := &Conn{
+				listener: l, bufferedReader: bufio.NewReader(tt.reader),
+				conn: &proxyAddressConn{remote: &net.TCPAddr{IP: net.ParseIP("127.0.0.1")}},
+			}
+			err := c.handleStartup()
+			require.ErrorContains(t, err, "PROXY protocol")
+			require.Equal(t, tt.wantCode, mterrors.Code(err))
+			if tt.wantCause != nil {
+				require.ErrorIs(t, err, tt.wantCause)
+			}
+		})
 	}
 }
 

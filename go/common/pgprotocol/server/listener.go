@@ -27,9 +27,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/bufpool"
 	"github.com/multigres/multigres/go/common/pgprotocol/pid"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 // Listener listens for incoming PostgreSQL client connections.
@@ -251,12 +253,12 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 	for _, cidr := range config.TrustedProxyCIDRs {
 		prefix, err := netip.ParsePrefix(cidr)
 		if err != nil {
-			return nil, fmt.Errorf("invalid trusted proxy CIDR %q: %w", cidr, err)
+			return nil, mterrors.Wrapf(err, "invalid trusted proxy CIDR %q", cidr)
 		}
 		trustedProxyCIDRs = append(trustedProxyCIDRs, prefix.Masked())
 	}
 	if config.TLSOffload && config.TLSConfig == nil {
-		return nil, errors.New("TLSOffload requires TLSConfig")
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "TLSOffload requires TLSConfig")
 	}
 
 	netListener, err := net.Listen("tcp", config.Address)

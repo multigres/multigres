@@ -105,7 +105,7 @@ func parseReplicationMode(value string) (ReplicationMode, error) {
 // through to the classic startup-packet dispatch untouched.
 func (c *Conn) handleStartup() error {
 	if err := c.maybeHandleProxyProtocol(); err != nil {
-		return fmt.Errorf("PROXY protocol: %w", err)
+		return mterrors.Wrapf(err, "PROXY protocol")
 	}
 	c.logger = c.logger.With("client_addr", c.RemoteAddr())
 	if err := c.maybeHandleDirectTLS(); err != nil {

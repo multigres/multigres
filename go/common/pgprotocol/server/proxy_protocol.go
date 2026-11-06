@@ -15,11 +15,13 @@
 package server
 
 import (
-	"errors"
 	"net"
 	"net/netip"
 
 	"github.com/pires/go-proxyproto"
+
+	"github.com/multigres/multigres/go/common/mterrors"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 // maybeHandleProxyProtocol runs once, before TLS detection, under the startup
@@ -36,7 +38,7 @@ func (c *Conn) maybeHandleProxyProtocol() (err error) {
 	defer func() { c.proxyProtocolFailed = err != nil }()
 	peer, ok := c.conn.RemoteAddr().(*net.TCPAddr)
 	if !ok || !c.listener.trustsProxy(peer.AddrPort().Addr()) {
-		return errors.New("header from untrusted peer")
+		return mterrors.New(mtrpcpb.Code_PERMISSION_DENIED, "header from untrusted peer")
 	}
 	// Read uses the existing buffer and authentication deadline. The listener
 	// wrapper's lazy parsing and separate header timeout do not fit this startup
@@ -51,7 +53,7 @@ func (c *Conn) maybeHandleProxyProtocol() (err error) {
 	}
 	remote, local, ok := header.TCPAddrs()
 	if !ok {
-		return errors.New("unsupported v2 address family or transport")
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "unsupported v2 address family or transport")
 	}
 	// Read retains optional metadata as raw bytes. Validate its framing before
 	// accepting the address, without using metadata for authentication.
