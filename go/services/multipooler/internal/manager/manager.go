@@ -1857,13 +1857,6 @@ func (pm *MultipoolerManager) Start(senv *servenv.ServEnv) {
 	pm.Open(lockCtx)
 	pm.actionLock.Release(lockCtx)
 
-	// Register the SIGTERM-driven graceful shutdown sequence. Runs as an
-	// OnTermSync hook so it is bounded by the lameduck window and completes
-	// before OnClose hooks (topology unregister) fire.
-	senv.OnTermSync(func() {
-		pm.GracefulShutdown(pm.ctx)
-	})
-
 	// Start loading multipooler record from topology asynchronously. The load
 	// only resolves the backup location, which an unmanaged pooler does not use.
 	if pm.IsUnmanaged() {

@@ -48,6 +48,7 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
 	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
 	"github.com/multigres/multigres/go/services/multigateway/scatterconn"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -151,6 +152,10 @@ type Multigateway struct {
 	// renumber, so the loss is fatal: it fails the readiness check (to
 	// drain new connections) and triggers shutdownOnPrefixLoss.
 	prefixLost atomic.Bool
+	// leaderServed is set the first time a pooler's health stream reports
+	// it is the leader, PRIMARY and SERVING: from then on writes can be
+	// routed. See LeaderServed.
+	leaderServed atomic.Bool
 	// shutdownOnPrefixLoss initiates the gateway's graceful shutdown when
 	// its PID prefix claim is lost; the supervisor then restarts the
 	// process, which claims a fresh prefix. A field so tests can observe
@@ -169,6 +174,10 @@ type Multigateway struct {
 	// localPooler, when set, is the only pooler the multigateway uses (see
 	// poolergateway.LocalPooler). nil in Multigres.
 	localPooler *poolergateway.LocalPooler
+
+	// sequencedShutdown is ProcessResources.SequencedShutdown: main calls
+	// Shutdown itself instead of the multigateway registering it.
+	sequencedShutdown bool
 }
 
 // singlePooler reports whether the multigateway serves the only pooler of its
@@ -309,6 +318,7 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 	}
 	mg.senv = resources.ServEnv
 	mg.grpcServer = resources.GrpcServer
+	mg.sequencedShutdown = resources.SequencedShutdown
 	mg.statusPath = statusPath
 	mg.localPooler = localPooler
 	// Settings are not even created with a single pooler, so their environment
@@ -326,6 +336,13 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 // Executor returns the query executor for this multigateway.
 func (mg *Multigateway) Executor() *executor.Executor {
 	return mg.executor
+}
+
+// LeaderServed reports whether the gateway has seen a leader pooler serving
+// at least once since it started, so it has been able to route queries. It
+// stays true if the leader later stops serving.
+func (mg *Multigateway) LeaderServed() bool {
+	return mg.leaderServed.Load()
 }
 
 // ServiceIdentity returns the identity the multigateway reports when main
@@ -457,8 +474,13 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 		notifMetrics,
 	)
 
+	onLeaderServing := func(sk *clustermetadatapb.ShardRef) {
+		mg.leaderServed.Store(true)
+		notifMgr.OnLeaderServing(sk)
+	}
+
 	mg.poolerGateway = poolergateway.NewPoolerGateway(poolergateway.PoolerGatewayOpts{
-		OnLeaderServing: notifMgr.OnLeaderServing,
+		OnLeaderServing: onLeaderServing,
 		Ctx:             mg.shutdownCtx,
 		Source:          mg.ts,
 		LocalCell:       mg.cell.Get(),
@@ -713,9 +735,12 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 		return nil
 	})
 
-	mg.senv.OnClose(func() {
-		mg.Shutdown()
-	})
+	if !mg.sequencedShutdown {
+		mg.senv.OnClose(func() {
+			// No deadline: servenv bounds the OnClose hooks.
+			mg.Shutdown(ctxutil.Detach(ctx))
+		})
+	}
 	return nil
 }
 
@@ -769,13 +794,16 @@ func (mg *Multigateway) CobraPreRunE(cmd *cobra.Command) error {
 	return nil
 }
 
-func (mg *Multigateway) Shutdown() {
-	mg.senv.GetLogger().Info("multigateway shutting down")
+// Shutdown stops the multigateway. It stops accepting client connections and
+// waits for the open ones to end; when ctx ends first, it cuts them (see
+// server.Listener.Shutdown) and goes on.
+func (mg *Multigateway) Shutdown(ctx context.Context) {
+	mg.senv.GetLogger().InfoContext(ctx, "multigateway shutting down")
 
 	// Stop PostgreSQL listener
 	if mg.pgListener != nil {
-		if err := mg.pgListener.Close(); err != nil {
-			mg.senv.GetLogger().Error("error closing Postgres listener", "error", err)
+		if err := mg.pgListener.Shutdown(ctx); err != nil {
+			mg.senv.GetLogger().ErrorContext(ctx, "error closing Postgres listener", "error", err)
 		} else {
 			mg.senv.GetLogger().Info("Postgres listener stopped") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
@@ -783,10 +811,10 @@ func (mg *Multigateway) Shutdown() {
 
 	// Stop replica PostgreSQL listener (if running)
 	if mg.pgReplicaListener != nil {
-		if err := mg.pgReplicaListener.Close(); err != nil {
-			mg.senv.GetLogger().Error("error closing replica Postgres listener", "error", err)
+		if err := mg.pgReplicaListener.Shutdown(ctx); err != nil {
+			mg.senv.GetLogger().ErrorContext(ctx, "error closing replica Postgres listener", "error", err)
 		} else {
-			mg.senv.GetLogger().Info("replica Postgres listener stopped")
+			mg.senv.GetLogger().InfoContext(ctx, "replica Postgres listener stopped")
 		}
 	}
 
@@ -822,9 +850,9 @@ func (mg *Multigateway) Shutdown() {
 	// per-pooler connections and cancels per-pooler health-stream goroutines.
 	if mg.poolerGateway != nil {
 		if err := mg.poolerGateway.Close(); err != nil {
-			mg.senv.GetLogger().Error("error closing pooler gateway", "error", err)
+			mg.senv.GetLogger().ErrorContext(ctx, "error closing pooler gateway", "error", err)
 		} else {
-			mg.senv.GetLogger().Info("pooler gateway closed")
+			mg.senv.GetLogger().InfoContext(ctx, "pooler gateway closed")
 		}
 	}
 

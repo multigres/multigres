@@ -415,6 +415,18 @@ func (se *ServEnv) OnRunE(f func() error) {
 	se.onRunEHooks.Add(f)
 }
 
+// LameduckPeriod is --lameduck-period: how long the process keeps serving
+// after SIGTERM before it stops.
+func (sv *ServEnv) LameduckPeriod() time.Duration {
+	return sv.lameduckPeriod.Get()
+}
+
+// OnCloseTimeout is --onclose-timeout: how long the serving loop waits for the
+// OnClose hooks before it stops.
+func (sv *ServEnv) OnCloseTimeout() time.Duration {
+	return sv.onCloseTimeout.Get()
+}
+
 // OnClose registers f to be run at the end of the app lifecycle.
 // This happens after the lameduck period just before the program exits.
 // All hooks are run in parallel.

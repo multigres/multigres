@@ -42,6 +42,13 @@ type ProcessResources struct {
 	// the multigateway in the same process, calls the pooler directly, so the
 	// query service is not served over gRPC at all. Optional.
 	QueryGrpcServer *GrpcServer
+
+	// SequencedShutdown is set when main runs the components' shutdown
+	// itself, in order, instead of each component registering it as a
+	// shutdown hook of its own. Minigres sets it so its gateway drains before
+	// its pooler stops PostgreSQL: servenv runs the hooks of one phase all at
+	// once.
+	SequencedShutdown bool
 }
 
 // Validate reports whether every required resource is set. A component given an
