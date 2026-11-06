@@ -86,15 +86,20 @@ type TableGroupDDL struct {
 	drop        bool
 	name        string
 	shards      []string // CREATE only; empty means one 0-inf shard
+	connection  string   // CREATE only; the connection of an external database the tablegroup is bound to
 	ifNotExists bool     // CREATE only
 	ifExists    bool     // DROP only
 }
 
 // NewCreateTableGroup returns the primitive for CREATE TABLEGROUP.
-func NewCreateTableGroup(admin TableGroupAdmin, sql, name string, shards []string, ifNotExists bool) *TableGroupDDL {
+//
+// connection is the name of the connection of an external database the
+// tablegroup is bound to, or empty for a managed tablegroup; the grammar
+// does not allow it together with shards.
+func NewCreateTableGroup(admin TableGroupAdmin, sql, name string, shards []string, connection string, ifNotExists bool) *TableGroupDDL {
 	return &TableGroupDDL{
 		admin: admin, sql: sql, pollInterval: tableGroupPollInterval,
-		name: name, shards: shards, ifNotExists: ifNotExists,
+		name: name, shards: shards, connection: connection, ifNotExists: ifNotExists,
 	}
 }
 
@@ -192,7 +197,7 @@ func (t *TableGroupDDL) checkSession(ctx context.Context, exec IExecute, conn *s
 
 func (t *TableGroupDDL) runCreate(ctx context.Context, database string, callback func(context.Context, *sqltypes.Result) error) error {
 	resp, err := t.admin.CreateTableGroup(ctx, database, &multipoolermanagerdatapb.CreateTableGroupRequest{
-		Name: t.name, Shards: t.shards, IfNotExists: t.ifNotExists,
+		Name: t.name, Shards: t.shards, BackingConnection: t.connection, IfNotExists: t.ifNotExists,
 	})
 	if err != nil {
 		return t.recordError(ctx, err, callback)
@@ -472,6 +477,9 @@ func (t *TableGroupDDL) GetQuery() string { return t.sql }
 func (t *TableGroupDDL) String() string {
 	if t.drop {
 		return fmt.Sprintf("TableGroupDDL(%s %s if_exists=%t)", t.statementName(), t.name, t.ifExists)
+	}
+	if t.connection != "" {
+		return fmt.Sprintf("TableGroupDDL(%s %s connection=%s if_not_exists=%t)", t.statementName(), t.name, t.connection, t.ifNotExists)
 	}
 	return fmt.Sprintf("TableGroupDDL(%s %s shards=%v if_not_exists=%t)", t.statementName(), t.name, t.shards, t.ifNotExists)
 }

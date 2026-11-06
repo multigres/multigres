@@ -131,7 +131,7 @@ func requirePgError(t *testing.T, err error, code string) *mterrors.PgDiagnostic
 }
 
 func newTestCreate(admin TableGroupAdmin, ifNotExists bool) *TableGroupDDL {
-	return NewCreateTableGroup(admin, "CREATE TABLEGROUP commerce", "commerce", []string{"0-80", "80-inf"}, ifNotExists)
+	return NewCreateTableGroup(admin, "CREATE TABLEGROUP commerce", "commerce", []string{"0-80", "80-inf"}, "", ifNotExists)
 }
 
 func newTestDrop(admin TableGroupAdmin, ifExists bool) *TableGroupDDL {
@@ -162,6 +162,41 @@ func TestTableGroupDDL_CreateWaitsForCompletion(t *testing.T) {
 	assert.Contains(t, notice.Detail, "continues if this statement is cancelled")
 	assert.Contains(t, notice.Hint, "SELECT multigres.cancel_operation('"+testTableGroupOpID+"')")
 	assert.Equal(t, "CREATE TABLEGROUP", results[1].CommandTag)
+}
+
+// A tablegroup bound to a connection is created with the connection's name and
+// no shards, and the statement waits for it like any other creation.
+func TestTableGroupDDL_CreateOnConnection(t *testing.T) {
+	admin := &fakeTableGroupAdmin{
+		createRes: &multipoolermanagerdatapb.CreateTableGroupResponse{OperationId: testTableGroupOpID, TablegroupId: 7},
+		ops:       []fakeOpAnswer{opIn(multipoolermanagerdatapb.OperationState_OPERATION_STATE_CREATING, ""), opIn(multipoolermanagerdatapb.OperationState_OPERATION_STATE_DONE, "")},
+	}
+	prim := NewCreateTableGroup(admin, "CREATE TABLEGROUP srctg CONNECTION ext", "srctg", nil, "ext", true)
+	results, err := runTableGroupDDL(t, t.Context(), prim, privilegeExec("t"))
+	require.NoError(t, err)
+
+	assert.Equal(t, "srctg", admin.createReq.Name)
+	assert.Equal(t, "ext", admin.createReq.BackingConnection)
+	assert.Empty(t, admin.createReq.Shards)
+	assert.True(t, admin.createReq.IfNotExists)
+	assert.Equal(t, 2, admin.getCalls, "polls until done")
+	require.Len(t, results, 2)
+	assert.Equal(t, "CREATE TABLEGROUP", results[1].CommandTag)
+	assert.Equal(t, "TableGroupDDL(CREATE TABLEGROUP srctg connection=ext if_not_exists=true)", prim.String())
+}
+
+// IF NOT EXISTS for a tablegroup that has another binding is an error from the
+// catalog primary, not a skipped statement; it reaches the caller as one.
+func TestTableGroupDDL_CreateOnAnotherConnectionIsAnError(t *testing.T) {
+	admin := &fakeTableGroupAdmin{
+		createErr: status.Error(codes.FailedPrecondition, `tablegroup "srctg" already exists with backing connection "other", not with backing connection "ext"`),
+	}
+	prim := NewCreateTableGroup(admin, "CREATE TABLEGROUP IF NOT EXISTS srctg CONNECTION ext", "srctg", nil, "ext", true)
+	results, err := runTableGroupDDL(t, t.Context(), prim, privilegeExec("t"))
+	d := requirePgError(t, err, mterrors.PgSSObjectNotInPrerequisiteState)
+	assert.Contains(t, d.Message, `with backing connection "other", not with backing connection "ext"`)
+	assert.Empty(t, results, "no success notice and no command tag")
+	assert.Zero(t, admin.getCalls, "nothing to wait for")
 }
 
 func TestTableGroupDDL_CreateIfNotExistsAlreadyActive(t *testing.T) {
