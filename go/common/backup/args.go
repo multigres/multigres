@@ -14,7 +14,11 @@
 
 package backup
 
-import "strings"
+import (
+	"maps"
+	"slices"
+	"strings"
+)
 
 // keyToFlagPrefix converts an override key to a pgBackRest CLI flag prefix.
 // Example: "pg2_host" → "--pg2-host="
@@ -69,9 +73,10 @@ func ApplyPgBackRestOverrides(baseArgs []string, overrides map[string]string) []
 		}
 	}
 
-	// Append any overrides that didn't replace existing args
-	for _, overrideArg := range overrideMap {
-		result = append(result, overrideArg)
+	// Append any overrides that didn't replace existing args, in a fixed order:
+	// map iteration would otherwise make the argv differ between runs.
+	for _, prefix := range slices.Sorted(maps.Keys(overrideMap)) {
+		result = append(result, overrideMap[prefix])
 	}
 
 	return result
