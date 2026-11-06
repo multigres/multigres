@@ -31,11 +31,6 @@ func (e *Engine) Expire(ctx context.Context, overrides map[string]string) ([]str
 		return nil, err
 	}
 
-	configPath, err := e.requireConfigPath()
-	if err != nil {
-		return nil, err
-	}
-
 	// List backups before expiration to detect what gets removed
 	beforeBackups, err := e.ListBackups(ctx)
 	if err != nil {
@@ -51,18 +46,17 @@ func (e *Engine) Expire(ctx context.Context, overrides map[string]string) ([]str
 
 	args := []string{
 		"--stanza=" + stanzaName,
-		"--config=" + configPath,
 		"expire",
 	}
 
 	args = commonbackup.ApplyPgBackRestOverrides(args, overrides)
 
-	cmd := e.pgbackrestCmd(ctx, args...)
+	cmd := e.pgbackrestCmd(args...)
 
 	var output []byte
 	err = telemetry.WithSpan(ctx, "expire-backups", func(ctx context.Context) error {
 		var runErr error
-		output, runErr = e.run(ctx, cmd, "pgbackrest expire")
+		output, runErr = e.execute(ctx, cmd, "pgbackrest expire")
 		return runErr
 	})
 	if err != nil {

@@ -159,7 +159,6 @@ func TestRefreshHealth_OKWhenRepoReachableAndConfigured(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(`[{"backup":[]}]`))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.Primary, nil })
 	e.SetPGSettingsProvider(func(context.Context) (PGSettings, error) {
 		return PGSettings{ArchiveCommand: "x", ArchiveMode: "on", RestoreCommand: "x"}, nil
@@ -177,7 +176,6 @@ func TestRefreshHealth_StanzaMissing(t *testing.T) {
 	stubPgbackrest(t, "#!/bin/bash\necho \"ERROR: [055]: stanza 'multigres' does not exist\" >&2\nexit 1\n")
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	e.refreshHealth(t.Context())
 	snap := e.Health().Snapshot()
@@ -189,7 +187,6 @@ func TestRefreshHealth_ArchiveCommandUnset(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(`[{"backup":[]}]`))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.Primary, nil })
 	e.SetPGSettingsProvider(func(context.Context) (PGSettings, error) {
 		return PGSettings{ArchiveCommand: "", ArchiveMode: "on", RestoreCommand: "x"}, nil
@@ -205,7 +202,6 @@ func TestRefreshHealth_ArchiveModeOff(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(`[{"backup":[]}]`))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.Primary, nil })
 	e.SetPGSettingsProvider(func(context.Context) (PGSettings, error) {
 		return PGSettings{ArchiveCommand: "x", ArchiveMode: "off", RestoreCommand: "x"}, nil
@@ -221,7 +217,6 @@ func TestRefreshHealth_RestoreCommandUnset(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(`[{"backup":[]}]`))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.Primary, nil })
 	e.SetPGSettingsProvider(func(context.Context) (PGSettings, error) {
 		return PGSettings{ArchiveCommand: "x", ArchiveMode: "on", RestoreCommand: ""}, nil
@@ -237,7 +232,6 @@ func TestRefreshHealth_ArchivingFailing(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(`[{"backup":[]}]`))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.Primary, nil })
 	// Config is healthy, so archiving failure is the dominant reason.
 	e.SetPGSettingsProvider(func(context.Context) (PGSettings, error) {
@@ -268,7 +262,6 @@ func TestRefreshHealth_StaleArchiverReadingDoesNotDriveReadiness(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(`[{"backup":[]}]`))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.Primary, nil })
 	e.SetPGSettingsProvider(func(context.Context) (PGSettings, error) {
 		return PGSettings{ArchiveCommand: "x", ArchiveMode: "on", RestoreCommand: "x"}, nil
@@ -301,7 +294,6 @@ func TestRunHealthPoller_RefreshesArchiverOnItsOwnTicker(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(`[{"backup":[]}]`))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.Primary, nil })
 	var reads atomic.Int32
 	e.SetArchiverStatsProvider(func(context.Context) (ArchiverStats, error) {
@@ -329,7 +321,6 @@ func TestRefreshHealthNow_TakesArchiverReading(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(`[{"backup":[]}]`))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 	e.SetRoleProvider(func(context.Context) (pgmode.Mode, error) { return pgmode.Primary, nil })
 	e.SetArchiverStatsProvider(func(context.Context) (ArchiverStats, error) {
 		return ArchiverStats{LastArchived: time.Unix(1735984900, 0), PendingCount: 1, OldestPending: time.Now().Add(-8 * time.Second)}, nil
@@ -375,7 +366,6 @@ func TestRefreshHealth_RepoUnreachable(t *testing.T) {
 	stubPgbackrest(t, "#!/bin/bash\necho \"ERROR: [049]: unable to connect to repository host\" >&2\nexit 1\n")
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	e.refreshHealth(t.Context())
 	snap := e.Health().Snapshot()
@@ -408,7 +398,6 @@ func TestRefreshFromRepo(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(json))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	e.refreshFromRepo(t.Context())
 	snap := e.Health().Snapshot()
@@ -417,11 +406,11 @@ func TestRefreshFromRepo(t *testing.T) {
 }
 
 func TestRefreshFromRepo_RetainsValuesOnError(t *testing.T) {
-	// Prime the tracker with values, then point at a config-less engine so
-	// ListBackups errors; the cached values must be retained.
+	// Prime the tracker with values, then make pgbackrest info fail; the
+	// cached values must be retained.
+	stubPgbackrest(t, "#!/bin/bash\necho 'ERROR: unable to reach the repository' >&2\nexit 103\n")
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	// No SetConfigPath → ListBackups returns an error.
 	primed := time.Unix(1735984860, 0)
 	e.Health().applyRepoInfo(primed, 5)
 
@@ -436,7 +425,6 @@ func TestRunHealthPoller_StopsOnContextCancel(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(json))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
@@ -574,7 +562,6 @@ func TestRefreshFromRepo_RepoUnreachableRetainsCache(t *testing.T) {
 	stubPgbackrest(t, "#!/bin/bash\necho \"ERROR: [049]: unable to connect to repository host\" >&2\nexit 1\n")
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 	primed := time.Unix(1735984860, 0)
 	e.Health().applyRepoInfo(primed, 7)
 
@@ -591,7 +578,6 @@ func TestRefreshFromRepo_MalformedJSONRetainsCache(t *testing.T) {
 	stubPgbackrest(t, "#!/bin/bash\nif [[ \"$*\" == *info* ]]; then echo \"not json\"; exit 0; fi\nexit 0\n")
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 	primed := time.Unix(1735984860, 0)
 	e.Health().applyRepoInfo(primed, 7)
 
@@ -612,7 +598,6 @@ func TestRefreshFromRepo_UnreadableRepoStatusRetainsCache(t *testing.T) {
 	stubPgbackrest(t, pgbackrestInfoStub(json))
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 	primed := time.Unix(1735984860, 0)
 	e.Health().applyRepoInfo(primed, 7)
 

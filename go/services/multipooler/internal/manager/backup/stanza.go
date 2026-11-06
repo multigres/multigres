@@ -27,20 +27,14 @@ import (
 // and safe to run concurrently — no backup lease required.
 func (e *Engine) StanzaCreate(ctx context.Context) error {
 	defer e.listCache.Invalidate()
-	configPath, err := e.requireConfigPath()
-	if err != nil {
-		return mterrors.Wrap(err, "failed to get pgbackrest config")
-	}
-
 	stanzaCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	cmd := e.pgbackrestCmd(stanzaCtx,
+	cmd := e.pgbackrestCmd(
 		"--stanza="+stanzaName,
-		"--config="+configPath,
 		"stanza-create")
 
-	output, err := safeCombinedOutput(cmd)
+	output, err := e.output(stanzaCtx, cmd)
 	if err != nil {
 		return mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest stanza-create failed for stanza %s: %v\nOutput: %s",

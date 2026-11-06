@@ -32,7 +32,7 @@ import (
 
 // CreatePgctldInstance creates a new pgctld process instance configuration.
 // Follows the pattern from multipooler/setup_test.go:createPgctldInstance.
-func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, httpPort, pgbackrestPort int, pgbackrestCertDir string, backupLocation *clustermetadatapb.BackupLocation) *ProcessInstance {
+func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, httpPort int, backupLocation *clustermetadatapb.BackupLocation) *ProcessInstance {
 	t.Helper()
 
 	dataDir := filepath.Join(baseDir, name, "data")
@@ -43,17 +43,15 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, 
 	require.NoError(t, err)
 
 	return &ProcessInstance{
-		Name:              name,
-		PoolerDir:         dataDir,
-		LogFile:           logFile,
-		GrpcPort:          grpcPort,
-		HttpPort:          httpPort,
-		PgPort:            pgPort,
-		Binary:            "pgctld",
-		PgBackRestPort:    pgbackrestPort,
-		PgBackRestCertDir: pgbackrestCertDir,
-		BackupLocation:    backupLocation,
-		Environment:       append(utils.BaseTestEnv(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data")),
+		Name:           name,
+		PoolerDir:      dataDir,
+		LogFile:        logFile,
+		GrpcPort:       grpcPort,
+		HttpPort:       httpPort,
+		PgPort:         pgPort,
+		Binary:         "pgctld",
+		BackupLocation: backupLocation,
+		Environment:    append(utils.BaseTestEnv(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data")),
 	}
 }
 

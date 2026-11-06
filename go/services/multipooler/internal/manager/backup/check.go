@@ -30,25 +30,19 @@ import (
 // this is safe to call regardless of role. On failure the combined command
 // output is folded into the returned error.
 func (e *Engine) Check(ctx context.Context) error {
-	configPath, err := e.requireConfigPath()
-	if err != nil {
-		return mterrors.Wrap(err, "pgbackrest config not found")
-	}
-
 	ctx, cancel := context.WithTimeout(ctx, commonbackup.CheckTimeout)
 	defer cancel()
 
 	args := []string{
 		"--stanza=" + stanzaName,
-		"--config=" + configPath,
 		"check",
 	}
-	cmd := e.pgbackrestCmd(ctx, args...)
+	cmd := e.pgbackrestCmd(args...)
 
 	var output []byte
-	err = telemetry.WithSpan(ctx, "pgbackrest-check", func(ctx context.Context) error {
+	err := telemetry.WithSpan(ctx, "pgbackrest-check", func(ctx context.Context) error {
 		var runErr error
-		output, runErr = e.run(ctx, cmd, "pgbackrest check")
+		output, runErr = e.execute(ctx, cmd, "pgbackrest check")
 		return runErr
 	})
 	if err != nil {

@@ -24,10 +24,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -53,8 +52,7 @@ var tracer = otel.Tracer("github.com/multigres/multigres/go/provisioner/local")
 
 // localProvisioner implements the Provisioner interface for local binary-based provisioning
 type localProvisioner struct {
-	config              *LocalProvisionerConfig
-	pgBackRestCertPaths *PgBackRestCertPaths
+	config *LocalProvisionerConfig
 	// cipherKeyFilePath is the resolved backup cipher key file path, set once
 	// per ProvisionDatabase run when encryption is enabled and passed to every
 	// multipooler. Empty when encryption is disabled.
@@ -318,13 +316,21 @@ func (p *localProvisioner) checkEtcdVersion(binaryPath, expectedVersion string) 
 // e.g. "pgBackRest 2.57.0".
 var pgbackrestVersionRe = regexp.MustCompile(`(?m)^pgBackRest\s+(\d+\.\d+(?:\.\d+)?)`)
 
-// minPgBackrestVersionDisplay returns constants.MinPgBackrestVersion without
-// the semver "v" prefix, for use in user-facing messages.
-func minPgBackrestVersionDisplay() string {
+// minPgBackrestVersionDisplay returns the minimum version without the semver
+// "v" prefix, for messages.
+func (p *localProvisioner) minPgBackrestVersionDisplay() string {
 	return strings.TrimPrefix(constants.MinPgBackrestVersion, "v")
 }
 
-// checkPgBackrestVersion verifies that the pgbackrest binary is >= constants.MinPgBackrestVersion.
+// CheckPgBackrestVersion verifies that the pgbackrest binary meets
+// constants.MinPgBackrestVersion, for callers (the end-to-end harness) that run
+// the sidecar without going through the provisioner's own checks.
+func CheckPgBackrestVersion(binaryPath string) error {
+	return (&localProvisioner{}).checkPgBackrestVersion(binaryPath)
+}
+
+// checkPgBackrestVersion verifies that the pgbackrest binary meets the minimum
+// version.
 func (p *localProvisioner) checkPgBackrestVersion(binaryPath string) error {
 	cmd := exec.Command(binaryPath, "--version")
 	output, err := cmd.Output()
@@ -344,7 +350,7 @@ func (p *localProvisioner) checkPgBackrestVersionFromOutput(versionStr string) e
 	actual := semver.Canonical("v" + matches[1])
 	if semver.Compare(actual, constants.MinPgBackrestVersion) < 0 {
 		return fmt.Errorf("pgbackrest %s is too old; need >= %s",
-			matches[1], minPgBackrestVersionDisplay())
+			matches[1], p.minPgBackrestVersionDisplay())
 	}
 	fmt.Printf("🔍 - pgbackrest %s found — version compatible ✓\n", matches[1])
 	return nil
@@ -873,15 +879,9 @@ func (p *localProvisioner) provisionMultipooler(ctx context.Context, req *provis
 	// Add service map configuration to enable grpc-pooler service
 	args = append(args, "--service-map", "grpc-pooler")
 
-	// No --pgbackrest-port or --pgbackrest-{cert,key,ca}-file: the multipooler
-	// adopts them from pgctld's Status RPC (pgctld serves the pgBackRest
-	// endpoint and owns the cert directory).
-
-	// When backup encryption is enabled, point the multipooler at the shared
-	// cipher key file so it renders the initial repository encrypted.
-	if p.cipherKeyFilePath != "" {
-		args = append(args, "--pgbackrest-cipher-key-file", p.cipherKeyFilePath)
-	}
+	// The sidecar owns the cipher keys and the pgBackRest server, so the
+	// multipooler only needs to know where to reach it.
+	args = append(args, sidecarPoolerArgs(pgctldResult.PoolerDir)...)
 
 	// Start multipooler process
 	multipoolerCmd := executil.Command(ctx, multipoolerBinary, args...)
@@ -1112,6 +1112,44 @@ func (p *localProvisioner) provisionMultiorch(ctx context.Context, req *provisio
 	}, nil
 }
 
+// minigresLaunch is everything minigresArgs renders into the command line.
+type minigresLaunch struct {
+	httpPort, grpcPort, pgPort int
+	etcdAddress                string
+	topoGlobalRoot             string
+	cell, database             string
+	tableGroup, shard          string
+	serviceID                  string
+	pgctldAddr                 string
+	logLevel, logFile          string
+	poolerDir                  string
+}
+
+// minigresArgs builds minigres's command line. There is no --pooler-dir:
+// minigres's pooler half adopts it from pgctld's Status RPC, same as a
+// standalone multipooler does. The embedded multipooler reaches its pooler's
+// sidecar the same way a standalone multipooler does.
+func minigresArgs(l minigresLaunch) []string {
+	args := []string{
+		"--http-port", strconv.Itoa(l.httpPort),
+		"--grpc-port", strconv.Itoa(l.grpcPort),
+		"--pg-port", strconv.Itoa(l.pgPort),
+		"--pg-bind-address", "127.0.0.1",
+		"--topo-global-server-addresses", l.etcdAddress,
+		"--topo-global-root", l.topoGlobalRoot,
+		"--cell", l.cell,
+		"--database", l.database,
+		"--table-group", l.tableGroup,
+		"--shard", l.shard,
+		"--service-id", l.serviceID,
+		"--pgctld-addr", l.pgctldAddr,
+		"--log-level", l.logLevel,
+		"--log-output", l.logFile,
+		"--hostname", "localhost",
+	}
+	return append(args, sidecarPoolerArgs(l.poolerDir)...)
+}
+
 // provisionMinigres provisions minigres — a single process running both a
 // multigateway and a multipooler half — using the local binary. It pairs
 // with its own pgctld exactly like provisionMultipooler does, since a
@@ -1212,25 +1250,13 @@ func (p *localProvisioner) provisionMinigres(ctx context.Context, req *provision
 		return nil, fmt.Errorf("failed to provision pgctld for minigres: %w", err)
 	}
 
-	// Build command arguments. No --pooler-dir: minigres's pooler half adopts
-	// it from pgctld's Status RPC, same as a standalone multipooler does.
-	args := []string{
-		"--http-port", strconv.Itoa(httpPort),
-		"--grpc-port", strconv.Itoa(grpcPort),
-		"--pg-port", strconv.Itoa(pgPort),
-		"--pg-bind-address", "127.0.0.1",
-		"--topo-global-server-addresses", etcdAddress,
-		"--topo-global-root", topoGlobalRoot,
-		"--cell", cell,
-		"--database", database,
-		"--table-group", tableGroup,
-		"--shard", shard,
-		"--service-id", serviceID,
-		"--pgctld-addr", pgctldResult.Address,
-		"--log-level", logLevel,
-		"--log-output", logFile,
-		"--hostname", "localhost",
-	}
+	args := minigresArgs(minigresLaunch{
+		httpPort: httpPort, grpcPort: grpcPort, pgPort: pgPort,
+		etcdAddress: etcdAddress, topoGlobalRoot: topoGlobalRoot,
+		cell: cell, database: database, tableGroup: tableGroup, shard: shard,
+		serviceID: serviceID, pgctldAddr: pgctldResult.Address,
+		logLevel: logLevel, logFile: logFile, poolerDir: pgctldResult.PoolerDir,
+	})
 
 	// Start minigres process
 	minigresCmd := executil.Command(ctx, minigresBinary, args...)
@@ -1242,7 +1268,9 @@ func (p *localProvisioner) provisionMinigres(ctx context.Context, req *provision
 		constants.PgDataDirEnvVar+"="+filepath.Join(pgctldResult.PoolerDir, "pg_data"),
 	)
 
-	fmt.Printf("▶️  - Launching minigres (HTTP:%d, gRPC:%d, PG:%d)...", httpPort, grpcPort, pgPort)
+	// Keep progress output independent of the secret-bearing service config.
+	// Port details remain available in the returned provision state.
+	fmt.Print("▶️  - Launching minigres...")
 
 	if err := minigresCmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start minigres: %w", err)
@@ -1276,7 +1304,7 @@ func (p *localProvisioner) provisionMinigres(ctx context.Context, req *provision
 
 	// Save service state to disk
 	if err := p.saveServiceState(service, req.DatabaseName); err != nil {
-		fmt.Printf("Warning: failed to save service state: %v\n", err)
+		fmt.Printf("Warning: failed to save minigres service state (%s)\n", serviceStateErrorReason(err))
 	}
 
 	return &provisioner.ProvisionResult{
@@ -1291,21 +1319,27 @@ func (p *localProvisioner) provisionMinigres(ctx context.Context, req *provision
 }
 
 // Deprovision removes/stops a specific service
-func (p *localProvisioner) Deprovision(ctx context.Context, req *provisioner.DeprovisionRequest) error {
-	fmt.Printf("Deprovisioning %s service (ID: %s)...\n", req.Service, req.ServiceID)
-
-	// Stop the service using the service-specific method
-	if err := p.stopService(ctx, req); err != nil {
-		return fmt.Errorf("failed to stop %s service: %w", req.Service, err)
+func (p *localProvisioner) Deprovision(ctx context.Context, req *provisioner.DeprovisionRequest) (resultErr error) {
+	ctx, releaseOuter, err := p.enterSidecarLifecycle(ctx)
+	if err != nil {
+		return err
 	}
-
-	// Remove state file on successful stop
-	if err := p.removeServiceState(req.ServiceID, req.Service, req.DatabaseName); err != nil {
-		fmt.Printf("Warning: failed to remove state file: %v\n", err)
+	defer func() { resultErr = errors.Join(resultErr, releaseOuter()) }()
+	all, err := p.loadShutdownServices()
+	if err != nil {
+		return err
 	}
-
-	fmt.Printf("%s service (ID: %s) deprovisioned successfully ✓\n", req.Service, req.ServiceID)
-	return nil
+	dir := p.getStateDir()
+	if req.DatabaseName != "" {
+		dir = filepath.Join(dir, "dbs", req.DatabaseName)
+	}
+	target := filepath.Join(dir, fmt.Sprintf("%s_%s.json", req.Service, req.ServiceID))
+	for _, service := range all {
+		if service.statePath == target && service.Service == req.Service && service.ID == req.ServiceID {
+			return p.deprovisionSelected(ctx, []*LocalProvisionedService{service}, all, req.Clean)
+		}
+	}
+	return errors.New("service not found")
 }
 
 // loadServiceState loads a specific service state from disk
@@ -1347,76 +1381,10 @@ func (p *localProvisioner) loadServiceState(req *provisioner.DeprovisionRequest)
 	return &service, nil
 }
 
-// stopService stops a specific service based on its type using the internal methods
-func (p *localProvisioner) stopService(ctx context.Context, req *provisioner.DeprovisionRequest) error {
-	switch req.Service {
-	case "etcd":
-		fallthrough
-	case constants.ServiceMultigateway:
-		fallthrough
-	case constants.ServiceMultiorch:
-		fallthrough
-	case constants.ServiceMultipooler:
-		fallthrough
-	case constants.ServiceMinigres:
-		fallthrough
-	case constants.ServiceMultiadmin:
-		return p.deprovisionService(ctx, req)
-	case constants.ServicePgctld:
-		// pgctld requires special handling to stop PostgreSQL first
-		service, err := p.loadServiceState(req)
-		if err != nil {
-			return err
-		}
-		if service == nil {
-			return errors.New("pgctld service not found")
-		}
-		return p.deprovisionPgctld(ctx, service)
-	default:
-		return fmt.Errorf("unknown service type: %s", req.Service)
-	}
-}
-
-// deprovisionService(ctx stops a multiorch service instance
+// Every direct clean uses the same held-guard coordinator; no raw DataDir
+// removal or early service-state deletion is permitted here.
 func (p *localProvisioner) deprovisionService(ctx context.Context, req *provisioner.DeprovisionRequest) error {
-	// Load the specific service state
-	service, err := p.loadServiceState(req)
-	if err != nil {
-		return err
-	}
-
-	if service == nil {
-		return errors.New("service not found")
-	}
-
-	// Stop the process if it's running
-	if service.PID > 0 {
-		if err := p.stopProcessByPID(ctx, service.Service, service.PID); err != nil {
-			return fmt.Errorf("failed to stop process: %w", err)
-		}
-	}
-
-	// Clean up log file if it exists
-	if service.LogFile != "" {
-		if err := p.cleanupLogFile(service.LogFile); err != nil {
-			fmt.Printf("Warning: failed to clean up log file %s: %v\n", service.LogFile, err)
-		}
-	}
-
-	// Remove state file
-	if err := p.removeServiceState(req.ServiceID, req.Service, req.DatabaseName); err != nil {
-		fmt.Printf("Warning: failed to remove etcd state file: %v\n", err)
-	}
-
-	// Clean up data directory if requested
-	if req.Clean && service.DataDir != "" {
-		fmt.Printf("Cleaning service data directory: %s\n", service.DataDir)
-		if err := os.RemoveAll(service.DataDir); err != nil {
-			return fmt.Errorf("failed to remove etcd data directory: %w", err)
-		}
-	}
-
-	return nil
+	return p.Deprovision(ctx, req)
 }
 
 // stopProcessByPID stops a process by its PID
@@ -1442,7 +1410,23 @@ func (p *localProvisioner) stopProcessByPID(ctx context.Context, name string, pi
 }
 
 // Bootstrap sets up etcd and creates the default database
-func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.ProvisionResult, error) {
+func (p *localProvisioner) Bootstrap(ctx context.Context) (result []*provisioner.ProvisionResult, resultErr error) {
+	ctx, releaseOuter, err := p.enterSidecarLifecycle(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, releaseOuter()) }()
+
+	// Every pgBackRest command runs under the sidecar, which confines it with
+	// Landlock unless the sandbox mode allows otherwise.
+	mode, err := SandboxMode()
+	if err != nil {
+		return nil, err
+	}
+	if err := requireSidecarHost(runtime.GOOS, mode); err != nil {
+		return nil, err
+	}
+
 	// Validate binary paths before starting
 	if err := p.validateBinaryPaths(p.config); err != nil {
 		return nil, err
@@ -1545,168 +1529,66 @@ func (p *localProvisioner) Bootstrap(ctx context.Context) ([]*provisioner.Provis
 }
 
 // Teardown shuts down all services (reverse of Bootstrap)
-func (p *localProvisioner) Teardown(ctx context.Context, clean bool) error {
+func (p *localProvisioner) Teardown(ctx context.Context, clean bool) (resultErr error) {
+	outer, err := p.lockSidecarLifecycle()
+	if err != nil {
+		return err
+	}
+	defer func() { resultErr = errors.Join(resultErr, outer.Close()) }()
 	fmt.Println("=== Tearing down Multigres cluster ===")
-
-	// Get the typed configuration
-	config := p.config
-
-	// Get etcd address (assuming etcd is running locally)
-	etcdPort := config.Etcd.Port
-	etcdAddress := fmt.Sprintf("localhost:%d", etcdPort)
-
-	// 1. Deprovision database services first
-	if err := p.DeprovisionDatabase(ctx, config.DefaultDbName, etcdAddress); err != nil {
-		fmt.Printf("Warning: failed to deprovision database: %v\n", err)
-	}
-
-	// 2. Deprovision global services (multiadmin)
-	fmt.Println("=== Deprovisioning global services ===")
-	globalServices, err := p.loadGlobalServices()
+	// Validate every saved record before shutdown. The discovery helpers used
+	// by provisioning intentionally skip unreadable records; cleanup must not.
+	services, err := p.loadShutdownServices()
 	if err != nil {
-		fmt.Printf("Warning: failed to load global service states: %v\n", err)
-	} else {
-		for _, service := range globalServices {
-			if service.Service == constants.ServiceMultiadmin {
-				req := &provisioner.DeprovisionRequest{
-					Service:      constants.ServiceMultiadmin,
-					ServiceID:    service.ID,
-					DatabaseName: "", // multiadmin is a global service
-					Clean:        clean,
-				}
-				if err := p.deprovisionService(ctx, req); err != nil {
-					fmt.Printf("Warning: failed to deprovision multiadmin: %v\n", err)
-				}
+		return err
+	}
+	inventory, err := p.sidecarCleanupInventory(services)
+	if err != nil {
+		return err
+	}
+	exclusion, err := lockSidecarInstallations(inventory)
+	if err != nil {
+		return err
+	}
+	defer func() { resultErr = errors.Join(resultErr, exclusion.Close()) }()
+	// Stop application services before pgctld, and topology last. Do not use
+	// deprovisionService here: it removes logs/state/data as it goes, before
+	// we know whether the remaining required shutdowns succeed.
+	for _, phase := range []string{"application", "pgctld", "etcd"} {
+		for _, service := range services {
+			kind := "application"
+			if service.Service == "pgctld" || service.Service == "etcd" {
+				kind = service.Service
+			}
+			if kind != phase {
+				continue
+			}
+			if err := p.shutdownService(ctx, service); err != nil {
+				return fmt.Errorf("shutdown %s %s failed; preserving data and state: %w", service.Service, service.ID, err)
 			}
 		}
 	}
-
-	// 3. Deprovision etcd last
-	fmt.Println("=== Deprovisioning etcd ===")
-	etcdServices, err := p.loadEtcdServices()
-	if err != nil {
-		return fmt.Errorf("failed to load etcd service states: %w", err)
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-
-	for _, service := range etcdServices {
-		if service.Service == "etcd" {
-			req := &provisioner.DeprovisionRequest{
-				Service:      "etcd",
-				ServiceID:    service.ID,
-				DatabaseName: "", // etcd is a global service
-				Clean:        clean,
-			}
-			if err := p.deprovisionService(ctx, req); err != nil {
-				fmt.Printf("Warning: failed to deprovision etcd: %v\n", err)
-			}
-		}
-	}
-
-	// 4. Clean up logs, state, and data directories if requested
 	if clean {
-		logsDir := p.getLogsDir()
-		if err := p.cleanupLogsDirectory(logsDir); err != nil {
-			fmt.Printf("Warning: failed to clean up logs directory: %v\n", err)
+		if err := exclusion.requirePostgresShutdown(services); err != nil {
+			return err
 		}
-
-		stateDir := p.getStateDir()
-		if err := p.cleanupStateDirectory(stateDir); err != nil {
-			fmt.Printf("Warning: failed to clean up state directory: %v\n", err)
+		// Acquire every guard before deleting anything. The exclusion is held
+		// until deletion finishes AND every authoritative guard is released.
+		if err := exclusion.acquireCleanupGuards(); err != nil {
+			return err
 		}
-
-		dataDir := p.getDataDir()
-		if err := p.cleanupDataDirectory(dataDir); err != nil {
-			fmt.Printf("Warning: failed to clean up data directory: %v\n", err)
-		}
-
-		socketsDir := filepath.Join(p.config.RootWorkingDir, "sockets")
-		if err := p.cleanupSocketsDirectory(socketsDir); err != nil {
-			fmt.Printf("Warning: failed to clean up sockets directory: %v\n", err)
-		}
-
-		spoolDir := filepath.Join(p.config.RootWorkingDir, "spool")
-		if err := p.cleanupSpoolDirectory(spoolDir); err != nil {
-			fmt.Printf("Warning: failed to clean up spool directory: %v\n", err)
+		keep := exclusion.preservedPaths()
+		for _, root := range p.cleanupRoots() {
+			if err := cleanupPreservingLocks(root, keep); err != nil {
+				return err
+			}
 		}
 	}
 
 	fmt.Println("Teardown completed successfully")
-	return nil
-}
-
-// cleanupLogsDirectory removes the entire logs directory and all its contents
-func (p *localProvisioner) cleanupLogsDirectory(logsDir string) error {
-	// Check if logs directory exists
-	if _, err := os.Stat(logsDir); os.IsNotExist(err) {
-		return nil // Directory doesn't exist, nothing to clean up
-	}
-
-	// Remove the entire logs directory
-	if err := os.RemoveAll(logsDir); err != nil {
-		return fmt.Errorf("failed to remove logs directory %s: %w", logsDir, err)
-	}
-
-	fmt.Printf("Cleaned up logs directory: %s\n", logsDir)
-	return nil
-}
-
-// cleanupStateDirectory removes the entire state directory and all its contents
-func (p *localProvisioner) cleanupStateDirectory(stateDir string) error {
-	// Check if state directory exists
-	if _, err := os.Stat(stateDir); os.IsNotExist(err) {
-		return nil // Directory doesn't exist, nothing to clean up
-	}
-
-	// Remove the entire state directory
-	if err := os.RemoveAll(stateDir); err != nil {
-		return fmt.Errorf("failed to remove state directory %s: %w", stateDir, err)
-	}
-
-	fmt.Printf("Cleaned up state directory: %s\n", stateDir)
-	return nil
-}
-
-// cleanupDataDirectory removes the entire data directory and all its contents
-func (p *localProvisioner) cleanupDataDirectory(dataDir string) error {
-	// Check if data directory exists
-	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
-		return nil // Directory doesn't exist, nothing to clean up
-	}
-
-	// Remove the entire data directory
-	if err := os.RemoveAll(dataDir); err != nil {
-		return fmt.Errorf("failed to remove data directory %s: %w", dataDir, err)
-	}
-
-	fmt.Printf("Cleaned up data directory: %s\n", dataDir)
-	return nil
-}
-
-// cleanupSocketsDirectory removes the entire sockets directory and all its contents
-func (p *localProvisioner) cleanupSocketsDirectory(socketsDir string) error {
-	if _, err := os.Stat(socketsDir); os.IsNotExist(err) {
-		return nil // Directory doesn't exist, nothing to clean up
-	}
-
-	if err := os.RemoveAll(socketsDir); err != nil {
-		return fmt.Errorf("failed to remove sockets directory %s: %w", socketsDir, err)
-	}
-
-	fmt.Printf("Cleaned up sockets directory: %s\n", socketsDir)
-	return nil
-}
-
-// cleanupSpoolDirectory removes the entire spool directory and all its contents
-func (p *localProvisioner) cleanupSpoolDirectory(spoolDir string) error {
-	if _, err := os.Stat(spoolDir); os.IsNotExist(err) {
-		return nil // Directory doesn't exist, nothing to clean up
-	}
-
-	if err := os.RemoveAll(spoolDir); err != nil {
-		return fmt.Errorf("failed to remove spool directory %s: %w", spoolDir, err)
-	}
-
-	fmt.Printf("Cleaned up spool directory: %s\n", spoolDir)
 	return nil
 }
 
@@ -1781,7 +1663,13 @@ var cellServiceSpecs = []struct {
 }
 
 // ProvisionDatabase provisions a complete database stack in all cells (assumes etcd is already running and cells are configured)
-func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName string, etcdAddress string) ([]*provisioner.ProvisionResult, error) {
+func (p *localProvisioner) ProvisionDatabase(ctx context.Context, databaseName string, etcdAddress string) (result []*provisioner.ProvisionResult, resultErr error) {
+	ctx, releaseOuter, err := p.enterSidecarLifecycle(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, releaseOuter()) }()
+
 	fmt.Printf("=== Provisioning database: %s ===\n", databaseName)
 	fmt.Println("")
 
@@ -2045,12 +1933,9 @@ func (p *localProvisioner) ensureBackupCipherKeyFile() error {
 func (p *localProvisioner) generatePgBackRestCertsOnce(ctx context.Context) error {
 	fmt.Println("=== Generating pgBackRest certs ===")
 	certDir := p.certDir()
-	certPaths, err := GeneratePgBackRestCerts(certDir)
-	if err != nil {
+	if _, err := GeneratePgBackRestCerts(certDir); err != nil {
 		return fmt.Errorf("failed to generate pgBackRest certs: %w", err)
 	}
-	// Store the cert paths for later use
-	p.pgBackRestCertPaths = certPaths
 	fmt.Println("")
 	return nil
 }
@@ -2107,43 +1992,27 @@ func (p *localProvisioner) setupDefaultCell(ctx context.Context, cellName, etcdA
 }
 
 // DeprovisionDatabase deprovisions all services for a database
-func (p *localProvisioner) DeprovisionDatabase(ctx context.Context, databaseName string, etcdAddress string) error {
-	fmt.Printf("=== Deprovisioning database: %s ===\n", databaseName)
-
-	// Find all running services related to this database
-	services, err := p.loadDbProvisionedServices(databaseName)
+func (p *localProvisioner) DeprovisionDatabase(ctx context.Context, databaseName string, etcdAddress string) (resultErr error) {
+	ctx, releaseOuter, err := p.enterSidecarLifecycle(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to load service states for database %s: %w", databaseName, err)
+		return err
 	}
-
-	var servicesStopped atomic.Int64
-
-	var wg sync.WaitGroup
-	for _, service := range services {
-		fmt.Printf("Stopping %s service (ID: %s) for database %s...\n", service.Service, service.ID, databaseName)
-
-		req := &provisioner.DeprovisionRequest{
-			Service:      service.Service,
-			ServiceID:    service.ID,
-			DatabaseName: databaseName,
-			Clean:        true, // Clean up data when deprovisioning database
+	defer func() { resultErr = errors.Join(resultErr, releaseOuter()) }()
+	if databaseName == "" {
+		return errors.New("database name is required")
+	}
+	all, err := p.loadShutdownServices()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(p.getStateDir(), "dbs", databaseName)
+	var selected []*LocalProvisionedService
+	for _, service := range all {
+		if filepath.Dir(service.statePath) == dir {
+			selected = append(selected, service)
 		}
-
-		wg.Go(func() {
-			if err := p.stopService(ctx, req); err != nil {
-				fmt.Printf("Warning: failed to stop %s service: %v\n", service.Service, err)
-			}
-			// Remove state file
-			if err := p.removeServiceState(service.ID, req.Service, req.DatabaseName); err != nil {
-				fmt.Printf("Warning: failed to remove state file: %v\n", err)
-			}
-			servicesStopped.Add(1)
-		})
 	}
-	wg.Wait()
-
-	fmt.Printf("Database %s deprovisioned successfully (%d services stopped)\n", databaseName, servicesStopped.Load())
-	return nil
+	return p.deprovisionSelected(ctx, selected, all, true)
 }
 
 // getTopologyConfig extracts topology configuration from provisioner config
@@ -2372,7 +2241,7 @@ func (p *localProvisioner) validateSystemBinaries() error {
 			"For PostgreSQL: Install PostgreSQL %d.x client tools (pg_ctl, postgres, pg_isready)\n"+
 			"For etcd: Install etcd client binary\n"+
 			"For pgBackRest: Install pgBackRest >= %s",
-			strings.Join(missingBinaries, ", "), constants.RequiredPostgresMajor, minPgBackrestVersionDisplay())
+			strings.Join(missingBinaries, ", "), constants.RequiredPostgresMajor, p.minPgBackrestVersionDisplay())
 	}
 
 	return nil

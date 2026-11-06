@@ -28,6 +28,8 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	pb "github.com/multigres/multigres/go/pb/pgbackrestdservice"
+	"github.com/multigres/multigres/go/test/utils"
 )
 
 const databaseRecordPath = "databases/testdb/Database"
@@ -36,6 +38,8 @@ const databaseRecordPath = "databases/testdb/Database"
 // state it settles in.
 func loadDatabaseRecord(t *testing.T, ts topoclient.Store, poolerDir string, staticLeader bool) ManagerState {
 	t.Helper()
+	// pgctld creates the pooler directory before the pooler starts.
+	require.NoError(t, os.MkdirAll(poolerDir, 0o755))
 	multipooler := &clustermetadatapb.Multipooler{
 		Id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-service"},
 		ShardRef: &clustermetadatapb.ShardRef{
@@ -45,8 +49,14 @@ func loadDatabaseRecord(t *testing.T, ts topoclient.Store, poolerDir string, sta
 		},
 		PoolerDir: poolerDir,
 	}
-	pm, err := NewMultipoolerManagerWithTimeout(slog.New(slog.DiscardHandler), multipooler,
-		&Config{TopoClient: ts, StaticLeader: staticLeader}, time.Second)
+	// The sidecar must serve the location the topology names.
+	fake := &fakeSidecarServer{status: &pb.StatusResponse{
+		LocationFingerprint: backupLocationFingerprint(utils.FilesystemBackupLocation("/var/backups/pgbackrest")),
+		ServerPort:          8432,
+	}}
+	cfg := &Config{TopoClient: ts, StaticLeader: staticLeader, PgBackRestControlSocket: serveFakeSidecar(t, fake)}
+	applyTestSidecar(cfg, poolerDir)
+	pm, err := NewMultipoolerManagerWithTimeout(slog.New(slog.DiscardHandler), multipooler, cfg, time.Second)
 	require.NoError(t, err)
 	defer pm.ShutdownForTest(t.Context())
 
@@ -55,6 +65,9 @@ func loadDatabaseRecord(t *testing.T, ts topoclient.Store, poolerDir string, sta
 		state := pm.GetState()
 		return state == ManagerStateReady || state == ManagerStateError
 	}, 5*time.Second, 50*time.Millisecond)
+	if _, stateErr := pm.GetStateAndError(); stateErr != nil {
+		t.Logf("manager state error: %v", stateErr)
+	}
 	return pm.GetState()
 }
 
@@ -67,12 +80,10 @@ func TestStaticLeader_StartsFromItsCopyOfTheDatabaseRecord(t *testing.T) {
 	require.Equal(t, ManagerStateReady, loadDatabaseRecord(t, ts, poolerDir, true))
 	require.FileExists(t, filepath.Join(poolerDir, databaseCacheFile), "the record read from the topology is kept")
 
-	// The topology becomes unreachable and the pgbackrest conf is gone: the
-	// restarted static leader is ready from its copy and rewrites the conf.
+	// The topology becomes unreachable: the restarted static leader is ready
+	// from its copy.
 	factory.AddOperationError(memorytopo.Get, databaseRecordPath, assert.AnError)
-	require.NoError(t, os.RemoveAll(filepath.Join(poolerDir, "pgbackrest")))
 	assert.Equal(t, ManagerStateReady, loadDatabaseRecord(t, ts, poolerDir, true))
-	assert.FileExists(t, filepath.Join(poolerDir, "pgbackrest", "pgbackrest.conf"))
 }
 
 func TestStaticLeader_DoesNotServeADeletedDatabaseFromItsCopy(t *testing.T) {

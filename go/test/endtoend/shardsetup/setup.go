@@ -81,6 +81,7 @@ type SetupConfig struct {
 	S3BackupRegion                     string   // S3 region
 	S3BackupEndpoint                   string   // S3 endpoint (empty = use AWS, otherwise s3mock/custom)
 	RequireBackupEncryption            bool     // Generate a cipher key file and require initial-repo encryption
+	S3CAPEM                            []byte   // PEM certificate the sidecar trusts for the S3 endpoint (s3mock's self-signed certificate)
 	EnableMultigatewayReplicaPort      bool     // Enable replica-reads port on multigateway
 	MultigatewayExtraArgs              []string // Extra CLI flags for multigateway (e.g., buffer config)
 	MultipoolerExtraArgs               []string // Extra CLI flags appended to every multipooler (e.g., connpool capacity/timeout flags)
@@ -285,10 +286,19 @@ func WithS3Backup(bucket, region, endpoint string) SetupOption {
 	}
 }
 
+// WithS3CAPEM sets the certificate the pgbackrestd sidecar trusts for the S3
+// endpoint, normally s3mock.Server.CertPEM(). When an S3 endpoint is named and
+// this is not used, the certificate is read from the endpoint itself.
+func WithS3CAPEM(pem []byte) SetupOption {
+	return func(c *SetupConfig) {
+		c.S3CAPEM = pem
+	}
+}
+
 // WithBackupEncryption requires client-side backup encryption: the setup
 // generates a random cipher passphrase, writes the generation-keyed key file
-// ({"1": "<pass>"}) into the temp dir, points every multipooler at it via
-// --pgbackrest-cipher-key-file, and sets require_initial_repo_encryption on the
+// ({"1": "<pass>"}) into the temp dir, points every pooler's sidecar at it via
+// --cipher-key-file, and sets require_initial_repo_encryption on the
 // database's BackupLocation. The passphrase is exposed as
 // ShardSetup.BackupCipherKey for fingerprint assertions.
 func WithBackupEncryption() SetupOption {
@@ -453,6 +463,10 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		opt(config)
 	}
 
+	clustersetup.RequireSidecarHost(t)
+	trustS3Endpoint(t, config)
+	requirePgBackrestVersion(t)
+
 	// Add configuration attributes to span
 	span.SetAttributes(
 		attribute.Int("multipooler.count", config.MultipoolerCount),
@@ -531,6 +545,16 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 			config.Database, backupDir)
 	}
 
+	var sidecar clustersetup.SidecarSettings
+	if config.S3BackupEndpoint != "" {
+		sidecar.S3CAFile = filepath.Join(tempDir, "s3-ca.pem")
+		if err := os.WriteFile(sidecar.S3CAFile, config.S3CAPEM, 0o644); err != nil {
+			cancel()
+			t.Fatalf("failed to write the S3 CA file: %v", err)
+		}
+		sidecar.S3CredEndpoint = config.S3BackupEndpoint + "/_session?ttl=" + clustersetup.SidecarSessionTTL
+	}
+
 	// Backup encryption: mint a passphrase, write the key file every
 	// multipooler reads at startup, and require encryption in topology so a
 	// pooler without the key refuses to serve.
@@ -542,7 +566,8 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		if err := os.WriteFile(keyFilePath, fmt.Appendf(nil, `{"1": %q}`, backupCipherKey), 0o600); err != nil {
 			t.Fatalf("failed to write backup cipher key file: %v", err)
 		}
-		config.MultipoolerExtraArgs = append(config.MultipoolerExtraArgs, "--pgbackrest-cipher-key-file", keyFilePath)
+		// The sidecar owns the keys; multipooler never loads them.
+		sidecar.CipherKeyFile = keyFilePath
 		t.Logf("Backup encryption required: cipher key file at %s", keyFilePath)
 	}
 
@@ -565,6 +590,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		MetricsPorts:       make(map[string]int),
 		BackupLocation:     backupLocation,
 		BackupCipherKey:    backupCipherKey,
+		sidecar:            sidecar,
 	}
 
 	// Provision postgres-side TLS assets up front so every pgctld + multipooler
@@ -1388,6 +1414,14 @@ func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*M
 			attribute.Int("multipooler.grpc_port", multipooler.GrpcPort),
 		)
 
+		// The sidecar first: postgres's archive_command dials its WAL socket.
+		if err := inst.PgBackRestd.Start(instCtx, t); err != nil {
+			instSpan.RecordError(err)
+			instSpan.SetStatus(codes.Error, "pgbackrestd start failed")
+			instSpan.End()
+			t.Fatalf("failed to start pgbackrestd for %s: %v", inst.Name, err)
+		}
+
 		// Start pgctld (postgres will be initialized later, or by multiorch for bootstrap)
 		if err := pgctld.Start(instCtx, t); err != nil {
 			instSpan.RecordError(err)
@@ -1666,6 +1700,13 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 			inst.Pgctld.TerminateGracefully(t.Logf, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped pgctld %s", name)
 		}
+		// Wiping the pooler directory deletes the pg_sockets directory the
+		// running sidecar's sandbox rules were opened on, so the sidecar goes
+		// too, and with it the state it holds for the old repository.
+		inst.PgBackRestd.Terminate(t.Logf, gracePeriod)
+		if err := os.RemoveAll(inst.PgBackRestd.Paths.Dir); err != nil {
+			t.Logf("ReinitializeCluster: warning: failed to remove %s: %v", inst.PgBackRestd.Paths.Dir, err)
+		}
 
 		// Remove ALL contents of the data directory so pgctld starts
 		// completely fresh. This clears pg_data (PostgreSQL data),
@@ -1726,6 +1767,16 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		// port to actually free first.
 		waitForPortFree(t, inst.Pgctld.PgPort, 60*time.Second)
 
+		// The sidecar first, on a fresh pooler directory and state directory.
+		if err := os.MkdirAll(inst.Pgctld.PoolerDir, 0o755); err != nil {
+			t.Fatalf("ReinitializeCluster: create %s: %v", inst.Pgctld.PoolerDir, err)
+		}
+		if err := inst.PgBackRestd.Paths.Prepare(TestPostgresPassword); err != nil {
+			t.Fatalf("ReinitializeCluster: prepare pgbackrestd for %s: %v", name, err)
+		}
+		if err := inst.PgBackRestd.Start(ctx, t); err != nil {
+			t.Fatalf("ReinitializeCluster: failed to start pgbackrestd %s: %v", name, err)
+		}
 		if err := inst.Pgctld.Start(ctx, t); err != nil {
 			t.Fatalf("ReinitializeCluster: failed to start pgctld %s: %v", name, err)
 		}
