@@ -394,6 +394,84 @@ func TestRevokedOutgoingRule_MinimumLeaderPositionAndEligibleLeaders(t *testing.
 	}
 }
 
+// Among the recruits at or above the minimum leader position, those that need not
+// decide a rule they hold undecided are preferred. The preference never lowers
+// the minimum, and it falls back to every candidate when none can decide it.
+func TestRevokedOutgoingRule_EligibleLeadersPreferLeadersThatNeedNotDecide(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	rev := revocation(5, ruleNum(3, 1))
+	// Deciding the latest rule needs all three under the stricter "Both" policy, but
+	// only a and b are recruited, so a leader holding it undecided cannot decide it.
+	prior := makeRule(ruleNum(3, 0), atLeast(3), zone1.a, zone1.b, zone1.c)
+	latest := makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c)
+	knowsDecided := &clustermetadatapb.RulePosition{Decision: latest}
+	holdsUndecided := &clustermetadatapb.RulePosition{Decision: prior, Proposal: latest}
+	cohort := []*clustermetadatapb.ID{zone1.a, zone1.b, zone1.c}
+
+	tests := []struct {
+		name         string
+		recruits     []*clustermetadatapb.ConsensusStatus
+		basis        revocationBasis
+		wantEligible []string
+	}{
+		{
+			// Not normally reachable: deciding the rule writes more WAL, so a recruit
+			// that knows it is decided would sit at a higher LSN than one holding it
+			// undecided. The tie isolates the preference from the minimum.
+			name: "tied at the minimum, the recruit that need not decide the rule is preferred",
+			recruits: []*clustermetadatapb.ConsensusStatus{
+				makeStatusWithProposal(zone1.a, knowsDecided, rev, "0/2000000"),
+				makeStatusWithProposal(zone1.b, holdsUndecided, rev, "0/2000000"),
+			},
+			wantEligible: []string{zone1.a.GetName()},
+		},
+		{
+			// Not reachable today: deciding a rule is itself a WAL write, so any recruit
+			// with more WAL than one that knows the rule is decided knows it too. It
+			// matters once a commit index advances independently of the WAL: a recruit
+			// can then hold more WAL without knowing the rule is decided, and knowing
+			// that must not outrank holding the extra WAL.
+			name: "a recruit that need not decide the rule but sits below the minimum cannot lead",
+			recruits: []*clustermetadatapb.ConsensusStatus{
+				makeStatusWithProposal(zone1.a, knowsDecided, rev, "0/1000000"),
+				makeStatusWithProposal(zone1.b, holdsUndecided, rev, "0/2000000"),
+			},
+			wantEligible: []string{zone1.b.GetName()},
+		},
+		{
+			name: "when no tied recruit can decide the rule, all of them stay eligible",
+			recruits: []*clustermetadatapb.ConsensusStatus{
+				makeStatusWithProposal(zone1.a, holdsUndecided, rev, "0/2000000"),
+				makeStatusWithProposal(zone1.b, holdsUndecided, rev, "0/2000000"),
+			},
+			wantEligible: []string{zone1.a.GetName(), zone1.b.GetName()},
+		},
+		{
+			name: "under a cert nothing needs deciding, so tied recruits all stay eligible",
+			recruits: []*clustermetadatapb.ConsensusStatus{
+				makeStatusWithProposal(zone1.a, knowsDecided, rev, "0/2000000"),
+				makeStatusWithProposal(zone1.b, holdsUndecided, rev, "0/2000000"),
+			},
+			basis:        mustCertBasis(rev, "0/1000000", cohort, atLeast(2)),
+			wantEligible: []string{zone1.a.GetName(), zone1.b.GetName()},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			revoked := mustProveRevoked(t, tt.recruits, ruleNum(3, 1), tt.basis)
+
+			eligible, err := revoked.eligibleLeaders()
+
+			require.NoError(t, err)
+			var names []string
+			for _, cs := range eligible {
+				names = append(names, cs.GetId().GetName())
+			}
+			assert.ElementsMatch(t, tt.wantEligible, names)
+		})
+	}
+}
+
 // A cert revokes the outgoing rule without recruiting its cohort; coordinator-led
 // revocation of the same lone recruit is rejected.
 func TestObservedOutgoingRule_Revoke_CertAcceptsWhatRecruitmentRejects(t *testing.T) {

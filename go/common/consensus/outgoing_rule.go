@@ -383,9 +383,9 @@ func (r revokedOutgoingRule) minimumLeaderPosition() (*clustermetadatapb.PoolerP
 }
 
 // eligibleLeaders returns the recruits at or above the minimum leader position,
-// preferring those that need not finalize the rule. Only recruits can lead: Promote needs a recruit still in
-// force, which proves the pooler is reachable and fenced and which later events,
-// such as a restore, invalidate.
+// preferring those that need not decide (finalize) the rule first. Only recruits
+// can lead: Promote needs a recruit still in force, which proves the pooler is
+// reachable and fenced and which later events, such as a restore, invalidate.
 func (r revokedOutgoingRule) eligibleLeaders() ([]*clustermetadatapb.ConsensusStatus, error) {
 	minimum, err := r.minimumLeaderPosition()
 	if err != nil {
@@ -403,7 +403,7 @@ func (r revokedOutgoingRule) eligibleLeaders() ([]*clustermetadatapb.ConsensusSt
 		return nil, fmt.Errorf("no recruited nodes at or above the required LSN %s", minimum.GetLsn())
 	}
 	// Candidates at or above the minimum hold the same WAL, so prefer those that
-	// need not finalize a rule they hold undecided.
+	// need not decide a rule they hold undecided.
 	var finalizers []*clustermetadatapb.ConsensusStatus
 	for _, cs := range eligible {
 		if r.checkLeaderCanFinalizeProposal(cs) == nil {
