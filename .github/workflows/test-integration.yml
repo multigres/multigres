@@ -18,7 +18,11 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # Temporary bases for the #1672 dependency stack; remove when it lands.
+    branches:
+      - main
+      - graveland/fix-resignation-publication-order
+      - graveland/fix-migration-crash-fixtures
 
 permissions: {}
 
