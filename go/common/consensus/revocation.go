@@ -229,7 +229,7 @@ func recruitAttempt(previousRecruitForDecision *clustermetadatapb.TermRevocation
 
 // IsRuleRevoked reports whether the pooler's recorded revocation forbids
 // applying a position (e.g. one delivered by a follower-side
-// rule-propagation RPC such as SetPrimary). The position represents durable
+// rule-propagation RPC such as SetPrimary). The position represents
 // WAL state the cohort has reached; the revocation is this pooler's promise
 // to refuse work below a given coordinator term. The predicate is a pure
 // function of the two consensus messages; callers handle storage I/O,
@@ -243,7 +243,7 @@ func recruitAttempt(previousRecruitForDecision *clustermetadatapb.TermRevocation
 //     advanced confirmed decision than this position has confirmed, and an
 //     unconfirmed proposal on the position's side cannot override that.
 //   - If position.decision strictly exceeds revocation.outgoing_rule, the
-//     position is never revoked (the runaway-recruit override: durable WAL
+//     position is never revoked (the runaway-recruit override: decided WAL
 //     already moved past the rule the revocation was authored to transition
 //     away from, so the promise is moot).
 //   - If they tie, the position is revoked iff revocation.revoked_below_term

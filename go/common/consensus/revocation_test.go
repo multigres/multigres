@@ -619,7 +619,7 @@ func TestNewTermRevocation(t *testing.T) {
 		// promoted still has to write a fresh proposal under the same
 		// durability policy and cohort, and that write can't get its
 		// synchronous ack unless the position it's superseding was
-		// actually durable — an unverified minority proposal just makes
+		// actually quorum-held — an unverified minority proposal just makes
 		// the promotion attempt fail to reach quorum, not succeed
 		// incorrectly.
 		statuses := []*clustermetadatapb.ConsensusStatus{

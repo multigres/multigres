@@ -273,7 +273,7 @@ func TestIsActiveLeader(t *testing.T) {
 		{
 			// The pg_promote→WAL-commit window: the highest known rule may name
 			// self, but the *committed* position does not yet — so write-safety
-			// leadership stays false until the new rule is durably committed.
+			// leadership stays false until the new rule is committed.
 			name: "self-claim only in replication primary, not yet committed",
 			cs: &clustermetadatapb.ConsensusStatus{
 				Id:              self,

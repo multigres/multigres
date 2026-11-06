@@ -497,14 +497,15 @@ func TestRun_LeaderPromoteFails(t *testing.T) {
 }
 
 func TestRun_SlowRecruitDoesNotBlockAfterQuorum(t *testing.T) {
-	// Phase 2 must not block on recruit goroutines still in flight after quorum
+	// Run must not block on recruit goroutines still in flight after quorum
 	// is reached. Recruit is sent to every cohort member regardless of health
-	// status — node health can change during the recruit phase — but once Phase 1
-	// has a viable proposal, Run should proceed without waiting for stragglers.
+	// status — node health can change during the recruit phase — but once leader
+	// selection has a viable proposal, Run should proceed without waiting for
+	// stragglers.
 	//
 	// Setup: mp1 responds immediately and satisfies quorum on its own. mp2's
-	// Recruit is configured to block for 20 s. Without the non-blocking Phase 2,
-	// Run would stall for 20 s waiting for mp2; with it, Run completes quickly
+	// Recruit is configured to block for 20 s. If Run waited for every recruit,
+	// it would stall for 20 s waiting for mp2; instead Run completes quickly
 	// and mp2's goroutine finishes in the background.
 	ctx := context.Background()
 	fc := rpcclient.NewFakeClient()
@@ -545,7 +546,7 @@ func TestRun_SlowRecruitDoesNotBlockAfterQuorum(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Less(t, elapsed, 2*time.Second,
-		"Run blocked waiting for slow recruit; Phase 2 should not wait for in-flight goroutines after quorum")
+		"Run blocked waiting for slow recruit; it should not wait for in-flight goroutines after quorum")
 	// mp2's Recruit RPC was issued (no pre-filtering on health), but its slow
 	// response did not delay Run. The recruit fan-out runs in a background
 	// goroutine, so poll for the logged call rather than asserting immediately:
@@ -559,22 +560,21 @@ func TestRun_SlowRecruitDoesNotBlockAfterQuorum(t *testing.T) {
 }
 
 func TestRun_StragglersGetSetTermPrimary(t *testing.T) {
-	// When a node's Recruit response arrives after Phase 1 has committed to a
-	// proposal, Phase 2's non-blocking select should catch it and dispatch
-	// SetTermPrimary so the node learns the new leader immediately rather than
-	// waiting for a follow-up re-wiring round.
+	// When a node's Recruit response arrives after leader selection has committed
+	// to a proposal, the node should still be sent SetTermPrimary so it learns the
+	// new leader immediately rather than waiting for a follow-up re-wiring round.
 	//
 	// Sequencing: mp2's Recruit is gated so it cannot complete until
 	// tryBuildProposal releases it. tryBuildProposal runs on the Run() goroutine
-	// synchronously inside Phase 1, so releasing the gate there and sleeping
+	// synchronously inside leader selection, so releasing the gate there and sleeping
 	// briefly guarantees mp2's goroutine writes to the buffered channel before
-	// Phase 2's select runs.
+	// the promote fan-out.
 	ctx := context.Background()
 	fc := rpcclient.NewFakeClient()
 	c := newRuleChangeCoordinator(t, fc)
 
-	mp1 := makePoolerState("zone1", "mp1") // leader, responds during Phase 1
-	mp2 := makePoolerState("zone1", "mp2") // straggler, responds during Phase 2
+	mp1 := makePoolerState("zone1", "mp1") // leader, responds during leader selection
+	mp2 := makePoolerState("zone1", "mp2") // straggler, responds after leader selection
 	cohort := []*multiorchdatapb.PoolerHealthState{mp1, mp2}
 	setRecruitOK(fc, mp1)
 	setRecruitOK(fc, mp2)
@@ -604,10 +604,10 @@ func TestRun_StragglersGetSetTermPrimary(t *testing.T) {
 		}},
 	}
 
-	// Phase 1 succeeds as soon as mp1 responds (mp2 is still gated at this point).
+	// Leader selection succeeds as soon as mp1 responds (mp2 is still gated at this point).
 	// Close the gate here — inside tryBuildProposal on the Run() goroutine — then
 	// sleep briefly so mp2's goroutine has time to pass the gate, complete Recruit,
-	// and write its result to the buffered channel before Phase 2's select runs.
+	// and write its result to the buffered channel before the promote fan-out.
 	gateOpened := false
 	tryBuildProposal := func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
 		if len(statuses) < 1 {

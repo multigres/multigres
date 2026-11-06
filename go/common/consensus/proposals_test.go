@@ -1553,8 +1553,8 @@ func TestBuildSafeProposal_DeadLeaderRemainsInCohort(t *testing.T) {
 // TestCheckSufficientRecruitment_InsufficientRecruitedFromProposedCohort verifies
 // that the proposal fails when too few proposed-cohort members were recruited to
 // satisfy the durability policy. Here the proposed cohort is [a, d, e] with
-// AT_LEAST_2, but only a was recruited from it — the new leader could not achieve
-// durable writes immediately after promotion.
+// AT_LEAST_2, but only a was recruited from it — the new leader could not commit
+// writes immediately after promotion.
 func TestBuildSafeProposal_InsufficientRecruitedFromProposedCohort(t *testing.T) {
 	zone1 := poolerIDs.zone1
 	// zone1.d and zone1.e are proposed new members, not recruited.
@@ -1793,7 +1793,7 @@ func TestBuildSafeProposal_CohortReplacementRejectedWithUndecidedOutgoingRule(t 
 	// Propose to replace the cohort with [D, E, F]. A writes the new rule to its
 	// rule_history; D and E stream that WAL from A and apply it. But B and C never
 	// receive the new rule, and A crashes before the coordinator gets a Propose
-	// response — so the new rule was never durably decided. Under the outgoing
+	// response — so the new rule was never decided. Under the outgoing
 	// cohort's policy (AT_LEAST_2 on [A, B, C]), only A applied the rule change;
 	// it needed at least one of B or C to commit. The new rule is a phantom: it
 	// exists in D and E's WAL but was never agreed to by the outgoing cohort —

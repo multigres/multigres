@@ -82,8 +82,8 @@ func (c *Coordinator) AppointLeader(ctx context.Context, shardRef *clustermetada
 // reachable during the fan-out, and the most-advanced pooler (highest WAL
 // position) may be one whose heartbeat happens to be stale. Recruit RPCs to
 // unresponsive poolers return nil status and are skipped by the
-// proposal-building loop; the non-blocking Phase 2 drain in rule_change.go
-// ensures slow Recruit RPCs do not stall Run() after quorum is reached.
+// proposal-building loop; Run() in rule_change.go proceeds as soon as a viable
+// proposal exists, so slow Recruit RPCs do not stall it after quorum is reached.
 //
 // A leader that signaled REQUESTING_DEMOTION stays in the recruitment cohort
 // and may be re-promoted at the new term if it remains the best candidate —
