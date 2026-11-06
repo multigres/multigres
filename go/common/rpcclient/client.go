@@ -216,6 +216,18 @@ type MultipoolerClient interface {
 	SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error)
 
 	//
+	// Manager Service Methods - Routing Rules
+	//
+
+	// SetRoutingRules replaces every routing rule of an operation on the
+	// catalog primary pooler.
+	SetRoutingRules(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.SetRoutingRulesRequest) (*multipoolermanagerdatapb.SetRoutingRulesResponse, error)
+
+	// DeleteRoutingRules deletes every routing rule of an operation on the
+	// catalog primary pooler.
+	DeleteRoutingRules(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.DeleteRoutingRulesRequest) (*multipoolermanagerdatapb.DeleteRoutingRulesResponse, error)
+
+	//
 	// Manager Service Methods - PostgreSQL Configuration Reload
 	//
 
