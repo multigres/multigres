@@ -15,13 +15,13 @@
 package consensus
 
 import (
+	"errors"
 	"fmt"
 
 	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 // observedOutgoingRule is the rule a coordinator-led or certified proposal
@@ -351,23 +351,61 @@ func (r revokedOutgoingRule) canFinalize(t RuleTransition) error {
 	return nil
 }
 
-// eligibleLeaders returns the recruits that can lead: those recording the
-// outgoing rule that are tied at the highest LSN at or above the basis's frozen
-// LSN (zero when revoking by recruitment), preferring among them those that need
-// not finalize the rule.
-func (r revokedOutgoingRule) eligibleLeaders() ([]*clustermetadatapb.ConsensusStatus, error) {
-	var minLSN pgutil.LSN
-	if r.basis.cert != nil {
-		minLSN = r.basis.cert.frozenLSN
+// minimumLeaderPosition is the lowest position a leader may have: one at or above
+// it holds every write a quorum under the outgoing rule could hold. Such a write
+// may never have been decided, so this is not a commit point. It is the most
+// advanced recruit's position (always at the outgoing rule, the highest any recruit
+// records), raised to the cert's frozen LSN under a cert.
+//
+// TODO: take it from recruited members only, so a further-ahead non-member does not
+// raise it. When revoking by recruitment, those are the outgoing decision's cohort
+// plus, if an undecided proposal may be decided, the proposal's cohort. Under a
+// cert, it is the incoming cohort.
+// TODO: relax it to the highest position the policy could have made quorum-held,
+// or to exactly the frozen LSN under a cert.
+func (r revokedOutgoingRule) minimumLeaderPosition() (*clustermetadatapb.PoolerPosition, error) {
+	var minimum *clustermetadatapb.PoolerPosition
+	for _, cs := range r.recruited {
+		if position := cs.GetCurrentPosition(); minimum == nil || CompareWALProgress(position, minimum) > 0 {
+			minimum = position
+		}
 	}
-	best, err := narrowByLSN(r.recruitsRecordingRule(), minLSN)
+	if minimum == nil {
+		return nil, errors.New("no recruit records the outgoing rule")
+	}
+	if cert := r.basis.cert; cert != nil {
+		frozen := &clustermetadatapb.PoolerPosition{Position: r.transition.Position(), Lsn: cert.frozenLSN.String()}
+		if CompareWALProgress(frozen, minimum) > 0 {
+			minimum = frozen
+		}
+	}
+	return minimum, nil
+}
+
+// eligibleLeaders returns the recruits at or above the minimum leader position,
+// preferring those that need not finalize the rule. Only recruits can lead: Promote needs a recruit still in
+// force, which proves the pooler is reachable and fenced and which later events,
+// such as a restore, invalidate.
+func (r revokedOutgoingRule) eligibleLeaders() ([]*clustermetadatapb.ConsensusStatus, error) {
+	minimum, err := r.minimumLeaderPosition()
 	if err != nil {
 		return nil, err
 	}
-	// Candidates tied on LSN hold the same WAL, so prefer those that need not
-	// finalize a rule they hold undecided.
+	var eligible []*clustermetadatapb.ConsensusStatus
+	for _, cs := range r.recruited {
+		if CompareWALProgress(cs.GetCurrentPosition(), minimum) >= 0 {
+			eligible = append(eligible, cs)
+		}
+	}
+	if len(eligible) == 0 {
+		// Only a cert's frozen LSN above every recruit leaves none: otherwise the
+		// minimum is itself a recruit's position.
+		return nil, fmt.Errorf("no recruited nodes at or above the required LSN %s", minimum.GetLsn())
+	}
+	// Candidates at or above the minimum hold the same WAL, so prefer those that
+	// need not finalize a rule they hold undecided.
 	var finalizers []*clustermetadatapb.ConsensusStatus
-	for _, cs := range best {
+	for _, cs := range eligible {
 		if r.checkLeaderCanFinalizeProposal(cs) == nil {
 			finalizers = append(finalizers, cs)
 		}
@@ -375,5 +413,5 @@ func (r revokedOutgoingRule) eligibleLeaders() ([]*clustermetadatapb.ConsensusSt
 	if len(finalizers) > 0 {
 		return finalizers, nil
 	}
-	return best, nil
+	return eligible, nil
 }

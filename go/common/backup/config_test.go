@@ -145,8 +145,8 @@ func TestConfig_PgBackRestConfig_S3_AWS_AutoEndpoint(t *testing.T) {
 	pgbrCfg, err := cfg.PgBackRestConfig(1, 1, "multigres")
 	require.NoError(t, err)
 
-	// AWS S3 should auto-generate endpoint
-	assert.Equal(t, "s3.us-east-1.amazonaws.com", pgbrCfg["repo1-s3-endpoint"])
+	// AWS S3 should auto-generate the dual-stack endpoint
+	assert.Equal(t, "s3.dualstack.us-east-1.amazonaws.com", pgbrCfg["repo1-s3-endpoint"])
 	// AWS S3 should use virtual-hosted style
 	assert.Equal(t, "host", pgbrCfg["repo1-s3-uri-style"])
 	// AWS S3 should use TLS verification (not explicitly set, defaults to y)
@@ -162,17 +162,17 @@ func TestConfig_PgBackRestConfig_S3_AWS_MultipleRegions(t *testing.T) {
 		{
 			name:             "us-west-2",
 			region:           "us-west-2",
-			expectedEndpoint: "s3.us-west-2.amazonaws.com",
+			expectedEndpoint: "s3.dualstack.us-west-2.amazonaws.com",
 		},
 		{
 			name:             "eu-west-1",
 			region:           "eu-west-1",
-			expectedEndpoint: "s3.eu-west-1.amazonaws.com",
+			expectedEndpoint: "s3.dualstack.eu-west-1.amazonaws.com",
 		},
 		{
 			name:             "ap-southeast-1",
 			region:           "ap-southeast-1",
-			expectedEndpoint: "s3.ap-southeast-1.amazonaws.com",
+			expectedEndpoint: "s3.dualstack.ap-southeast-1.amazonaws.com",
 		},
 	}
 
@@ -489,6 +489,8 @@ func TestPgBackRestConfig_S3KeyType_IRSADetection(t *testing.T) {
 		location        *clustermetadatapb.BackupLocation
 		irsaEnvVars     map[string]string
 		expectedKeyType string
+		// Empty means repo1-s3-sts-host must not be set.
+		expectedStsHost string
 	}{
 		{
 			name:     "IRSA env vars present - should use web-id",
@@ -498,6 +500,7 @@ func TestPgBackRestConfig_S3KeyType_IRSADetection(t *testing.T) {
 				"AWS_ROLE_ARN":                "arn:aws:iam::123456789012:role/my-role",
 			},
 			expectedKeyType: "web-id",
+			expectedStsHost: "sts.us-east-1.api.aws",
 		},
 		{
 			name:            "IRSA env vars absent - should use auto",
@@ -552,6 +555,11 @@ func TestPgBackRestConfig_S3KeyType_IRSADetection(t *testing.T) {
 
 			assert.Equal(t, tt.expectedKeyType, result["repo1-s3-key-type"],
 				"Expected repo1-s3-key-type to be %q", tt.expectedKeyType)
+			if tt.expectedStsHost == "" {
+				assert.NotContains(t, result, "repo1-s3-sts-host")
+			} else {
+				assert.Equal(t, tt.expectedStsHost, result["repo1-s3-sts-host"])
+			}
 		})
 	}
 }
