@@ -18,6 +18,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -52,11 +53,13 @@ type rewindRun struct {
 
 // begin registers the run id and returns a context that abort cancels, and a
 // function the caller must call once the run is over. It refuses an id that has
-// been fenced and a second run while one is registered. An empty id cannot be
-// fenced: it is not registered and gets the caller's context unchanged.
+// been fenced and a second run while one is registered. A request without an id
+// (a caller that predates it) is registered under one generated here, so it
+// cannot overlap a tracked run and a tracked run cannot be overlapped by it, but
+// nothing can fence it.
 func (r *rewindRuns) begin(ctx context.Context, id string) (context.Context, func(), error) {
 	if id == "" {
-		return ctx, func() {}, nil
+		id = "unfenceable-" + uuid.NewString()
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()

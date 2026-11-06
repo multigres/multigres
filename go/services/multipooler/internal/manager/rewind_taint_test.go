@@ -405,7 +405,14 @@ func TestRewindAttemptErrors(t *testing.T) {
 	t.Run("a taint recorded but an attempt marker that cannot be removed is only logged", func(t *testing.T) {
 		dir := newAgedDataDir(t)
 		pm := newSentinelTestManager(t)
-		blockSentinel(t, pm.rewindAttempt())
+		require.NoError(t, pm.rewindAttempt().write())
+		// A read-only pooler directory: the marker can be read but not removed.
+		poolerDir := pm.record.PoolerDir()
+		require.NoError(t, os.Chmod(poolerDir, 0o500))
+		t.Cleanup(func() { _ = os.Chmod(poolerDir, 0o700) })
+		if err := os.WriteFile(filepath.Join(poolerDir, "probe"), nil, 0o600); err == nil {
+			t.Skip("directory permissions are not enforced for this user")
+		}
 		time.Sleep(10 * time.Millisecond)
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "base/1/16384"), []byte("x"), 0o600))
 
