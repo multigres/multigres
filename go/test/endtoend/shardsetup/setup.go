@@ -558,6 +558,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		EtcdCmd:            etcdCmd,
 		TopoServer:         ts,
 		CellName:           config.CellName,
+		Database:           config.Database,
 		runningCtx:         runningCtx,
 		cancel:             cancel,
 		Multipoolers:       make(map[string]*MultipoolerInstance),

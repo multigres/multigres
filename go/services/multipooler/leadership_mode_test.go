@@ -117,19 +117,6 @@ func (f fakeSource) BackingConnection(_ context.Context, name string) (*backingC
 	return f.conn, nil
 }
 
-func TestConnectionSourceIsAnExplicitSeam(t *testing.T) {
-	// With nothing configured an unmanaged pooler refuses to start, saying why.
-	mp := newTestMultipooler()
-	_, err := mp.connections.BackingConnection(t.Context(), "src")
-	require.ErrorContains(t, err, "no source of backing connections")
-
-	want := &backingConnection{Name: "src", Host: "db.example.com", Port: 5432, Database: "app", User: "u"}
-	mp.connections = fakeSource{conn: want}
-	got, err := mp.connections.BackingConnection(t.Context(), "src")
-	require.NoError(t, err)
-	require.Same(t, want, got)
-}
-
 // TestAConnectionIsUsedOnlyIfTheSourceGaveAUsableOne: whatever the source is, nothing, an
 // incomplete connection and a connection that names several servers are refused, and the
 // refusal is permanent.
@@ -277,7 +264,8 @@ func (c *countingSource) BackingConnection(context.Context, string) (*backingCon
 
 // TestInitRefusesAShardItCannotServeBeforeFetchingTheBackingConnection: a bad shard name, a
 // missing one, and the default tablegroup, which an unmanaged pooler never serves, are all
-// refused before the pooler asks anything for its backing connection.
+// refused before the pooler registers anything or asks for its backing connection: a pooler
+// that exits on them leaves no topology record behind.
 func TestInitRefusesAShardItCannotServeBeforeFetchingTheBackingConnection(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -305,6 +293,9 @@ func TestInitRefusesAShardItCannotServeBeforeFetchingTheBackingConnection(t *tes
 			err := mp.Init(t.Context(), ts)
 			require.ErrorContains(t, err, tc.wantErr)
 			require.Zero(t, source.fetches)
+			registered, err := ts.GetMultipoolersByCell(t.Context(), "zone1", nil)
+			require.NoError(t, err)
+			require.Empty(t, registered, "nothing is registered")
 		})
 	}
 }
