@@ -18,10 +18,12 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // target runs the local (Multigres) Postgres side of a migration through the
@@ -610,19 +612,52 @@ func (t *target) AdvanceSlot(ctx context.Context, name, targetLSN string) error 
 	return nil
 }
 
+// dropSlotRetryBaseDelay/dropSlotRetryMaxDelay back off retries of a
+// replication-slot-active drop failure; dropSlotRetryBudget bounds the total
+// time DropLogicalSlot spends retrying before giving up.
+const (
+	dropSlotRetryBaseDelay = 100 * time.Millisecond
+	dropSlotRetryMaxDelay  = 1 * time.Second
+	dropSlotRetryBudget    = 5 * time.Second
+)
+
 // DropLogicalSlot drops the named replication slot if it exists. Used to tear
 // down the EXPORT reverse slot (create_slot=false means dropping the subscription
 // does not drop it).
+//
+// The caller disables the opposite side's subscription just before this runs,
+// which stops its local apply worker, but the walsender here that was serving
+// the slot releases it only once it independently notices that disconnect —
+// an asynchronous step with no synchronous handshake. An immediate drop can
+// therefore race a still-active slot (SQLSTATE 55006), so retry with backoff
+// instead of failing outright.
 func (t *target) DropLogicalSlot(ctx context.Context, name string) error {
 	if exists, err := t.SlotExists(ctx, name); err != nil {
 		return err
 	} else if !exists {
 		return nil
 	}
-	if _, err := t.qs.QueryAdminArgs(ctx, "SELECT pg_drop_replication_slot($1)", name); err != nil {
-		return fmt.Errorf("drop slot %q: %w", name, err)
+
+	retryCtx, cancel := context.WithTimeout(ctx, dropSlotRetryBudget)
+	defer cancel()
+	r := retry.New(dropSlotRetryBaseDelay, dropSlotRetryMaxDelay)
+	var lastErr error
+	for _, attemptErr := range r.Attempts(retryCtx) {
+		if attemptErr != nil {
+			if lastErr == nil {
+				lastErr = attemptErr
+			}
+			break
+		}
+		_, lastErr = t.qs.QueryAdminArgs(retryCtx, "SELECT pg_drop_replication_slot($1)", name)
+		if lastErr == nil {
+			return nil
+		}
+		if !mterrors.IsReplicationSlotActiveError(lastErr) {
+			return fmt.Errorf("drop slot %q: %w", name, lastErr)
+		}
 	}
-	return nil
+	return fmt.Errorf("drop slot %q: %w", name, lastErr)
 }
 
 // ReplicationLag returns the current replication lag for the named slot on
