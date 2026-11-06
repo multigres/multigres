@@ -32,7 +32,7 @@ PGPROTO_VER = 4.6.6
 export PGPROTO_VER
 
 # List of all commands to build
-CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver minigres
+CMDS = multigateway multipooler pgctld pgbackrestd multiorch multigres multiadmin portpoolserver minigres
 BIN_DIR = bin
 
 GIT_COMMIT ?= unknown
@@ -42,7 +42,7 @@ RELEASE_LDFLAGS = -w -s \
 	-X $(SERVENV_PACKAGE).gitCommit=$(GIT_COMMIT) \
 	-X $(SERVENV_PACKAGE).commitDate=$(COMMIT_DATE)
 
-.PHONY: all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgregress-update-patches-docker pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto proto-ts tools parser metrics pgcatalog generate help
+.PHONY: image-binaries-lint image-binaries-check all build build-all clean images install test test-coverage pgregress pgregress-update-patches pgregress-update-patches-docker pgexternal pgexternal-update-patches pgproto pgproto-update-patches proto proto-ts tools parser metrics pgcatalog generate help
 
 ##@ General
 
@@ -199,6 +199,12 @@ install: ## Install binaries to GOPATH/bin.
 
 naming-lint: ## Enforce single-word names (Multigres/Multipooler/Multiorch/Multigateway/Multiadmin).
 	./tools/naming_linter.sh
+
+image-binaries-lint: ## Check the Dockerfile copies every CMDS binary the multigres image ships.
+	./tools/check_image_binaries.sh
+
+image-binaries-check: ## Check a built image ships every binary (make image-binaries-check IMAGE=multigres/multigres:latest).
+	./tools/check_image_binaries.sh --image "$(IMAGE)"
 
 ##@ Testing
 
