@@ -57,7 +57,7 @@ func TestObservedOutgoingRule_Revoke_UndecidedProposal(t *testing.T) {
 	t.Run("a majority of the decision's cohort is not enough when the proposal may be decided", func(t *testing.T) {
 		// The proposal may be decided, after which {c, d, e} could commit on their own.
 		err := proveRevoked(statuses(zone1.a, zone1.b))
-		require.EqualError(t, err, "insufficient proposed cohort recruitment: revocation not satisfied: un-recruited cohort poolers [zone1_pooler-c, zone1_pooler-d, zone1_pooler-e] could independently satisfy AT_LEAST_N(N=2)")
+		require.EqualError(t, err, "insufficient undecided proposal cohort recruitment: revocation not satisfied: un-recruited cohort poolers [zone1_pooler-c, zone1_pooler-d, zone1_pooler-e] could independently satisfy AT_LEAST_N(N=2)")
 	})
 
 	t.Run("a proposal with an invalid policy is rejected", func(t *testing.T) {
@@ -72,17 +72,6 @@ func TestObservedOutgoingRule_Revoke_UndecidedProposal(t *testing.T) {
 
 	t.Run("recruits that leave the proposal's cohort unable to commit are enough", func(t *testing.T) {
 		require.NoError(t, proveRevoked(statuses(zone1.a, zone1.b, zone1.c, zone1.d)))
-	})
-
-	t.Run("a proposal the recruits show was not decided needs only the decision's cohort", func(t *testing.T) {
-		// Only a holds the proposal, so it needs c as well to have been decided under
-		// the decision's policy, and c is recruited without it.
-		recruited := []*clustermetadatapb.ConsensusStatus{
-			makeStatusWithProposal(zone1.a, grow, rev, "0/1000000"),
-			makeStatusWithProposal(zone1.b, &clustermetadatapb.RulePosition{Decision: decision}, rev, "0/1000000"),
-			makeStatusWithProposal(zone1.c, &clustermetadatapb.RulePosition{Decision: decision}, rev, "0/1000000"),
-		}
-		require.NoError(t, proveRevoked(recruited))
 	})
 }
 

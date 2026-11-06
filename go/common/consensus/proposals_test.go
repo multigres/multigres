@@ -1886,7 +1886,7 @@ func TestBuildSafeProposal_CohortReplacementRejectedWithUndecidedOutgoingRule(t 
 // with a builder that, like the failover builder, keeps the outgoing rule's
 // cohort and policy.
 func TestRecruitmentThroughUndecidedProposal(t *testing.T) {
-	zone1 := poolerIDs.zone1
+	zone1, zone2, zone3 := poolerIDs.zone1, poolerIDs.zone2, poolerIDs.zone3
 	rev := revocation(5, ruleNum(3, 1))
 	id := func(ids ...*clustermetadatapb.ID) []*clustermetadatapb.ID { return ids }
 
@@ -1916,7 +1916,7 @@ func TestRecruitmentThroughUndecidedProposal(t *testing.T) {
 			proposal: makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c, zone1.d, zone1.e),
 			recruits: id(zone1.a, zone1.b),
 			build:    keepOutgoing,
-			wantErr:  "insufficient proposed cohort recruitment: revocation not satisfied: un-recruited cohort poolers [zone1_pooler-c, zone1_pooler-d, zone1_pooler-e] could independently satisfy AT_LEAST_N(N=2)",
+			wantErr:  "insufficient undecided proposal cohort recruitment: revocation not satisfied: un-recruited cohort poolers [zone1_pooler-c, zone1_pooler-d, zone1_pooler-e] could independently satisfy AT_LEAST_N(N=2)",
 		},
 		{
 			// The unrecruited new members d and e could commit on their own under
@@ -1926,7 +1926,7 @@ func TestRecruitmentThroughUndecidedProposal(t *testing.T) {
 			proposal: makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c, zone1.d, zone1.e),
 			recruits: id(zone1.a, zone1.b, zone1.c),
 			build:    keepOutgoing,
-			wantErr:  "insufficient proposed cohort recruitment: revocation not satisfied: un-recruited cohort poolers [zone1_pooler-d, zone1_pooler-e] could independently satisfy AT_LEAST_N(N=2)",
+			wantErr:  "insufficient undecided proposal cohort recruitment: revocation not satisfied: un-recruited cohort poolers [zone1_pooler-d, zone1_pooler-e] could independently satisfy AT_LEAST_N(N=2)",
 		},
 		{
 			// With a recruited, only one unrecruited new member remains, which cannot
@@ -1945,6 +1945,26 @@ func TestRecruitmentThroughUndecidedProposal(t *testing.T) {
 			proposal: makeRule(ruleNum(3, 1), atLeast(2), zone1.b, zone1.c),
 			recruits: id(zone1.b, zone1.c),
 			build:    keepOutgoing,
+		},
+		{
+			// The decision's policy needs 3 acks, which {d, e} cannot give, but the
+			// proposal's policy needs only 2, which they can, once it is decided.
+			name:     "a proposal that lowers N is judged by its own policy",
+			decision: makeRule(ruleNum(3, 0), atLeast(3), zone1.a, zone1.b, zone1.c, zone1.d, zone1.e),
+			proposal: makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c, zone1.d, zone1.e),
+			recruits: id(zone1.a, zone1.b, zone1.c),
+			build:    keepOutgoing,
+			wantErr:  "insufficient undecided proposal cohort recruitment: revocation not satisfied: un-recruited cohort poolers [zone1_pooler-d, zone1_pooler-e] could independently satisfy AT_LEAST_N(N=2)",
+		},
+		{
+			// The unrecruited zone2 and zone3 members span two cells, which satisfies the
+			// proposal's policy once it is decided.
+			name:     "a multi-cell proposal that adds a cell can block recruitment",
+			decision: makeRule(ruleNum(3, 0), multiCell(2), zone1.a, zone2.a, zone2.b),
+			proposal: makeRule(ruleNum(3, 1), multiCell(2), zone1.a, zone2.a, zone2.b, zone3.a),
+			recruits: id(zone1.a, zone2.a),
+			build:    keepOutgoing,
+			wantErr:  "insufficient undecided proposal cohort recruitment: revocation not satisfied: un-recruited cohort poolers [zone2_pooler-b, zone3_pooler-a] could independently satisfy MULTI_CELL_AT_LEAST_N(N=2)",
 		},
 		{
 			// Deciding the proposal needs 3 acks under the "Both" policy (the

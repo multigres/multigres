@@ -40,9 +40,9 @@ type observedOutgoingRule struct {
 	basis revocationBasis
 }
 
-// recruitsRecordingRule are all recruits that record the outgoing rule, whether
-// or not they know it is decided and whether or not they are members of its
-// cohort.
+// recruitsRecordingRule returns all recruits that record the outgoing rule,
+// whether or not they know it is decided and whether or not they are members of
+// its cohort.
 func (o observedOutgoingRule) recruitsRecordingRule() []*clustermetadatapb.ConsensusStatus {
 	latest := o.transition.PossiblyUndecidedRule().GetRuleNumber()
 	var recording []*clustermetadatapb.ConsensusStatus
@@ -252,8 +252,10 @@ func (o observedOutgoingRule) proveProposalFrozen(decisionPolicy DurabilityPolic
 		PolicyWithCohort{Policy: proposalPolicy, Cohort: proposal.GetCohortMembers()},
 	)
 	if err != nil {
-		// Promote can never decide such a proposal; checkRecruitsCanFinalizeProposal rejects it.
-		return nil //nolint:nilerr // rejected as unfinalizable, not by this safety check
+		// Promote can never decide such a proposal, so nothing can commit under it.
+		// A RecruitmentResult can only be built through checkRecruitsCanFinalizeProposal,
+		// which rejects it.
+		return nil //nolint:nilerr // rejected as undecidable, not by this safety check
 	}
 	if !o.proposalMayBeDecided(transition.Both) {
 		return nil
@@ -261,7 +263,7 @@ func (o observedOutgoingRule) proveProposalFrozen(decisionPolicy DurabilityPolic
 	cohort := proposal.GetCohortMembers()
 	recruited := statusesToIDs(filterCohortStatuses(cohort, o.recruited))
 	if err := checkUnrecruitedCannotCommit(proposalPolicy, cohort, recruited); err != nil {
-		return fmt.Errorf("insufficient proposed cohort recruitment: %w", err)
+		return fmt.Errorf("insufficient undecided proposal cohort recruitment: %w", err)
 	}
 	return nil
 }
