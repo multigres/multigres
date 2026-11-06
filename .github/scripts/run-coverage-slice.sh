@@ -54,7 +54,9 @@ while [ $attempt -le $max_attempts ]; do
   rm -rf "${MULTIGRES_SUBPROCESS_GOCOVERDIR:?}"/*
   # 30m matches test-integration.yml; the per-package go-test default of 10m
   # is too tight for the end-to-end packages that spin up real Postgres.
-  if go test -json -v -timeout=30m -skip TestPostgreSQLRegression \
+  # Do not add -v: it overrides -json's -test.v=test2json framing. Without
+  # framing, progress output without a newline can swallow terminal test events.
+  if go test -json -timeout=30m -skip TestPostgreSQLRegression \
     -cover -covermode=atomic \
     -coverprofile=coverage-direct.txt \
     -coverpkg=./... ${run_args[@]+"${run_args[@]}"} "${packages[@]}" |
