@@ -6,6 +6,47 @@ A shared proxy can provide one entry point for multiple Multigres clusters. It r
 
 ![A shared proxy routes PostgreSQL clients to Multigateway in the destination Multigres cluster.](../img/proxy-cluster-routing.png)
 
+## Proxy handshake
+
+This sequence shows a client that starts with SSLRequest. Multigateway must have TLS certificates and `--pg-tls-offload` enabled.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as PostgreSQL client
+    participant P as Shared proxy
+    participant M as Multigateway (selected cluster)
+
+    C->>P: SSLRequest
+    P-->>C: S (one byte)
+    C->>P: TLS ClientHello (ALPN can be absent)
+    P->>P: Inspect SNI and select the cluster
+    P->>M: Open TCP connection
+    P->>M: PROXY v2 header with original client address
+    P->>M: Original ClientHello bytes
+    Note over P,M: Send the header once, before TLS.<br/>No upstream SSLRequest or S exchange.
+
+    Note over C,M: Relay the remaining TLS handshake unchanged in both directions.
+    M-->>P: TLS handshake records
+    P-->>C: Same TLS records
+    C->>P: TLS handshake records
+    P->>M: Same TLS records
+    Note right of M: Missing ALPN is allowed only with<br/>TLS offload enabled and an accepted<br/>PROXY header that supplies a client address.
+    Note over C,M: TLS connects the client to Multigateway.
+
+    C->>P: Encrypted PostgreSQL StartupMessage
+    P->>M: Same encrypted bytes
+    Note over C,M: SCRAM authentication, then SQL, through the encrypted connection.
+```
+
+SNI is the server hostname in the ClientHello. The proxy uses it to select the destination without terminating TLS. It must preserve all TLS bytes in both directions.
+
+If a preceding proxy supplies a PROXY header, the shared proxy must consume it before PostgreSQL negotiation. It uses the resulting client address in its new upstream header. The upstream header must contain TCP addresses for IPv4 or IPv6. `LOCAL` and `UNSPEC` headers do not permit missing ALPN.
+
+Clients that start directly with TLS skip the SSLRequest/S exchange. If the proxy declines GSS encryption, it replies `N` to GSSENCRequest before processing SSLRequest.
+
+## Configuration
+
 By default, Multigateway accepts PROXY headers from any TCP peer and relies on network access controls for trust. Use this mode when the network restricts access to trusted proxies and clients.
 
 The optional `--pg-trusted-proxy-cidrs` flag restricts which TCP peers can send a PROXY header. It accepts a comma-separated list of networks in CIDR notation, which describes an IP address range. When the list is set, Multigateway tests the immediate TCP peer against these ranges before it reads a header.
