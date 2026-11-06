@@ -147,16 +147,9 @@ func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context) error {
 }
 
 // ensureCatalogMigrationSchema runs the migration store's EnsureSchema on the
-// catalog shard. Besides the tables createMigrationTable creates, that adds
-// what needs multigres.connections, which ensureCatalogSchema creates: the
-// foreign key from multigres.migration into it and the stat_migration view,
-// which joins it.
-//
-// It runs here rather than only on the coordinator's first use so that bootstrap
-// creates them before the first backup, which the pooler that bootstraps the
-// shard restores from before it is promoted. The coordinator runs on a timer, so
-// its first use can land on that pooler's temporary primary after the backup
-// was taken; what it created there is not in the restored database.
+// catalog shard, which adds the foreign key from multigres.migration into
+// multigres.connections and the stat_migration view. Running it at bootstrap
+// puts both in the first backup, which the bootstrapping pooler restores from.
 func (pm *MultipoolerManager) ensureCatalogMigrationSchema(ctx context.Context) error {
 	queryService := pm.internalQueryService()
 	if queryService == nil {
@@ -170,8 +163,7 @@ func (pm *MultipoolerManager) ensureCatalogMigrationSchema(ctx context.Context) 
 	return nil
 }
 
-// migrationSchemaTimeout bounds ensureCatalogMigrationSchema, which runs about
-// a dozen statements.
+// migrationSchemaTimeout bounds ensureCatalogMigrationSchema.
 const migrationSchemaTimeout = 5 * time.Second
 
 // createSchema creates the multigres sidecar schema under the admin
