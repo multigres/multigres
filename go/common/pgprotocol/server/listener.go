@@ -255,6 +255,11 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		if err != nil {
 			return nil, mterrors.Wrapf(err, "invalid trusted proxy CIDR %q", cidr)
 		}
+		// Normalize ranges within ::ffff:0:0/96 to match the unmapped IPv4
+		// peers used by trustsProxy. Broader ranges remain IPv6 prefixes.
+		if prefix.Addr().Is4In6() && prefix.Bits() >= 96 {
+			prefix = netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()-96)
+		}
 		trustedProxyCIDRs = append(trustedProxyCIDRs, prefix.Masked())
 	}
 	if config.TLSOffload && config.TLSConfig == nil {

@@ -293,6 +293,78 @@ func TestProxyProtocolTLSOffload(t *testing.T) {
 	}
 }
 
+func TestProxyProtocolTrustedPeers(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		cidrs   []string
+		allowed []string
+		denied  []string
+	}{
+		{
+			name:    "IPv4 prefix",
+			cidrs:   []string{"192.0.2.0/24"},
+			allowed: []string{"192.0.2.10", "::ffff:192.0.2.10"},
+			denied:  []string{"192.0.3.10", "2001:db8::1"},
+		},
+		{
+			name:    "mapped IPv4 prefix with host bits",
+			cidrs:   []string{"::ffff:192.0.2.129/120"},
+			allowed: []string{"192.0.2.0", "192.0.2.255", "::ffff:192.0.2.10"},
+			denied:  []string{"192.0.1.255", "192.0.3.0", "2001:db8::1"},
+		},
+		{
+			name:    "mapped IPv4 host",
+			cidrs:   []string{"::ffff:192.0.2.10/128"},
+			allowed: []string{"192.0.2.10", "::ffff:192.0.2.10"},
+			denied:  []string{"192.0.2.9", "192.0.2.11", "2001:db8::1"},
+		},
+		{
+			name:    "entire mapped IPv4 range",
+			cidrs:   []string{"::ffff:0:0/96"},
+			allowed: []string{"0.0.0.0", "255.255.255.255", "::ffff:192.0.2.10"},
+			denied:  []string{"::1", "2001:db8::1"},
+		},
+		{
+			name:    "broader prefix stays IPv6",
+			cidrs:   []string{"::ffff:192.0.2.10/95"},
+			allowed: []string{"::fffe:0:1"},
+			denied:  []string{"192.0.2.10", "::ffff:192.0.2.10", "::1"},
+		},
+		{
+			name:    "native IPv6 prefix",
+			cidrs:   []string{"2001:db8::1234/64"},
+			allowed: []string{"2001:db8::1", "2001:db8::ffff"},
+			denied:  []string{"2001:db8:0:1::1", "192.0.2.10", "::ffff:192.0.2.10"},
+		},
+		{
+			name:    "mixed prefixes",
+			cidrs:   []string{"198.51.100.0/24", "::ffff:192.0.2.0/120", "2001:db8::/64"},
+			allowed: []string{"198.51.100.10", "192.0.2.10", "::ffff:192.0.2.10", "2001:db8::1"},
+			denied:  []string{"203.0.113.10", "2001:db8:0:1::1"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			l, err := NewListener(ListenerConfig{
+				Address: "127.0.0.1:0", Handler: &mockHandler{},
+				CredentialProvider: newMockCredentialProvider("postgres"),
+				TrustedProxyCIDRs:  tt.cidrs,
+			})
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, l.Close()) })
+			for _, peer := range tt.allowed {
+				t.Run("allowed/"+peer, func(t *testing.T) {
+					require.True(t, l.trustsProxy(netip.MustParseAddr(peer)))
+				})
+			}
+			for _, peer := range tt.denied {
+				t.Run("denied/"+peer, func(t *testing.T) {
+					require.False(t, l.trustsProxy(netip.MustParseAddr(peer)))
+				})
+			}
+		})
+	}
+}
+
 func TestProxyProtocolConfiguration(t *testing.T) {
 	for _, cfg := range []ListenerConfig{
 		{TrustedProxyCIDRs: []string{"invalid"}},
