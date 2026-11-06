@@ -613,3 +613,58 @@ func TestReaderMissingCoreColumnFailsBothQueries(t *testing.T) {
 	assert.EqualValues(t, 1, tr.ReadErrors())
 	assert.EqualValues(t, 1, tr.ReadSchemaErrors())
 }
+
+func TestGetLeadershipView(t *testing.T) {
+	const viewPattern = "SELECT leader_id, ts FROM multigres\\.heartbeat"
+
+	t.Run("reads the leader and the heartbeat time", func(t *testing.T) {
+		queryService := mock.NewQueryService()
+		now := time.Now()
+		tr := newTestReader(t, queryService, &now)
+		defer tr.Close()
+		queryService.AddQueryPattern(viewPattern, mock.MakeQueryResult(
+			[]string{"leader_id", "ts"}, [][]any{{"pooler-1", now.Add(-3 * time.Second).UnixNano()}},
+		))
+
+		view, err := tr.GetLeadershipView()
+		require.NoError(t, err)
+		assert.Equal(t, "pooler-1", view.LeaderID)
+		assert.Equal(t, 3*time.Second, view.ReplicationLag)
+	})
+
+	t.Run("a failing query is an error", func(t *testing.T) {
+		queryService := mock.NewQueryService()
+		tr := newTestReader(t, queryService, nil)
+		defer tr.Close()
+		queryService.AddQueryPatternWithError(viewPattern, pgErr("42703"))
+
+		view, err := tr.GetLeadershipView()
+		require.Error(t, err)
+		assert.Nil(t, view)
+		assert.ErrorContains(t, err, "failed to read leadership view")
+	})
+
+	t.Run("no heartbeat row is an error", func(t *testing.T) {
+		queryService := mock.NewQueryService()
+		tr := newTestReader(t, queryService, nil)
+		defer tr.Close()
+		queryService.AddQueryPattern(viewPattern, mock.MakeQueryResult([]string{"leader_id", "ts"}, nil))
+
+		_, err := tr.GetLeadershipView()
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "no heartbeat found")
+	})
+
+	t.Run("an unparsable timestamp is an error", func(t *testing.T) {
+		queryService := mock.NewQueryService()
+		tr := newTestReader(t, queryService, nil)
+		defer tr.Close()
+		queryService.AddQueryPattern(viewPattern, mock.MakeQueryResult(
+			[]string{"leader_id", "ts"}, [][]any{{"pooler-1", "not-a-number"}},
+		))
+
+		_, err := tr.GetLeadershipView()
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "failed to parse heartbeat timestamp")
+	})
+}
