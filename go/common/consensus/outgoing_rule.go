@@ -38,6 +38,18 @@ type observedOutgoingRule struct {
 	basis revocationBasis
 }
 
+// recruitsRecordingRule are all recruits that record the outgoing position,
+// whether or not they are members of the rule's cohort.
+func (o observedOutgoingRule) recruitsRecordingRule() []*clustermetadatapb.ConsensusStatus {
+	var recording []*clustermetadatapb.ConsensusStatus
+	for _, cs := range o.recruited {
+		if NewRuleTransition(cs.GetCurrentPosition().GetPosition()).Compare(o.transition) == 0 {
+			recording = append(recording, cs)
+		}
+	}
+	return recording
+}
+
 // discoverOutgoingRule finds the outgoing rule among recruited and checks that
 // it is the rule number the revocation expects.
 func discoverOutgoingRule(
