@@ -51,6 +51,7 @@ const (
 	PgSSInternalError             = "XX000" // internal_error
 	PgSSReadOnlyTransaction       = "25006" // read_only_sql_transaction
 	PgSSSerializationFailure      = "40001" // serialization_failure
+	PgSSObjectInUse               = "55006" // object_in_use
 )
 
 // PostgreSQL data exceptions raised by scalar evaluation.
