@@ -62,7 +62,9 @@ type Multigateway struct {
 	// pgTLSCertFile is the path to the TLS certificate file for PostgreSQL SSL connections.
 	pgTLSCertFile viperutil.Value[string]
 	// pgTLSKeyFile is the path to the TLS private key file for PostgreSQL SSL connections.
-	pgTLSKeyFile viperutil.Value[string]
+	pgTLSKeyFile        viperutil.Value[string]
+	pgTrustedProxyCIDRs viperutil.Value[[]string]
+	pgTLSOffload        viperutil.Value[bool]
 	// pgRequireSSL rejects plaintext client connections; requires cert + key.
 	pgRequireSSL viperutil.Value[bool]
 	// slotBasedReplicationEnabled gates admitting non-temporary logical failover
@@ -258,6 +260,14 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 			Dynamic:  false,
 			EnvVars:  []string{"MT_QUERY_LOG_SAMPLE_RATE"},
 		}),
+		pgTrustedProxyCIDRs: viperutil.Configure(reg, "pg-trusted-proxy-cidrs", viperutil.Options[[]string]{
+			Default: []string{}, FlagName: "pg-trusted-proxy-cidrs", Dynamic: false,
+			EnvVars: []string{"MT_PG_TRUSTED_PROXY_CIDRS"},
+		}),
+		pgTLSOffload: viperutil.Configure(reg, "pg-tls-offload", viperutil.Options[bool]{
+			Default: false, FlagName: "pg-tls-offload", Dynamic: false,
+			EnvVars: []string{"MT_PG_TLS_OFFLOAD"},
+		}),
 		pgTLSCertFile: viperutil.Configure(reg, "pg-tls-cert-file", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "pg-tls-cert-file",
@@ -350,6 +360,8 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("pg-bind-address", mg.pgBindAddress.Default(), "address to bind the PostgreSQL listener to")
 	fs.Duration("statement-timeout", mg.statementTimeout.Default(), "Default statement execution timeout. 0 disables.")
 	fs.Duration("authentication-timeout", mg.authenticationTimeout.Default(), "Maximum time allowed to complete client authentication (SSL handshake, startup message, SCRAM). Negative disables; 0 uses the protocol default of 60s.")
+	fs.StringSlice("pg-trusted-proxy-cidrs", mg.pgTrustedProxyCIDRs.Default(), "trusted proxy CIDRs for optional PostgreSQL PROXY v2 headers")
+	fs.Bool("pg-tls-offload", mg.pgTLSOffload.Default(), "accept TLS without ALPN after a trusted PROXY v2 address header. Requires TLS and trusted proxy CIDRs.")
 	fs.String("pg-tls-cert-file", mg.pgTLSCertFile.Default(), "path to TLS certificate file for PostgreSQL SSL connections")
 	fs.String("pg-tls-key-file", mg.pgTLSKeyFile.Default(), "path to TLS private key file for PostgreSQL SSL connections")
 	fs.Bool("pg-require-ssl", mg.pgRequireSSL.Default(), "require TLS for all client PostgreSQL connections; multigateway fails to start if no cert/key is configured. CancelRequest still permitted over plaintext.")
@@ -369,6 +381,8 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.statementTimeout,
 		mg.authenticationTimeout,
 		mg.pgTLSCertFile,
+		mg.pgTrustedProxyCIDRs,
+		mg.pgTLSOffload,
 		mg.pgTLSKeyFile,
 		mg.pgRequireSSL,
 		mg.slotBasedReplicationEnabled,
@@ -579,6 +593,8 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 		GatewayID:             pidPrefix,
 		CredentialProvider:    credentialProvider,
 		TLSConfig:             pgTLSConfig,
+		TrustedProxyCIDRs:     mg.pgTrustedProxyCIDRs.Get(),
+		TLSOffload:            mg.pgTLSOffload.Get(),
 		RequireTLS:            requireSSL,
 		AuthenticationTimeout: mg.authenticationTimeout.Get(),
 		AuthMetrics:           gatewayMetrics,
@@ -604,6 +620,8 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 			GatewayID:             pidPrefix,
 			CredentialProvider:    credentialProvider,
 			TLSConfig:             pgTLSConfig,
+			TrustedProxyCIDRs:     mg.pgTrustedProxyCIDRs.Get(),
+			TLSOffload:            mg.pgTLSOffload.Get(),
 			RequireTLS:            requireSSL,
 			AuthenticationTimeout: mg.authenticationTimeout.Get(),
 			AuthMetrics:           gatewayMetrics,

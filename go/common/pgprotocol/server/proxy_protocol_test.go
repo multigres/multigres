@@ -1,0 +1,208 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package server
+
+import (
+	"bufio"
+	"bytes"
+	"crypto/tls"
+	"encoding/binary"
+	"io"
+	"net"
+	"net/netip"
+	"testing"
+	"testing/iotest"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
+)
+
+func proxyTestHeader(command, family byte, payload []byte) []byte {
+	header := append([]byte(nil), proxyV2Signature...)
+	header = append(header, command, family, byte(len(payload)>>8), byte(len(payload)))
+	return append(header, payload...)
+}
+
+func proxyTestAddress(ipv6 bool) []byte {
+	var data []byte
+	if ipv6 {
+		data = append(data, net.ParseIP("2001:db8::1").To16()...)
+		data = append(data, net.ParseIP("2001:db8::2").To16()...)
+	} else {
+		data = append(data, 192, 0, 2, 10, 192, 0, 2, 20)
+	}
+	data = binary.BigEndian.AppendUint16(data, 45678)
+	return binary.BigEndian.AppendUint16(data, 5432)
+}
+
+func TestProxyProtocolParsing(t *testing.T) {
+	v4 := proxyTestHeader(0x21, 0x11, proxyTestAddress(false))
+	v6 := proxyTestHeader(0x21, 0x21, proxyTestAddress(true))
+	for _, tt := range []struct {
+		name      string
+		header    []byte
+		trusted   bool
+		remote    string
+		wantError bool
+	}{
+		{"IPv4", v4, true, "192.0.2.10:45678", false},
+		{"IPv6", v6, true, "[2001:db8::1]:45678", false},
+		{"TLV", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), 4, 0, 2, 1, 2)), true, "192.0.2.10:45678", false},
+		{"headerless", nil, true, "127.0.0.1:1234", false},
+		{"disabled", nil, false, "127.0.0.1:1234", false},
+		{"untrusted", v4, false, "", true},
+		{"LOCAL", proxyTestHeader(0x20, 0xff, []byte{1, 2, 3}), true, "127.0.0.1:1234", false},
+		{"UNSPEC", proxyTestHeader(0x21, 0, nil), true, "127.0.0.1:1234", false},
+		{"version", proxyTestHeader(0x31, 0x11, proxyTestAddress(false)), true, "", true},
+		{"command", proxyTestHeader(0x22, 0x11, proxyTestAddress(false)), true, "", true},
+		{"UDP", proxyTestHeader(0x21, 0x12, proxyTestAddress(false)), true, "", true},
+		{"short address", proxyTestHeader(0x21, 0x11, []byte{1}), true, "", true},
+		{"short TLV", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), 1)), true, "", true},
+		{"long TLV", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), 1, 0, 8)), true, "", true},
+		{"signature", []byte("\rxxxxxxxxxxxxxxx"), true, "", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, fragmented := range []bool{false, true} {
+				// The next bytes can be coalesced with the header or arrive one at a time.
+				wire := append(append([]byte(nil), tt.header...), 0x16, 3, 1)
+				var reader io.Reader = bytes.NewReader(wire)
+				if fragmented {
+					reader = iotest.OneByteReader(reader)
+				}
+				l := &Listener{}
+				if tt.trusted {
+					l.trustedProxyCIDRs = []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}
+				}
+				c := &Conn{
+					listener: l, logger: testLogger(t), bufferedReader: bufio.NewReader(reader),
+					conn: &proxyAddressConn{remote: &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 1234}},
+				}
+				err := c.maybeHandleProxyProtocol()
+				if tt.wantError {
+					require.Error(t, err)
+					continue
+				}
+				require.NoError(t, err)
+				require.Equal(t, tt.remote, c.RemoteAddr().String())
+				require.Equal(t, tt.remote != "127.0.0.1:1234", c.proxyClientAddress)
+				tail, err := io.ReadAll(c.bufferedReader)
+				require.NoError(t, err)
+				require.Equal(t, []byte{0x16, 3, 1}, tail)
+			}
+		})
+	}
+	for n := 1; n < len(v4); n++ {
+		c := &Conn{
+			listener:       &Listener{trustedProxyCIDRs: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}},
+			bufferedReader: bufio.NewReader(bytes.NewReader(v4[:n])),
+			conn:           &proxyAddressConn{remote: &net.TCPAddr{IP: net.ParseIP("127.0.0.1")}},
+		}
+		require.Error(t, c.maybeHandleProxyProtocol(), "truncated at %d", n)
+	}
+}
+
+func TestProxyProtocolTLSOffload(t *testing.T) {
+	for _, tt := range []struct {
+		name                     string
+		offload, header, classic bool
+		alpn                     []string
+		success                  bool
+	}{
+		{"offloaded", true, true, false, nil, true},
+		{"offloaded ALPN", true, true, false, []string{protocol.ALPNProtocol}, true},
+		{"offload disabled", false, true, false, nil, false},
+		{"direct no header", true, false, false, nil, false},
+		{"direct ALPN", true, false, false, []string{protocol.ALPNProtocol}, true},
+		{"classic direct", true, false, true, nil, true},
+		{"classic proxied", true, true, true, nil, true},
+		{"wrong negotiated ALPN", true, true, false, []string{"h2"}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tlsConfig, ca := generateTestTLSConfig(t)
+			tlsConfig.NextProtos = []string{protocol.ALPNProtocol, "h2"}
+			var serverConn *Conn
+			ln, errCh := startDirectTLSServer(t, tlsConfig, func(c *Conn) {
+				serverConn = c
+				c.listener.tlsOffload = tt.offload
+				c.listener.trustedProxyCIDRs = []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}
+			})
+			raw, err := net.Dial("tcp", ln.Addr().String())
+			require.NoError(t, err)
+			defer raw.Close()
+			require.NoError(t, raw.SetDeadline(time.Now().Add(5*time.Second)))
+			if tt.header {
+				_, err = raw.Write(proxyTestHeader(0x21, 0x11, proxyTestAddress(false)))
+				require.NoError(t, err)
+			}
+			if tt.classic {
+				writeSSLRequest(t, raw)
+				require.Equal(t, byte('S'), readSingleByte(t, raw))
+			}
+			conn := tls.Client(raw, &tls.Config{RootCAs: ca, ServerName: "localhost", MinVersion: tls.VersionTLS12, NextProtos: tt.alpn})
+			require.NoError(t, conn.Handshake())
+			if tt.success {
+				writeStartupPacketToPipe(t, conn, protocol.ProtocolVersionNumber, map[string]string{"user": "proxy_user", "database": "proxy_db"})
+				scramClientHelper(t, conn, "proxy_user", "postgres")
+				require.NoError(t, <-errCh)
+				if tt.header {
+					require.Equal(t, "192.0.2.10:45678", serverConn.RemoteAddr().String())
+				}
+			} else {
+				require.ErrorContains(t, <-errCh, "without ALPN")
+			}
+		})
+	}
+}
+
+func TestProxyProtocolConfiguration(t *testing.T) {
+	for _, cfg := range []ListenerConfig{
+		{TrustedProxyCIDRs: []string{"invalid"}},
+		{TLSOffload: true},
+		{TLSOffload: true, TLSConfig: &tls.Config{}},
+		{TLSOffload: true, TrustedProxyCIDRs: []string{"127.0.0.1/32"}},
+	} {
+		cfg.Handler = &mockHandler{}
+		cfg.CredentialProvider = newMockCredentialProvider("postgres")
+		_, err := NewListener(cfg)
+		require.Error(t, err)
+	}
+}
+
+func TestProxyProtocolStartupDeadline(t *testing.T) {
+	l, err := NewListener(ListenerConfig{
+		Address: "127.0.0.1:0", Handler: &mockHandler{},
+		CredentialProvider: newMockCredentialProvider("postgres"), AuthenticationTimeout: 100 * time.Millisecond,
+		TrustedProxyCIDRs: []string{"127.0.0.1/32"}, Logger: testLogger(t),
+	})
+	require.NoError(t, err)
+	serveErr := make(chan error, 1)
+	go func() { serveErr <- l.Serve() }()
+	t.Cleanup(func() {
+		require.NoError(t, l.Close())
+		require.NoError(t, <-serveErr)
+	})
+	raw, err := net.Dial("tcp", l.Addr().String())
+	require.NoError(t, err)
+	defer raw.Close()
+	require.NoError(t, raw.SetDeadline(time.Now().Add(3*time.Second)))
+	_, err = raw.Write([]byte("\r\n"))
+	require.NoError(t, err)
+	var reply [1]byte
+	n, err := raw.Read(reply[:])
+	require.Zero(t, n, "must not send plaintext on an incomplete PROXY header")
+	require.ErrorIs(t, err, io.EOF)
+}

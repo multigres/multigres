@@ -23,6 +23,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -61,6 +62,9 @@ type Listener struct {
 	// requireTLS rejects plaintext StartupMessage if true. Mirrors PG's
 	// hostssl posture. Validated against tlsConfig at construction.
 	requireTLS bool
+
+	trustedProxyCIDRs []netip.Prefix
+	tlsOffload        bool
 
 	// authenticationTimeout bounds the startup phase (SSL/GSS negotiation,
 	// StartupMessage read, SCRAM exchange) — equivalent to PostgreSQL's
@@ -196,7 +200,17 @@ type ListenerConfig struct {
 	// plaintext (matches libpq behavior). Requires TLSConfig != nil.
 	RequireTLS bool
 
-	// AuthenticationTimeout bounds the startup phase: SSL/GSS negotiation,
+	// TrustedProxyCIDRs permits optional PROXY protocol v2 headers from these
+	// immediate TCP peers. Empty disables PROXY headers. Headerless clients
+	// remain supported. Only include addresses exclusively used by trusted proxies.
+	TrustedProxyCIDRs []string
+
+	// TLSOffload permits direct TLS without ALPN after a trusted PROXY v2
+	// header supplies a client address. Requires TLS and TrustedProxyCIDRs.
+	// Use only behind a proxy that performs PostgreSQL SSL negotiation.
+	TLSOffload bool
+
+	// AuthenticationTimeout bounds the startup phase: optional PROXY header, SSL/GSS negotiation,
 	// StartupMessage read, and the SCRAM exchange. A stalled or malicious
 	// client cannot pin a goroutine past this deadline. Zero falls back to
 	// DefaultAuthenticationTimeout (60s, matching PostgreSQL's default).
@@ -233,6 +247,18 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		return nil, errors.New("RequireTLS=true requires TLSConfig to be set")
 	}
 
+	trustedProxyCIDRs := make([]netip.Prefix, 0, len(config.TrustedProxyCIDRs))
+	for _, cidr := range config.TrustedProxyCIDRs {
+		prefix, err := netip.ParsePrefix(cidr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid trusted proxy CIDR %q: %w", cidr, err)
+		}
+		trustedProxyCIDRs = append(trustedProxyCIDRs, prefix.Masked())
+	}
+	if config.TLSOffload && (config.TLSConfig == nil || len(trustedProxyCIDRs) == 0) {
+		return nil, errors.New("TLSOffload requires TLSConfig and TrustedProxyCIDRs")
+	}
+
 	netListener, err := net.Listen("tcp", config.Address)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %s: %w", config.Address, err)
@@ -262,6 +288,8 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		trustAuthProvider:     config.TrustAuthProvider,
 		tlsConfig:             config.TLSConfig,
 		requireTLS:            config.RequireTLS,
+		trustedProxyCIDRs:     trustedProxyCIDRs,
+		tlsOffload:            config.TLSOffload,
 		authenticationTimeout: authTimeout,
 		authMetrics:           authMetrics,
 		logger:                logger,
