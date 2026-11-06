@@ -71,8 +71,10 @@ func (pm *MultipoolerManager) rewindSentinel() sentinel {
 //     (PgRewindAbort): afterwards the run is not running and cannot start, so a
 //     request that pgctld had not handled yet when the call ended cannot start
 //     after the directory was judged untouched. If pgctld cannot say, nothing is
-//     judged and the marker stays for the next settle. A pgctld without the RPC,
-//     or a marker without an id, falls back to the running record below.
+//     judged and the marker stays for the next settle. A marker without an id is
+//     judged on the running record below. A pgctld without the RPC cannot fence
+//     and does not write the running record either, so nothing says the run has
+//     stopped and the directory is treated as modified.
 //   - pgctld records that a mutating pg_rewind is running (RewindRunningFile) and
 //     removes the record when the process has exited. A call that failed on a
 //     timeout can return while pg_rewind is still being killed, so the pooler
@@ -275,15 +277,18 @@ func (pm *MultipoolerManager) awaitRewindExit(ctx context.Context) bool {
 	}
 }
 
-// fenceRewindRun asks pgctld to abort the run id: after it returns nil the run is
+// fenceRewindRun asks pgctld to abort the run id: when it reports true the run is
 // not running and cannot start, so the data directory can be judged. The running
 // record alone cannot say that, because it does not exist yet for a request pgctld
-// has not handled. A pgctld without the RPC, or a marker without a run id, falls
-// back to the running record. Any other failure means the run's state is unknown;
-// the caller must not judge the directory then.
-func (pm *MultipoolerManager) fenceRewindRun(ctx context.Context, runID string) error {
+// has not handled. A marker without a run id (an older pooler wrote it) is judged
+// on the running record, which the pgctld it ran against writes. A pgctld without
+// the RPC reports false: it cannot fence, and it does not write the running record
+// either, so nothing says the run has stopped and the caller must treat the
+// directory as modified. Any other failure means the run's state is unknown; the
+// caller must not judge the directory then.
+func (pm *MultipoolerManager) fenceRewindRun(ctx context.Context, runID string) (bool, error) {
 	if runID == "" || pm.pgctldClient == nil {
-		return nil
+		return true, nil
 	}
 	// The caller's context may already be cancelled, which is why we are here.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rewindRunningWait)
@@ -291,14 +296,14 @@ func (pm *MultipoolerManager) fenceRewindRun(ctx context.Context, runID string) 
 	resp, err := pm.pgctldClient.PgRewindAbort(ctx, &pgctldpb.PgRewindAbortRequest{RunId: runID})
 	if err != nil {
 		if status.Code(err) == codes.Unimplemented {
-			return nil
+			return false, nil
 		}
-		return err
+		return false, err
 	}
 	if resp.GetTerminated() {
 		pm.logger.WarnContext(ctx, "terminated a pg_rewind that was still running", "run_id", runID)
 	}
-	return nil
+	return true, nil
 }
 
 // settleRewindAttempt resolves a rewind attempt marker whose outcome has not been
@@ -331,7 +336,8 @@ func (pm *MultipoolerManager) settleRewindAttempt(ctx context.Context) (tainted 
 	if err != nil {
 		return false, mterrors.Wrap(err, "cannot read the run id from the rewind attempt marker")
 	}
-	if err := pm.fenceRewindRun(ctx, runID); err != nil {
+	fenced, err := pm.fenceRewindRun(ctx, runID)
+	if err != nil {
 		return false, mterrors.Wrap(err, "cannot confirm what happened to the pg_rewind run")
 	}
 
@@ -341,7 +347,11 @@ func (pm *MultipoolerManager) settleRewindAttempt(ctx context.Context) (tainted 
 	// marker is the only evidence left, so it is kept and the verdict is derived
 	// again on the next settle.
 	keepAttempt := false
-	if !pm.awaitRewindExit(ctx) {
+	if !fenced {
+		pm.logger.ErrorContext(ctx, "pgctld cannot fence pg_rewind runs, so nothing says the run has stopped; treating the data directory as modified", "run_id", runID)
+		evidence = "pgctld cannot fence pg_rewind runs"
+		keepAttempt = true
+	} else if !pm.awaitRewindExit(ctx) {
 		pm.logger.ErrorContext(ctx, "pgctld still reports a pg_rewind running; treating the data directory as modified")
 		evidence = "pg_rewind not confirmed to have exited"
 		keepAttempt = true
