@@ -231,6 +231,43 @@ func TestProbeMostAdvanced_FailsOnMissingPooler(t *testing.T) {
 	assert.Equal(t, codes.NotFound, st.Code())
 }
 
+func TestProbeMostAdvanced_RejectsInvalidDurabilityPolicy(t *testing.T) {
+	s := newTestServer(t)
+	s.SetRPCClient(rpcclient.NewFakeClient())
+
+	invalid := &clustermetadatapb.DurabilityPolicy{QuorumType: clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN}
+	_, _, err := s.probeMostAdvanced(t.Context(), []*clustermetadatapb.ID{poolerID("cell1", "mp1")}, invalid)
+
+	require.Error(t, err)
+	st, _ := status.FromError(err)
+	assert.Equal(t, codes.InvalidArgument, st.Code())
+	assert.Contains(t, st.Message(), "invalid durability_policy")
+}
+
+func TestProbeMostAdvanced_RejectsEmptyLSNOfMostAdvanced(t *testing.T) {
+	ctx := t.Context()
+	s := newTestServer(t)
+	mp1 := makePooler("cell1", "mp1")
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
+	fc := rpcclient.NewFakeClient()
+	fc.SetStatusResponse(mpKey(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mp1.Id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3}}},
+			},
+		},
+	})
+	s.SetRPCClient(fc)
+
+	_, _, err := s.probeMostAdvanced(ctx, []*clustermetadatapb.ID{mp1.Id}, atLeastN(1))
+
+	require.Error(t, err)
+	st, _ := status.FromError(err)
+	assert.Equal(t, codes.Unavailable, st.Code())
+	assert.Contains(t, st.Message(), "empty LSN")
+}
+
 func TestProbeMostAdvanced_PicksMostAdvanced(t *testing.T) {
 	ctx := t.Context()
 	s := newTestServer(t)
