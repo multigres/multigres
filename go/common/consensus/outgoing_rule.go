@@ -283,6 +283,10 @@ func (o observedOutgoingRule) proposalMayBeDecided(both PolicyWithCohort) bool {
 // built by checkRecruitsCanFinalizeProposal, and a RecruitmentResult can only be
 // built from one, so no proposal is built on a stuck proposal that could never be
 // decided.
+//
+// TODO: "finalize" here means "decide". Rename this and
+// checkRecruitsCanFinalizeProposal to decidableOutgoingRule and
+// checkRecruitsCanDecideProposal, with the other "finalize" names.
 type finalizableOutgoingRule struct {
 	revokedOutgoingRule
 }
@@ -303,32 +307,32 @@ type finalizableOutgoingRule struct {
 // Nothing is required for a decided outgoing rule, or when a cert revokes the
 // rule: the pooler then decides the proposal under the incoming policy instead.
 // A decided outgoing rule can still be undecided on the leader that is chosen;
-// see checkLeaderCanFinalizeProposal.
+// see checkLeaderCanDecideProposal.
 func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal() (finalizableOutgoingRule, error) {
 	if r.transition.IsDecided() || r.basis.cert != nil {
 		return finalizableOutgoingRule{r}, nil
 	}
-	if err := r.canFinalize(r.transition); err != nil {
+	if err := r.canDecide(r.transition); err != nil {
 		return finalizableOutgoingRule{}, err
 	}
 	return finalizableOutgoingRule{r}, nil
 }
 
-// checkLeaderCanFinalizeProposal is checkRecruitsCanFinalizeProposal for the
+// checkLeaderCanDecideProposal is checkRecruitsCanFinalizeProposal for the
 // rule as the chosen leader records it. A recruit can lead while recording the
 // outgoing rule as an undecided proposal even though another recruit knows it is
 // decided, and Promote on that leader must finish deciding it first.
-func (r revokedOutgoingRule) checkLeaderCanFinalizeProposal(leader *clustermetadatapb.ConsensusStatus) error {
+func (r revokedOutgoingRule) checkLeaderCanDecideProposal(leader *clustermetadatapb.ConsensusStatus) error {
 	leaderTransition := NewRuleTransition(leader.GetCurrentPosition().GetPosition())
 	if leaderTransition.IsDecided() || r.basis.cert != nil {
 		return nil
 	}
-	return r.canFinalize(leaderTransition)
+	return r.canDecide(leaderTransition)
 }
 
-// canFinalize checks that the recruits can satisfy the "Both" policy of t's
+// canDecide checks that the recruits can satisfy the "Both" policy of t's
 // decision and proposal, which Promote needs to decide the proposal.
-func (r revokedOutgoingRule) canFinalize(t RuleTransition) error {
+func (r revokedOutgoingRule) canDecide(t RuleTransition) error {
 	decision := t.Decision()
 	decisionPolicy, err := NewPolicyFromProto(decision.GetDurabilityPolicy())
 	if err != nil {
@@ -384,36 +388,40 @@ func (r revokedOutgoingRule) minimumLeaderPosition() (*clustermetadatapb.PoolerP
 	return minimum, nil
 }
 
-// eligibleLeaders returns the recruits at or above the minimum leader position,
-// preferring those that need not decide (finalize) the rule first. Only recruits
-// can lead: Promote needs a recruit still in force, which proves the pooler is
-// reachable and fenced and which later events, such as a restore, invalidate.
+// eligibleLeaders returns the recruits that can lead: those at or above the
+// minimum leader position, and that Promote can lead from (see
+// checkLeaderCanDecideProposal). Only recruits can lead: Promote needs a recruit
+// still in force, which proves the pooler is reachable and fenced and which later
+// events, such as a restore, invalidate.
 func (r revokedOutgoingRule) eligibleLeaders() ([]*clustermetadatapb.ConsensusStatus, error) {
 	minimum, err := r.minimumLeaderPosition()
 	if err != nil {
 		return nil, err
 	}
 	var eligible []*clustermetadatapb.ConsensusStatus
+	// The first reason a recruit at or above the minimum can't lead. It is only
+	// reported if no recruit can lead, and is arbitrary: other recruits may have
+	// failed for other reasons.
+	var firstCannotDecide error
 	for _, cs := range r.recruited {
-		if CompareWALProgress(cs.GetCurrentPosition(), minimum) >= 0 {
-			eligible = append(eligible, cs)
+		if CompareWALProgress(cs.GetCurrentPosition(), minimum) < 0 {
+			continue
 		}
-	}
-	if len(eligible) == 0 {
-		// Only a cert's frozen LSN above every recruit leaves none: otherwise the
-		// minimum is itself a recruit's position.
-		return nil, fmt.Errorf("no recruited nodes at or above the required LSN %s", minimum.GetLsn())
-	}
-	// Candidates at or above the minimum hold the same WAL, so prefer those that
-	// need not decide a rule they hold undecided.
-	var finalizers []*clustermetadatapb.ConsensusStatus
-	for _, cs := range eligible {
-		if r.checkLeaderCanFinalizeProposal(cs) == nil {
-			finalizers = append(finalizers, cs)
+		if err := r.checkLeaderCanDecideProposal(cs); err != nil {
+			if firstCannotDecide == nil {
+				firstCannotDecide = err
+			}
+			continue
 		}
+		eligible = append(eligible, cs)
 	}
-	if len(finalizers) > 0 {
-		return finalizers, nil
+	if len(eligible) > 0 {
+		return eligible, nil
 	}
-	return eligible, nil
+	if firstCannotDecide != nil {
+		return nil, fmt.Errorf("no recruited node at or above the required position can lead: %w", firstCannotDecide)
+	}
+	// Only a cert's frozen LSN above every recruit leaves none: otherwise the
+	// minimum is itself a recruit's position.
+	return nil, fmt.Errorf("no recruited nodes at or above the required LSN %s", minimum.GetLsn())
 }

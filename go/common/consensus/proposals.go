@@ -400,23 +400,19 @@ func validateProposal(
 		return errors.New("proposal has no leader ID")
 	}
 	leaderKey := topoclient.ClusterIDString(leaderID)
-	var leader *clustermetadatapb.ConsensusStatus
+	eligible := false
 	for _, cs := range result.EligibleLeaders {
 		if topoclient.ClusterIDString(cs.GetId()) == leaderKey {
-			leader = cs
+			eligible = true
 			break
 		}
 	}
-	if leader == nil {
+	if !eligible {
 		eligibleKeys := make([]string, len(result.EligibleLeaders))
 		for i, cs := range result.EligibleLeaders {
 			eligibleKeys[i] = topoclient.ClusterIDString(cs.GetId())
 		}
 		return fmt.Errorf("proposed leader %s is not among eligible leaders %v", leaderKey, eligibleKeys)
-	}
-
-	if err := result.outgoing.checkLeaderCanFinalizeProposal(leader); err != nil {
-		return err
 	}
 
 	proposedRule := proposal.GetProposedTransition().GetProposal()

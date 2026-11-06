@@ -2645,7 +2645,7 @@ func TestBuildSafeProposal_LeaderRankedByLatestRuleThenLSN(t *testing.T) {
 // A recruit can lead while recording the latest rule as an undecided proposal even
 // though another recruit knows it is decided. Promote on that leader must decide
 // it first, so the recruits have to be able to satisfy the policy for that.
-func TestBuildSafeProposal_LeaderMustFinalizeWhatItHoldsUndecided(t *testing.T) {
+func TestBuildSafeProposal_LeaderMustBeAbleToDecideWhatItHoldsUndecided(t *testing.T) {
 	zone1 := poolerIDs.zone1
 	rev := revocation(5, ruleNum(3, 1))
 	// Deciding the latest rule needs all three under the stricter "Both" policy,
@@ -2662,13 +2662,13 @@ func TestBuildSafeProposal_LeaderMustFinalizeWhatItHoldsUndecided(t *testing.T) 
 		}
 	}
 
-	t.Run("the leader that holds the rule undecided cannot finalize it", func(t *testing.T) {
+	t.Run("the leader that holds the rule undecided cannot decide it", func(t *testing.T) {
 		_, err := BuildSafeProposal(rev, statuses("0/1000000", "0/2000000"), keepOutgoing)
 
-		require.EqualError(t, err, "proposal validation: outgoing proposal cannot be finalized: recruited members cannot satisfy its policy: durability not satisfied: 2 poolers, required 3")
+		require.EqualError(t, err, "no recruited node at or above the required position can lead: outgoing proposal cannot be finalized: recruited members cannot satisfy its policy: durability not satisfied: 2 poolers, required 3")
 	})
 
-	t.Run("among leaders holding the same WAL, the one that needs no finalizing leads", func(t *testing.T) {
+	t.Run("among leaders holding the same WAL, only the one that can lead is eligible", func(t *testing.T) {
 		var eligible []*clustermetadatapb.ID
 		_, err := BuildSafeProposal(rev, statuses("0/2000000", "0/2000000"), func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 			eligible = statusesToIDs(r.EligibleLeaders)
