@@ -28,7 +28,7 @@ func TestAlertOnlyAction(t *testing.T) {
 	a := NewAlertOnlyAction(slog.Default())
 	problem := types.Problem{
 		Code:        types.ProblemShardStuck,
-		ShardKey:    &clustermetadatapb.ShardKey{Database: "db", TableGroup: "tg", Shard: "0"},
+		ShardRef:    &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"},
 		Description: "shard needs a new leader but no recruitment quorum is reachable",
 	}
 
@@ -37,5 +37,4 @@ func TestAlertOnlyAction(t *testing.T) {
 
 	require.Equal(t, "AlertOnly", a.Metadata().Name)
 	require.False(t, a.RequiresHealthyLeader())
-	require.Nil(t, a.GracePeriod(), "an alert has nothing to defer")
 }

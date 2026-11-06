@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"strconv"
 	"strings"
@@ -40,6 +41,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	statuspb "google.golang.org/genproto/googleapis/rpc/status"
@@ -68,16 +70,17 @@ func (s *streamTestServer) StreamExecute(req *pb.StreamExecuteRequest, out pb.Mu
 	return s.execute(req, out)
 }
 
-func connectStreamPool(t testing.TB, impl pb.MultipoolerServiceServer) (pb.MultipoolerServiceClient, *streamPool) {
+func connectStreamPool(t testing.TB, impl pb.MultipoolerServiceServer, extraDialOptions ...grpc.DialOption) (pb.MultipoolerServiceClient, *streamPool) {
 	t.Helper()
 	l := bufconn.Listen(1 << 20)
 	s := grpc.NewServer()
 	pb.RegisterMultipoolerServiceServer(s, impl)
 	go func() { _ = s.Serve(l) }()
-	cc, err := grpc.NewClient("passthrough:///test", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return l.Dial() }))
+	dialOptions := append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return l.Dial() })}, extraDialOptions...)
+	cc, err := grpc.NewClient("passthrough:///test", dialOptions...)
 	require.NoError(t, err)
-	c := pb.NewMultipoolerServiceClient(cc)
-	p := newStreamPool(c, cc)
+	qs := newGRPCQueryService(cc, "test-pooler", slog.Default()).(*grpcQueryService)
+	c, p := qs.client, qs.executeStreams
 	t.Cleanup(func() { p.Close(); _ = cc.Close(); s.Stop(); _ = l.Close() })
 	stopStreamServer = s.Stop
 	return c, p
@@ -85,6 +88,15 @@ func connectStreamPool(t testing.TB, impl pb.MultipoolerServiceServer) (pb.Multi
 
 // stopStreamServer stops the most recently connected test server.
 var stopStreamServer func()
+
+// idleSnapshot copies p.idle under p.mu. The pool's connectivity watcher and
+// idle timers mutate the slice from their own goroutines, so tests must never
+// read it unlocked.
+func (p *streamPool) idleSnapshot() []*streamLease {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]*streamLease(nil), p.idle...)
+}
 
 func streamQuery(t testing.TB, p *streamPool, ctx context.Context, sql string) error {
 	t.Helper()
@@ -214,20 +226,6 @@ func TestCancellationAndAbandonment(t *testing.T) {
 	}
 }
 
-func TestFallbackBeforeSendingSQL(t *testing.T) {
-	s := &streamTestServer{custom: func(pb.MultipoolerService_ExecuteStreamServer) error {
-		return status.Error(codes.Unimplemented, "old server")
-	}}
-	_, p := connectStreamPool(t, s)
-	for range 3 {
-		r, used, err := p.Open(t.Context(), &pb.StreamExecuteRequest{Query: "never sent"})
-		require.NoError(t, err)
-		require.False(t, used)
-		require.Nil(t, r)
-	}
-	require.EqualValues(t, 1, s.streams.Load())
-}
-
 func TestMetadataAndInvalidPropagation(t *testing.T) {
 	s := &streamTestServer{execute: func(*pb.StreamExecuteRequest, pb.MultipoolerService_StreamExecuteServer) error { return nil }}
 	c, p := connectStreamPool(t, s)
@@ -258,7 +256,7 @@ func TestMetadataAndInvalidPropagation(t *testing.T) {
 func TestTransportLossNotReplayed(t *testing.T) {
 	var received atomic.Int32
 	s := &streamTestServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
-		if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true}); err != nil {
+		if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true, SupportedOperations: []pb.ExecuteStreamOperation{pb.ExecuteStreamOperation_STREAM_EXECUTE}}); err != nil {
 			return err
 		}
 		if _, err := stream.Recv(); err != nil {
@@ -271,7 +269,7 @@ func TestTransportLossNotReplayed(t *testing.T) {
 	err := streamQuery(t, p, t.Context(), "write")
 	require.Equal(t, codes.Unavailable, status.Code(err))
 	require.EqualValues(t, 1, received.Load())
-	require.Empty(t, p.idle)
+	require.Empty(t, p.idleSnapshot())
 }
 
 func TestConcurrentExclusiveLeases(t *testing.T) {
@@ -290,9 +288,9 @@ func TestConcurrentExclusiveLeases(t *testing.T) {
 		})
 	}
 	wg.Wait()
-	require.LessOrEqual(t, len(p.idle), maxIdleStreams)
+	require.LessOrEqual(t, len(p.idleSnapshot()), maxIdleStreams)
 	p.Close()
-	require.Empty(t, p.idle)
+	require.Empty(t, p.idleSnapshot())
 }
 
 func TestRetirementAndLateCancellation(t *testing.T) {
@@ -307,7 +305,7 @@ func TestRetirementAndLateCancellation(t *testing.T) {
 	p.idle[0].requests = maxStreamRequests - 1
 	p.mu.Unlock()
 	require.NoError(t, streamQuery(t, p, t.Context(), "retire"))
-	require.Empty(t, p.idle)
+	require.Empty(t, p.idleSnapshot())
 	require.NoError(t, streamQuery(t, p, t.Context(), "new"))
 	require.EqualValues(t, 2, s.streams.Load())
 }
@@ -315,7 +313,7 @@ func TestRetirementAndLateCancellation(t *testing.T) {
 func TestMalformedFrames(t *testing.T) {
 	for _, frame := range []*pb.ExecuteStreamResponse{{}, {Ready: true}, {Result: &pb.ExecuteStreamResponse_Response{Response: &pb.StreamExecuteResponse{}}, Completion: &statuspb.Status{}}} {
 		s := &streamTestServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
-			if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true}); err != nil {
+			if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true, SupportedOperations: []pb.ExecuteStreamOperation{pb.ExecuteStreamOperation_STREAM_EXECUTE}}); err != nil {
 				return err
 			}
 			if _, err := stream.Recv(); err != nil {
@@ -325,7 +323,7 @@ func TestMalformedFrames(t *testing.T) {
 		}}
 		_, p := connectStreamPool(t, s)
 		require.Equal(t, codes.Internal, status.Code(streamQuery(t, p, t.Context(), "ok")))
-		require.Empty(t, p.idle)
+		require.Empty(t, p.idleSnapshot())
 	}
 }
 
@@ -342,7 +340,7 @@ func TestHandshakeRejectsRetirement(t *testing.T) {
 	require.Equal(t, codes.Internal, status.Code(err))
 	require.False(t, used)
 	require.Nil(t, r)
-	require.Empty(t, p.idle)
+	require.Empty(t, p.idleSnapshot())
 }
 
 func TestOperationDeadline(t *testing.T) {
@@ -382,7 +380,7 @@ func TestIdleExpirationAndRepeatedRelease(t *testing.T) {
 
 func TestTransportEOFCannotReportSuccess(t *testing.T) {
 	s := &streamTestServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
-		if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true}); err != nil {
+		if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true, SupportedOperations: []pb.ExecuteStreamOperation{pb.ExecuteStreamOperation_STREAM_EXECUTE}}); err != nil {
 			return err
 		}
 		if _, err := stream.Recv(); err != nil {
@@ -394,7 +392,7 @@ func TestTransportEOFCannotReportSuccess(t *testing.T) {
 	}}
 	_, p := connectStreamPool(t, s)
 	require.Equal(t, codes.Unavailable, status.Code(streamQuery(t, p, t.Context(), "write")))
-	require.Empty(t, p.idle)
+	require.Empty(t, p.idleSnapshot())
 }
 
 func TestPoolMetrics(t *testing.T) {
@@ -451,58 +449,59 @@ func TestPoolMetrics(t *testing.T) {
 	}, sums)
 }
 
-// Both a newly detected unsupported RPC and its cached fallback must remain
-// distinguishable from a missing operation on an otherwise reusable stream.
-func TestPoolFallbackMetrics(t *testing.T) {
-	for _, rpcUnsupported := range []bool{true, false} {
-		reason := "legacy_operation_unsupported"
-		if rpcUnsupported {
-			reason = "legacy_rpc_unsupported"
-		}
-		t.Run(reason, func(t *testing.T) {
-			s := &streamTestServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
-				if rpcUnsupported {
-					return status.Error(codes.Unimplemented, "old server")
-				}
-				// The original handshake only supports StreamExecute.
-				if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true}); err != nil {
-					return err
-				}
-				_, err := stream.Recv()
-				return err
-			}}
-			_, p := connectStreamPool(t, s)
-			reader := sdkmetric.NewManualReader()
-			provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-			t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
-			p.m = newStreamPoolMetrics(provider.Meter("test"))
-			for range 2 {
-				r, used, err := p.open(t.Context(), queryrpc.Request(&pb.ExecuteQueryRequest{}))
-				require.NoError(t, err)
-				require.False(t, used)
-				require.Nil(t, r)
-			}
-			require.EqualValues(t, 1, s.streams.Load())
-			require.Equal(t, rpcUnsupported, p.unsupported.Load())
+// Credentials supplied by gRPC are invisible to the caller's outgoing context.
+// The server must explicitly identify authorization as the reason for refusing
+// reuse, and every dedicated call must still receive fresh credentials.
+type testPerCallCredentials struct{ calls atomic.Int32 }
 
-			var rm metricdata.ResourceMetrics
-			require.NoError(t, reader.Collect(t.Context(), &rm))
-			counts := map[string]int64{}
-			for _, sm := range rm.ScopeMetrics {
-				for _, m := range sm.Metrics {
-					if m.Name != "mg.gateway.query_stream.operations" {
-						continue
-					}
-					for _, dp := range m.Data.(metricdata.Sum[int64]).DataPoints {
-						transport, ok := dp.Attributes.Value("transport")
-						require.True(t, ok)
-						counts[transport.AsString()] += dp.Value
-					}
-				}
+func (c *testPerCallCredentials) GetRequestMetadata(context.Context, ...string) (map[string]string, error) {
+	return map[string]string{"authorization": fmt.Sprintf("token-%d", c.calls.Add(1))}, nil
+}
+
+func (*testPerCallCredentials) RequireTransportSecurity() bool { return false }
+
+func TestPerCallAuthorizationFallback(t *testing.T) {
+	var calls atomic.Int32
+	s := &operationTestServer{call: func(ctx context.Context, _ proto.Message) (proto.Message, error) {
+		n := calls.Add(1)
+		md, _ := metadata.FromIncomingContext(ctx)
+		if got := md.Get("authorization"); len(got) != 1 || got[0] != fmt.Sprintf("token-%d", n+1) {
+			return nil, status.Error(codes.Unauthenticated, "missing fresh credentials")
+		}
+		if n == 2 {
+			return nil, status.Error(codes.Unauthenticated, "token rejected")
+		}
+		return &pb.ExecuteQueryResponse{}, nil
+	}}
+	g := queryServiceForOperations(t, s, grpc.WithPerRPCCredentials(&testPerCallCredentials{}))
+	p := g.executeStreams
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(context.Background())) })
+	p.m = newStreamPoolMetrics(provider.Meter("test"))
+	_, _, err := g.ExecuteQuery(t.Context(), nil, "SELECT 1", nil)
+	require.NoError(t, err)
+	_, _, err = g.ExecuteQuery(t.Context(), nil, "SELECT 2", nil)
+	require.ErrorContains(t, err, "token rejected")
+	require.EqualValues(t, 2, calls.Load())
+	require.EqualValues(t, 1, s.streams.Load())
+	require.True(t, p.perCallAuthorization.Load())
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+	counts := map[string]int64{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name != "mg.gateway.query_stream.operations" {
+				continue
 			}
-			require.Equal(t, map[string]int64{reason: 2}, counts)
-		})
+			for _, dp := range m.Data.(metricdata.Sum[int64]).DataPoints {
+				transport, ok := dp.Attributes.Value("transport")
+				require.True(t, ok)
+				counts[transport.AsString()] += dp.Value
+			}
+		}
 	}
+	require.Equal(t, map[string]int64{"legacy_authorization": 2}, counts)
 }
 
 func TestHandshakeHonoursCallerDeadline(t *testing.T) {
@@ -519,25 +518,21 @@ func TestHandshakeHonoursCallerDeadline(t *testing.T) {
 	require.False(t, used)
 	require.Nil(t, r)
 	require.Less(t, time.Since(start), 5*time.Second)
-	require.Empty(t, p.idle)
+	require.Empty(t, p.idleSnapshot())
 }
 
-// TestOperationDeadlineDuringRecvReportsDeadlineExceeded covers the in-flight
-// counterpart to TestHandshakeHonoursCallerDeadline: a caller deadline that
-// expires while Recv is blocked on an already-established stream, rather than
-// during the initial handshake. The lease's transport context is a plain
-// context.WithCancel driven by an AfterFunc on the caller's ctx (see Open), so
-// without recovering the caller's own ctx.Err() in incompleteOperation, this
-// surfaces as the ambiguous codes.Canceled instead of codes.DeadlineExceeded —
-// which the gateway then reports to the SQL client as "canceling statement due
-// to user request" instead of "canceling statement due to statement timeout".
+// An operation deadline cancels the pooler context and then reaches the gateway
+// through completion. It must remain a statement timeout, not an explicit cancel.
 func TestOperationDeadlineDuringRecvReportsDeadlineExceeded(t *testing.T) {
 	started := make(chan struct{})
 	s := &streamTestServer{execute: func(req *pb.StreamExecuteRequest, stream pb.MultipoolerService_StreamExecuteServer) error {
 		if req.Query == "wait" {
 			close(started)
 			<-stream.Context().Done()
-			return stream.Context().Err()
+			// Match the real handler's gRPC error conversion. The server's
+			// deadline can fire before the caller's timer, so the completion
+			// must carry its own status instead of relying on caller-side remapping.
+			return status.FromContextError(stream.Context().Err()).Err()
 		}
 		return nil
 	}}
@@ -563,9 +558,7 @@ func TestDeadTransportDropsIdleStreams(t *testing.T) {
 	s := &streamTestServer{execute: func(*pb.StreamExecuteRequest, pb.MultipoolerService_StreamExecuteServer) error { return nil }}
 	_, p := connectStreamPool(t, s)
 	require.NoError(t, streamQuery(t, p, t.Context(), "ok"))
-	p.mu.Lock()
-	require.Len(t, p.idle, 1)
-	p.mu.Unlock()
+	require.Len(t, p.idleSnapshot(), 1)
 	stopStreamServer()
 	// The connectivity watcher discards the stale idle stream, so the next
 	// operation opens a fresh stream and fails before sending SQL (used=false)

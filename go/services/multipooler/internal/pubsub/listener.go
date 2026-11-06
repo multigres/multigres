@@ -63,52 +63,74 @@ type Listener struct {
 	logger      *slog.Logger
 	metrics     *PubSubMetrics
 
-	// requests is the serialized command channel for the event loop.
+	// mu guards the lifecycle fields below. Every Start gets a fresh requests
+	// queue and stopped channel: a request that races Stop lands in a queue
+	// nothing will ever read again, instead of being replayed by the next
+	// Start (which could re-register an already-closed subscriber channel and
+	// make the following Stop close it twice).
+	mu sync.Mutex
+
+	// requests is the serialized command channel for the current event loop.
 	requests chan request
 
-	// cancel stops the background goroutines.
+	// stopped is closed when the current event loop exits. submit selects on
+	// this to avoid blocking forever when the Listener is not running.
+	stopped chan struct{}
+
+	// cancel stops the background goroutines; nil when not running.
 	cancel context.CancelFunc
 
 	// wg tracks background goroutines.
 	wg sync.WaitGroup
-
-	// stopped is closed when the event loop exits. Public methods select on this
-	// to avoid blocking forever when the Listener is not running.
-	stopped chan struct{}
 }
 
 // NewListener creates a new PubSubListener. Call Start() to begin.
 func NewListener(poolManager connpoolmanager.PoolManager, logger *slog.Logger, metrics *PubSubMetrics) *Listener {
+	// Pre-closed so a request submitted before the first Start returns at
+	// once: the requests queue is nil until Start, so the send arm in submit
+	// can never fire and only a closed stopped lets the caller out.
 	stopped := make(chan struct{})
-	close(stopped) // initially stopped
+	close(stopped)
 	return &Listener{
 		poolManager: poolManager,
 		logger:      logger,
 		metrics:     metrics,
-		requests:    make(chan request, 64),
 		stopped:     stopped,
 	}
 }
 
 // Start begins the background event loop. Idempotent — no-op if already running.
 func (l *Listener) Start(ctx context.Context) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.cancel != nil {
 		return // already running
 	}
+	l.requests = make(chan request, 64)
 	l.stopped = make(chan struct{})
 	ctx, l.cancel = context.WithCancel(ctx)
 	l.wg.Add(1)
-	go l.run(ctx)
+	go l.run(ctx, l.requests, l.stopped)
 }
 
 // Stop shuts down the listener and waits for goroutines to exit. Idempotent.
 func (l *Listener) Stop() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.cancel == nil {
 		return // not running
 	}
 	l.cancel()
 	l.wg.Wait()
 	l.cancel = nil
+}
+
+// Running reports whether the listener is between Start and Stop, i.e. this
+// pooler is the writable, serving leader and can carry notification streams.
+func (l *Listener) Running() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.cancel != nil
 }
 
 // OnStateChange implements manager.StateAware. The listener runs only when this
@@ -136,11 +158,7 @@ func (l *Listener) Unsubscribe(channel string, subCh chan *sqltypes.Notification
 		subCh:   subCh,
 		done:    make(chan struct{}),
 	}
-	select {
-	case l.requests <- req:
-		<-req.done
-	case <-l.stopped:
-	}
+	l.submit(req)
 }
 
 // UnsubscribeAll removes a subscriber from all channels.
@@ -151,28 +169,50 @@ func (l *Listener) UnsubscribeAll(subCh chan *sqltypes.Notification) {
 		subCh: subCh,
 		done:  make(chan struct{}),
 	}
-	select {
-	case l.requests <- req:
-		<-req.done
-	case <-l.stopped:
-	}
+	l.submit(req)
 }
 
 // SubscribeCh registers an existing notification channel to receive notifications
 // for the given PG channel name. Unlike Subscribe, this lets multiple PG channels
 // feed into the same notification channel.
-// Returns immediately if the Listener is stopped.
-func (l *Listener) SubscribeCh(channel string, notifCh chan *sqltypes.Notification) {
+// Returns false, immediately, if the Listener is stopped: notifCh was not
+// registered, so the Listener will never close it. Callers must not treat
+// the subscription as live in that case.
+func (l *Listener) SubscribeCh(channel string, notifCh chan *sqltypes.Notification) bool {
 	req := request{
 		typ:     reqSubscribe,
 		channel: channel,
 		subCh:   notifCh,
 		done:    make(chan struct{}),
 	}
+	return l.submit(req)
+}
+
+// submit queues req for the event loop and waits for it to be processed.
+// Reports whether the loop processed it. Returns false immediately once the
+// Listener is stopped, including when the loop exits after req was queued:
+// the requests channel is buffered, so the send can succeed against a loop
+// that is already gone, and a caller that then waited on done alone would
+// hang forever. That hang kept NotificationStream handlers (and so the
+// gateway's streams) alive on a demoted pooler.
+//
+// The queue and stopped channel are snapshotted together so req only ever
+// targets one event loop: if that loop is gone, req stays in its orphaned
+// queue and a later Start, which has its own queue, never sees it.
+func (l *Listener) submit(req request) bool {
+	l.mu.Lock()
+	requests, stopped := l.requests, l.stopped
+	l.mu.Unlock()
 	select {
-	case l.requests <- req:
-		<-req.done
-	case <-l.stopped:
+	case requests <- req:
+		select {
+		case <-req.done:
+			return true
+		case <-stopped:
+			return false
+		}
+	case <-stopped:
+		return false
 	}
 }
 
@@ -195,9 +235,9 @@ type readerMessage struct {
 //
 // This eliminates the need to reconnect when subscribing/unsubscribing, preventing
 // notification loss for existing channels.
-func (l *Listener) run(ctx context.Context) {
+func (l *Listener) run(ctx context.Context, requests chan request, stopped chan struct{}) {
 	defer l.wg.Done()
-	defer close(l.stopped)
+	defer close(stopped)
 
 	// Channel refcounts: channel name -> number of subscribers.
 	channels := make(map[string]int)
@@ -285,7 +325,7 @@ func (l *Listener) run(ctx context.Context) {
 			}
 			return
 
-		case req := <-l.requests:
+		case req := <-requests:
 			switch req.typ {
 			case reqSubscribe:
 				oldCount := channels[req.channel]

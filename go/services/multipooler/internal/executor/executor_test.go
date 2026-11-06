@@ -1579,53 +1579,7 @@ func TestReleaseReservedConnection_RealDisconnectReleasesSetSeed(t *testing.T) {
 	assert.True(t, rconn.IsReleased())
 }
 
-func TestMaterializeExecuteSQLPreparedStatementUsesPoolerConsolidation(t *testing.T) {
-	server := fakepgserver.New(t)
-	defer server.Close()
-	server.SetNeverFail(true)
-
-	ctx := context.Background()
-	clientConn, err := client.Connect(ctx, ctx, server.ClientConfig())
-	require.NoError(t, err)
-	conn := regular.NewConn(clientConn, nil)
-	defer conn.Close()
-
-	e := NewExecutor(slog.Default(), nil, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
-
-	first := &query.ExecuteSqlPreparedStatement{
-		PreparedStatement: &query.PreparedStatement{Name: "stmt0", Query: "SELECT $1", ParamTypes: []uint32{23}},
-		SqlPrefix:         "EXECUTE ",
-		SqlSuffix:         " ( 1 )",
-	}
-	second := &query.ExecuteSqlPreparedStatement{
-		PreparedStatement: &query.PreparedStatement{Name: "stmt99", Query: "SELECT $1", ParamTypes: []uint32{23}},
-		SqlPrefix:         "EXPLAIN EXECUTE ",
-		SqlSuffix:         " ( 2 )",
-	}
-
-	sql1, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, first)
-	require.NoError(t, err)
-	sql2, err := e.materializeExecuteSQLPreparedStatement(ctx, conn, second)
-	require.NoError(t, err)
-
-	assert.Equal(t, "EXECUTE ppstmt0 ( 1 )", sql1)
-	assert.Equal(t, "EXPLAIN EXECUTE ppstmt0 ( 2 )", sql2)
-	assert.NotNil(t, conn.State().GetPreparedStatement("ppstmt0"))
-	assert.Nil(t, conn.State().GetPreparedStatement("stmt0"))
-	assert.Nil(t, conn.State().GetPreparedStatement("stmt99"))
-}
-
-func TestMaterializeExecuteSQLPreparedStatementValidation(t *testing.T) {
-	e := NewExecutor(slog.Default(), nil, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
-
-	_, err := e.materializeExecuteSQLPreparedStatement(context.Background(), nil, nil)
-	require.ErrorContains(t, err, "SQL EXECUTE prepared statement is required")
-
-	_, err = e.materializeExecuteSQLPreparedStatement(context.Background(), nil, &query.ExecuteSqlPreparedStatement{})
-	require.ErrorContains(t, err, "SQL EXECUTE prepared statement metadata is required")
-}
-
-func TestStreamExecutePrepareOnlyRequiresReservation(t *testing.T) {
+func TestStreamExecuteEagerParseRequiresReservation(t *testing.T) {
 	server := fakepgserver.New(t)
 	defer server.Close()
 	server.SetNeverFail(true)
@@ -1637,11 +1591,8 @@ func TestStreamExecutePrepareOnlyRequiresReservation(t *testing.T) {
 	}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
 
 	_, err = e.StreamExecute(context.Background(), &query.Target{}, "", &query.ExecuteOptions{
-		User: "postgres",
-		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
-			PreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
-			PrepareOnly:       true,
-		},
+		User:                        "postgres",
+		EagerParsePreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
 	}, nil, noopCallback)
 	require.ErrorContains(t, err, "requires a reserved transaction")
 }
@@ -1649,12 +1600,9 @@ func TestStreamExecutePrepareOnlyRequiresReservation(t *testing.T) {
 func TestStreamExecutePrepareOnlyOnExistingReservation(t *testing.T) {
 	e, _, rconn := newDeadReservedConnTestExecutor(t)
 	state, err := e.StreamExecute(context.Background(), &query.Target{}, "", &query.ExecuteOptions{
-		User:                 "postgres",
-		ReservedConnectionId: uint64(rconn.ConnID()),
-		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
-			PreparedStatement: &query.PreparedStatement{Query: "SELECT $1", ParamTypes: []uint32{23}},
-			PrepareOnly:       true,
-		},
+		User:                        "postgres",
+		ReservedConnectionId:        uint64(rconn.ConnID()),
+		EagerParsePreparedStatement: &query.PreparedStatement{Query: "SELECT $1", ParamTypes: []uint32{23}},
 	}, &query.ReservationOptions{
 		Reasons:    protoutil.ReasonTransaction,
 		BeginQuery: "BEGIN ISOLATION LEVEL SERIALIZABLE",
@@ -1684,11 +1632,8 @@ func TestStreamExecutePrepareOnlyErrors(t *testing.T) {
 		e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true}, &clustermetadatapb.ID{}, false)
 
 		state, err := e.StreamExecute(context.Background(), &query.Target{}, "", &query.ExecuteOptions{
-			ReservedConnectionId: uint64(rconn.ConnID()),
-			ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
-				PreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
-				PrepareOnly:       true,
-			},
+			ReservedConnectionId:        uint64(rconn.ConnID()),
+			EagerParsePreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
 		}, &query.ReservationOptions{Reasons: protoutil.ReasonTransaction}, noopCallback)
 		require.ErrorContains(t, err, "failed to begin transaction")
 		require.NotNil(t, state)
@@ -1700,11 +1645,8 @@ func TestStreamExecutePrepareOnlyErrors(t *testing.T) {
 		rconn.Conn().RawConn().ForceClose()
 
 		state, err := e.StreamExecute(context.Background(), &query.Target{}, "", &query.ExecuteOptions{
-			ReservedConnectionId: uint64(connID),
-			ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
-				PreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
-				PrepareOnly:       true,
-			},
+			ReservedConnectionId:        uint64(connID),
+			EagerParsePreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
 		}, nil, noopCallback)
 		require.Error(t, err)
 		require.Nil(t, state)
@@ -1731,10 +1673,7 @@ func TestStreamExecutePrepareOnlyErrors(t *testing.T) {
 		e := NewExecutor(slog.Default(), &stubPoolManager{newReservedConn: rconn}, &clustermetadatapb.ID{}, false)
 
 		state, err := e.StreamExecute(context.Background(), &query.Target{}, "", &query.ExecuteOptions{
-			ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
-				PreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
-				PrepareOnly:       true,
-			},
+			EagerParsePreparedStatement: &query.PreparedStatement{Query: "SELECT 1"},
 		}, &query.ReservationOptions{Reasons: protoutil.ReasonTransaction}, noopCallback)
 		require.Error(t, err)
 		require.Nil(t, state)
@@ -1744,138 +1683,6 @@ func TestStreamExecutePrepareOnlyErrors(t *testing.T) {
 
 	e := NewExecutor(slog.Default(), nil, &clustermetadatapb.ID{}, false)
 	require.ErrorContains(t, e.prepareOnly(context.Background(), nil, nil), "prepared statement is required")
-}
-
-func TestStreamExecuteMaterializesExecuteSQLOnRegularConnection(t *testing.T) {
-	server := fakepgserver.New(t)
-	defer server.Close()
-	server.SetNeverFail(true)
-
-	ctx := context.Background()
-	clientConn, err := client.Connect(ctx, ctx, server.ClientConfig())
-	require.NoError(t, err)
-
-	pm := &stubPoolManager{
-		regularConn: &connpool.Pooled[*regular.Conn]{Conn: regular.NewConn(clientConn, nil)},
-	}
-	e := NewExecutor(slog.Default(), pm, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
-
-	_, err = e.StreamExecute(ctx, &query.Target{}, "EXECUTE gateway_stmt ( 1 )", &query.ExecuteOptions{
-		User: "postgres",
-		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
-			PreparedStatement: &query.PreparedStatement{Name: "stmt0", Query: "SELECT $1", ParamTypes: []uint32{23}},
-			SqlPrefix:         "EXECUTE ",
-			SqlSuffix:         " ( 1 )",
-		},
-	}, nil, noopCallback)
-	require.NoError(t, err)
-
-	assert.Equal(t, "execute ppstmt0 ( 1 )", server.QueryLog())
-}
-
-func TestStreamExecuteMaterializesExecuteSQLOnExistingReservedConnection(t *testing.T) {
-	server := fakepgserver.New(t)
-	defer server.Close()
-	server.SetNeverFail(true)
-
-	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
-		InactivityTimeout: 5 * time.Second,
-		RegularPoolConfig: &regular.PoolConfig{
-			ClientConfig: server.ClientConfig(),
-			ConnPoolConfig: &connpool.Config{
-				Capacity:     2,
-				MaxIdleCount: 2,
-			},
-		},
-	})
-	defer pool.Close()
-
-	ctx := context.Background()
-	rconn, err := pool.NewConn(ctx, nil)
-	require.NoError(t, err)
-	defer rconn.Release(reserved.ReleaseCommit, nil)
-
-	e := NewExecutor(slog.Default(), &stubPoolManager{reservedConn: rconn, reservedConnOK: true}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
-
-	state, err := e.StreamExecute(ctx, &query.Target{}, "EXPLAIN EXECUTE gateway_stmt", &query.ExecuteOptions{
-		User:                 "postgres",
-		ReservedConnectionId: uint64(rconn.ConnID()),
-		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
-			PreparedStatement: &query.PreparedStatement{Name: "stmt0", Query: "SELECT 1"},
-			SqlPrefix:         "EXPLAIN EXECUTE ",
-		},
-	}, nil, noopCallback)
-	require.NoError(t, err)
-	require.NotNil(t, state)
-
-	assert.Equal(t, "explain execute ppstmt0", server.QueryLog())
-}
-
-func TestStreamExecuteMaterializesExecuteSQLOnNewReservedConnection(t *testing.T) {
-	server := fakepgserver.New(t)
-	defer server.Close()
-	server.SetNeverFail(true)
-
-	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
-		InactivityTimeout: 5 * time.Second,
-		RegularPoolConfig: &regular.PoolConfig{
-			ClientConfig: server.ClientConfig(),
-			ConnPoolConfig: &connpool.Config{
-				Capacity:     2,
-				MaxIdleCount: 2,
-			},
-		},
-	})
-	defer pool.Close()
-
-	ctx := context.Background()
-	e := NewExecutor(slog.Default(), &stubPoolManager{newReservedPool: pool}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
-
-	state, err := e.StreamExecute(ctx, &query.Target{}, "CREATE TEMP TABLE t AS EXECUTE gateway_stmt", &query.ExecuteOptions{
-		User: "postgres",
-		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
-			PreparedStatement: &query.PreparedStatement{Name: "stmt0", Query: "SELECT 1"},
-			SqlPrefix:         "CREATE TEMP TABLE t AS EXECUTE ",
-		},
-	}, &query.ReservationOptions{Reasons: protoutil.ReasonTempTable}, noopCallback)
-	require.NoError(t, err)
-	require.NotNil(t, state)
-
-	assert.Equal(t, protoutil.ReasonTempTable, state.GetReservationReasons())
-	assert.Equal(t, "create temp table t as execute ppstmt0", server.QueryLog())
-}
-
-func TestStreamExecuteRollsBackNewReservedTransactionOnMaterializationError(t *testing.T) {
-	server := fakepgserver.New(t)
-	defer server.Close()
-	server.SetNeverFail(true)
-
-	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
-		InactivityTimeout: 5 * time.Second,
-		RegularPoolConfig: &regular.PoolConfig{
-			ClientConfig: server.ClientConfig(),
-			ConnPoolConfig: &connpool.Config{
-				Capacity:     2,
-				MaxIdleCount: 2,
-			},
-		},
-	})
-	defer pool.Close()
-
-	ctx := context.Background()
-	rconn, err := pool.NewConn(ctx, nil)
-	require.NoError(t, err)
-	e := NewExecutor(slog.Default(), &stubPoolManager{newReservedConn: rconn}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
-
-	_, err = e.StreamExecute(ctx, &query.Target{}, "EXECUTE gateway_stmt", &query.ExecuteOptions{
-		User: "postgres",
-		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
-			SqlPrefix: "EXECUTE ",
-		},
-	}, &query.ReservationOptions{Reasons: protoutil.ReasonTransaction}, noopCallback)
-	require.ErrorContains(t, err, "failed to materialize SQL EXECUTE prepared statement")
-
-	assert.Equal(t, "rollback", server.QueryLog())
 }
 
 // --- NewExecutor smoke test ---
@@ -2450,33 +2257,6 @@ func TestExecuteQueryReservedConnDeadSocket_QueryError(t *testing.T) {
 	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
 }
 
-func TestStreamExecuteReservedConnDeadSocket_MaterializeError(t *testing.T) {
-	e, pool, rconn := newDeadReservedConnTestExecutor(t)
-	connID := rconn.ConnID()
-
-	rconn.Conn().RawConn().ForceClose()
-
-	options := &query.ExecuteOptions{
-		ReservedConnectionId: uint64(connID),
-		ExecuteSqlPreparedStatement: &query.ExecuteSqlPreparedStatement{
-			PreparedStatement: &query.PreparedStatement{Name: "stmt0", Query: "SELECT $1", ParamTypes: []uint32{23}},
-			SqlPrefix:         "EXECUTE ",
-			SqlSuffix:         " ( 1 )",
-		},
-	}
-
-	state, err := e.StreamExecute(context.Background(), &query.Target{}, "", options, nil, noopCallback)
-
-	require.Nil(t, state)
-	require.Error(t, err)
-	assert.NotContains(t, err.Error(), "failed to materialize SQL EXECUTE prepared statement on reserved connection",
-		"must not leak the raw wrap/connection error")
-	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
-
-	_, stillActive := pool.Get(connID)
-	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
-}
-
 // TestStreamExecuteReservedConnDeadSocket_QueryStreamingError covers
 // streamExecuteOnReservedConn's rc.QueryStreaming error path, which previously released
 // only when portal-pin rollback happened to drain the last reservation reason on the
@@ -2933,4 +2713,153 @@ func TestPrepareOnlyReusesNamedStatement(t *testing.T) {
 	require.ErrorContains(t, e.prepareOnly(ctx, conn, fresh), "unexpected second Parse",
 		"a fresh client Parse must reach PostgreSQL even on a cache hit")
 	require.Nil(t, conn.State().GetPreparedStatement(name), "failed reprepare must evict the stale cache entry")
+}
+
+// newDiscardTempExecutor returns an Executor over a connection reserved for reasons,
+// on a fake server that accepts any query.
+func newDiscardTempExecutor(t *testing.T, reasons uint32) (*Executor, *reserved.Conn) {
+	t.Helper()
+	e, rconn, _ := newDiscardTempExecutorWithServer(t, reasons)
+	return e, rconn
+}
+
+// newDiscardTempExecutorWithServer is newDiscardTempExecutor, also returning the
+// fake server so a test can script and count queries.
+func newDiscardTempExecutorWithServer(t *testing.T, reasons uint32) (*Executor, *reserved.Conn, *fakepgserver.Server) {
+	t.Helper()
+	server := fakepgserver.New(t)
+	t.Cleanup(server.Close)
+	server.SetNeverFail(true)
+
+	cache := connstate.NewSettingsCache(16)
+	pool := reserved.NewPool(context.Background(), &reserved.PoolConfig{
+		InactivityTimeout: 5 * time.Second,
+		SettingsCache:     cache,
+		RegularPoolConfig: &regular.PoolConfig{
+			ClientConfig:   server.ClientConfig(),
+			ConnPoolConfig: &connpool.Config{Capacity: 2, MaxIdleCount: 2},
+		},
+	})
+	t.Cleanup(pool.Close)
+
+	rconn, err := pool.NewConn(context.Background(), cache.GetOrCreate(nil))
+	require.NoError(t, err)
+	rconn.AddReservationReason(reasons)
+	return &Executor{
+		logger:      slog.Default(),
+		poolerID:    &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"},
+		poolManager: &stubPoolManager{reservedConn: rconn, reservedConnOK: true},
+	}, rconn, server
+}
+
+// TestDiscardTempTables_InTransactionKeepsTheTempTableReason: DISCARD TEMP is undone by
+// a rollback of the transaction it ran in, so the connection stays reserved for its temp
+// tables until a DISCARD TEMP outside a transaction or the session's end.
+func TestDiscardTempTables_InTransactionKeepsTheTempTableReason(t *testing.T) {
+	e, rconn := newDiscardTempExecutor(t, protoutil.ReasonTempTable|protoutil.ReasonTransaction)
+
+	_, reservedState, err := e.DiscardTempTables(context.Background(), nil, &query.ExecuteOptions{
+		ReservedConnectionId: uint64(rconn.ConnID()),
+	})
+	require.NoError(t, err)
+
+	require.False(t, rconn.IsReleased())
+	assert.True(t, protoutil.HasTempTableReason(rconn.RemainingReasons()))
+	assert.True(t, protoutil.HasTempTableReason(reservedState.GetReservationReasons()),
+		"the gateway must keep tracking the temp tables a rollback can bring back")
+}
+
+// TestDiscardTempTables_OutsideTransactionReleasesTheConnection: outside a transaction
+// DISCARD TEMP is final, so a connection reserved only for temp tables is released.
+func TestDiscardTempTables_OutsideTransactionReleasesTheConnection(t *testing.T) {
+	e, rconn := newDiscardTempExecutor(t, protoutil.ReasonTempTable)
+
+	_, reservedState, err := e.DiscardTempTables(context.Background(), nil, &query.ExecuteOptions{
+		ReservedConnectionId: uint64(rconn.ConnID()),
+	})
+	require.NoError(t, err)
+
+	assert.Nil(t, reservedState)
+	assert.True(t, rconn.IsReleased())
+}
+
+// concludeAfterDiscardTemp runs DISCARD TEMP in a transaction on a connection reserved
+// for temp tables, then concludes the transaction the way the gateway would.
+func concludeAfterDiscardTemp(t *testing.T, e *Executor, rconn *reserved.Conn, conclusion multipoolerpb.TransactionConclusion) (*query.ReservedState, error) {
+	t.Helper()
+	opts := &query.ExecuteOptions{ReservedConnectionId: uint64(rconn.ConnID())}
+	_, _, err := e.DiscardTempTables(context.Background(), nil, opts)
+	require.NoError(t, err)
+
+	_, reservedState, err := e.ConcludeTransaction(context.Background(), nil, opts, conclusion, nil, false, false, map[string]string{})
+	return reservedState, err
+}
+
+// TestConcludeTransaction_CommitAfterDiscardTempReleasesTheConnection: a COMMIT makes
+// DISCARD TEMP final, so once the backend reports no temp objects the connection no
+// longer needs its temp table reservation.
+func TestConcludeTransaction_CommitAfterDiscardTempReleasesTheConnection(t *testing.T) {
+	e, rconn, server := newDiscardTempExecutorWithServer(t, protoutil.ReasonTempTable|protoutil.ReasonTransaction)
+
+	reservedState, err := concludeAfterDiscardTemp(t, e, rconn, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT)
+	require.NoError(t, err)
+
+	assert.Nil(t, reservedState)
+	assert.True(t, rconn.IsReleased())
+	assert.Equal(t, 1, server.GetQueryCalledNum(constants.TempObjectsProbeSQL))
+}
+
+// TestConcludeTransaction_RollbackAfterDiscardTempKeepsTheTempTables: a ROLLBACK brings
+// the temp tables back, which the probe sees, so the connection stays reserved.
+func TestConcludeTransaction_RollbackAfterDiscardTempKeepsTheTempTables(t *testing.T) {
+	e, rconn, server := newDiscardTempExecutorWithServer(t, protoutil.ReasonTempTable|protoutil.ReasonTransaction)
+	server.AddQuery(constants.TempObjectsProbeSQL, fakepgserver.MakeResult([]string{"relkind"}, [][]any{{"r"}}))
+
+	reservedState, err := concludeAfterDiscardTemp(t, e, rconn, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK)
+	require.NoError(t, err)
+
+	assert.False(t, rconn.IsReleased())
+	assert.True(t, protoutil.HasTempTableReason(rconn.RemainingReasons()))
+	assert.True(t, protoutil.HasTempTableReason(reservedState.GetReservationReasons()),
+		"the gateway must keep tracking the temp tables the rollback brought back")
+}
+
+// TestConcludeTransaction_RollbackAfterDiscardTempOfNothingReleases: a ROLLBACK that
+// leaves no temp objects (the tables never existed past the transaction) releases too.
+func TestConcludeTransaction_RollbackAfterDiscardTempOfNothingReleases(t *testing.T) {
+	e, rconn, _ := newDiscardTempExecutorWithServer(t, protoutil.ReasonTempTable|protoutil.ReasonTransaction)
+
+	reservedState, err := concludeAfterDiscardTemp(t, e, rconn, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_ROLLBACK)
+	require.NoError(t, err)
+
+	assert.Nil(t, reservedState)
+	assert.True(t, rconn.IsReleased())
+}
+
+// TestConcludeTransaction_FailedTempProbeKeepsTheConnectionReserved: releasing a backend
+// that may still have the session's temp tables would lose them, so a probe that fails
+// leaves the reservation alone.
+func TestConcludeTransaction_FailedTempProbeKeepsTheConnectionReserved(t *testing.T) {
+	e, rconn, server := newDiscardTempExecutorWithServer(t, protoutil.ReasonTempTable|protoutil.ReasonTransaction)
+	server.AddRejectedQuery(constants.TempObjectsProbeSQL, errors.New("probe failed"))
+
+	reservedState, err := concludeAfterDiscardTemp(t, e, rconn, multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT)
+	require.NoError(t, err)
+
+	assert.False(t, rconn.IsReleased())
+	assert.True(t, protoutil.HasTempTableReason(reservedState.GetReservationReasons()))
+}
+
+// TestConcludeTransaction_WithoutDiscardTempDoesNotProbe: the probe is only for a
+// transaction in which DISCARD TEMP ran; every other COMMIT skips the round trip.
+func TestConcludeTransaction_WithoutDiscardTempDoesNotProbe(t *testing.T) {
+	e, rconn, server := newDiscardTempExecutorWithServer(t, protoutil.ReasonTempTable|protoutil.ReasonTransaction)
+
+	_, reservedState, err := e.ConcludeTransaction(context.Background(), nil,
+		&query.ExecuteOptions{ReservedConnectionId: uint64(rconn.ConnID())},
+		multipoolerpb.TransactionConclusion_TRANSACTION_CONCLUSION_COMMIT, nil, false, false, nil)
+	require.NoError(t, err)
+
+	assert.True(t, protoutil.HasTempTableReason(reservedState.GetReservationReasons()))
+	assert.Equal(t, 0, server.GetQueryCalledNum(constants.TempObjectsProbeSQL))
 }

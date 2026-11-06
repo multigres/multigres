@@ -169,8 +169,8 @@ message ColumnPart {
 ```
 
 `Shard.key_range` reuses the existing `clustermetadata.KeyRange`. Resolution
-produces `clustermetadata.ShardKey{database, table_group, shard}` — the
-identifier every `Multipooler` already advertises (`Multipooler.shard_key`) and
+produces `clustermetadata.ShardRef{database, table_group, shard}` — the
+identifier every `Multipooler` already advertises (`Multipooler.shard_ref`) and
 `query.Target` already carries — so a resolved target routes to poolers with no
 new wire types.
 
@@ -328,8 +328,12 @@ flowchart TD
 
 ## Out of scope
 
-- DDL / user-facing syntax for declaring sharding.
+- DDL / user-facing syntax for declaring sharding: see [ddl.md](ddl.md).
 - Resharding execution (cutover, data movement, consistency).
 - Cross-shard transactions (2PC) and cross-shard query planning.
 - Where the catalog is stored (topology vs postgres), and its committed proto or
   table definitions.
+
+The control plane that creates a tablegroup once declared (catalog intent,
+provisioner API, completion) is described in
+[tablegroup-operations.md](tablegroup-operations.md).

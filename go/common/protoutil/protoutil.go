@@ -60,12 +60,12 @@ func NewPortal(name, preparedStatementName string, params [][]byte, paramFormats
 	}
 }
 
-// NewTarget builds a *query.Target with the new {ShardKey, Mode} shape.
+// NewTarget builds a *query.Target with the new {ShardRef, Mode} shape.
 // Use mode=MODE_UNSPECIFIED if the caller is unspecified (tests that only
 // care about table group / shard plumbing).
 func NewTarget(database, tableGroup, shard string, mode query.Mode) *query.Target {
 	return &query.Target{
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   database,
 			TableGroup: tableGroup,
 			Shard:      shard,
@@ -85,5 +85,5 @@ func TargetEquals(t1, t2 *query.Target) bool {
 	if t1.GetMode() != t2.GetMode() {
 		return false
 	}
-	return proto.Equal(t1.GetShardKey(), t2.GetShardKey())
+	return proto.Equal(t1.GetShardRef(), t2.GetShardRef())
 }

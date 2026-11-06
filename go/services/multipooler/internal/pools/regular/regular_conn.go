@@ -23,7 +23,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
@@ -34,11 +33,6 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/admin"
 )
-
-// errStreamingAlreadyStarted is a sentinel used internally to signal that a
-// streaming query's callback was already invoked, so retrying would duplicate
-// rows. retryOnConnectionError treats it as a non-connection error and stops.
-var errStreamingAlreadyStarted = errors.New("streaming callback already invoked, cannot retry")
 
 // Conn wraps a client.Conn with session state management.
 // It implements the connpool.Connection interface for settings-based pool routing.
@@ -472,8 +466,7 @@ func (c *Conn) Reconnect(ctx context.Context) error {
 
 	// Re-apply settings on the fresh connection via SET commands.
 	// We use execOnce (not execWithContextCancel) so that a failure here
-	// doesn't close the connection—the caller's retry loop can attempt
-	// another reconnect instead.
+	// doesn't close the connection—the caller decides what to do with it.
 	if settings != nil && !settings.IsEmpty() {
 		sql := settings.ApplyQuery()
 		if sql != "" {
@@ -490,57 +483,39 @@ func (c *Conn) Reconnect(ctx context.Context) error {
 	return nil
 }
 
-// --- Stateless query retry ---
+// --- Stateless queries ---
 //
-// QueryWithRetry, QueryStreamingWithRetry and QueryArgsWithRetry execute queries
-// with automatic reconnection on connection errors.
-// On connection error the underlying socket is reconnected in-place and the
-// query is retried, up to constants.MaxConnPoolRetryAttempts total attempts.
+// StatelessQuery, StatelessQueryStreaming and StatelessQueryArgs replace a
+// pooled socket that PostgreSQL already closed before sending the query on
+// it, and never send the query a second time. See execOnLiveConn.
 //
 // These methods are for stateless pool queries only. Stateful operations
 // (transactions, reserved connections, extended query protocol) must use the
-// non-retrying Query/QueryStreaming methods directly, because server-side
-// state would be lost on reconnection.
+// plain Query/QueryStreaming methods directly, which never reconnect, because
+// server-side state would be lost on reconnection.
 
-// QueryWithRetry executes a simple query with automatic retry on connection error.
-func (c *Conn) QueryWithRetry(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
-	return retryOnConnectionError(c, ctx, func() ([]*sqltypes.Result, error) {
+// StatelessQuery executes a simple query, first replacing the socket if
+// PostgreSQL already closed it.
+func (c *Conn) StatelessQuery(ctx context.Context, sql string) ([]*sqltypes.Result, error) {
+	return execOnLiveConn(c, ctx, func() ([]*sqltypes.Result, error) {
 		return c.conn.Query(ctx, sql)
 	})
 }
 
-// QueryStreamingWithRetry executes a streaming query with automatic retry on
-// connection error. If the callback has already been invoked (i.e., streaming
-// has started delivering results), the error is returned without retry to
-// avoid sending duplicate rows to the caller.
-func (c *Conn) QueryStreamingWithRetry(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error {
+// StatelessQueryStreaming executes a streaming query, first replacing the
+// socket if PostgreSQL already closed it.
+func (c *Conn) StatelessQueryStreaming(ctx context.Context, sql string, callback func(context.Context, *sqltypes.Result) error) error {
 	var callbackInvoked bool
-	var streamErr error
 	wrappedCallback := func(ctx context.Context, result *sqltypes.Result) error {
 		callbackInvoked = true
 		return callback(ctx, result)
 	}
-	// One streaming attempt with the standard connection-error retry/socket
-	// hygiene. Used for the initial attempt and reused after a temp_buffers
-	// reconnect below, so both attempts close or reconnect the socket the
-	// same way on connection-class failures.
+	// Used for the initial attempt and reused after a temp_buffers reconnect
+	// below, so both attempts handle the socket the same way.
 	attempt := func() error {
-		_, err := retryOnConnectionError(c, ctx, func() (struct{}, error) {
-			if callbackInvoked {
-				// Callback was already called in a previous attempt — retrying
-				// would replay the query and send duplicate rows. Return the
-				// sentinel to stop the retry loop; we swap it for the real
-				// error below.
-				return struct{}{}, errStreamingAlreadyStarted
-			}
-			streamErr = c.conn.QueryStreaming(ctx, sql, wrappedCallback)
-			return struct{}{}, streamErr
+		_, err := execOnLiveConn(c, ctx, func() (struct{}, error) {
+			return struct{}{}, c.conn.QueryStreaming(ctx, sql, wrappedCallback)
 		})
-		// Replace the internal sentinel with the actual PostgreSQL error so
-		// callers can inspect it via errors.As / errors.Is.
-		if errors.Is(err, errStreamingAlreadyStarted) {
-			return mterrors.Wrapf(streamErr, "streaming already started, cannot retry")
-		}
 		return err
 	}
 
@@ -732,58 +707,39 @@ func nodeListLen(l *ast.NodeList) int {
 	return l.Len()
 }
 
-// QueryArgsWithRetry executes a parameterized query (via the extended query
-// protocol) with automatic retry on connection error, like QueryWithRetry.
-// Safe to retry because QueryArgs uses PrepareAndExecute which is a single
-// atomic round trip with an unnamed statement—no multi-step state to lose.
-func (c *Conn) QueryArgsWithRetry(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error) {
-	return retryOnConnectionError(c, ctx, func() ([]*sqltypes.Result, error) {
+// StatelessQueryArgs executes a parameterized query (via the extended query
+// protocol), first replacing the socket if PostgreSQL already closed it, like
+// StatelessQuery.
+func (c *Conn) StatelessQueryArgs(ctx context.Context, sql string, args ...any) ([]*sqltypes.Result, error) {
+	return execOnLiveConn(c, ctx, func() ([]*sqltypes.Result, error) {
 		return c.conn.QueryArgs(ctx, sql, args...)
 	})
 }
 
-// retryOnConnectionError executes op with automatic retry on connection error.
-// On connection error the underlying socket is reconnected in-place and op is
-// retried, up to constants.MaxConnPoolRetryAttempts total. The connection is closed after
-// exhausting all attempts or if reconnection fails.
-func retryOnConnectionError[T any](c *Conn, ctx context.Context, op func() (T, error)) (T, error) {
-	for attempt := 1; attempt <= constants.MaxConnPoolRetryAttempts; attempt++ {
-		val, err := execOnce(c, ctx, op)
-		switch {
-		case err == nil:
-			return val, nil
-		case !mterrors.IsConnectionError(err):
-			if mterrors.IsConnectionDead(err) {
-				c.conn.Close()
-			}
-			var zero T
-			return zero, err
-		case attempt == constants.MaxConnPoolRetryAttempts:
-			c.conn.Close()
-			var zero T
-			return zero, err
-		}
-		if ctx.Err() != nil {
-			var zero T
-			return zero, context.Cause(ctx)
-		}
-		// Brief backoff before reconnecting to give PostgreSQL time to
-		// finish starting up if the error is due to a restart.
-		backoffTimer := time.NewTimer(constants.ConnPoolRetryBackoff)
-		select {
-		case <-backoffTimer.C:
-		case <-ctx.Done():
-			backoffTimer.Stop()
-			var zero T
-			return zero, context.Cause(ctx)
-		}
+// execOnLiveConn runs op exactly once. Before running it, it checks whether
+// PostgreSQL already closed the pooled socket while it sat idle (a restart,
+// failover, pg_terminate_backend or idle_session_timeout) and, if so,
+// reconnects in place so op runs on a fresh session.
+//
+// op is never run a second time after a connection error. Once the query has
+// been sent, a lost connection does not say whether PostgreSQL ran it: the
+// backend may have committed an INSERT, or consumed a sequence value, before
+// it died. Sending the query again would run those effects twice, so the
+// error goes to the caller, as it would for a client connected directly to
+// PostgreSQL. The connection is closed if the error left it unusable.
+func execOnLiveConn[T any](c *Conn, ctx context.Context, op func() (T, error)) (T, error) {
+	if idleErr := c.conn.CheckIdle(); idleErr != nil {
 		if reconnectErr := c.Reconnect(ctx); reconnectErr != nil {
 			c.conn.Close()
 			var zero T
-			return zero, reconnectErr
+			return zero, mterrors.Wrapf(reconnectErr, "replacing closed idle connection (%v)", idleErr)
 		}
 	}
-	panic("unreachable")
+	val, err := execOnce(c, ctx, op)
+	if err != nil && mterrors.IsConnectionDead(err) {
+		c.conn.Close()
+	}
+	return val, err
 }
 
 // --- Context-aware execution helpers ---
@@ -841,7 +797,7 @@ func drainOpAfterCancel[T any](c *Conn, ch <-chan T) T {
 
 // execOnce executes an operation with context cancellation support.
 // Unlike execWithContextCancel, it does NOT close the connection on error,
-// allowing the caller (retry loop) to reconnect and retry.
+// leaving the caller to decide whether to close or reconnect it.
 func execOnce[T any](c *Conn, ctx context.Context, op func() (T, error)) (T, error) {
 	type result struct {
 		val T
@@ -874,8 +830,8 @@ func execOnce[T any](c *Conn, ctx context.Context, op func() (T, error)) (T, err
 // query is cancelled via adminPool. If the session is dead, the connection is
 // closed so the pool can replace it.
 //
-// This is used by the non-retrying methods (Query, QueryStreaming, etc.) where
-// the pool handles replacement of broken connections.
+// This is used by the plain methods (Query, QueryStreaming, etc.), which never
+// reconnect; the pool handles replacement of broken connections.
 func execWithContextCancel[T any](c *Conn, ctx context.Context, op func() (T, error)) (T, error) {
 	type result struct {
 		val T

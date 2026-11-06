@@ -29,6 +29,7 @@ import (
 	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -91,7 +92,7 @@ func (m *mockIExecute) StreamExecute(
 	tableGroup string,
 	shard string,
 	sql string,
-	preparedStatement *query.ExecuteSqlPreparedStatement,
+	preparedStatement *query.PreparedStatement,
 	state *handler.MultigatewayConnectionState,
 	info PlanExecInfo,
 	keepStructured bool,
@@ -226,7 +227,7 @@ func (m *mockIExecute) StreamReplication(
 	string,
 	*handler.MultigatewayConnectionState,
 	*multipoolerpb.StreamReplicationInit,
-) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+) (queryservice.ReplicationStream, error) {
 	return nil, nil
 }
 
@@ -350,6 +351,38 @@ func TestCopyStatement_CopySendDataError(t *testing.T) {
 	// verbatim PG ErrorResponse.
 	require.Equal(t, "send data failed", err.Error())
 	// CopyAbort should be called via defer
+	require.Equal(t, int32(1), mockExec.copyAbortCalled.Load())
+}
+
+// TestCopyStatement_CopyAbortSessionStateLost tests that when the deferred
+// CopyAbort reports that the session must end (the COPY's connection was lost
+// with session state on it), that error replaces the one the COPY failed with.
+func TestCopyStatement_CopyAbortSessionStateLost(t *testing.T) {
+	mockExec := &mockIExecute{
+		copyInitiateFormat:  0,
+		copyInitiateFormats: []int16{0, 0},
+		copySendDataErr:     errors.New("send data failed"),
+		copyAbortErr:        mterrors.NewSessionStateLost("temp_table"),
+	}
+
+	readBuf := &bytes.Buffer{}
+	server.WriteCopyDataMessage(readBuf, []byte("test data"))
+	testConn := server.NewTestConn(readBuf)
+
+	err := newTestCopyStatement().StreamExecute(
+		context.Background(),
+		mockExec,
+		testConn.Conn,
+		&handler.MultigatewayConnectionState{},
+		nil,
+		PlanExecInfo{},
+		func(ctx context.Context, result *sqltypes.Result) error { return nil },
+	)
+
+	var diag *mterrors.PgDiagnostic
+	require.ErrorAs(t, err, &diag)
+	require.Equal(t, mterrors.PgSSAdminShutdown, diag.Code)
+	require.True(t, diag.IsFatal())
 	require.Equal(t, int32(1), mockExec.copyAbortCalled.Load())
 }
 

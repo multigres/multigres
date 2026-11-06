@@ -157,7 +157,7 @@ func (e *Executor) execBackendVpidMutation(ctx context.Context, sql string, args
 	}
 	defer adminConn.Recycle()
 
-	_, err = adminConn.Conn.QueryArgsWithRetry(ctx, sql, args...)
+	_, err = adminConn.Conn.StatelessQueryArgs(ctx, sql, args...)
 	return err
 }
 

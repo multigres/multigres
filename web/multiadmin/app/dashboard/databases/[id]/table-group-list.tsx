@@ -28,7 +28,11 @@ export function TableGroupList({
   return (
     <>
       {tableGroups.map((group) => (
-        <Collapsible key={group.oid} className="mb-0" defaultOpen={true}>
+        <Collapsible
+          key={group.tablegroup_id}
+          className="mb-0"
+          defaultOpen={true}
+        >
           <CollapsibleTrigger className="group flex w-full items-baseline justify-between px-6 border-t py-3 text-left cursor-pointer">
             <div className="flex items-center gap-3">
               <ChevronRight
@@ -42,7 +46,7 @@ export function TableGroupList({
               />
               <h2 className="text-base font-semibold">{group.name}</h2>
               <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded">
-                {group.type}
+                {group.state}
               </span>
             </div>
             <div className="flex items-center gap-2">
@@ -62,7 +66,7 @@ export function TableGroupList({
               </TableHeader>
               <TableBody>
                 {group.shards.map((shard) => (
-                  <TableRow key={shard.oid}>
+                  <TableRow key={shard.shard_id}>
                     <TableCell className="pl-6 font-medium w-[220px]">
                       <div className="flex items-center gap-3">
                         <span className="h-1 w-1 rounded-[4px] bg-emerald-600" />

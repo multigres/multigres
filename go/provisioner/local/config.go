@@ -75,11 +75,18 @@ type TopologyConfig struct {
 	Cells          []CellConfig `yaml:"cells"`
 }
 
-// CellServicesConfig holds the service configuration for a specific cell
+// CellServicesConfig holds the service configuration for a specific cell.
+// Which of Multigateway/Multipooler/Multiorch/Minigres actually run in a
+// given cell is decided purely by which of these have a non-empty Path —
+// the same convention validateBinaryPaths and the provisioning fan-out in
+// ProvisionDatabase already use. A classic cell populates the first three
+// and leaves Minigres zero-valued; a minigres cell populates only Minigres.
+// Nothing reads a separate "topology" flag to decide this.
 type CellServicesConfig struct {
-	Multigateway MultigatewayConfig `yaml:"multigateway"`
-	Multipooler  MultipoolerConfig  `yaml:"multipooler"`
-	Multiorch    MultiorchConfig    `yaml:"multiorch"`
+	Multigateway MultigatewayConfig `yaml:"multigateway,omitempty"`
+	Multipooler  MultipoolerConfig  `yaml:"multipooler,omitempty"`
+	Multiorch    MultiorchConfig    `yaml:"multiorch,omitempty"`
+	Minigres     MinigresConfig     `yaml:"minigres,omitempty"`
 	Pgctld       PgctldConfig       `yaml:"pgctld"`
 }
 
@@ -123,6 +130,23 @@ type MultipoolerConfig struct {
 	GrpcPort       int    `yaml:"grpc-port"`
 	GRPCSocketFile string `yaml:"grpc-socket-file"` // Unix socket file path for gRPC
 	LogLevel       string `yaml:"log-level"`
+}
+
+// MinigresConfig holds minigres service configuration. Minigres runs a
+// multigateway and a multipooler in one process (docs/general/minigres.md),
+// so its config is the union of the fields each half needs, minus the ones
+// the combined process doesn't expose (e.g. Multigateway has no separate
+// GrpcPort from Multipooler, since there is only one process to address).
+type MinigresConfig struct {
+	Path       string `yaml:"path"`
+	Database   string `yaml:"database"`
+	TableGroup string `yaml:"table-group"`
+	Shard      string `yaml:"shard"`
+	ServiceID  string `yaml:"service-id"`
+	HttpPort   int    `yaml:"http-port"`
+	GrpcPort   int    `yaml:"grpc-port"`
+	PgPort     int    `yaml:"pg-port"`
+	LogLevel   string `yaml:"log-level"`
 }
 
 // MultiorchConfig holds multiorch service configuration
@@ -254,8 +278,115 @@ func buildBackupConfig(backupConfig map[string]string, baseDir string) BackupCon
 	return config
 }
 
-// DefaultConfig returns the default configuration for the local provisioner
-func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[string]string) map[string]any {
+// defaultMultigresCells builds the classic 3-cell, full-triad topology: each
+// cell gets its own multigateway, multipooler, multiorch and pgctld.
+func defaultMultigresCells(binDir, baseDir, dbName, tableGroup, shard string) ([]CellConfig, map[string]CellServicesConfig) {
+	zones := []string{"zone1", "zone2", "zone3"}
+	cellConfigs := make([]CellConfig, 0, len(zones))
+	cells := make(map[string]CellServicesConfig, len(zones))
+
+	for i, zone := range zones {
+		serviceID := stringutil.RandomString(8)
+		cellConfigs = append(cellConfigs, CellConfig{Name: zone, RootPath: "/multigres/" + zone})
+		cells[zone] = CellServicesConfig{
+			Multigateway: MultigatewayConfig{
+				Path:     filepath.Join(binDir, "multigateway"),
+				HttpPort: ports.DefaultMultigatewayHTTP + i,
+				GrpcPort: ports.DefaultMultigatewayGRPC + i,
+				PgPort:   ports.DefaultMultigatewayPG + i,
+				LogLevel: "info",
+			},
+			Multipooler: MultipoolerConfig{
+				Path:           filepath.Join(binDir, "multipooler"),
+				Database:       dbName,
+				TableGroup:     tableGroup,
+				Shard:          shard,
+				ServiceID:      serviceID,
+				HttpPort:       ports.DefaultMultipoolerHTTP + i,
+				GrpcPort:       ports.DefaultMultipoolerGRPC + i,
+				GRPCSocketFile: filepath.Join(baseDir, "sockets", "multipooler-"+zone+".sock"),
+				LogLevel:       "info",
+			},
+			Multiorch: MultiorchConfig{
+				Path:                      filepath.Join(binDir, "multiorch"),
+				HttpPort:                  ports.DefaultMultiorchHTTP + i,
+				GrpcPort:                  ports.DefaultMultiorchGRPC + i,
+				LogLevel:                  "info",
+				PoolerHealthCheckInterval: "500ms",
+				RecoveryCycleInterval:     "500ms",
+			},
+			Pgctld: PgctldConfig{
+				Path:              filepath.Join(binDir, "pgctld"),
+				HttpPort:          ports.DefaultPgctldHTTP + i,
+				PoolerDir:         GeneratePoolerDir(baseDir, serviceID),
+				GrpcPort:          ports.DefaultPgctldGRPC + i,
+				GRPCSocketFile:    filepath.Join(baseDir, "sockets", "pgctld-"+zone+".sock"),
+				PgPort:            ports.DefaultLocalPostgresPort + i,
+				PgDatabase:        dbName,
+				PgUser:            constants.DefaultPostgresUser,
+				PgPassword:        "postgres",
+				Timeout:           30,
+				LogLevel:          "info",
+				PgBackRestPort:    ports.DefaultPgbackRestPort + i,
+				PgBackRestCertDir: filepath.Join(baseDir, "certs", "pgbackrest"),
+			},
+		}
+	}
+
+	return cellConfigs, cells
+}
+
+// defaultMinigresCells builds a single-cell topology with one combined
+// minigres service (and its paired pgctld) instead of a separate
+// multigateway/multipooler/multiorch triad — matching minigres's own scope
+// of one pooler, no replicas, no shards (docs/general/minigres.md).
+func defaultMinigresCells(binDir, baseDir, dbName, tableGroup, shard string) ([]CellConfig, map[string]CellServicesConfig) {
+	const zone = "zone1"
+	serviceID := stringutil.RandomString(8)
+
+	cellConfigs := []CellConfig{{Name: zone, RootPath: "/multigres/" + zone}}
+	cells := map[string]CellServicesConfig{
+		zone: {
+			Minigres: MinigresConfig{
+				Path:       filepath.Join(binDir, "minigres"),
+				Database:   dbName,
+				TableGroup: tableGroup,
+				Shard:      shard,
+				ServiceID:  serviceID,
+				HttpPort:   ports.DefaultMinigresHTTP,
+				GrpcPort:   ports.DefaultMinigresGRPC,
+				PgPort:     ports.DefaultMinigresPG,
+				LogLevel:   "info",
+			},
+			Pgctld: PgctldConfig{
+				Path:              filepath.Join(binDir, "pgctld"),
+				HttpPort:          ports.DefaultPgctldHTTP,
+				PoolerDir:         GeneratePoolerDir(baseDir, serviceID),
+				GrpcPort:          ports.DefaultPgctldGRPC,
+				GRPCSocketFile:    filepath.Join(baseDir, "sockets", "pgctld-"+zone+".sock"),
+				PgPort:            ports.DefaultLocalPostgresPort,
+				PgDatabase:        dbName,
+				PgUser:            constants.DefaultPostgresUser,
+				PgPassword:        "postgres",
+				Timeout:           30,
+				LogLevel:          "info",
+				PgBackRestPort:    ports.DefaultPgbackRestPort,
+				PgBackRestCertDir: filepath.Join(baseDir, "certs", "pgbackrest"),
+			},
+		},
+	}
+
+	return cellConfigs, cells
+}
+
+// DefaultConfig returns the default configuration for the local provisioner.
+// options["topology"] selects the cell shape to generate: the classic
+// multi-process triad (default, or any value other than "minigres"), or a
+// single minigres cell when set to constants.ServiceMinigres. This is the
+// only place that branches on topology — everything downstream (provisioning,
+// start, stop) only ever looks at which fields are present in the resulting
+// config, never at this choice itself.
+func (p *localProvisioner) DefaultConfig(configPaths []string, options map[string]string) map[string]any {
 	baseDir := configPaths[0]
 	binDir, err := getExecutablePath()
 	if err != nil {
@@ -263,19 +394,23 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 		fmt.Println("Warning: Could not determine executable path, will use ./bin to find binaries")
 	}
 
-	// Generate service IDs for each cell using the same method as topo components
-	serviceIDZone1 := stringutil.RandomString(8)
-	serviceIDZone2 := stringutil.RandomString(8)
-	serviceIDZone3 := stringutil.RandomString(8)
 	tableGroup := "default"
 	shard := "0-inf"
 	dbName := constants.DefaultPostgresDatabase
+
+	var cellConfigs []CellConfig
+	var cells map[string]CellServicesConfig
+	if options["topology"] == constants.ServiceMinigres {
+		cellConfigs, cells = defaultMinigresCells(binDir, baseDir, dbName, tableGroup, shard)
+	} else {
+		cellConfigs, cells = defaultMultigresCells(binDir, baseDir, dbName, tableGroup, shard)
+	}
 
 	// Create typed configuration with defaults
 	localConfig := LocalProvisionerConfig{
 		RootWorkingDir: baseDir,
 		DefaultDbName:  dbName,
-		Backup:         buildBackupConfig(backupConfig, baseDir),
+		Backup:         buildBackupConfig(options, baseDir),
 		Etcd: EtcdConfig{
 			Version: "3.5.9",
 			DataDir: filepath.Join(baseDir, "data", "etcd-data"),
@@ -283,20 +418,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 		},
 		Topology: TopologyConfig{
 			GlobalRootPath: "/multigres/global",
-			Cells: []CellConfig{
-				{
-					Name:     "zone1",
-					RootPath: "/multigres/zone1",
-				},
-				{
-					Name:     "zone2",
-					RootPath: "/multigres/zone2",
-				},
-				{
-					Name:     "zone3",
-					RootPath: "/multigres/zone3",
-				},
-			},
+			Cells:          cellConfigs,
 		},
 		Multiadmin: MultiadminConfig{
 			Path:     filepath.Join(binDir, "multiadmin"),
@@ -304,137 +426,7 @@ func (p *localProvisioner) DefaultConfig(configPaths []string, backupConfig map[
 			GrpcPort: ports.DefaultMultiadminGRPC,
 			LogLevel: "info",
 		},
-		Cells: map[string]CellServicesConfig{
-			"zone1": {
-				Multigateway: MultigatewayConfig{
-					Path:     filepath.Join(binDir, "multigateway"),
-					HttpPort: ports.DefaultMultigatewayHTTP,
-					GrpcPort: ports.DefaultMultigatewayGRPC,
-					PgPort:   ports.DefaultMultigatewayPG,
-					LogLevel: "info",
-				},
-				Multipooler: MultipoolerConfig{
-					Path:           filepath.Join(binDir, "multipooler"),
-					Database:       dbName,
-					TableGroup:     tableGroup,
-					Shard:          shard,
-					ServiceID:      serviceIDZone1,
-					HttpPort:       ports.DefaultMultipoolerHTTP,
-					GrpcPort:       ports.DefaultMultipoolerGRPC,
-					GRPCSocketFile: filepath.Join(baseDir, "sockets", "multipooler-zone1.sock"),
-					LogLevel:       "info",
-				},
-				Multiorch: MultiorchConfig{
-					Path:                      filepath.Join(binDir, "multiorch"),
-					HttpPort:                  ports.DefaultMultiorchHTTP,
-					GrpcPort:                  ports.DefaultMultiorchGRPC,
-					LogLevel:                  "info",
-					PoolerHealthCheckInterval: "500ms",
-					RecoveryCycleInterval:     "500ms",
-				},
-				Pgctld: PgctldConfig{
-					Path:              filepath.Join(binDir, "pgctld"),
-					HttpPort:          ports.DefaultPgctldHTTP,
-					PoolerDir:         GeneratePoolerDir(baseDir, serviceIDZone1),
-					GrpcPort:          ports.DefaultPgctldGRPC,
-					GRPCSocketFile:    filepath.Join(baseDir, "sockets", "pgctld-zone1.sock"),
-					PgPort:            ports.DefaultLocalPostgresPort,
-					PgDatabase:        dbName,
-					PgUser:            constants.DefaultPostgresUser,
-					PgPassword:        "postgres",
-					Timeout:           30,
-					LogLevel:          "info",
-					PgBackRestPort:    ports.DefaultPgbackRestPort,
-					PgBackRestCertDir: filepath.Join(baseDir, "certs", "pgbackrest"),
-				},
-			},
-			"zone2": {
-				Multigateway: MultigatewayConfig{
-					Path:     filepath.Join(binDir, "multigateway"),
-					HttpPort: ports.DefaultMultigatewayHTTP + 1,
-					GrpcPort: ports.DefaultMultigatewayGRPC + 1,
-					PgPort:   ports.DefaultMultigatewayPG + 1,
-					LogLevel: "info",
-				},
-				Multipooler: MultipoolerConfig{
-					Path:           filepath.Join(binDir, "multipooler"),
-					Database:       dbName,
-					TableGroup:     tableGroup,
-					Shard:          shard,
-					ServiceID:      serviceIDZone2,
-					HttpPort:       ports.DefaultMultipoolerHTTP + 1,
-					GrpcPort:       ports.DefaultMultipoolerGRPC + 1,
-					GRPCSocketFile: filepath.Join(baseDir, "sockets", "multipooler-zone2.sock"),
-					LogLevel:       "info",
-				},
-				Multiorch: MultiorchConfig{
-					Path:                      filepath.Join(binDir, "multiorch"),
-					HttpPort:                  ports.DefaultMultiorchHTTP + 1,
-					GrpcPort:                  ports.DefaultMultiorchGRPC + 1,
-					LogLevel:                  "info",
-					PoolerHealthCheckInterval: "500ms",
-					RecoveryCycleInterval:     "500ms",
-				},
-				Pgctld: PgctldConfig{
-					Path:              filepath.Join(binDir, "pgctld"),
-					HttpPort:          ports.DefaultPgctldHTTP + 1,
-					PoolerDir:         GeneratePoolerDir(baseDir, serviceIDZone2),
-					GrpcPort:          ports.DefaultPgctldGRPC + 1,
-					GRPCSocketFile:    filepath.Join(baseDir, "sockets", "pgctld-zone2.sock"),
-					PgPort:            ports.DefaultLocalPostgresPort + 1,
-					PgDatabase:        dbName,
-					PgUser:            constants.DefaultPostgresUser,
-					PgPassword:        "postgres",
-					Timeout:           30,
-					LogLevel:          "info",
-					PgBackRestPort:    ports.DefaultPgbackRestPort + 1,
-					PgBackRestCertDir: filepath.Join(baseDir, "certs", "pgbackrest"),
-				},
-			},
-			"zone3": {
-				Multigateway: MultigatewayConfig{
-					Path:     filepath.Join(binDir, "multigateway"),
-					HttpPort: ports.DefaultMultigatewayHTTP + 2,
-					GrpcPort: ports.DefaultMultigatewayGRPC + 2,
-					PgPort:   ports.DefaultMultigatewayPG + 2,
-					LogLevel: "info",
-				},
-				Multipooler: MultipoolerConfig{
-					Path:           filepath.Join(binDir, "multipooler"),
-					Database:       dbName,
-					TableGroup:     tableGroup,
-					Shard:          shard,
-					ServiceID:      serviceIDZone3,
-					HttpPort:       ports.DefaultMultipoolerHTTP + 2,
-					GrpcPort:       ports.DefaultMultipoolerGRPC + 2,
-					GRPCSocketFile: filepath.Join(baseDir, "sockets", "multipooler-zone3.sock"),
-					LogLevel:       "info",
-				},
-				Multiorch: MultiorchConfig{
-					Path:                      filepath.Join(binDir, "multiorch"),
-					HttpPort:                  ports.DefaultMultiorchHTTP + 2,
-					GrpcPort:                  ports.DefaultMultiorchGRPC + 2,
-					LogLevel:                  "info",
-					PoolerHealthCheckInterval: "500ms",
-					RecoveryCycleInterval:     "500ms",
-				},
-				Pgctld: PgctldConfig{
-					Path:              filepath.Join(binDir, "pgctld"),
-					HttpPort:          ports.DefaultPgctldHTTP + 2,
-					PoolerDir:         GeneratePoolerDir(baseDir, serviceIDZone3),
-					GrpcPort:          ports.DefaultPgctldGRPC + 2,
-					GRPCSocketFile:    filepath.Join(baseDir, "sockets", "pgctld-zone3.sock"),
-					PgPort:            ports.DefaultLocalPostgresPort + 2,
-					PgDatabase:        dbName,
-					PgUser:            constants.DefaultPostgresUser,
-					PgPassword:        "postgres",
-					Timeout:           30,
-					LogLevel:          "info",
-					PgBackRestPort:    ports.DefaultPgbackRestPort + 2,
-					PgBackRestCertDir: filepath.Join(baseDir, "certs", "pgbackrest"),
-				},
-			},
-		},
+		Cells: cells,
 	}
 
 	// Convert to map[string]any via YAML marshaling to preserve struct ordering
@@ -516,6 +508,18 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 			"pooler_health_check_interval": cellServices.Multiorch.PoolerHealthCheckInterval,
 			"recovery_cycle_interval":      cellServices.Multiorch.RecoveryCycleInterval,
 			"allow_unsafe_initial_cohort":  cellServices.Multiorch.AllowUnsafeInitialCohort,
+		}, nil
+	case constants.ServiceMinigres:
+		return map[string]any{
+			"path":        cellServices.Minigres.Path,
+			"database":    cellServices.Minigres.Database,
+			"table_group": cellServices.Minigres.TableGroup,
+			"shard":       cellServices.Minigres.Shard,
+			"service-id":  cellServices.Minigres.ServiceID,
+			"http_port":   cellServices.Minigres.HttpPort,
+			"grpc_port":   cellServices.Minigres.GrpcPort,
+			"pg_port":     cellServices.Minigres.PgPort,
+			"log_level":   cellServices.Minigres.LogLevel,
 		}, nil
 	case constants.ServicePgctld:
 		return map[string]any{

@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -250,7 +251,7 @@ func dial(ctx context.Context, config *Config) (net.Conn, error) {
 		}
 		return conn, nil
 	}
-	address := fmt.Sprintf("%s:%d", config.Host, config.Port)
+	address := net.JoinHostPort(config.Host, strconv.Itoa(config.Port))
 	conn, err := dialer.DialContext(ctx, "tcp", address)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to %s: %w", address, err)

@@ -15,6 +15,8 @@
 package consensus
 
 import (
+	"fmt"
+	"math/bits"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -283,6 +285,66 @@ func TestNewPolicyFromProto(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.True(t, tc.wantOK(p))
+		})
+	}
+}
+
+// Any write Postgres treats as committed must meet the durability policy. Postgres
+// commits once num_sync of the listed standbys acknowledge, so for every such set the
+// primary plus those standbys must satisfy the policy. For AT_LEAST_3 over {primary,
+// a, b}, `ANY 2 (a, b)` holds; a too-weak `ANY 1 (a, b)` would commit on {primary, a},
+// two copies where the policy needs three.
+func TestBuildSyncReplicationConfig_CommittedWritesSatisfyPolicy(t *testing.T) {
+	// The primary is in cell-a; each row lists the cells of its standbys.
+	primary := id("primary", "cell-a")
+	tests := []struct {
+		policy       DurabilityPolicy
+		standbyCells []string
+	}{
+		{AtLeastNPolicy{N: 1}, []string{"cell-a"}},
+		{AtLeastNPolicy{N: 2}, []string{"cell-a"}},
+		{AtLeastNPolicy{N: 2}, []string{"cell-a", "cell-b"}},
+		{AtLeastNPolicy{N: 3}, []string{"cell-a", "cell-b"}},
+		{AtLeastNPolicy{N: 3}, []string{"cell-a", "cell-b", "cell-c"}},
+		{AtLeastNPolicy{N: 4}, []string{"cell-a", "cell-b", "cell-c"}},
+		{multiCellPolicy{}, []string{"cell-b"}},
+		{multiCellPolicy{}, []string{"cell-a", "cell-b", "cell-c"}},
+		{multiCellPolicy{}, []string{"cell-a", "cell-b", "cell-b", "cell-c"}},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%s standbys in %v", tt.policy.Description(), tt.standbyCells), func(t *testing.T) {
+			cohort := []*clustermetadatapb.ID{primary}
+			for i, cell := range tt.standbyCells {
+				cohort = append(cohort, id(fmt.Sprintf("standby-%d", i), cell))
+			}
+			cfg, err := tt.policy.BuildSyncReplicationConfig(cohort, primary)
+			require.NoError(t, err)
+
+			// Postgres ignores the primary's own entry in the standby list.
+			var standbys []*clustermetadatapb.ID
+			for _, s := range cfg.SyncStandbyIDs {
+				if topoclient.ClusterIDString(s) != topoclient.ClusterIDString(primary) {
+					standbys = append(standbys, s)
+				}
+			}
+			if len(standbys) == 0 {
+				require.NoError(t, tt.policy.SatisfiedBy([]*clustermetadatapb.ID{primary}), "the primary alone must satisfy a config with no sync standbys")
+				return
+			}
+			require.LessOrEqual(t, cfg.NumSync, len(standbys), "num_sync must be satisfiable by the listed standbys")
+
+			for mask := 0; mask < 1<<len(standbys); mask++ {
+				if bits.OnesCount(uint(mask)) != cfg.NumSync {
+					continue
+				}
+				holders := []*clustermetadatapb.ID{primary}
+				for i, s := range standbys {
+					if mask&(1<<i) != 0 {
+						holders = append(holders, s)
+					}
+				}
+				require.NoError(t, tt.policy.SatisfiedBy(holders), "a write acknowledged by %v is held by too few poolers", clusterIDStrings(holders))
+			}
 		})
 	}
 }

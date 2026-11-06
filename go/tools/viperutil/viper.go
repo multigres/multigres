@@ -152,14 +152,26 @@ func Configure[T any](reg *Registry, key string, opts Options[T]) (v Value[T]) {
 		getfunc = GetFuncForType[T]()
 	}
 
+	aliases := make([]string, len(opts.Aliases))
+	for i, alias := range opts.Aliases {
+		aliases[i] = reg.Key(alias)
+	}
+	var flagKey string
+	if opts.FlagName != "" {
+		flagKey = reg.Key(opts.FlagName)
+	}
+
 	base := &value.Base[T]{
-		KeyName:    key,
+		KeyName:    reg.Key(key),
 		DefaultVal: opts.Default,
 		GetFunc:    getfunc,
-		Aliases:    opts.Aliases,
+		Aliases:    aliases,
 		FlagName:   opts.FlagName,
+		FlagKey:    flagKey,
 		EnvVars:    opts.EnvVars,
 	}
+
+	reg.configured.record(base.KeyName, opts.EnvVars)
 
 	switch {
 	case opts.Dynamic:

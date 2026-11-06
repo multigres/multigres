@@ -21,6 +21,7 @@ Invoke this skill when the user asks to:
 - Check if PostgreSQL instances are in recovery mode
 - Test S3 backups (initialize cluster with S3, create/list/restore backups)
 - Configure or troubleshoot S3 backup settings
+- Start/stop/manage a local Minigres (single-process) cluster
 
 ## Performance Optimization
 
@@ -95,6 +96,49 @@ psql -h <pooler-dir>/pg_sockets -p <pg-port> -U postgres -d postgres -c "SELECT 
 ```
 
 Returns `t` (true) if in recovery/standby mode, `f` (false) if primary.
+
+## Minigres Topology
+
+Minigres (see `docs/general/minigres.md`) runs a multigateway and a
+multipooler in one process — one pooler, no replicas, no shards, no
+multiorch. It's a different `init` flag, not a different tool: every command
+above (`start`/`stop`/`status`/`getpoolers`/`getpoolerstatus`) works exactly
+the same way once the cluster is initialized with this topology.
+
+**Initialize a minigres cluster** (single cell, one `minigres` service
+instead of the usual multigateway+multipooler+multiorch triad):
+
+```bash
+./bin/multigres cluster init --config-path ./minigres_local --topology minigres
+```
+
+**Start / stop it** — identical to a normal cluster:
+
+```bash
+./bin/multigres cluster start --config-path ./minigres_local --wait-for-bootstrap
+./bin/multigres cluster stop --config-path ./minigres_local
+```
+
+**Connect**: the config prints the pg port in its summary (default `15532`
+when nothing else is running on the machine):
+
+```bash
+PGPASSWORD=postgres psql -h localhost -p 15532 -U postgres
+```
+
+**`getpoolers`/`getgateways`/`getpoolerstatus`** show the minigres instance
+with no special handling needed — it registers ordinary `Multipooler` and
+`Multigateway` topology records, just like the full-process topology does.
+
+**Two commands that will correctly fail, by design, against a minigres
+cluster** — this isn't a bug to work around:
+
+- `./bin/multigres cluster switch-primary ...` → `FailedPrecondition: no
+standby poolers available for promotion`. There's only one pooler; nothing
+  to promote.
+- `./bin/multigres cluster backup ...` (without `--primary`) → `FailedPrecondition:
+serving follower pooler not found`. There's no replica to back up from —
+  use `./bin/multigres cluster backup --primary` instead.
 
 ## S3 Backup Testing
 

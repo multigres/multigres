@@ -34,8 +34,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser/datum"
 	"github.com/multigres/multigres/go/common/parser/pgoid"
-	"github.com/multigres/multigres/go/common/pgeval/datum"
 	"github.com/multigres/multigres/go/common/pgeval/fmgr"
 	"github.com/multigres/multigres/go/common/pgeval/pgerror"
 )
@@ -206,4 +206,27 @@ func TestFmgrInfoForUndefined(t *testing.T) {
 	var diag *mterrors.PgDiagnostic
 	require.True(t, errors.As(err, &diag))
 	assert.Equal(t, mterrors.PgSSUndefinedFunction, diag.Code)
+}
+
+func TestFunctionCall3Coll(t *testing.T) {
+	sum3 := func(fcinfo fmgr.FunctionCallInfo) datum.Datum {
+		return datum.Int32GetDatum(datum.DatumGetInt32(fcinfo.Args[0].Value) +
+			datum.DatumGetInt32(fcinfo.Args[1].Value) + datum.DatumGetInt32(fcinfo.Args[2].Value))
+	}
+	info := &fmgr.FmgrInfo{FnAddr: sum3, FnNargs: 3, FnStrict: true}
+	result := fmgr.FunctionCall3Coll(info, pgoid.InvalidOid,
+		datum.Int32GetDatum(1), datum.Int32GetDatum(2), datum.Int32GetDatum(39))
+	assert.Equal(t, int32(42), datum.DatumGetInt32(result))
+}
+
+func TestFunctionCall3CollNullResult(t *testing.T) {
+	info := &fmgr.FmgrInfo{FnAddr: testReturnsNull, FnOid: oidInt4pl, FnNargs: 3}
+	err := pgerror.Recover(func() {
+		fmgr.FunctionCall3Coll(info, pgoid.InvalidOid,
+			datum.Int32GetDatum(1), datum.Int32GetDatum(2), datum.Int32GetDatum(3))
+	})
+	var diag *mterrors.PgDiagnostic
+	require.True(t, errors.As(err, &diag))
+	assert.Equal(t, mterrors.PgSSInternalError, diag.Code)
+	assert.Contains(t, diag.Message, "returned NULL")
 }

@@ -28,6 +28,8 @@ package ast
 import (
 	"testing"
 
+	"github.com/multigres/multigres/go/common/parser/datum"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -223,7 +225,7 @@ func TestConstraint(t *testing.T) {
 	})
 
 	t.Run("CheckConstraint", func(t *testing.T) {
-		checkExpr := NewBinaryOp(521, NewVar(1, 1, 23), NewConst(23, 0, false)) // age > 0
+		checkExpr := NewBinaryOp(521, NewVar(1, 1, 23), NewConst(23, datum.Int32GetDatum(0), false)) // age > 0
 		constraint := NewCheckConstraint("chk_age", checkExpr)
 
 		assert.Equal(t, CONSTR_CHECK, constraint.Contype)
@@ -694,7 +696,7 @@ func TestDDLComplexExamples(t *testing.T) {
 		indexStmt.Concurrent = true
 
 		// WHERE clause (simplified)
-		whereClause := NewBinaryOp(96, NewVar(1, 2, 16), NewConst(16, 1, false)) // active = true
+		whereClause := NewBinaryOp(96, NewVar(1, 2, 16), NewConst(16, datum.Int32GetDatum(1), false)) // active = true
 		indexStmt.WhereClause = whereClause
 
 		assert.True(t, indexStmt.Unique)

@@ -62,15 +62,15 @@ func NewCoordinator(coordinatorID *clustermetadatapb.ID, topoStore topoclient.St
 //
 // Returns an error if any stage fails. The operation is idempotent and can be
 // retried safely.
-func (c *Coordinator) AppointLeader(ctx context.Context, shardKey *clustermetadatapb.ShardKey, cohort []*multiorchdatapb.PoolerHealthState, reason string) error {
+func (c *Coordinator) AppointLeader(ctx context.Context, shardRef *clustermetadatapb.ShardRef, cohort []*multiorchdatapb.PoolerHealthState, reason string) error {
 	c.logger.InfoContext(ctx, "starting leader appointment",
-		"database", shardKey.GetDatabase(),
-		"tablegroup", shardKey.GetTableGroup(),
-		"shard", shardKey.GetShard(),
+		"database", shardRef.GetDatabase(),
+		"tablegroup", shardRef.GetTableGroup(),
+		"shard", shardRef.GetShard(),
 		"cohort_size", len(cohort))
 
 	if len(cohort) == 0 {
-		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort is empty for shard %s", shardKey.GetShard())
+		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort is empty for shard %s", shardRef.GetShard())
 	}
 
 	return c.runFailover(ctx, cohort, reason)
@@ -126,10 +126,11 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 	poolerByID, healthByID := buildCohortMaps(cohort)
 	rng := rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64()))
 	buildProposal := func(r commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
-		if len(r.EligibleLeaders) == 0 {
-			return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "no eligible leaders for failover proposal")
+		candidates, err := failoverCandidates(r)
+		if err != nil {
+			return nil, err
 		}
-		leader := selectFittestLeader(r.EligibleLeaders, healthByID, rng)
+		leader := selectFittestLeader(candidates, healthByID, rng)
 		return buildFailoverProposal(r, leader, poolerByID)
 	}
 	tryBuildProposal := func(rev *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
@@ -147,18 +148,50 @@ func (c *Coordinator) runFailover(ctx context.Context, cohort []*multiorchdatapb
 	return nil
 }
 
+// failoverCandidates returns the recruits a failover may appoint: the eligible
+// leaders that are members of the outgoing cohort. buildFailoverProposal keeps
+// the outgoing cohort, so its leader must be in it. Recruitment covers every
+// shard member, so a caught-up pooler that was never admitted, such as a
+// replacement pod, can tie with the members, and appointing it would leave the
+// leader outside the cohort of the rule it leads.
+func failoverCandidates(r commonconsensus.RecruitmentResult) ([]*clustermetadatapb.ConsensusStatus, error) {
+	if len(r.EligibleLeaders) == 0 {
+		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "no eligible leaders for failover proposal")
+	}
+	candidates := cohortMemberStatuses(r.EligibleLeaders, r.OutgoingRule.GetCohortMembers())
+	if len(candidates) == 0 {
+		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "no eligible leader is a member of the outgoing cohort")
+	}
+	return candidates, nil
+}
+
+// cohortMemberStatuses returns the statuses whose pooler is in cohort, in order.
+func cohortMemberStatuses(statuses []*clustermetadatapb.ConsensusStatus, cohort []*clustermetadatapb.ID) []*clustermetadatapb.ConsensusStatus {
+	members := make(map[string]struct{}, len(cohort))
+	for _, id := range cohort {
+		members[topoclient.ClusterIDString(id)] = struct{}{}
+	}
+	var out []*clustermetadatapb.ConsensusStatus
+	for _, cs := range statuses {
+		if _, ok := members[topoclient.ClusterIDString(cs.GetId())]; ok {
+			out = append(out, cs)
+		}
+	}
+	return out
+}
+
 // AppointInitialLeader orchestrates consensus leader election for a freshly
 // bootstrapped shard where all poolers start at term 0.
 //
 // Uses GetBootstrapPolicy (not AppointLeader's LoadQuorumRule) because freshly
 // restored standbys report UNKNOWN pooler type, which causes LoadQuorumRule to
 // fall back to majority quorum instead of the configured durability policy.
-func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardKey *clustermetadatapb.ShardKey, cohort []*multiorchdatapb.PoolerHealthState) error {
+func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardRef *clustermetadatapb.ShardRef, cohort []*multiorchdatapb.PoolerHealthState) error {
 	if len(cohort) == 0 {
-		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort is empty for shard %s", shardKey.GetShard())
+		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "cohort is empty for shard %s", shardRef.GetShard())
 	}
 
-	policy, err := c.GetBootstrapPolicy(ctx, shardKey.GetDatabase())
+	policy, err := c.GetBootstrapPolicy(ctx, shardRef.GetDatabase())
 	if err != nil {
 		return mterrors.Wrap(err, "failed to load durability policy from topology")
 	}
@@ -185,7 +218,7 @@ func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardKey *cluste
 	mostAdvanced := commonconsensus.MostAdvancedPosition(cohortStatuses)
 	if mostAdvanced == nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"cannot bootstrap shard %s: no cohort member has a known WAL position", shardKey.GetShard())
+			"cannot bootstrap shard %s: no cohort member has a known WAL position", shardRef.GetShard())
 	}
 
 	revocation, err := commonconsensus.NewTermRevocation(cohortStatuses, c.coordinatorID, timestamppb.Now(), ha.DefaultBackoffResetDuration())
@@ -206,10 +239,10 @@ func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardKey *cluste
 	return c.newRuleChange(
 		"ShardInit",
 		func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
-			return commonconsensus.BuildExternallyCertifiedProposal(cert, statuses, buildProposalFn)
+			return commonconsensus.BuildExternallyCertifiedProposal(cert, cohortIDs, policy, statuses, buildProposalFn)
 		},
 		func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) error {
-			return commonconsensus.CheckExternallyCertifiedProposalPossible(cert, statuses, buildProposalFn)
+			return commonconsensus.CheckExternallyCertifiedProposalPossible(cert, cohortIDs, policy, statuses, buildProposalFn)
 		},
 	).Run(ctx, cohort, revocation)
 }
@@ -233,18 +266,23 @@ func (c *Coordinator) GetShardNodes(ctx context.Context, cell string, database s
 		return nil, mterrors.Wrap(err, "failed to get multipoolers from topology")
 	}
 
-	if len(poolers) == 0 {
-		return nil, mterrors.Errorf(mtrpcpb.Code_NOT_FOUND,
-			"no multipoolers found for shard %s in cell %s", shardID, cell)
-	}
-
 	// Convert topology poolers to PoolerHealthState instances
 	poolerHealths := make([]*multiorchdatapb.PoolerHealthState, 0, len(poolers))
 	for _, poolerInfo := range poolers {
+		if !topoclient.IsManagedPooler(poolerInfo.Multipooler) {
+			continue
+		}
 		ph := &multiorchdatapb.PoolerHealthState{
 			Multipooler: poolerInfo.Multipooler,
 		}
 		poolerHealths = append(poolerHealths, ph)
+	}
+
+	// Checked after filtering, so a shard whose only poolers are unmanaged
+	// reads the same as a shard with no poolers.
+	if len(poolerHealths) == 0 {
+		return nil, mterrors.Errorf(mtrpcpb.Code_NOT_FOUND,
+			"no managed multipoolers found for shard %s in cell %s", shardID, cell)
 	}
 
 	return poolerHealths, nil

@@ -152,7 +152,7 @@ func (hs *healthStreamer) OnStateChange(ctx context.Context, state servingstate.
 
 	prev := hs.servingStatus
 	// The routing_state is published verbatim and is always set — role PRIMARY
-	// (with the committed rule) iff writable, else REPLICA (with the highest-known
+	// (with the committed rule) iff writable, else REPLICA (with the highest intended
 	// rule). A leader mid-promotion is not yet routing PRIMARY, so it advertises
 	// REPLICA until its rule commits.
 	hs.routingState = state.Routing.ToProto()

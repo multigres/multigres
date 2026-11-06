@@ -17,15 +17,32 @@ package minigressetup
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/topoclient"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	adminserver "github.com/multigres/multigres/go/services/multiadmin"
 	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/testpoll"
 )
 
 var setupManager = clustersetup.NewSharedSetupManager(func(t *testing.T) *Setup {
@@ -88,4 +105,285 @@ func TestMinigres_ServesQueries(t *testing.T) {
 	}
 	assert.Equal(t, setup.ClientPort(), targets[1].Port, "the proxy target is the minigres client port")
 	assert.Equal(t, setup.GatewayLogFile(), setup.PoolerLogFile(t), "minigres writes both halves to one log")
+}
+
+// TestMinigres_QueriesStayInProcess checks that the query service is not
+// served over gRPC: the external gRPC port answers the admin services but not
+// MultipoolerService, while queries through the client port still reach the
+// multipooler, which the gateway calls directly in the same process.
+func TestMinigres_QueriesStayInProcess(t *testing.T) {
+	skipIfShort(t)
+	setup := setupManager.Get(t)
+	setup.SetupTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// The query service is not on the external port.
+	queryClient, err := clustersetup.NewMultipoolerTestClient(fmt.Sprintf("localhost:%d", setup.Minigres.GrpcPort))
+	require.NoError(t, err)
+	defer queryClient.Close()
+	_, err = queryClient.ExecuteQuery(ctx, "SELECT 1", 1)
+	require.Error(t, err)
+	assert.Equal(t, codes.Unimplemented, status.Code(err), "MultipoolerService must not be served on the external port: %v", err)
+	assert.Contains(t, err.Error(), "unknown service", "the service is absent, not merely unimplemented")
+
+	// The admin services are.
+	managerClient, err := clustersetup.NewMultipoolerClient(setup.Minigres.GrpcPort)
+	require.NoError(t, err)
+	defer managerClient.Close()
+	_, err = managerClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
+	require.NoError(t, err, "the pooler manager service stays on the external port")
+
+	// Queries still reach the multipooler, through the gateway.
+	db, err := sql.Open("postgres", clustersetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5"))
+	require.NoError(t, err)
+	defer db.Close()
+	var one int
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT 1").Scan(&one))
+	assert.Equal(t, 1, one)
+}
+
+// TestMinigres_GatewayIgnoresOtherPoolers registers another pooler for the same
+// database in the shared topology, as another Minigres process would, and
+// checks that the gateway never learns of it: it follows only the pooler in
+// its own process, not the topology.
+func TestMinigres_GatewayIgnoresOtherPoolers(t *testing.T) {
+	skipIfShort(t)
+	setup := setupManager.Get(t)
+	setup.SetupTest(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	own, err := setup.TopoServer.GetMultipooler(ctx, &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      cellName,
+		Name:      serviceID,
+	})
+	require.NoError(t, err)
+	other := topoclient.NewMultipooler("other-instance-pooler", cellName, "unreachable.invalid")
+	other.ShardRef = own.ShardRef
+	other.PortMap["grpc"] = 1
+	require.NoError(t, setup.TopoServer.CreateMultipooler(ctx, other))
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		_ = setup.TopoServer.UnregisterMultipooler(cleanupCtx, other.Id)
+	})
+
+	// The status page lists the poolers the gateway knows. A filtered record
+	// leaves no trace to wait on, so wait for the gateway to list its own
+	// pooler, then check that the other one never appears while the topology
+	// watch delivers it (within milliseconds).
+	statusURL := fmt.Sprintf("http://localhost:%d/multigateway", setup.Minigres.HttpPort)
+	statusPage := func() string {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, statusURL, nil)
+		if err != nil {
+			return ""
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return ""
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			return ""
+		}
+		return string(body)
+	}
+	require.Eventually(t, func() bool {
+		return strings.Contains(statusPage(), "<th>"+serviceID+"</th>")
+	}, 10*time.Second, 100*time.Millisecond, "the gateway lists its own pooler")
+	testpoll.Never(t, func() bool {
+		return strings.Contains(statusPage(), "other-instance-pooler")
+	}, 3*time.Second, 100*time.Millisecond, "the gateway must not learn of other processes' poolers")
+
+	// Queries still go to the own pooler.
+	db, err := sql.Open("postgres", clustersetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5"))
+	require.NoError(t, err)
+	defer db.Close()
+	var one int
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT 1").Scan(&one))
+	assert.Equal(t, 1, one)
+}
+
+// TestMinigres_ServesWithoutEtcd checks that Minigres keeps serving when etcd
+// goes down, and that it starts and serves while etcd is down: the gateway
+// learns of its pooler in memory and registers in the background, and the
+// static leader starts from its copy of the database record.
+func TestMinigres_ServesWithoutEtcd(t *testing.T) {
+	skipIfShort(t)
+	setup, cleanup := NewIsolated(t)
+	defer cleanup()
+
+	setup.StopEtcd(t)
+	setup.WaitForQueryServing(t)
+
+	setup.Minigres.TerminateGracefully(t.Logf, 10*time.Second)
+	require.NoError(t, setup.Minigres.Start(t.Context(), t), "minigres starts without etcd")
+	setup.WaitForQueryServing(t)
+}
+
+// TestMinigres_ConfigFile starts Minigres with a config file and checks that a
+// gateway setting in it, written behind the gateway's name, reaches the
+// gateway.
+func TestMinigres_ConfigFile(t *testing.T) {
+	skipIfShort(t)
+	file := filepath.Join(t.TempDir(), "minigres.yaml")
+	require.NoError(t, os.WriteFile(file, []byte("multigateway.statement-timeout: 7s\n"), 0o600))
+	setup, cleanup := NewIsolated(t, WithExtraArgs("--config-file="+file))
+	defer cleanup()
+
+	db, err := sql.Open("postgres", clustersetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5"))
+	require.NoError(t, err)
+	defer db.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var timeout string
+	require.NoError(t, db.QueryRowContext(ctx, "SHOW statement_timeout").Scan(&timeout))
+	assert.Equal(t, "7s", timeout, "the gateway's statement timeout comes from the config file")
+}
+
+// TestMinigres_BackupAndRestore backs up a static leader through multiadmin
+// without "force primary", lists and verifies the backup, then restores it
+// into an empty data directory.
+func TestMinigres_BackupAndRestore(t *testing.T) {
+	skipIfShort(t)
+	setup, cleanup := NewIsolated(t)
+	defer cleanup()
+
+	db, err := sql.Open("postgres", clustersetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5"))
+	require.NoError(t, err)
+	defer db.Close()
+	_, err = db.ExecContext(t.Context(), "CREATE TABLE backup_check (v text); INSERT INTO backup_check VALUES ('kept')")
+	require.NoError(t, err)
+
+	admin := adminserver.NewMultiadminServer(setup.TopoServer, slog.Default(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	defer admin.Stop()
+	shard := &multiadminpb.BackupRequest{Database: database, TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Type: "full"}
+
+	resp, err := admin.Backup(t.Context(), shard)
+	require.NoError(t, err, "a static leader is backed up without force primary")
+	var backupID string
+	require.Eventually(t, func() bool {
+		status, err := admin.GetBackupJobStatus(t.Context(), &multiadminpb.GetBackupJobStatusRequest{JobId: resp.JobId})
+		require.NoError(t, err)
+		require.NotEqual(t, multiadminpb.JobStatus_JOB_STATUS_FAILED, status.Status, status.ErrorMessage)
+		backupID = status.BackupId
+		return status.Status == multiadminpb.JobStatus_JOB_STATUS_COMPLETED
+	}, 5*time.Minute, time.Second)
+
+	backups, err := admin.GetBackups(t.Context(), &multiadminpb.GetBackupsRequest{Database: database, TableGroup: shard.TableGroup, Shard: shard.Shard, Limit: 10})
+	require.NoError(t, err)
+	var ids []string
+	for _, b := range backups.Backups {
+		ids = append(ids, b.BackupId)
+	}
+	assert.Contains(t, ids, backupID)
+	_, err = admin.VerifyBackups(t.Context(), &multiadminpb.VerifyBackupsRequest{Database: database, TableGroup: shard.TableGroup, Shard: shard.Shard})
+	require.NoError(t, err)
+
+	// Lose the data directory: the static leader restores the latest backup
+	// and promotes itself.
+	setup.Minigres.TerminateGracefully(t.Logf, 10*time.Second)
+	setup.Pgctld.StopPostgres(t)
+	require.NoError(t, os.RemoveAll(filepath.Join(setup.Pgctld.PoolerDir, "pg_data")))
+	require.NoError(t, setup.Minigres.Start(t.Context(), t))
+	setup.WaitForQueryServing(t)
+
+	var v string
+	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT v FROM backup_check").Scan(&v))
+	assert.Equal(t, "kept", v)
+}
+
+// TestMinigres_ShutdownWaitsForRunningQuery sends SIGTERM while a query runs
+// on the gateway's direct path to the pooler, and checks that shutdown lets it
+// finish before the pooler closes its pools and executor.
+func TestMinigres_ShutdownWaitsForRunningQuery(t *testing.T) {
+	skipIfShort(t)
+	setup, cleanup := NewIsolated(t)
+	defer cleanup()
+
+	db, err := sql.Open("postgres", clustersetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5"))
+	require.NoError(t, err)
+	defer db.Close()
+	require.NoError(t, db.PingContext(t.Context()))
+
+	const sleepQuery = "SELECT 1 FROM pg_sleep(3)"
+	queryErr := make(chan error, 1)
+	go func() {
+		var one int
+		queryErr <- db.QueryRowContext(t.Context(), sleepQuery).Scan(&one)
+	}()
+	require.Eventually(t, func() bool {
+		var running int
+		err := db.QueryRowContext(t.Context(), "SELECT count(*) FROM pg_stat_activity WHERE query = $1", sleepQuery).Scan(&running)
+		return err == nil && running == 1
+	}, 10*time.Second, 50*time.Millisecond, "the query must be running before SIGTERM")
+
+	exitErr, stopped := setup.Minigres.Process.Terminate(utils.WithTimeout(t, 30*time.Second))
+	require.True(t, stopped, "minigres must exit after SIGTERM")
+	assert.NoError(t, exitErr, "minigres must exit cleanly")
+	assert.NoError(t, <-queryErr, "the running query must finish, not fail on closed pools")
+}
+
+// TestMinigres_ShutdownUnderLoad sends SIGTERM while clients run queries
+// through minigres, and checks that shutdown is as clean for them as a
+// standalone multigateway's: until minigres exits, their queries succeed or
+// their connections end. The gateway drains before the pooler stops; in
+// parallel, the pooler would refuse the open connections' queries.
+func TestMinigres_ShutdownUnderLoad(t *testing.T) {
+	skipIfShort(t)
+	setup, cleanup := NewIsolated(t)
+	defer cleanup()
+
+	dsn := clustersetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5")
+	refused := clustersetup.QueriesRefusedDuringShutdown(t, dsn, 4, func() {
+		exitErr, stopped := setup.Minigres.Process.Terminate(utils.WithTimeout(t, 60*time.Second))
+		require.True(t, stopped, "minigres must exit after SIGTERM")
+		assert.NoError(t, exitErr, "minigres must exit cleanly")
+	})
+	if len(refused) > 0 {
+		t.Errorf("%d queries were refused on an open connection during shutdown; first: %v", len(refused), refused[0])
+	}
+}
+
+// TestMinigres_ReadyOnlyOnceServing restarts Minigres with PostgreSQL stopped,
+// so the pooler has to start it, and checks that /ready reports ready only once
+// a client query succeeds: Minigres must not be put behind a load balancer
+// while every query still fails. Once ready, it stays ready while PostgreSQL is
+// down.
+func TestMinigres_ReadyOnlyOnceServing(t *testing.T) {
+	skipIfShort(t)
+	setup, cleanup := NewIsolated(t)
+	defer cleanup()
+
+	setup.Minigres.TerminateGracefully(t.Logf, 30*time.Second)
+	setup.Pgctld.StopPostgres(t)
+	require.NoError(t, setup.Minigres.Start(t.Context(), t))
+
+	ready := func() bool {
+		resp, err := http.Get(fmt.Sprintf("http://localhost:%d/ready", setup.Minigres.HttpPort))
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return resp.StatusCode == http.StatusOK
+	}
+	require.Eventually(t, ready, 60*time.Second, 50*time.Millisecond, "minigres must become ready")
+
+	db, err := sql.Open("postgres", clustersetup.GetTestUserDSN("localhost", setup.ClientPort(), "sslmode=disable", "connect_timeout=5"))
+	require.NoError(t, err)
+	defer db.Close()
+	var one int
+	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT 1").Scan(&one), "a query must succeed once /ready reports ready")
+
+	// Once it has served, it stays ready while PostgreSQL is down, as a
+	// Multigres pooler does.
+	setup.Pgctld.StopPostgres(t)
+	testpoll.Never(t, func() bool { return !ready() }, 3*time.Second, 100*time.Millisecond, "minigres must stay ready while PostgreSQL is down")
 }

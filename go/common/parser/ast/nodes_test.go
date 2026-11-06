@@ -48,6 +48,12 @@ func TestNodeTag(t *testing.T) {
 		{T_String, "T_String"},
 		{T_Integer, "T_Integer"},
 		{T_Null, "T_Null"},
+		{T_CreateConnectionStmt, "T_CreateConnectionStmt"},
+		{T_DropConnectionStmt, "T_DropConnectionStmt"},
+		{T_ShowConnectionsStmt, "T_ShowConnectionsStmt"},
+		{T_CreateMigrationStmt, "T_CreateMigrationStmt"},
+		{T_AlterMigrationStmt, "T_AlterMigrationStmt"},
+		{T_DropMigrationStmt, "T_DropMigrationStmt"},
 	}
 
 	for _, tt := range tests {

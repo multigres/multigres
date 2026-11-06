@@ -46,7 +46,8 @@ func (cs *ConsensusPromises) readPromisesFromDisk() (*clustermetadatapb.Consensu
 	}
 
 	file := &clustermetadatapb.ConsensusPromises{}
-	if err := protojson.Unmarshal(data, file); err != nil {
+	// Ignore unknown fields so a rolled-back binary can read a newer file.
+	if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(data, file); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal consensus promises: %w", err)
 	}
 

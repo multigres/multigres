@@ -63,6 +63,10 @@ type Conn struct {
 	// conn is the underlying network connection.
 	conn net.Conn
 
+	// proxyClientAddress is true only after a trusted PROXY v2 address header.
+	proxyClientAddress  bool
+	proxyProtocolFailed bool
+
 	// bufferedReader is used for reading from the connection.
 	bufferedReader *bufio.Reader
 
@@ -583,12 +587,12 @@ func (c *Conn) CancelQuery() bool {
 }
 
 // queryContextError maps context-related errors to the appropriate PostgreSQL
-// protocol error. Cancel requests take priority since they indicate explicit
-// user action. If no context-related error is detected, the original error is
+// protocol error. Fatal diagnostics take priority because readiness is unsafe;
+// otherwise cancel requests take priority since they indicate explicit user action. If no context-related error is detected, the original error is
 // returned unchanged.
 func queryContextError(queryCtx context.Context, err error) error {
-	if err == nil {
-		return nil
+	if err == nil || fatalDiagnostic(err) != nil {
+		return err
 	}
 	// CancelRequest sets errQueryCanceled as the cause on the query context.
 	if errors.Is(context.Cause(queryCtx), errQueryCanceled) {
@@ -693,7 +697,7 @@ func (c *Conn) abortWriterBuffering() {
 // applicable — make sense on the wire. Every other startup state (raw
 // plaintext or fully upgraded TLS) can carry the reply.
 func (c *Conn) canSendPlaintextStartupError() bool {
-	if c.directTLSFailed {
+	if c.directTLSFailed || c.proxyProtocolFailed {
 		return false
 	}
 	return !(c.sslDone && c.tlsConfig != nil && !c.tlsHandshakeComplete)

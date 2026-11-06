@@ -42,9 +42,16 @@ var pgctldStopModes = []struct {
 	{"immediate", 5 * time.Second},
 }
 
+// Shutdown runs GracefulShutdown on the manager's own context. The
+// multipooler runs it on SIGTERM, bounded by --onterm-timeout and before the
+// OnClose hooks (topology unregister).
+func (pm *MultipoolerManager) Shutdown() {
+	pm.GracefulShutdown(pm.ctx)
+}
+
 // GracefulShutdown drains traffic, stops Postgres, and then publishes
-// COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE on the health stream. Registered as a
-// servenv OnTermSync hook so it runs on SIGTERM bounded by --onterm-timeout.
+// COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE on the health stream. It runs on
+// SIGTERM (see Shutdown).
 //
 // The topology shutdown transition (Type=UNKNOWN, LifecycleStatus=SHUTDOWN)
 // happens after this returns via the existing OnClose -> mp.Shutdown ->
@@ -114,6 +121,17 @@ func (pm *MultipoolerManager) GracefulShutdown(ctx context.Context) {
 	}); err != nil {
 		pm.logger.WarnContext(lockCtx, "transition to DISABLED returned error; proceeding with shutdown",
 			"error", err)
+	}
+
+	// An unmanaged pooler leaves the external PostgreSQL running: close our own
+	// pools and finish. There is no cohort to advertise ineligibility to.
+	if pm.IsUnmanaged() {
+		pm.closeLocked(lockCtx, "unmanaged shutdown")
+		if pm.shutdownCancel != nil {
+			pm.shutdownCancel()
+		}
+		pm.logger.InfoContext(lockCtx, "graceful shutdown sequence complete")
+		return
 	}
 
 	if err := pm.pgctldStopWithEscalation(lockCtx); err != nil {

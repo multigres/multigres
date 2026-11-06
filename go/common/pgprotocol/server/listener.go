@@ -23,12 +23,15 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/bufpool"
 	"github.com/multigres/multigres/go/common/pgprotocol/pid"
 	"github.com/multigres/multigres/go/common/pgprotocol/scram"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 // Listener listens for incoming PostgreSQL client connections.
@@ -61,6 +64,9 @@ type Listener struct {
 	// requireTLS rejects plaintext StartupMessage if true. Mirrors PG's
 	// hostssl posture. Validated against tlsConfig at construction.
 	requireTLS bool
+
+	trustedProxyCIDRs []netip.Prefix
+	tlsOffload        bool
 
 	// authenticationTimeout bounds the startup phase (SSL/GSS negotiation,
 	// StartupMessage read, SCRAM exchange) — equivalent to PostgreSQL's
@@ -95,10 +101,13 @@ type Listener struct {
 	// Protected by connsMu.
 	nextConnectionID uint32
 
-	// connsMu protects conns and nextConnectionID.
+	// connsMu protects conns, open and nextConnectionID.
 	connsMu sync.Mutex
 	// conns maps encoded PID to active connections for cancel request lookup.
 	conns map[uint32]*Conn
+	// open holds every connection being handled, from accept on, with its
+	// socket as accepted, so Shutdown can cut the ones still open.
+	open map[*Conn]net.Conn
 
 	// wg tracks active connection handlers.
 	wg sync.WaitGroup
@@ -196,7 +205,17 @@ type ListenerConfig struct {
 	// plaintext (matches libpq behavior). Requires TLSConfig != nil.
 	RequireTLS bool
 
-	// AuthenticationTimeout bounds the startup phase: SSL/GSS negotiation,
+	// TrustedProxyCIDRs restricts PROXY protocol v2 headers to these immediate
+	// TCP peers. Empty accepts headers from any TCP peer and relies on network
+	// access controls for trust. Headerless clients remain supported.
+	TrustedProxyCIDRs []string
+
+	// TLSOffload permits direct TLS without ALPN after a trusted PROXY v2
+	// header supplies a client address. Requires TLS. TrustedProxyCIDRs is optional.
+	// Use only behind a proxy that performs PostgreSQL SSL negotiation.
+	TLSOffload bool
+
+	// AuthenticationTimeout bounds the startup phase: optional PROXY header, SSL/GSS negotiation,
 	// StartupMessage read, and the SCRAM exchange. A stalled or malicious
 	// client cannot pin a goroutine past this deadline. Zero falls back to
 	// DefaultAuthenticationTimeout (60s, matching PostgreSQL's default).
@@ -233,6 +252,23 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		return nil, errors.New("RequireTLS=true requires TLSConfig to be set")
 	}
 
+	trustedProxyCIDRs := make([]netip.Prefix, 0, len(config.TrustedProxyCIDRs))
+	for _, cidr := range config.TrustedProxyCIDRs {
+		prefix, err := netip.ParsePrefix(cidr)
+		if err != nil {
+			return nil, mterrors.Wrapf(err, "invalid trusted proxy CIDR %q", cidr)
+		}
+		// Normalize ranges within ::ffff:0:0/96 to match the unmapped IPv4
+		// peers used by trustsProxy. Broader ranges remain IPv6 prefixes.
+		if prefix.Addr().Is4In6() && prefix.Bits() >= 96 {
+			prefix = netip.PrefixFrom(prefix.Addr().Unmap(), prefix.Bits()-96)
+		}
+		trustedProxyCIDRs = append(trustedProxyCIDRs, prefix.Masked())
+	}
+	if config.TLSOffload && config.TLSConfig == nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "TLSOffload requires TLSConfig")
+	}
+
 	netListener, err := net.Listen("tcp", config.Address)
 	if err != nil {
 		return nil, fmt.Errorf("failed to listen on %s: %w", config.Address, err)
@@ -262,11 +298,14 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		trustAuthProvider:     config.TrustAuthProvider,
 		tlsConfig:             config.TLSConfig,
 		requireTLS:            config.RequireTLS,
+		trustedProxyCIDRs:     trustedProxyCIDRs,
+		tlsOffload:            config.TLSOffload,
 		authenticationTimeout: authTimeout,
 		authMetrics:           authMetrics,
 		logger:                logger,
 		gatewayID:             config.GatewayID,
 		conns:                 make(map[uint32]*Conn),
+		open:                  make(map[*Conn]net.Conn),
 		ctx:                   ctx,
 		cancel:                cancel,
 	}
@@ -329,6 +368,10 @@ func (l *Listener) Serve() error {
 		conn.requireTLS = l.requireTLS
 		conn.authMetrics = l.authMetrics
 
+		l.connsMu.Lock()
+		l.open[conn] = netConn
+		l.connsMu.Unlock()
+
 		// Handle connection in a new goroutine.
 		l.wg.Go(func() {
 			l.handleConnection(conn)
@@ -348,6 +391,9 @@ func (l *Listener) handleConnection(conn *Conn) {
 
 		// Unregister from cancel lookup before cleaning up.
 		l.UnregisterConn(conn.ConnectionID())
+		l.connsMu.Lock()
+		delete(l.open, conn)
+		l.connsMu.Unlock()
 
 		// Notify the handler so it can clean up connection-specific state
 		// (e.g., rollback active transactions, release reserved connections).
@@ -356,8 +402,9 @@ func (l *Listener) handleConnection(conn *Conn) {
 			conn.handler.ConnectionClosed(conn)
 		}
 
-		// Clean up connection resources.
-		if err := conn.Close(); err != nil {
+		// Clean up connection resources. The socket is already closed when
+		// Shutdown cut the connection.
+		if err := conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 			conn.logger.Error("error closing connection", "error", err)
 		}
 	}()
@@ -369,6 +416,8 @@ func (l *Listener) handleConnection(conn *Conn) {
 		switch {
 		case errors.Is(err, io.EOF):
 			// Client closed cleanly — no log.
+		case errors.Is(err, net.ErrClosed):
+			// Shutdown cut the connection — no log.
 		case errors.Is(err, errAuthenticationTimeout):
 			// Auth timeout already logged at Warn from serve()
 			// with full context (timeout, remote_addr). Skip the
@@ -399,6 +448,34 @@ func (l *Listener) Close() error {
 	err := l.listener.Close()
 	l.wg.Wait()
 	l.logger.Debug("Postgres listener stopped") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+	return err
+}
+
+// Shutdown is Close bounded by ctx. If connections are still open when ctx
+// ends, it cuts them, as the process exiting would: their sockets are closed,
+// with no message to the client, and their running queries are cancelled. It
+// then returns without waiting for their handlers to finish cleaning up.
+func (l *Listener) Shutdown(ctx context.Context) error {
+	l.cancel()
+	err := l.listener.Close()
+	done := make(chan struct{})
+	go func() {
+		l.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		l.logger.Debug("Postgres listener stopped") //nolint:sloglint // message intentionally starts with an operation name or proper noun
+	case <-ctx.Done():
+		l.connsMu.Lock()
+		cut := len(l.open)
+		for conn, netConn := range l.open {
+			conn.cancel()
+			_ = netConn.Close()
+		}
+		l.connsMu.Unlock()
+		l.logger.Info("Postgres listener stopped; cut connections still open", "connections", cut) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+	}
 	return err
 }
 

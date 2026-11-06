@@ -10,7 +10,8 @@ Each tagged Multigres core release publishes:
 
 - source archives on the GitHub release
 - downloadable binary archives for `linux` and `darwin`, on `amd64` and `arm64`
-- a `checksums.txt` file for downloadable binary archives
+- the Multiadmin REST API contract as `multiadmin.openapi.yaml`
+- a `checksums.txt` file for downloadable binary archives and the OpenAPI contract
 - versioned container images on GitHub Container Registry
 - SBOM, provenance, and signature metadata for release container images
 
@@ -112,6 +113,28 @@ grep "  ${ARCHIVE}$" checksums.txt | shasum -a 256 -c -
 ```
 
 For macOS archives, set `OS=darwin` and `EXT=zip`.
+
+## Download the Multiadmin API Contract
+
+Releases containing the OpenAPI packaging change attach `multiadmin.openapi.yaml`
+alongside the binary archives. Older releases may not include it. The asset is
+the checked-in `docs/api/multiadmin.openapi.yaml` from the release tag, validated
+before packaging. Its filename stays the same across releases; select the tag
+matching your deployed Multigres version. The specification's `info.version: v1`
+identifies the API version, not the Multigres release version.
+
+```bash
+export VERSION=vX.Y.Z
+
+curl -fLO "https://github.com/multigres/multigres/releases/download/${VERSION}/multiadmin.openapi.yaml"
+curl -fLO "https://github.com/multigres/multigres/releases/download/${VERSION}/checksums.txt"
+
+grep '  multiadmin.openapi.yaml$' checksums.txt | shasum -a 256 -c -
+```
+
+Import the YAML into your API documentation tooling. See the
+[Multiadmin REST API documentation](docs/api/README.md) for authentication,
+request and response conventions, and the operation inventory.
 
 ## Verify Container Images
 

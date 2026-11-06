@@ -94,6 +94,9 @@ func Register(register func(ctx context.Context) error, unregister func(ctx cont
 		tp.startReassert(register)
 		return tp
 	} else {
+		if tp.ctx.Err() == nil {
+			topoclient.RecordRegistrationFailure(ctx, topoclient.RegistrationPhaseInitial)
+		}
 		alarm(fmt.Sprintf("Failed to register component with topology: %v", err))
 		tp.logger.Error("failed to register component with topology", "error", err)
 	}
@@ -107,15 +110,21 @@ func Register(register func(ctx context.Context) error, unregister func(ctx cont
 			}
 
 			ctx, cancel := context.WithTimeout(tp.ctx, time.Second)
-			if err := register(ctx); err == nil {
+			registerErr := register(ctx)
+			if tp.ctx.Err() != nil {
+				cancel()
+				return
+			}
+			if registerErr == nil {
 				tp.logger.Info("successfully registered component with topology")
 				alarm("")
 				cancel()
 				tp.startReassert(register)
 				return
 			} else {
+				topoclient.RecordRegistrationFailure(ctx, topoclient.RegistrationPhaseRetry)
 				// Just call alarm. No need to spam logs.
-				alarm(fmt.Sprintf("Failed to register component with topology: %v", err))
+				alarm(fmt.Sprintf("Failed to register component with topology: %v", registerErr))
 			}
 			cancel()
 		}
@@ -142,7 +151,11 @@ func (tp *TopoReg) startReassert(register func(ctx context.Context) error) {
 				ctx, cancel := context.WithTimeout(tp.ctx, time.Second)
 				err := register(ctx)
 				cancel()
+				if tp.ctx.Err() != nil {
+					return
+				}
 				if err != nil {
+					topoclient.RecordRegistrationFailure(tp.ctx, topoclient.RegistrationPhaseReassert)
 					// The next tick tries again; a component missing from
 					// topology is visible in its own logs either way.
 					tp.logger.Warn("failed to re-assert topology registration", "error", err)
@@ -169,6 +182,7 @@ func RegisterSynchronous(ctx context.Context, register func(ctx context.Context)
 	}
 
 	r := retry.New(50*time.Millisecond, 1*time.Second)
+	phase := topoclient.RegistrationPhaseInitial
 	for _, err := range r.Attempts(ctx) {
 		if err != nil {
 			return nil, fmt.Errorf("registration failed: %w", err)
@@ -182,6 +196,10 @@ func RegisterSynchronous(ctx context.Context, register func(ctx context.Context)
 			tp.startReassert(register)
 			return tp, nil
 		}
+		if !errors.Is(ctx.Err(), context.Canceled) {
+			topoclient.RecordRegistrationFailure(regCtx, phase)
+		}
+		phase = topoclient.RegistrationPhaseRetry
 	}
 
 	return nil, errors.New("registration failed")
@@ -220,6 +238,9 @@ func (tp *TopoReg) Unregister() {
 	var lastErr error
 	for _, err := range r.Attempts(ctx) {
 		if err != nil {
+			if lastErr == nil {
+				lastErr = err
+			}
 			tp.logger.Error("failed to deregister component from topology",
 				"error", lastErr, "budget", unregisterBudget)
 			return
@@ -233,6 +254,9 @@ func (tp *TopoReg) Unregister() {
 			// have been applied even though its response timed out.
 			tp.logger.Info("successfully deregistered component from topology")
 			return
+		}
+		if !errors.Is(ctx.Err(), context.Canceled) {
+			topoclient.RecordRegistrationFailure(attemptCtx, topoclient.RegistrationPhaseUnregister)
 		}
 	}
 }

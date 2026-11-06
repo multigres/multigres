@@ -28,6 +28,7 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/eventlog"
+	"github.com/multigres/multigres/go/common/keyrange"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/servenv"
@@ -40,6 +41,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
+	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
@@ -241,6 +243,32 @@ type MultipoolerManager struct {
 	// healthStreamer streams health state to subscribers.
 	// Owns all health-related state and provides typed update methods.
 	healthStreamer *healthStreamer
+
+	// migrationEnabled records whether the service layer opted this manager into
+	// the Multigres Migrator migration coordinator. When set, openLocked launches
+	// the reconcile poller on the fresh context so it survives Pause/resume;
+	// tests that never opt in leave it false and spin up no background migration
+	// work. Guarded by pm.mu.
+	migrationEnabled bool
+
+	// migrationCoord is the lazily-constructed Multigres Migrator coordinator,
+	// built from the admin query service on first use. It is active only on the
+	// primary; callers gate via MigrationCoordinatorIfPrimary. Both fields
+	// guarded by pm.mu.
+	migrationCoord         *migration.Coordinator
+	migrationSchemaEnsured bool
+
+	// migrationImportHold is the migration serving gate, stored as a
+	// migrationHoldState: held when an active migration on this shard is in
+	// the IMPORT direction, so this pooler must not serve client queries
+	// until it is activated. The zero value is migrationHoldUnknown, distinct
+	// from migrationHoldNotHeld, so callers can tell "never successfully
+	// read" from "confirmed clear" instead of conflating the two into a
+	// single false. Refreshed from the replicated multigres.migration table
+	// by the postgres monitor, so it holds on primary and standbys alike and
+	// survives failover, and read by the serving-state drift check. Atomic so
+	// the monitor reads it without pm.mu.
+	migrationImportHold atomic.Int32
 }
 
 // promotionState tracks which parts of the promotion are complete
@@ -304,10 +332,16 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 	if multipooler == nil {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "multipooler is required")
 	}
-	if multipooler.GetShardKey().GetTableGroup() == "" {
+	// Fail before constructing any management clients for modes this manager
+	// does not understand: every managed mode, and unmanaged.
+	unmanaged := !topoclient.IsManagedPooler(multipooler)
+	if unmanaged && multipooler.GetLeadershipMode() != clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNMANAGED {
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "leadership mode is not supported by this manager")
+	}
+	if multipooler.GetShardRef().GetTableGroup() == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "TableGroup is required")
 	}
-	if multipooler.GetShardKey().GetShard() == "" {
+	if multipooler.GetShardRef().GetShard() == "" {
 		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "Shard is required")
 	}
 	if multipooler.Id == nil {
@@ -318,9 +352,23 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 		return nil, mterrors.Wrap(err, "invalid Multipooler.Id")
 	}
 
-	// MVP validation: fail fast if tablegroup/shard are not the MVP defaults
-	if err := constants.ValidateMVPTableGroupAndShard(multipooler.GetShardKey().GetTableGroup(), multipooler.GetShardKey().GetShard()); err != nil {
-		return nil, mterrors.Wrap(err, "MVP validation failed")
+	// An unmanaged pooler fronts an external database, never the default cohort that
+	// holds cluster metadata: it would take over the whole shard as far as
+	// gateways and the orchestrator are concerned.
+	if unmanaged {
+		if err := ValidateUnmanagedTableGroup(multipooler.GetShardRef().GetTableGroup()); err != nil {
+			return nil, err
+		}
+	}
+	// The external backend is what an unmanaged pooler dials and probes, and only an
+	// unmanaged pooler has one: deciding it here keeps the mode the one thing that says
+	// which kind of pooler this is.
+	if err := validateUnmanagedConfig(unmanaged, multipooler.GetShardRef().GetDatabase(), config); err != nil {
+		return nil, err
+	}
+	// Fail fast on a tablegroup/shard this pooler cannot serve.
+	if err := keyrange.ValidateTableGroupAndShard(multipooler.GetShardRef().GetTableGroup(), multipooler.GetShardRef().GetShard()); err != nil {
+		return nil, mterrors.Wrap(err, "invalid tablegroup/shard")
 	}
 
 	record, err := newPoolerRecord(logger, config.TopoClient, multipooler)
@@ -332,7 +380,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 
 	// Create pgctld gRPC client
 	var pgctldClient pgctldpb.PgCtldClient
-	if config.PgctldAddr != "" {
+	if !unmanaged && config.PgctldAddr != "" {
 		conn, err := grpccommon.NewClient(config.PgctldAddr, grpccommon.WithDialOptions(grpc.WithTransportCredentials(insecure.NewCredentials())))
 		if err != nil {
 			logger.ErrorContext(ctx, "failed to create pgctld gRPC client", "error", err, "addr", config.PgctldAddr)
@@ -380,7 +428,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 		connPoolMgr:              connPoolMgr,
 		readyChan:                make(chan struct{}),
 		pgMonitor:                monitorRunner,
-		healthStreamer:           newHealthStreamer(logger, multipooler.Id, multipooler.GetShardKey().GetTableGroup(), multipooler.GetShardKey().GetShard()),
+		healthStreamer:           newHealthStreamer(logger, multipooler.Id, multipooler.GetShardRef().GetTableGroup(), multipooler.GetShardRef().GetShard()),
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
 		ctx:    ctx,
@@ -408,7 +456,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 	if ov.qsc != nil {
 		pm.qsc = ov.qsc
 	} else {
-		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multipooler.Id, multipooler.GetShardKey().GetTableGroup(), multipooler.GetShardKey().GetShard(), pm, drainGracePeriod, config.BackendVpidTrackingEnabled)
+		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multipooler.Id, multipooler.GetShardRef().GetTableGroup(), multipooler.GetShardRef().GetShard(), pm, drainGracePeriod, config.BackendVpidTrackingEnabled)
 	}
 
 	// ConsensusManager owns its own wiring (durable promise store + rule store +
@@ -416,7 +464,9 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 	// the consensus-enabled path; a missing file means term=0 (new node), and
 	// only an actual read/parse error fails the constructor. A test may inject a
 	// pre-built ConsensusManager (e.g. with a fake rule store) instead.
-	if ov.consensusMgr != nil {
+	if unmanaged {
+		// External databases do not participate in consensus.
+	} else if ov.consensusMgr != nil {
 		pm.consensusMgr = ov.consensusMgr
 	} else {
 		pm.consensusMgr, err = consensus.NewConsensusManager(consensus.Deps{
@@ -427,6 +477,9 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 			Broadcaster:  pm.healthStreamer,
 			LoadPromises: config.ConsensusEnabled,
 			StaticLeader: config.StaticLeader,
+			// A decided rule follows a proposal a sync standby already acked, which is
+			// as good a proof the leader can commit as a heartbeat.
+			OnProposalAcked: pm.writeHeartbeatForAckedProposal,
 		})
 		if err != nil {
 			cancel()
@@ -441,7 +494,11 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 
 	// Create the serving state manager with the query service and health streamer as initial components.
 	// The ReplTracker is registered later when heartbeat is started.
-	pm.stateManager = NewStateManager(logger, pm.record, pm.consensusMgr.CachedConsensusStatus, pm.qsc, pm.healthStreamer)
+	consensusStatus := func() *clustermetadatapb.ConsensusStatus { return nil }
+	if pm.consensusMgr != nil {
+		consensusStatus = pm.consensusMgr.CachedConsensusStatus
+	}
+	pm.stateManager = NewStateManager(logger, pm.record, consensusStatus, pm.qsc, pm.healthStreamer)
 	if stateAwareConnPoolMgr, ok := connPoolMgr.(StateAware); ok {
 		if err := registerAndSyncStateAware(ctx, pm.stateManager, stateAwareConnPoolMgr); err != nil {
 			cancel()
@@ -449,13 +506,20 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 		}
 	}
 
+	// An unmanaged pooler has no backup engine: backups belong to whoever owns
+	// the external PostgreSQL.
+	if unmanaged {
+		return pm, nil
+	}
+
 	// Construct the pgBackRest engine. It owns all pgBackRest interaction and its
 	// own metrics. The pgbackrest.conf path, pgpass file, and repo config are
 	// supplied later (SetConfigPath / SetPgpassPath / SetBackupConfig) once
 	// topology and the backup location have loaded.
 	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{
-		PgpassPath: pm.pgpassPath,
-		PgDataDir:  postgresDataDir(),
+		PgpassPath:    pm.pgpassPath,
+		PgDataDir:     postgresDataDir(),
+		NoBackupLease: config.StaticLeader,
 	})
 	// Wire the backup-health poller to the manager's pg connection: role
 	// (only a primary archives WAL), pg_stat_archiver (WAL archive lag), and
@@ -533,7 +597,19 @@ func (pm *MultipoolerManager) adminExecArgs(ctx context.Context, sql string, arg
 // ctx must carry an action lock. The state transition publishes through
 // pm.record.Mutate, which asserts the lock.
 func (pm *MultipoolerManager) Open(ctx context.Context) {
+	// An unmanaged pooler starts closed: it does not serve until the readiness of its
+	// backend has been checked.
+	if pm.IsUnmanaged() {
+		pm.openLocked(ctx, clustermetadatapb.PoolerServingStatus_DISABLED)
+		return
+	}
 	pm.openLocked(ctx, clustermetadatapb.PoolerServingStatus_SERVING)
+}
+
+// IsUnmanaged reports whether this pooler fronts an external PostgreSQL. The
+// mode is immutable for the lifetime of the process.
+func (pm *MultipoolerManager) IsUnmanaged() bool {
+	return pm.record.unmanaged()
 }
 
 // openLocked is the shared implementation of Open and Pause's resume. It
@@ -555,22 +631,28 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	pm.openConnectionsLocked()
 	pm.logger.InfoContext(pm.ctx, "MultipoolerManager opened database connection") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 
-	// Ensure sidecar tables that a shard bootstrapped by an older pooler
-	// version may be missing (see ensureSidecarSchemas) exist on every
-	// open/resume, not just on promotion.
-	//
-	// The function createSidecarSchema only ever runs once, at genuine shard
-	// bootstrap, and promoteStandbyToPrimary's equivalent call only fires on an
-	// actual pg_promote() transition. Without this, a plain process restart of
-	// an already-primary pooler would never re-ensure them, even after
-	// upgrading to a pooler version that knows about them.
-	if mode, err := pm.postgresMode(ctx); err == nil && mode.OutOfRecovery() {
-		if err := pm.ensureSidecarSchemas(ctx); err != nil {
-			pm.logger.WarnContext(ctx, "failed to ensure sidecar schemas on open", "error", err)
+	// The sidecar tables and the postgres monitor belong to a managed postgres: the monitor
+	// repairs, restarts and rewinds it, and the sidecar schemas are ours to keep in it. An
+	// external endpoint is neither repaired nor given sidecar tables by us.
+	if !pm.IsUnmanaged() {
+		// Ensure sidecar tables that a shard bootstrapped by an older pooler
+		// version may be missing (see ensureSidecarSchemas) exist on every
+		// open/resume, not just on promotion. On the catalog shard this also
+		// upgrades the sharding catalog to this binary's catalog format.
+		//
+		// The function createSidecarSchema only ever runs once, at genuine shard
+		// bootstrap, and promoteStandbyToPrimary's equivalent call only fires on an
+		// actual pg_promote() transition. Without this, a plain process restart of
+		// an already-primary pooler would never re-ensure them, even after
+		// upgrading to a pooler version that knows about them.
+		if mode, err := pm.postgresMode(ctx); err == nil && mode.OutOfRecovery() {
+			if err := pm.ensureSidecarSchemas(ctx); err != nil {
+				pm.logger.WarnContext(ctx, "failed to ensure sidecar schemas on open", "error", err)
+			}
 		}
-	}
 
-	pm.startPostgresMonitorPollerLocked()
+		pm.startPostgresMonitorPollerLocked()
+	}
 
 	pm.isOpen = true
 
@@ -583,6 +665,26 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 		pm.startBackupHealthPollerLocked()
 	}
 
+	// Relaunch the migration reconcile poller on the fresh context when the
+	// service layer has opted in. It is a no-op on standbys and drives in-flight
+	// migrations on the primary.
+	if pm.migrationEnabled {
+		pm.startMigrationReconcilePollerLocked()
+	}
+
+	// Seed the migration serving gate from the replicated multigres.migration
+	// table before publishing the target status: without this, a pooler
+	// restarting mid-IMPORT would publish targetServingStatus unreconciled,
+	// based solely on migrationImportHold's zero value (migrationHoldUnknown,
+	// which reads as not-held), and only self-correct on the next
+	// postgres-monitor tick — which can't run any earlier than this anyway,
+	// since its first step requires manager readiness that hasn't been
+	// reached yet at this point in startup. A few quick, local retries give
+	// this first read a real chance to land rather than leaving the gate
+	// unresolved on a single transient hiccup; safe to call here since
+	// openConnectionsLocked has already run.
+	pm.resolveMigrationHoldBeforeServing(ctx)
+
 	// Start health heartbeat goroutine and transition to the target status.
 	// Mutate notifies all components (query service, heartbeat, health streamer)
 	// and Mutates the record. The publisher (if running, started by
@@ -590,7 +692,7 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	// status changes here; the role is left as the record already holds it.
 	go pm.runHealthHeartbeat(pm.ctx, timeouts.DefaultHealthHeartbeatInterval)
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.ServingStatus = targetServingStatus
+		s.ServingStatus = reconciledServingStatus(targetServingStatus, pm.migrationServingHold())
 	}); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to transition serving status on open", "target", targetServingStatus, "error", err)
 	}
@@ -668,6 +770,13 @@ func (pm *MultipoolerManager) ShutdownForTest(ctx context.Context) {
 
 	pm.pgMonitor.Stop()
 	pm.closeLocked(lockCtx, "shutdown")
+
+	// A manager that was never opened still owns the context the constructor made, and
+	// anything started on it before Open (the migration reconcile poller) runs until it is
+	// cancelled. Cancelling is idempotent, so it is safe after a close that already did.
+	pm.mu.Lock()
+	pm.cancel()
+	pm.mu.Unlock()
 }
 
 // closeLocked performs the actual close operation. Returns true if the manager
@@ -765,20 +874,26 @@ func (pm *MultipoolerManager) QueryServiceControl() poolerserver.PoolerControlle
 // This is symmetric to closeConnectionsLocked and used by both Open() and reopenConnections().
 func (pm *MultipoolerManager) openConnectionsLocked() {
 	// Open connection pool manager
-
-	// Open connection pool manager
 	if pm.connPoolMgr != nil {
 		pgPort := int(pm.record.Port("postgres"))
 		connConfig := &connpoolmanager.ConnectionConfig{
 			SocketFile: pm.config.SocketFilePath,
 			Port:       pgPort,
-			Database:   pm.record.ShardKey().GetDatabase(),
+			Database:   pm.record.ShardRef().GetDatabase(),
 		}
 		// When no Unix socket is configured, fall back to a TCP dial against
 		// the multipooler's own hostname. Postgres is colocated with pgctld on
 		// the same host, so the multipooler's hostname always points at it.
 		if connConfig.SocketFile == "" {
 			connConfig.Host = pm.record.Hostname()
+		}
+		// An unmanaged pooler dials the external endpoint over TCP; pgctld's
+		// socket and the pooler's own hostname are irrelevant to it.
+		if pm.IsUnmanaged() {
+			connConfig.SocketFile = ""
+			connConfig.Host = pm.config.ExternalBackend.Host
+			connConfig.Port = pm.config.ExternalBackend.Port
+			connConfig.Database = pm.config.ExternalBackend.Database
 		}
 		// Apply libpq-style TLS settings on the multipooler → postgres leg.
 		// TLS is honored only on TCP dials; Unix-socket connections always run
@@ -819,6 +934,13 @@ func (pm *MultipoolerManager) openConnectionsLocked() {
 		}
 		pm.connPoolMgr.Open(pm.ctx, connConfig)
 		pm.logger.Info("connection pool manager opened")
+	}
+
+	// An unmanaged pooler must not create sidecar schema, heartbeat rows or any
+	// other object on the external database, and it has no replication or
+	// logical-slot machinery to poll.
+	if pm.IsUnmanaged() {
+		return
 	}
 
 	// Create sidecar schema and start heartbeat before opening query service controller
@@ -934,14 +1056,17 @@ func (pm *MultipoolerManager) getPgCtldClient() pgctldpb.PgCtldClient {
 	return pm.pgctldClient
 }
 
-// shardKey returns a ShardKey identifying this pooler's shard.
-func (pm *MultipoolerManager) shardKey() *clustermetadatapb.ShardKey {
-	return pm.record.ShardKey()
+// shardRef returns a ShardRef identifying this pooler's shard.
+func (pm *MultipoolerManager) shardRef() *clustermetadatapb.ShardRef {
+	return pm.record.ShardRef()
 }
 
 // BackupStatusSnapshot returns a consistent snapshot of the backup-health
 // tracker for the status page.
 func (pm *MultipoolerManager) BackupStatusSnapshot() backupengine.Snapshot {
+	if pm.backup == nil {
+		return backupengine.Snapshot{}
+	}
 	return pm.backup.Health().Snapshot()
 }
 
@@ -1060,7 +1185,7 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 		pm.setStateError(errors.New("ServiceID cannot be nil"))
 		return
 	}
-	database := pm.record.ShardKey().GetDatabase()
+	database := pm.record.ShardRef().GetDatabase()
 	if database == "" {
 		pm.setStateError(errors.New("database name not set in multipooler"))
 		return
@@ -1083,8 +1208,24 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 		ctx, cancel := context.WithTimeout(pm.ctx, 5*time.Second)
 		db, err := pm.topoClient.GetDatabase(ctx, database)
 		cancel()
-		if err != nil {
+		fromTopo := err == nil
+		if errors.Is(err, &topoclient.TopoError{Code: topoclient.NoNode}) {
+			// The topology answered that the database does not exist (for
+			// example, it was deleted): never serve it from a copy.
 			continue // Will retry with backoff
+		}
+		if !fromTopo {
+			// The topology is unreachable: a static leader starts from its
+			// copy of the record instead.
+			cached, cacheErr := pm.loadDatabaseCache()
+			if cacheErr != nil {
+				pm.logger.Warn("cannot use the copy of the database record", "error", cacheErr)
+			}
+			if cached == nil {
+				continue // Will retry with backoff
+			}
+			pm.logger.Warn("database record unavailable from topology; using the copy kept by this static leader", "database", database, "error", err)
+			db = cached
 		}
 
 		// Validate and parse backup configuration
@@ -1095,7 +1236,7 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 		}
 
 		// Verify we can compute the full backup path
-		_, err = backupConfig.FullPath(database, pm.record.ShardKey().GetTableGroup(), pm.record.ShardKey().GetShard())
+		_, err = backupConfig.FullPath(database, pm.record.ShardRef().GetTableGroup(), pm.record.ShardRef().GetShard())
 		if err != nil {
 			pm.setStateError(fmt.Errorf("failed to compute backup path: %w", err))
 			return
@@ -1175,6 +1316,10 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 		if err != nil {
 			pm.setStateError(err)
 			return
+		}
+
+		if fromTopo {
+			pm.saveDatabaseCache(db)
 		}
 
 		pm.mu.Lock()
@@ -1712,15 +1857,16 @@ func (pm *MultipoolerManager) Start(senv *servenv.ServEnv) {
 	pm.Open(lockCtx)
 	pm.actionLock.Release(lockCtx)
 
-	// Register the SIGTERM-driven graceful shutdown sequence. Runs as an
-	// OnTermSync hook so it is bounded by the lameduck window and completes
-	// before OnClose hooks (topology unregister) fire.
-	senv.OnTermSync(func() {
-		pm.GracefulShutdown(pm.ctx)
-	})
-
-	// Start loading multipooler record from topology asynchronously
-	go pm.loadShardConfigFromGlobalTopo()
+	// Start loading multipooler record from topology asynchronously. The load
+	// only resolves the backup location, which an unmanaged pooler does not use.
+	if pm.IsUnmanaged() {
+		pm.mu.Lock()
+		pm.topoLoaded = true
+		pm.mu.Unlock()
+		pm.checkAndSetReady()
+	} else {
+		go pm.loadShardConfigFromGlobalTopo()
+	}
 
 	senv.OnRunE(func() error {
 		// Block until manager is ready or error before registering gRPC services
@@ -1766,6 +1912,9 @@ func (pm *MultipoolerManager) Start(senv *servenv.ServEnv) {
 // double wire-up cannot leak a duplicate poller goroutine (openLocked owns
 // relaunch from here on).
 func (pm *MultipoolerManager) StartBackupHealth() {
+	if pm.IsUnmanaged() {
+		return
+	}
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	if pm.backupHealthEnabled {
@@ -1913,4 +2062,10 @@ func (pm *MultipoolerManager) WaitUntilReady(ctx context.Context) error {
 			return fmt.Errorf("unexpected state after ready signal: %s", state)
 		}
 	}
+}
+
+// PoolerRecord returns a copy of the pooler's topology record, without the
+// topology.
+func (pm *MultipoolerManager) PoolerRecord() *clustermetadatapb.Multipooler {
+	return pm.record.Snapshot()
 }

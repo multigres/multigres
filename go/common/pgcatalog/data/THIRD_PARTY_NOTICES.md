@@ -1,18 +1,19 @@
 # Third-Party Notices — PostgreSQL Catalog Data
 
-The `.dat` files in this directory are byte-identical copies of PostgreSQL's
-bootstrap catalog data files, redistributed under the PostgreSQL License
-reproduced below.
+The `.dat` and `.sql` files in this directory are byte-identical copies of
+PostgreSQL's bootstrap catalog data files, redistributed under the PostgreSQL
+License reproduced below.
 
 ## File provenance
 
-| File(s)            | Upstream source                                 | Version                                               |
-| ------------------ | ----------------------------------------------- | ----------------------------------------------------- |
-| `pg_type.dat`      | postgres `src/include/catalog/pg_type.dat`      | REL_17_6 (`7885b94dd81b98bbab9ed878680d156df7bf857f`) |
-| `pg_proc.dat`      | postgres `src/include/catalog/pg_proc.dat`      | REL_17_6 (`7885b94dd81b98bbab9ed878680d156df7bf857f`) |
-| `pg_operator.dat`  | postgres `src/include/catalog/pg_operator.dat`  | REL_17_6 (`7885b94dd81b98bbab9ed878680d156df7bf857f`) |
-| `pg_cast.dat`      | postgres `src/include/catalog/pg_cast.dat`      | REL_17_6 (`7885b94dd81b98bbab9ed878680d156df7bf857f`) |
-| `pg_collation.dat` | postgres `src/include/catalog/pg_collation.dat` | REL_17_6 (`7885b94dd81b98bbab9ed878680d156df7bf857f`) |
+| File(s)                | Upstream source                                     | Version                                               |
+| ---------------------- | --------------------------------------------------- | ----------------------------------------------------- |
+| `pg_type.dat`          | postgres `src/include/catalog/pg_type.dat`          | REL_17_6 (`7885b94dd81b98bbab9ed878680d156df7bf857f`) |
+| `pg_proc.dat`          | postgres `src/include/catalog/pg_proc.dat`          | REL_17_6 (`7885b94dd81b98bbab9ed878680d156df7bf857f`) |
+| `pg_operator.dat`      | postgres `src/include/catalog/pg_operator.dat`      | REL_17_6 (`7885b94dd81b98bbab9ed878680d156df7bf857f`) |
+| `pg_cast.dat`          | postgres `src/include/catalog/pg_cast.dat`          | REL_17_6 (`7885b94dd81b98bbab9ed878680d156df7bf857f`) |
+| `pg_collation.dat`     | postgres `src/include/catalog/pg_collation.dat`     | REL_17_6 (`7885b94dd81b98bbab9ed878680d156df7bf857f`) |
+| `system_functions.sql` | postgres `src/backend/catalog/system_functions.sql` | REL_17_6 (`7885b94dd81b98bbab9ed878680d156df7bf857f`) |
 
 No transformations are applied: the files are exact copies of the upstream
 sources at the version above. When updating to a new PostgreSQL release,
@@ -23,7 +24,7 @@ re-copy the files verbatim, update this table, and regenerate with
 
 ## PostgreSQL catalog data — PostgreSQL License
 
-Source: <https://github.com/postgres/postgres> (`src/include/catalog/*.dat`)
+Source: <https://github.com/postgres/postgres> (`src/include/catalog/*.dat`, `src/backend/catalog/system_functions.sql`)
 
 ```text
 PostgreSQL Database Management System

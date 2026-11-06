@@ -566,6 +566,13 @@ func (s *PgCtldService) Start(ctx context.Context, req *pb.StartRequest) (*pb.St
 		return nil, fmt.Errorf("data directory not initialized: %s. Run 'pgctld init' first", dataDir)
 	}
 
+	// Refuse during an incomplete restore before the standby.signal change and
+	// crash recovery below touch the data directory. StartPostgreSQLWithResult
+	// checks again for the start command.
+	if err := checkNoIncompleteRestore(s.pgConfig.PoolerDir); err != nil {
+		return nil, err
+	}
+
 	// Select the start mode for this existing data directory. Default (as_primary
 	// false) writes standby.signal so postgres comes up in recovery (standby) mode
 	// and never as a writable primary on its own; as_primary removes it for a

@@ -14,25 +14,25 @@
 
 package constants
 
-import "fmt"
-
 // DefaultTableGroup is the tablegroup value that indicates this multipooler
 // serves the default database where multischema global tables should be created.
 const DefaultTableGroup = "default"
 
-// DefaultShard is the only shard supported for the default tablegroup in the MVP.
-const DefaultShard = "0-inf"
+// Shard names are "<start>-<end>" (see keyrange.ParseShardName). These are the
+// spellings of the two open ends of the keyspace.
+const (
+	// ShardNameMinBound is the shard-name spelling of the start of the keyspace.
+	ShardNameMinBound = "0"
+	// ShardNameMaxBound is the shard-name spelling of the end of the keyspace.
+	ShardNameMaxBound = "inf"
+)
 
-// ValidateMVPTableGroupAndShard validates that the tablegroup and shard values
-// match the MVP constraints. Returns an error if they don't.
-//
-// MVP Limitation: Currently, we only support the default tablegroup with shard "0-inf".
-func ValidateMVPTableGroupAndShard(tableGroup, shard string) error {
-	if tableGroup != DefaultTableGroup {
-		return fmt.Errorf("only default tablegroup is supported, got: %s", tableGroup)
-	}
-	if shard != DefaultShard {
-		return fmt.Errorf("only shard %s is supported for default tablegroup, got: %s", DefaultShard, shard)
-	}
-	return nil
+// DefaultShard is the only shard of the default tablegroup: the full keyspace.
+const DefaultShard = ShardNameMinBound + "-" + ShardNameMaxBound
+
+// IsCatalogShard reports whether the given tablegroup and shard identify the
+// shard that hosts the multischema catalog tables (tablegroup,
+// tablegroup_table, shard): the default tablegroup's only shard.
+func IsCatalogShard(tableGroup, shard string) bool {
+	return tableGroup == DefaultTableGroup && shard == DefaultShard
 }

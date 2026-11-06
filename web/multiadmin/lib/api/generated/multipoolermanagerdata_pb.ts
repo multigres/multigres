@@ -331,6 +331,119 @@ proto3.util.setEnumType(SynchronousCommitLevel, "multipoolermanagerdata.Synchron
 ]);
 
 /**
+ * OperationKind is what a catalog operation does.
+ *
+ * @generated from enum multipoolermanagerdata.OperationKind
+ */
+export enum OperationKind {
+  /**
+   * @generated from enum value: OPERATION_KIND_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * CREATE_TABLEGROUP creates a tablegroup and its shards.
+   *
+   * @generated from enum value: OPERATION_KIND_CREATE_TABLEGROUP = 1;
+   */
+  CREATE_TABLEGROUP = 1,
+
+  /**
+   * DROP_TABLEGROUP drops a tablegroup and its shards.
+   *
+   * @generated from enum value: OPERATION_KIND_DROP_TABLEGROUP = 2;
+   */
+  DROP_TABLEGROUP = 2,
+}
+// Retrieve enum metadata with: proto3.getEnumType(OperationKind)
+proto3.util.setEnumType(OperationKind, "multipoolermanagerdata.OperationKind", [
+  { no: 0, name: "OPERATION_KIND_UNSPECIFIED" },
+  { no: 1, name: "OPERATION_KIND_CREATE_TABLEGROUP" },
+  { no: 2, name: "OPERATION_KIND_DROP_TABLEGROUP" },
+]);
+
+/**
+ * OperationState is where a catalog operation is in its lifecycle.
+ *
+ * @generated from enum multipoolermanagerdata.OperationState
+ */
+export enum OperationState {
+  /**
+   * @generated from enum value: OPERATION_STATE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * CREATING is a tablegroup creation in flight.
+   *
+   * @generated from enum value: OPERATION_STATE_CREATING = 1;
+   */
+  CREATING = 1,
+
+  /**
+   * DROPPING is a tablegroup drop in flight.
+   *
+   * @generated from enum value: OPERATION_STATE_DROPPING = 2;
+   */
+  DROPPING = 2,
+
+  /**
+   * DONE is an operation that finished.
+   *
+   * @generated from enum value: OPERATION_STATE_DONE = 3;
+   */
+  DONE = 3,
+
+  /**
+   * FAILED is a creation that was cancelled; last_error holds the reason. A
+   * drop never fails.
+   *
+   * @generated from enum value: OPERATION_STATE_FAILED = 4;
+   */
+  FAILED = 4,
+}
+// Retrieve enum metadata with: proto3.getEnumType(OperationState)
+proto3.util.setEnumType(OperationState, "multipoolermanagerdata.OperationState", [
+  { no: 0, name: "OPERATION_STATE_UNSPECIFIED" },
+  { no: 1, name: "OPERATION_STATE_CREATING" },
+  { no: 2, name: "OPERATION_STATE_DROPPING" },
+  { no: 3, name: "OPERATION_STATE_DONE" },
+  { no: 4, name: "OPERATION_STATE_FAILED" },
+]);
+
+/**
+ * TableGroupState is the lifecycle state of a listed tablegroup.
+ *
+ * @generated from enum multipoolermanagerdata.TableGroupState
+ */
+export enum TableGroupState {
+  /**
+   * @generated from enum value: TABLE_GROUP_STATE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * CREATING is a tablegroup whose shards are being provisioned.
+   *
+   * @generated from enum value: TABLE_GROUP_STATE_CREATING = 1;
+   */
+  CREATING = 1,
+
+  /**
+   * ACTIVE is a tablegroup whose creation completed.
+   *
+   * @generated from enum value: TABLE_GROUP_STATE_ACTIVE = 2;
+   */
+  ACTIVE = 2,
+}
+// Retrieve enum metadata with: proto3.getEnumType(TableGroupState)
+proto3.util.setEnumType(TableGroupState, "multipoolermanagerdata.TableGroupState", [
+  { no: 0, name: "TABLE_GROUP_STATE_UNSPECIFIED" },
+  { no: 1, name: "TABLE_GROUP_STATE_CREATING" },
+  { no: 2, name: "TABLE_GROUP_STATE_ACTIVE" },
+]);
+
+/**
  * Primary connection information parsed from PostgreSQL's primary_conninfo setting
  *
  * @generated from message multipoolermanagerdata.PrimaryConnInfo
@@ -2734,6 +2847,595 @@ export class SettingMismatch extends Message<SettingMismatch> {
 
   static equals(a: SettingMismatch | PlainMessage<SettingMismatch> | undefined, b: SettingMismatch | PlainMessage<SettingMismatch> | undefined): boolean {
     return proto3.util.equals(SettingMismatch, a, b);
+  }
+}
+
+/**
+ * CreateTableGroupRequest records the intent to create a tablegroup.
+ *
+ * @generated from message multipoolermanagerdata.CreateTableGroupRequest
+ */
+export class CreateTableGroupRequest extends Message<CreateTableGroupRequest> {
+  /**
+   * name is the tablegroup name as written in SQL.
+   *
+   * @generated from field: string name = 1;
+   */
+  name = "";
+
+  /**
+   * shards is the shard layout as shard names ("0-80", "80-inf"). It must
+   * cover the whole keyspace with no gaps or overlaps, in any order. Empty
+   * means a single 0-inf shard.
+   *
+   * @generated from field: repeated string shards = 2;
+   */
+  shards: string[] = [];
+
+  /**
+   * if_not_exists makes an already-active tablegroup of this name a no-op
+   * (already_exists is set on the response) instead of an error.
+   *
+   * @generated from field: bool if_not_exists = 3;
+   */
+  ifNotExists = false;
+
+  constructor(data?: PartialMessage<CreateTableGroupRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.CreateTableGroupRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "shards", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+    { no: 3, name: "if_not_exists", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateTableGroupRequest {
+    return new CreateTableGroupRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CreateTableGroupRequest {
+    return new CreateTableGroupRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CreateTableGroupRequest {
+    return new CreateTableGroupRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: CreateTableGroupRequest | PlainMessage<CreateTableGroupRequest> | undefined, b: CreateTableGroupRequest | PlainMessage<CreateTableGroupRequest> | undefined): boolean {
+    return proto3.util.equals(CreateTableGroupRequest, a, b);
+  }
+}
+
+/**
+ * CreateTableGroupResponse identifies the operation that creates the tablegroup.
+ *
+ * @generated from message multipoolermanagerdata.CreateTableGroupResponse
+ */
+export class CreateTableGroupResponse extends Message<CreateTableGroupResponse> {
+  /**
+   * operation_id is the operation to poll with GetOperation: a UUID the
+   * catalog primary generates when it records the operation. Empty when
+   * already_exists is set.
+   *
+   * @generated from field: string operation_id = 1;
+   */
+  operationId = "";
+
+  /**
+   * tablegroup_id is the catalog identity of the tablegroup.
+   *
+   * @generated from field: int64 tablegroup_id = 2;
+   */
+  tablegroupId = protoInt64.zero;
+
+  /**
+   * already_exists is set when the tablegroup was already active and
+   * if_not_exists was requested; nothing was changed.
+   *
+   * @generated from field: bool already_exists = 3;
+   */
+  alreadyExists = false;
+
+  constructor(data?: PartialMessage<CreateTableGroupResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.CreateTableGroupResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "operation_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "tablegroup_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 3, name: "already_exists", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateTableGroupResponse {
+    return new CreateTableGroupResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CreateTableGroupResponse {
+    return new CreateTableGroupResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CreateTableGroupResponse {
+    return new CreateTableGroupResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: CreateTableGroupResponse | PlainMessage<CreateTableGroupResponse> | undefined, b: CreateTableGroupResponse | PlainMessage<CreateTableGroupResponse> | undefined): boolean {
+    return proto3.util.equals(CreateTableGroupResponse, a, b);
+  }
+}
+
+/**
+ * GetOperationRequest looks up one catalog operation.
+ *
+ * @generated from message multipoolermanagerdata.GetOperationRequest
+ */
+export class GetOperationRequest extends Message<GetOperationRequest> {
+  /**
+   * operation_id is the operation's UUID, as returned by CreateTableGroup or
+   * DropTableGroup.
+   *
+   * @generated from field: string operation_id = 1;
+   */
+  operationId = "";
+
+  constructor(data?: PartialMessage<GetOperationRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.GetOperationRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "operation_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetOperationRequest {
+    return new GetOperationRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetOperationRequest {
+    return new GetOperationRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetOperationRequest {
+    return new GetOperationRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetOperationRequest | PlainMessage<GetOperationRequest> | undefined, b: GetOperationRequest | PlainMessage<GetOperationRequest> | undefined): boolean {
+    return proto3.util.equals(GetOperationRequest, a, b);
+  }
+}
+
+/**
+ * GetOperationResponse carries the operation's current state.
+ *
+ * @generated from message multipoolermanagerdata.GetOperationResponse
+ */
+export class GetOperationResponse extends Message<GetOperationResponse> {
+  /**
+   * @generated from field: multipoolermanagerdata.Operation operation = 1;
+   */
+  operation?: Operation;
+
+  constructor(data?: PartialMessage<GetOperationResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.GetOperationResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "operation", kind: "message", T: Operation },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetOperationResponse {
+    return new GetOperationResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetOperationResponse {
+    return new GetOperationResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetOperationResponse {
+    return new GetOperationResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetOperationResponse | PlainMessage<GetOperationResponse> | undefined, b: GetOperationResponse | PlainMessage<GetOperationResponse> | undefined): boolean {
+    return proto3.util.equals(GetOperationResponse, a, b);
+  }
+}
+
+/**
+ * Operation is a durable catalog operation.
+ *
+ * @generated from message multipoolermanagerdata.Operation
+ */
+export class Operation extends Message<Operation> {
+  /**
+   * operation_id is the operation's UUID, generated by the catalog primary.
+   *
+   * @generated from field: string operation_id = 1;
+   */
+  operationId = "";
+
+  /**
+   * @generated from field: multipoolermanagerdata.OperationKind kind = 2;
+   */
+  kind = OperationKind.UNSPECIFIED;
+
+  /**
+   * state is CREATING or DROPPING while the operation is in flight, then
+   * DONE or FAILED.
+   *
+   * @generated from field: multipoolermanagerdata.OperationState state = 3;
+   */
+  state = OperationState.UNSPECIFIED;
+
+  /**
+   * tablegroup_id and tablegroup_name identify the tablegroup the operation
+   * acts on.
+   *
+   * @generated from field: int64 tablegroup_id = 4;
+   */
+  tablegroupId = protoInt64.zero;
+
+  /**
+   * @generated from field: string tablegroup_name = 5;
+   */
+  tablegroupName = "";
+
+  /**
+   * shards_desired is the number of shards in the requested layout.
+   *
+   * @generated from field: int32 shards_desired = 6;
+   */
+  shardsDesired = 0;
+
+  /**
+   * shards_serving is, for a creation, how many of those shards currently
+   * have a serving primary registered in topology, read at call time. For a
+   * done creation it equals shards_desired. Zero for a drop.
+   *
+   * @generated from field: int32 shards_serving = 7;
+   */
+  shardsServing = 0;
+
+  /**
+   * last_error is the reason a failed operation failed, or the most recent
+   * transient error observed while creating. Empty otherwise.
+   *
+   * @generated from field: string last_error = 8;
+   */
+  lastError = "";
+
+  /**
+   * cancel_requested is set once a cancel has been requested; the completion
+   * loop then fails a creation on its next pass. A drop cannot be cancelled.
+   *
+   * @generated from field: bool cancel_requested = 9;
+   */
+  cancelRequested = false;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 10;
+   */
+  createdAt?: Timestamp;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp updated_at = 11;
+   */
+  updatedAt?: Timestamp;
+
+  /**
+   * poolers_registered is, for a drop that is not done, how many pooler
+   * records carrying the tablegroup's id are still registered in topology,
+   * read at call time. The drop completes when it reaches zero. Zero for a
+   * creation.
+   *
+   * @generated from field: int32 poolers_registered = 12;
+   */
+  poolersRegistered = 0;
+
+  constructor(data?: PartialMessage<Operation>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.Operation";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "operation_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "kind", kind: "enum", T: proto3.getEnumType(OperationKind) },
+    { no: 3, name: "state", kind: "enum", T: proto3.getEnumType(OperationState) },
+    { no: 4, name: "tablegroup_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 5, name: "tablegroup_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 6, name: "shards_desired", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 7, name: "shards_serving", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 8, name: "last_error", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 9, name: "cancel_requested", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 10, name: "created_at", kind: "message", T: Timestamp },
+    { no: 11, name: "updated_at", kind: "message", T: Timestamp },
+    { no: 12, name: "poolers_registered", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Operation {
+    return new Operation().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): Operation {
+    return new Operation().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): Operation {
+    return new Operation().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: Operation | PlainMessage<Operation> | undefined, b: Operation | PlainMessage<Operation> | undefined): boolean {
+    return proto3.util.equals(Operation, a, b);
+  }
+}
+
+/**
+ * DropTableGroupRequest records the intent to drop a tablegroup.
+ *
+ * @generated from message multipoolermanagerdata.DropTableGroupRequest
+ */
+export class DropTableGroupRequest extends Message<DropTableGroupRequest> {
+  /**
+   * name is the tablegroup name as written in SQL.
+   *
+   * @generated from field: string name = 1;
+   */
+  name = "";
+
+  /**
+   * if_exists makes a missing tablegroup a no-op (not_found is set on the
+   * response) instead of an error.
+   *
+   * @generated from field: bool if_exists = 2;
+   */
+  ifExists = false;
+
+  constructor(data?: PartialMessage<DropTableGroupRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.DropTableGroupRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "if_exists", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DropTableGroupRequest {
+    return new DropTableGroupRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DropTableGroupRequest {
+    return new DropTableGroupRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DropTableGroupRequest {
+    return new DropTableGroupRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: DropTableGroupRequest | PlainMessage<DropTableGroupRequest> | undefined, b: DropTableGroupRequest | PlainMessage<DropTableGroupRequest> | undefined): boolean {
+    return proto3.util.equals(DropTableGroupRequest, a, b);
+  }
+}
+
+/**
+ * DropTableGroupResponse identifies the operation to wait on.
+ *
+ * @generated from message multipoolermanagerdata.DropTableGroupResponse
+ */
+export class DropTableGroupResponse extends Message<DropTableGroupResponse> {
+  /**
+   * operation_id is the UUID of the operation to poll with GetOperation. For
+   * an active tablegroup it is the DROP_TABLEGROUP operation, which ends
+   * DONE. For a tablegroup still being created it is that creation, which the
+   * drop has cancelled (cancelled_creation is set): the creation ends FAILED
+   * once cancelled, or DONE if it completed first, in which case the caller
+   * drops again. Empty when not_found is set.
+   *
+   * @generated from field: string operation_id = 1;
+   */
+  operationId = "";
+
+  /**
+   * tablegroup_id is the catalog identity of the tablegroup.
+   *
+   * @generated from field: int64 tablegroup_id = 2;
+   */
+  tablegroupId = protoInt64.zero;
+
+  /**
+   * not_found is set when no tablegroup has this name and if_exists was
+   * requested; nothing was changed.
+   *
+   * @generated from field: bool not_found = 3;
+   */
+  notFound = false;
+
+  /**
+   * cancelled_creation is set when the tablegroup was still being created and
+   * the drop requested cancellation of that creation instead.
+   *
+   * @generated from field: bool cancelled_creation = 4;
+   */
+  cancelledCreation = false;
+
+  constructor(data?: PartialMessage<DropTableGroupResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.DropTableGroupResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "operation_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "tablegroup_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 3, name: "not_found", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 4, name: "cancelled_creation", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DropTableGroupResponse {
+    return new DropTableGroupResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DropTableGroupResponse {
+    return new DropTableGroupResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DropTableGroupResponse {
+    return new DropTableGroupResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: DropTableGroupResponse | PlainMessage<DropTableGroupResponse> | undefined, b: DropTableGroupResponse | PlainMessage<DropTableGroupResponse> | undefined): boolean {
+    return proto3.util.equals(DropTableGroupResponse, a, b);
+  }
+}
+
+/**
+ * ListTableGroupsRequest lists the tablegroups the provisioner should have.
+ *
+ * @generated from message multipoolermanagerdata.ListTableGroupsRequest
+ */
+export class ListTableGroupsRequest extends Message<ListTableGroupsRequest> {
+  constructor(data?: PartialMessage<ListTableGroupsRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ListTableGroupsRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListTableGroupsRequest {
+    return new ListTableGroupsRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListTableGroupsRequest {
+    return new ListTableGroupsRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListTableGroupsRequest {
+    return new ListTableGroupsRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListTableGroupsRequest | PlainMessage<ListTableGroupsRequest> | undefined, b: ListTableGroupsRequest | PlainMessage<ListTableGroupsRequest> | undefined): boolean {
+    return proto3.util.equals(ListTableGroupsRequest, a, b);
+  }
+}
+
+/**
+ * ListTableGroupsResponse lists tablegroups with their shard layouts.
+ *
+ * @generated from message multipoolermanagerdata.ListTableGroupsResponse
+ */
+export class ListTableGroupsResponse extends Message<ListTableGroupsResponse> {
+  /**
+   * @generated from field: repeated multipoolermanagerdata.TableGroup table_groups = 1;
+   */
+  tableGroups: TableGroup[] = [];
+
+  constructor(data?: PartialMessage<ListTableGroupsResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ListTableGroupsResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "table_groups", kind: "message", T: TableGroup, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListTableGroupsResponse {
+    return new ListTableGroupsResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListTableGroupsResponse {
+    return new ListTableGroupsResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListTableGroupsResponse {
+    return new ListTableGroupsResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListTableGroupsResponse | PlainMessage<ListTableGroupsResponse> | undefined, b: ListTableGroupsResponse | PlainMessage<ListTableGroupsResponse> | undefined): boolean {
+    return proto3.util.equals(ListTableGroupsResponse, a, b);
+  }
+}
+
+/**
+ * TableGroup is a tablegroup as recorded in the catalog.
+ *
+ * @generated from message multipoolermanagerdata.TableGroup
+ */
+export class TableGroup extends Message<TableGroup> {
+  /**
+   * tablegroup_id is the catalog identity. Provisioners pass it to the
+   * tablegroup's poolers (see Multipooler.tablegroup_id).
+   *
+   * @generated from field: int64 tablegroup_id = 1;
+   */
+  tablegroupId = protoInt64.zero;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name = "";
+
+  /**
+   * state is CREATING or ACTIVE. Tablegroups being dropped are not listed.
+   *
+   * @generated from field: multipoolermanagerdata.TableGroupState state = 3;
+   */
+  state = TableGroupState.UNSPECIFIED;
+
+  /**
+   * shards is the shard layout in canonical order.
+   *
+   * @generated from field: repeated string shards = 4;
+   */
+  shards: string[] = [];
+
+  constructor(data?: PartialMessage<TableGroup>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.TableGroup";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "tablegroup_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "state", kind: "enum", T: proto3.getEnumType(TableGroupState) },
+    { no: 4, name: "shards", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): TableGroup {
+    return new TableGroup().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): TableGroup {
+    return new TableGroup().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): TableGroup {
+    return new TableGroup().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: TableGroup | PlainMessage<TableGroup> | undefined, b: TableGroup | PlainMessage<TableGroup> | undefined): boolean {
+    return proto3.util.equals(TableGroup, a, b);
   }
 }
 

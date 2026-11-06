@@ -21,6 +21,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"sort"
 	"sync"
 	"time"
@@ -169,6 +170,23 @@ type connCache struct {
 	capacity       int
 	metrics        *Metrics
 	transportCreds grpc.DialOption // TLS or insecure transport credentials
+	dialer         ContextDialer   // nil: dial pooler addresses directly
+}
+
+// ContextDialer opens the network connection to a pooler address (host:port).
+type ContextDialer func(ctx context.Context, addr string) (net.Conn, error)
+
+// Option configures a client.
+type Option func(*connCache)
+
+// WithContextDialer routes every pooler connection through dial, for a
+// caller that cannot resolve or route to pooler addresses itself (a process
+// outside the cluster, tunnelling through the Kubernetes API). The target is
+// then addressed as passthrough:///host:port, so dial receives the raw address:
+// gRPC's default dns resolver would otherwise try to resolve the host locally
+// and fail before dial is ever called.
+func WithContextDialer(dial ContextDialer) Option {
+	return func(cc *connCache) { cc.dialer = dial }
 }
 
 // newConnCache creates a new connection cache with the default capacity and insecure transport.
@@ -178,7 +196,7 @@ func newConnCache() *connCache {
 
 // newConnCacheWithCapacity creates a new connection cache with a specified capacity
 // and transport credentials dial option.
-func newConnCacheWithCapacity(capacity int, transportCreds grpc.DialOption) *connCache {
+func newConnCacheWithCapacity(capacity int, transportCreds grpc.DialOption, opts ...Option) *connCache {
 	cc := &connCache{
 		conns:          make(map[string]*cachedConn, capacity),
 		evict:          make([]*cachedConn, 0, capacity),
@@ -186,6 +204,9 @@ func newConnCacheWithCapacity(capacity int, transportCreds grpc.DialOption) *con
 		capacity:       capacity,
 		metrics:        NewMetrics(),
 		transportCreds: transportCreds,
+	}
+	for _, opt := range opts {
+		opt(cc)
 	}
 
 	// Register callback for cache size observable gauge
@@ -340,25 +361,29 @@ func (cc *connCache) pollOnce(ctx context.Context, addr string, poolerID *cluste
 // It returns the two-tuple of connection and closer that getOrDial returns.
 func (cc *connCache) newDial(ctx context.Context, addr string, poolerID *clustermetadatapb.ID) (*cachedConn, closeFunc, error) {
 	// Build client options with multipooler target for telemetry
-	clientOpts := []grpccommon.ClientOption{
-		grpccommon.WithDialOptions(
-			cc.transportCreds,
-			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				// Send a ping after this period of inactivity to detect dead connections.
-				// Matches the server-side keepalive Time to stay within server enforcement policy.
-				Time: 10 * time.Second,
-				// Close the connection if no response within this window.
-				Timeout: 10 * time.Second,
-				// Probe even when there are no active streams.
-				PermitWithoutStream: true,
-			}),
-		),
+	dialOpts := []grpc.DialOption{
+		cc.transportCreds,
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			// Send a ping after this period of inactivity to detect dead connections.
+			// Matches the server-side keepalive Time to stay within server enforcement policy.
+			Time: 10 * time.Second,
+			// Close the connection if no response within this window.
+			Timeout: 10 * time.Second,
+			// Probe even when there are no active streams.
+			PermitWithoutStream: true,
+		}),
 	}
+	target := addr
+	if cc.dialer != nil {
+		dialOpts = append(dialOpts, grpc.WithContextDialer(cc.dialer))
+		target = "passthrough:///" + addr
+	}
+	clientOpts := []grpccommon.ClientOption{grpccommon.WithDialOptions(dialOpts...)}
 	if poolerID != nil {
 		clientOpts = append(clientOpts, grpccommon.WithAttributes(PoolerSpanAttributes(poolerID)...))
 	}
 
-	grpcConn, err := grpccommon.NewClient(addr, clientOpts...)
+	grpcConn, err := grpccommon.NewClient(target, clientOpts...)
 	if err != nil {
 		cc.connWaitSema.Release(1)
 		return nil, nil, err

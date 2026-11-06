@@ -16,10 +16,9 @@ package constants
 
 import "time"
 
-// Connection-pool retry constants. Used by both the regular pool
-// (retryOnConnectionError around individual query ops) and the reserved
-// pool (acquire+validate retry on NewConn). Kept together so the two
-// retry regimes stay in lockstep.
+// Connection-pool retry constants. Used by the regular pool's checkout
+// (GetWithSettings) and the reserved pool (acquire+validate retry on
+// NewConn). Kept together so the two retry regimes stay in lockstep.
 const (
 	// MaxConnPoolRetryAttempts is the maximum number of attempts for
 	// retrying a connection-pool operation that hit a connection-class

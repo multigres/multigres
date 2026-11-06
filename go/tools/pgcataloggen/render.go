@@ -174,8 +174,8 @@ func renderProcs(b *strings.Builder, rows []ProcRow) {
 			}
 			args = "[]Oid{" + strings.Join(parts, ", ") + "}"
 		}
-		fmt.Fprintf(b, "\t{Oid: %d, Name: %q, ArgTypes: %s, RetType: %d, Strict: %t, Volatile: %q, RetSet: %t, Kind: %q, Src: %q},\n",
-			p.Oid, p.Name, args, p.RetType, p.Strict, rune(p.Volatile), p.RetSet, rune(p.Kind), p.Src)
+		fmt.Fprintf(b, "\t{Oid: %d, Name: %q, ArgTypes: %s, Variadic: %d, NArgDefaults: %d, RetType: %d, Strict: %t, Volatile: %q, RetSet: %t, Kind: %q, Src: %q},\n",
+			p.Oid, p.Name, args, p.Variadic, p.NArgDefaults, p.RetType, p.Strict, rune(p.Volatile), p.RetSet, rune(p.Kind), p.Src)
 	}
 	b.WriteString("}\n")
 }

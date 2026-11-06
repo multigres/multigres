@@ -44,7 +44,7 @@ func newReloadConfigTestManager(t *testing.T, pgctld *mockPgctldClient) (*Multip
 	t.Helper()
 	mockQueryService := mock.NewQueryService()
 	multipooler := &clustermetadatapb.Multipooler{
-		ShardKey: &clustermetadatapb.ShardKey{TableGroup: "default", Shard: "0-inf"},
+		ShardRef: &clustermetadatapb.ShardRef{TableGroup: "default", Shard: "0-inf"},
 	}
 	pm := &MultipoolerManager{
 		logger:       slog.New(slog.DiscardHandler),

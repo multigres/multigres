@@ -445,3 +445,23 @@ func TestIdentifierComparison(t *testing.T) {
 		})
 	}
 }
+
+// TestIdentifierTruncationIsAtACharacterBoundary: an identifier longer than 63 bytes is cut
+// at a character boundary, quoted or written with a Unicode escape, as PostgreSQL does
+// (pg_mbcliplen), so the token is valid UTF-8 and never ends in half a character.
+func TestIdentifierTruncationIsAtACharacterBoundary(t *testing.T) {
+	multibyte := strings.Repeat("é", 40) // 80 bytes; byte 63 is in the middle of a character
+	for name, input := range map[string]string{
+		"quoted":             `"` + multibyte + `"`,
+		"quoted with escape": `U&"` + strings.Repeat(`\00e9`, 40) + `"`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			lexer := NewLexer(input)
+			token := lexer.NextToken()
+			require.Equal(t, IDENT, token.Type)
+			require.Equal(t, strings.Repeat("é", 31), token.Value.Str, "62 bytes: the 32nd character does not fit")
+		})
+	}
+	require.Equal(t, strings.Repeat("a", 63), truncateIdentifier(strings.Repeat("a", 100), false))
+	require.Equal(t, "short", truncateIdentifier("short", false))
+}

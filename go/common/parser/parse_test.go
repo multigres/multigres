@@ -228,6 +228,7 @@ func (s *parseTestSuite) TestParsing() {
 	s.testFile("ddl_cases.json")
 	s.testFile("dml_cases.json")
 	s.testFile("set_cases.json")
+	s.testFile("sharding_cases.json")
 }
 
 // TestOne is for testing a single case during development
@@ -497,6 +498,7 @@ func (s *parseTestSuite) TestParseDeparseRoundtrip() {
 	s.roundtripFile("ddl_cases.json")
 	s.roundtripFile("dml_cases.json")
 	s.roundtripFile("set_cases.json")
+	s.roundtripFile("sharding_cases.json")
 	// deparse_cases.json is the curated deparse test corpus imported from
 	// pganalyze/libpg_query (test/deparse_tests.c). It targets deparser
 	// edge cases across statement types.

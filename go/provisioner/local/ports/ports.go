@@ -42,6 +42,10 @@ const (
 	// Pgctld
 	DefaultPgctldHTTP = 15400
 	DefaultPgctldGRPC = 15470
+	// Minigres (single-process multigateway+multipooler)
+	DefaultMinigresHTTP = 15500
+	DefaultMinigresGRPC = 15570
+	DefaultMinigresPG   = 15532
 
 	// pgBackRest server
 	DefaultPgbackRestPort = 18432

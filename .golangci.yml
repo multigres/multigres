@@ -381,6 +381,13 @@ linters:
           - staticcheck
         path: _test\.go$
         text: "SA1019: .*Type is deprecated: Marked as deprecated in clustermetadata"
+issues:
+  # Default is 3, which silently drops issues once a linter reports more than
+  # 3 with identical message text. When those duplicates span more than one
+  # package in a single run, which 3 survive is non-deterministic (the
+  # surviving issues can change file/package between otherwise-identical
+  # runs of the same code). Show every issue instead of truncating.
+  max-same-issues: 0
 formatters:
   enable:
     - gofumpt

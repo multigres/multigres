@@ -9,54 +9,41 @@ Multigres components support configuration through multiple sources with the fol
 
 ## Configuration Files
 
-Each component looks for its configuration file in the following locations:
+A component reads one YAML file whose keys are its flag names, for example `pg-port: 15432`.
 
-- Current directory (`./<component>.yaml`)
-- `./config/<component>.yaml`
-- `/etc/multigres/<component>.yaml`
+- `--config-file` gives the file's full path.
+- Otherwise the component looks for a file named `--config-name` (default `mtconfig`, any supported extension) in the `--config-path` directories (default `$MTDATAROOT`, or `./multigres_local`).
+- `--config-file-not-found-handling` controls what happens when no file is found (default: warn and continue).
 
-You can also specify a custom config file path using the `--config` / `-c` flag.
+Dynamic settings follow changes to the file while the component runs.
+
+The YAML files in this directory are examples.
 
 ## Environment Variables
 
-Environment variables are prefixed with the component name in uppercase:
-
-- `MULTIGATEWAY_*` for multigateway
-- `MULTIPOOLER_*` for multipooler
-- `PGCTLD_*` for pgctld
-- `MULTIORCH_*` for multiorch
-
-For example: `MULTIGATEWAY_PORT=5432` or `PGCTLD_LOG_LEVEL=debug`
+Settings that read an environment variable use the `MT_` prefix, shared by all components: for example `MT_PG_PORT` or `MT_CELL`. Each flag's help text and code name its variable; not every setting has one.
 
 ## Components
 
 ### multigateway
 
-PostgreSQL proxy that accepts client connections.
-
-**Configuration file**: `multigateway.yaml`
-**Environment prefix**: `MULTIGATEWAY_`
+PostgreSQL proxy that accepts client connections. Example: `multigateway.yaml`.
 
 ### multipooler
 
-Connection pooling service that communicates with pgctld.
-
-**Configuration file**: `multipooler.yaml`
-**Environment prefix**: `MULTIPOOLER_`
+Connection pooling service that communicates with pgctld. Example: `multipooler.yaml`.
 
 ### pgctld
 
-PostgreSQL interface daemon that connects directly to PostgreSQL.
-
-**Configuration file**: `pgctld.yaml`  
-**Environment prefix**: `PGCTLD_`
+PostgreSQL interface daemon that connects directly to PostgreSQL. Example: `pgctld.yaml`.
 
 ### multiorch
 
-Cluster orchestration service for consensus and failover.
+Cluster orchestration service for consensus and failover. Example: `multiorch.yaml`.
 
-**Configuration file**: `multiorch.yaml`
-**Environment prefix**: `MULTIORCH_`
+### minigres
+
+A multigateway and a multipooler in one process. Its file holds the process's settings at the top level and each half's settings behind the half's name (`multigateway.pg-port`, `multipooler.pgctld-addr`). Example: `minigres.yaml`; see `docs/general/minigres.md`.
 
 ## PostgreSQL Environment Variables
 

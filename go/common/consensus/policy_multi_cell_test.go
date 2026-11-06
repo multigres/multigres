@@ -292,3 +292,12 @@ func TestMultiCellPolicy_BuildSyncReplicationConfig(t *testing.T) {
 func TestMultiCellPolicy_Description(t *testing.T) {
 	require.Equal(t, "MULTI_CELL_AT_LEAST_N(N=2)", multiCellPolicy{}.Description())
 }
+
+func TestMultiCellPolicy_BuildSyncReplicationConfig_PrimaryOutsideCohort(t *testing.T) {
+	cohort := []*clustermetadatapb.ID{id("mp1", "cell-a"), id("mp2", "cell-b")}
+	outsider := id("primary", "cell-c")
+
+	_, err := multiCellPolicy{}.BuildSyncReplicationConfig(cohort, outsider)
+
+	require.EqualError(t, err, "cannot establish synchronous replication: primary cell-c_primary is not in the cohort")
+}

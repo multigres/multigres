@@ -17,6 +17,8 @@ package local
 import (
 	"testing"
 
+	"github.com/multigres/multigres/go/common/constants"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -306,4 +308,114 @@ func TestProvisionerConfig_PgBackRestUnderPgctld(t *testing.T) {
 
 	assert.Equal(t, 8443, cfg.Pgctld.PgBackRestPort)
 	assert.Equal(t, "/certs/pgbackrest", cfg.Pgctld.PgBackRestCertDir)
+}
+
+func TestDefaultMultigresCells(t *testing.T) {
+	cellConfigs, cells := defaultMultigresCells("/bin", "/base", "postgres", "default", "0-inf")
+
+	require.Len(t, cellConfigs, 3)
+	assert.Equal(t, []string{"zone1", "zone2", "zone3"}, []string{cellConfigs[0].Name, cellConfigs[1].Name, cellConfigs[2].Name})
+
+	require.Len(t, cells, 3)
+	for _, zone := range []string{"zone1", "zone2", "zone3"} {
+		cell, ok := cells[zone]
+		require.True(t, ok, "expected cell %s", zone)
+
+		// The classic topology populates the full triad and leaves Minigres
+		// unconfigured — this is the only signal provisioning reads, so it
+		// must be correct for the generic fan-out to pick the right services.
+		assert.NotEmpty(t, cell.Multigateway.Path, "zone %s: multigateway should be configured", zone)
+		assert.NotEmpty(t, cell.Multipooler.Path, "zone %s: multipooler should be configured", zone)
+		assert.NotEmpty(t, cell.Multiorch.Path, "zone %s: multiorch should be configured", zone)
+		assert.NotEmpty(t, cell.Pgctld.Path, "zone %s: pgctld should be configured", zone)
+		assert.Empty(t, cell.Minigres.Path, "zone %s: minigres should not be configured", zone)
+	}
+
+	// Ports must not collide across zones.
+	assert.NotEqual(t, cells["zone1"].Multigateway.PgPort, cells["zone2"].Multigateway.PgPort)
+	assert.NotEqual(t, cells["zone2"].Multigateway.PgPort, cells["zone3"].Multigateway.PgPort)
+}
+
+func TestDefaultMinigresCells(t *testing.T) {
+	cellConfigs, cells := defaultMinigresCells("/bin", "/base", "postgres", "default", "0-inf")
+
+	require.Len(t, cellConfigs, 1)
+	assert.Equal(t, "zone1", cellConfigs[0].Name)
+
+	require.Len(t, cells, 1)
+	cell, ok := cells["zone1"]
+	require.True(t, ok)
+
+	// The minigres topology populates only Minigres (plus its paired
+	// pgctld) and leaves the classic triad unconfigured — the inverse of
+	// defaultMultigresCells, read the same way by the generic fan-out.
+	assert.NotEmpty(t, cell.Minigres.Path)
+	assert.Equal(t, "postgres", cell.Minigres.Database)
+	assert.Equal(t, "default", cell.Minigres.TableGroup)
+	assert.Equal(t, "0-inf", cell.Minigres.Shard)
+	assert.NotEmpty(t, cell.Minigres.ServiceID)
+	assert.NotEmpty(t, cell.Pgctld.Path)
+
+	assert.Empty(t, cell.Multigateway.Path)
+	assert.Empty(t, cell.Multipooler.Path)
+	assert.Empty(t, cell.Multiorch.Path)
+}
+
+func TestDefaultConfig_TopologySelection(t *testing.T) {
+	tests := []struct {
+		name          string
+		options       map[string]string
+		wantCellCount int
+		wantMinigres  bool
+	}{
+		{name: "default topology", options: map[string]string{}, wantCellCount: 3, wantMinigres: false},
+		{name: "explicit multigres topology", options: map[string]string{"topology": "multigres"}, wantCellCount: 3, wantMinigres: false},
+		{name: "minigres topology", options: map[string]string{"topology": "minigres"}, wantCellCount: 1, wantMinigres: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &localProvisioner{}
+			result := p.DefaultConfig([]string{t.TempDir()}, tt.options)
+
+			yamlData, err := yaml.Marshal(result)
+			require.NoError(t, err)
+			var cfg LocalProvisionerConfig
+			require.NoError(t, yaml.Unmarshal(yamlData, &cfg))
+
+			require.Len(t, cfg.Cells, tt.wantCellCount)
+			cell, ok := cfg.Cells["zone1"]
+			require.True(t, ok)
+			assert.Equal(t, tt.wantMinigres, cell.Minigres.Path != "", "zone1 minigres configured")
+			assert.NotEqual(t, tt.wantMinigres, cell.Multigateway.Path != "", "zone1 multigateway configured")
+		})
+	}
+}
+
+func TestGetCellServiceConfig_Minigres(t *testing.T) {
+	p := &localProvisioner{
+		config: &LocalProvisionerConfig{
+			Cells: map[string]CellServicesConfig{
+				"zone1": {
+					Minigres: MinigresConfig{
+						Path:       "/bin/minigres",
+						Database:   "postgres",
+						TableGroup: "default",
+						Shard:      "0-inf",
+						ServiceID:  "abc123",
+						HttpPort:   15500,
+						GrpcPort:   15570,
+						PgPort:     15532,
+						LogLevel:   "info",
+					},
+				},
+			},
+		},
+	}
+
+	cfg, err := p.getCellServiceConfig("zone1", constants.ServiceMinigres)
+	require.NoError(t, err)
+	assert.Equal(t, "/bin/minigres", cfg["path"])
+	assert.Equal(t, 15532, cfg["pg_port"])
+	assert.Equal(t, "abc123", cfg["service-id"])
 }

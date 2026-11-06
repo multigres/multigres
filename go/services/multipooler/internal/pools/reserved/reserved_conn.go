@@ -459,11 +459,30 @@ func (c *Conn) AddReservationReason(reason uint32) {
 // latch is not transactional), but that recycled residue is deliberately not
 // tainted here — it is repaired lazily, only when it actually bites, by the
 // pool's checkout-time recovery (connpool.applySettingsWithReconnect and the
-// regular pool's QueryStreamingWithRetry, both keyed on
+// regular pool's StatelessQueryStreaming, both keyed on
 // mterrors.IsTempBuffersFreeze). Tainting on failure would instead close a
 // healthy backend for every rejected temp statement, mostly unfrozen ones.
 func (c *Conn) MarkTempTainted() {
 	c.closeOnRelease.Store(true)
+}
+
+// MarkTempDiscardedInTransaction records that DISCARD TEMP ran in the open
+// transaction, so the temp table reservation must be settled against the
+// backend when the transaction concludes (see TakeTempDiscardedInTransaction).
+func (c *Conn) MarkTempDiscardedInTransaction() {
+	if c.reservedProps != nil {
+		c.reservedProps.TempDiscardedInTxn = true
+	}
+}
+
+// TakeTempDiscardedInTransaction reports whether DISCARD TEMP ran in the
+// transaction that just concluded, and clears the mark.
+func (c *Conn) TakeTempDiscardedInTransaction() bool {
+	if c.reservedProps == nil || !c.reservedProps.TempDiscardedInTxn {
+		return false
+	}
+	c.reservedProps.TempDiscardedInTxn = false
+	return true
 }
 
 // RemoveReservationReason removes a reason from the reservation bitmask.

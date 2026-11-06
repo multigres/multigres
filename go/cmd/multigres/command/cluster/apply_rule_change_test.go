@@ -55,7 +55,7 @@ func TestBuildRequest_CertModeHappyPath(t *testing.T) {
 	leaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp1"}
 	mp2ID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp2"}
 	want := &multiadminpb.ApplyCertifiedRuleChangeRequest{
-		ShardKey: &clustermetadatapb.ShardKey{Database: "postgres", TableGroup: "default", Shard: "0-inf"},
+		ShardRef: &clustermetadatapb.ShardRef{Database: "postgres", TableGroup: "default", Shard: "0-inf"},
 		ProposedTransition: &clustermetadatapb.RulePosition{
 			Proposal: &clustermetadatapb.ShardRule{
 				LeaderId:      leaderID,
@@ -97,7 +97,7 @@ func TestBuildRequest_UnsafeDeriveMode(t *testing.T) {
 	leaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp1"}
 	mp2ID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp2"}
 	want := &multiadminpb.ApplyCertifiedRuleChangeRequest{
-		ShardKey: &clustermetadatapb.ShardKey{Database: "postgres", TableGroup: "default", Shard: "0-inf"},
+		ShardRef: &clustermetadatapb.ShardRef{Database: "postgres", TableGroup: "default", Shard: "0-inf"},
 		ProposedTransition: &clustermetadatapb.RulePosition{
 			Proposal: &clustermetadatapb.ShardRule{
 				LeaderId:      leaderID,
@@ -193,7 +193,7 @@ func makeConfirmCmd(stdin string) (*cobra.Command, *bytes.Buffer) {
 func testConfirmRequest() *multiadminpb.ApplyCertifiedRuleChangeRequest {
 	leaderID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "mp1"}
 	return &multiadminpb.ApplyCertifiedRuleChangeRequest{
-		ShardKey: &clustermetadatapb.ShardKey{Database: "postgres", TableGroup: "default", Shard: "0-inf"},
+		ShardRef: &clustermetadatapb.ShardRef{Database: "postgres", TableGroup: "default", Shard: "0-inf"},
 		ProposedTransition: &clustermetadatapb.RulePosition{
 			Proposal: &clustermetadatapb.ShardRule{
 				LeaderId:      leaderID,

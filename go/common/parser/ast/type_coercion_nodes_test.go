@@ -28,6 +28,8 @@ package ast
 import (
 	"testing"
 
+	"github.com/multigres/multigres/go/common/parser/datum"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -37,7 +39,7 @@ import (
 
 func TestRelabelType(t *testing.T) {
 	// Create input expression
-	input := NewConst(23, 42, false) // INT4 constant
+	input := NewConst(23, datum.Int32GetDatum(42), false) // INT4 constant
 
 	// Test basic RelabelType creation
 	rt := NewRelabelType(input, 20, -1, COERCE_EXPLICIT_CAST) // INT8
@@ -60,7 +62,7 @@ func TestRelabelType(t *testing.T) {
 }
 
 func TestImplicitRelabelType(t *testing.T) {
-	input := NewConst(23, 42, false)
+	input := NewConst(23, datum.Int32GetDatum(42), false)
 	rt := NewImplicitRelabelType(input, 25) // TEXT type
 
 	assert.Equal(t, COERCE_IMPLICIT_CAST, rt.Relabelformat, "Expected COERCE_IMPLICIT_CAST")
@@ -69,7 +71,7 @@ func TestImplicitRelabelType(t *testing.T) {
 }
 
 func TestExplicitRelabelType(t *testing.T) {
-	input := NewConst(23, 42, false)
+	input := NewConst(23, datum.Int32GetDatum(42), false)
 	rt := NewExplicitRelabelType(input, 1700) // NUMERIC type
 
 	assert.Equal(t, COERCE_EXPLICIT_CAST, rt.Relabelformat, "Expected COERCE_EXPLICIT_CAST")
@@ -82,7 +84,7 @@ func TestExplicitRelabelType(t *testing.T) {
 // ==============================================================================
 
 func TestCoerceViaIO(t *testing.T) {
-	input := NewConst(25, Datum(42), false)                 // TEXT constant
+	input := NewConst(25, datum.Int32GetDatum(42), false)   // TEXT constant
 	cvio := NewCoerceViaIO(input, 23, COERCE_EXPLICIT_CAST) // Convert to INT4
 
 	// Verify properties
@@ -103,7 +105,7 @@ func TestCoerceViaIO(t *testing.T) {
 }
 
 func TestExplicitCoerceViaIO(t *testing.T) {
-	input := NewConst(25, Datum(314), false)
+	input := NewConst(25, datum.Int32GetDatum(314), false)
 	cvio := NewExplicitCoerceViaIO(input, 700) // FLOAT4 type
 
 	assert.Equal(t, COERCE_EXPLICIT_CAST, cvio.Coerceformat, "Expected COERCE_EXPLICIT_CAST")
@@ -117,8 +119,8 @@ func TestExplicitCoerceViaIO(t *testing.T) {
 
 func TestArrayCoerceExpr(t *testing.T) {
 	// Create an array expression
-	arrayExpr := NewConst(1007, Datum(123), false) // INT4 array
-	elemExpr := NewConst(481, Datum(1), false)     // Example element coercion expression
+	arrayExpr := NewConst(1007, datum.Int32GetDatum(123), false) // INT4 array
+	elemExpr := NewConst(481, datum.Int32GetDatum(1), false)     // Example element coercion expression
 
 	ace := NewArrayCoerceExpr(arrayExpr, elemExpr, 1016, COERCE_EXPLICIT_CAST) // INT8 array
 
@@ -140,8 +142,8 @@ func TestArrayCoerceExpr(t *testing.T) {
 }
 
 func TestExplicitArrayCoerceExpr(t *testing.T) {
-	arrayExpr := NewConst(1007, Datum(123), false)
-	elemExpr := NewConst(481, Datum(1), false)
+	arrayExpr := NewConst(1007, datum.Int32GetDatum(123), false)
+	elemExpr := NewConst(481, datum.Int32GetDatum(1), false)
 	ace := NewExplicitArrayCoerceExpr(arrayExpr, elemExpr, 1009) // TEXTARRAY
 
 	assert.Equal(t, COERCE_EXPLICIT_CAST, ace.Coerceformat, "Expected COERCE_EXPLICIT_CAST")
@@ -155,7 +157,7 @@ func TestExplicitArrayCoerceExpr(t *testing.T) {
 
 func TestConvertRowtypeExpr(t *testing.T) {
 	// Create a row expression
-	rowExpr := NewConst(16, Datum(1), false) // Placeholder row value
+	rowExpr := NewConst(16, datum.Int32GetDatum(1), false) // Placeholder row value
 
 	crte := NewConvertRowtypeExpr(rowExpr, 12345, COERCE_IMPLICIT_CAST)
 
@@ -181,8 +183,8 @@ func TestConvertRowtypeExpr(t *testing.T) {
 // ==============================================================================
 
 func TestCollateExpr(t *testing.T) {
-	textExpr := NewConst(25, Datum(0), false) // TEXT value
-	collOid := Oid(100)                       // Example collation OID
+	textExpr := NewConst(25, Datum{}, false) // TEXT value
+	collOid := Oid(100)                      // Example collation OID
 
 	ce := NewCollateExpr(textExpr, collOid)
 
@@ -207,7 +209,7 @@ func TestCollateExpr(t *testing.T) {
 
 func TestFieldSelect(t *testing.T) {
 	// Create a composite type expression
-	recordExpr := NewConst(16, Datum(1), false) // Placeholder record
+	recordExpr := NewConst(16, datum.Int32GetDatum(1), false) // Placeholder record
 
 	fs := NewFieldSelect(recordExpr, 2, 25) // Select field 2, result type TEXT
 
@@ -235,9 +237,9 @@ func TestFieldSelect(t *testing.T) {
 // ==============================================================================
 
 func TestFieldStore(t *testing.T) {
-	recordExpr := NewConst(16, Datum(1), false) // Placeholder record
-	newVal1 := NewConst(23, 42, false)          // INT4 value
-	newVal2 := NewConst(25, Datum(0), false)    // TEXT value
+	recordExpr := NewConst(16, datum.Int32GetDatum(1), false) // Placeholder record
+	newVal1 := NewConst(23, datum.Int32GetDatum(42), false)   // INT4 value
+	newVal2 := NewConst(25, Datum{}, false)                   // TEXT value
 
 	fs := NewFieldStore(recordExpr, []Expression{newVal1, newVal2}, []AttrNumber{1, 3}, 12345)
 
@@ -263,8 +265,8 @@ func TestFieldStore(t *testing.T) {
 }
 
 func TestSingleFieldStore(t *testing.T) {
-	recordExpr := NewConst(16, Datum(1), false)
-	newVal := NewConst(23, 99, false)
+	recordExpr := NewConst(16, datum.Int32GetDatum(1), false)
+	newVal := NewConst(23, datum.Int32GetDatum(99), false)
 
 	fs := NewSingleFieldStore(recordExpr, newVal, 2, 12345)
 
@@ -280,8 +282,8 @@ func TestSingleFieldStore(t *testing.T) {
 // ==============================================================================
 
 func TestSubscriptingRef(t *testing.T) {
-	arrayExpr := NewConst(1007, Datum(123), false) // INT4 array
-	indexExpr := NewConst(23, 1, false)            // Index 1
+	arrayExpr := NewConst(1007, datum.Int32GetDatum(123), false) // INT4 array
+	indexExpr := NewConst(23, datum.Int32GetDatum(1), false)     // Index 1
 
 	sr := NewSubscriptingRef(1007, 23, 23, arrayExpr, []Expression{indexExpr})
 
@@ -307,8 +309,8 @@ func TestSubscriptingRef(t *testing.T) {
 }
 
 func TestArraySubscript(t *testing.T) {
-	arrayExpr := NewConst(1007, Datum(123), false)
-	indexExpr := NewConst(23, 1, false)
+	arrayExpr := NewConst(1007, datum.Int32GetDatum(123), false)
+	indexExpr := NewConst(23, datum.Int32GetDatum(1), false)
 
 	sr := NewArraySubscript(1007, 23, arrayExpr, indexExpr)
 
@@ -320,9 +322,9 @@ func TestArraySubscript(t *testing.T) {
 }
 
 func TestArraySlice(t *testing.T) {
-	arrayExpr := NewConst(1007, Datum(123), false)
-	lowerExpr := NewConst(23, 1, false)
-	upperExpr := NewConst(23, 3, false)
+	arrayExpr := NewConst(1007, datum.Int32GetDatum(123), false)
+	lowerExpr := NewConst(23, datum.Int32GetDatum(1), false)
+	upperExpr := NewConst(23, datum.Int32GetDatum(3), false)
 
 	sr := NewArraySlice(1007, 23, arrayExpr, lowerExpr, upperExpr)
 
@@ -332,9 +334,9 @@ func TestArraySlice(t *testing.T) {
 }
 
 func TestArrayAssignment(t *testing.T) {
-	arrayExpr := NewConst(1007, Datum(123), false)
-	indexExpr := NewConst(23, 1, false)
-	assignExpr := NewConst(23, 99, false)
+	arrayExpr := NewConst(1007, datum.Int32GetDatum(123), false)
+	indexExpr := NewConst(23, datum.Int32GetDatum(1), false)
+	assignExpr := NewConst(23, datum.Int32GetDatum(99), false)
 
 	sr := NewArrayAssignment(1007, 23, arrayExpr, indexExpr, assignExpr)
 
@@ -350,7 +352,7 @@ func TestArrayAssignment(t *testing.T) {
 // ==============================================================================
 
 func TestNullTest(t *testing.T) {
-	expr := NewConst(23, 42, false)
+	expr := NewConst(23, datum.Int32GetDatum(42), false)
 	nt := NewNullTest(expr, IS_NULL)
 
 	// Verify properties
@@ -371,21 +373,21 @@ func TestNullTest(t *testing.T) {
 }
 
 func TestIsNullTest(t *testing.T) {
-	expr := NewConst(23, 42, false)
+	expr := NewConst(23, datum.Int32GetDatum(42), false)
 	nt := NewIsNullTest(expr)
 
 	assert.Equal(t, IS_NULL, nt.Nulltesttype, "Expected IS_NULL")
 }
 
 func TestIsNotNullTest(t *testing.T) {
-	expr := NewConst(23, 42, false)
+	expr := NewConst(23, datum.Int32GetDatum(42), false)
 	nt := NewIsNotNullTest(expr)
 
 	assert.Equal(t, IS_NOT_NULL, nt.Nulltesttype, "Expected IS_NOT_NULL")
 }
 
 func TestRowNullTest(t *testing.T) {
-	rowExpr := NewConst(16, Datum(1), false) // Row value
+	rowExpr := NewConst(16, datum.Int32GetDatum(1), false) // Row value
 	nt := NewRowNullTest(rowExpr, IS_NULL)
 
 	assert.True(t, nt.Argisrow, "Expected row argument flag to be set")
@@ -400,7 +402,7 @@ func TestRowNullTest(t *testing.T) {
 // ==============================================================================
 
 func TestBooleanTest(t *testing.T) {
-	boolExpr := NewConst(16, Datum(1), false) // Boolean value
+	boolExpr := NewConst(16, datum.Int32GetDatum(1), false) // Boolean value
 	bt := NewBooleanTest(boolExpr, IS_TRUE)
 
 	// Verify properties
@@ -419,7 +421,7 @@ func TestBooleanTest(t *testing.T) {
 }
 
 func TestBooleanTestTypes(t *testing.T) {
-	boolExpr := NewConst(16, Datum(1), false)
+	boolExpr := NewConst(16, datum.Int32GetDatum(1), false)
 
 	// Test all boolean test types
 	testTypes := []BoolTestType{
@@ -433,21 +435,21 @@ func TestBooleanTestTypes(t *testing.T) {
 }
 
 func TestIsTrueTest(t *testing.T) {
-	boolExpr := NewConst(16, Datum(1), false)
+	boolExpr := NewConst(16, datum.Int32GetDatum(1), false)
 	bt := NewIsTrueTest(boolExpr)
 
 	assert.Equal(t, IS_TRUE, bt.Booltesttype, "Expected IS_TRUE")
 }
 
 func TestIsFalseTest(t *testing.T) {
-	boolExpr := NewConst(16, Datum(0), false)
+	boolExpr := NewConst(16, Datum{}, false)
 	bt := NewIsFalseTest(boolExpr)
 
 	assert.Equal(t, IS_FALSE, bt.Booltesttype, "Expected IS_FALSE")
 }
 
 func TestIsUnknownTest(t *testing.T) {
-	nullExpr := NewConst(16, Datum(0), true) // NULL boolean
+	nullExpr := NewConst(16, Datum{}, true) // NULL boolean
 	bt := NewIsUnknownTest(nullExpr)
 
 	assert.Equal(t, IS_UNKNOWN, bt.Booltesttype, "Expected IS_UNKNOWN")
@@ -458,7 +460,7 @@ func TestIsUnknownTest(t *testing.T) {
 // ==============================================================================
 
 func TestCoerceToDomain(t *testing.T) {
-	expr := NewConst(23, 42, false)
+	expr := NewConst(23, datum.Int32GetDatum(42), false)
 	domainOid := Oid(54321)
 
 	ctd := NewCoerceToDomain(expr, domainOid, -1, COERCE_IMPLICIT_CAST)
@@ -614,7 +616,7 @@ func TestInferenceElemWithCollation(t *testing.T) {
 
 func TestTypeCoercionInteraction(t *testing.T) {
 	// Test type coercion chain: INT -> TEXT -> DOMAIN
-	intExpr := NewConst(23, 42, false) // INT4
+	intExpr := NewConst(23, datum.Int32GetDatum(42), false) // INT4
 
 	// First coercion: INT to TEXT via IO
 	textCoercion := NewCoerceViaIO(intExpr, 25, COERCE_EXPLICIT_CAST)
@@ -635,13 +637,13 @@ func TestTypeCoercionInteraction(t *testing.T) {
 
 func TestFieldOperationsWithArrays(t *testing.T) {
 	// Test field selection from composite type containing arrays
-	recordExpr := NewConst(16, Datum(1), false) // Record
+	recordExpr := NewConst(16, datum.Int32GetDatum(1), false) // Record
 
 	// Select array field
 	arrayField := NewFieldSelect(recordExpr, 1, 1007) // INT4 array
 
 	// Index into selected array
-	indexExpr := NewConst(23, 0, false)
+	indexExpr := NewConst(23, datum.Int32GetDatum(0), false)
 	arraySubscript := NewArraySubscript(1007, 23, arrayField, indexExpr)
 
 	// Verify integration
@@ -656,7 +658,7 @@ func TestComplexNullAndBooleanTests(t *testing.T) {
 	// Test complex expressions with NULL and boolean tests
 
 	// Create a field selection that might be NULL
-	recordExpr := NewConst(16, Datum(1), false)
+	recordExpr := NewConst(16, datum.Int32GetDatum(1), false)
 	fieldSelect := NewFieldSelect(recordExpr, 2, 16) // Boolean field
 
 	// Test if the field is NULL
@@ -680,7 +682,7 @@ func TestComplexNullAndBooleanTests(t *testing.T) {
 // ==============================================================================
 
 func BenchmarkRelabelTypeCreation(b *testing.B) {
-	expr := NewConst(23, 42, false)
+	expr := NewConst(23, datum.Int32GetDatum(42), false)
 
 	for b.Loop() {
 		_ = NewRelabelType(expr, 20, -1, COERCE_EXPLICIT_CAST)
@@ -688,7 +690,7 @@ func BenchmarkRelabelTypeCreation(b *testing.B) {
 }
 
 func BenchmarkNullTestCreation(b *testing.B) {
-	expr := NewConst(23, 42, false)
+	expr := NewConst(23, datum.Int32GetDatum(42), false)
 
 	for b.Loop() {
 		_ = NewIsNullTest(expr)
@@ -696,7 +698,7 @@ func BenchmarkNullTestCreation(b *testing.B) {
 }
 
 func BenchmarkFieldSelectCreation(b *testing.B) {
-	recordExpr := NewConst(16, Datum(1), false)
+	recordExpr := NewConst(16, datum.Int32GetDatum(1), false)
 
 	for i := 0; b.Loop(); i++ {
 		_ = NewFieldSelect(recordExpr, AttrNumber(i%10+1), 25)
@@ -704,8 +706,8 @@ func BenchmarkFieldSelectCreation(b *testing.B) {
 }
 
 func BenchmarkSubscriptingRefCreation(b *testing.B) {
-	arrayExpr := NewConst(1007, Datum(123), false)
-	indexExpr := NewConst(23, 1, false)
+	arrayExpr := NewConst(1007, datum.Int32GetDatum(123), false)
+	indexExpr := NewConst(23, datum.Int32GetDatum(1), false)
 
 	for b.Loop() {
 		_ = NewArraySubscript(1007, 23, arrayExpr, indexExpr)

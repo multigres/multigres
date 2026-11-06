@@ -34,9 +34,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser/datum"
 	"github.com/multigres/multigres/go/common/parser/pgoid"
 	"github.com/multigres/multigres/go/common/pgcatalog"
-	"github.com/multigres/multigres/go/common/pgeval/datum"
 	"github.com/multigres/multigres/go/common/pgeval/fmgr"
 	_ "github.com/multigres/multigres/go/common/pgeval/funcs"
 	"github.com/multigres/multigres/go/common/pgeval/pgerror"
@@ -44,10 +44,14 @@ import (
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
-// TestScalarsAgainstPostgres tests direct local fmgr execution, not gateway
-// passthrough. Opt in with RUN_PGEVAL_DIFFERENTIAL=1: every invocation builds
-// PostgreSQL from source, so this must not run in ordinary PR integration jobs.
-// Build the exact catalog/port version, and fail on any mismatch.
+// TestScalarsAgainstPostgres tests the engine's own work, not gateway
+// passthrough: the Functions subtest calls every ported builtin directly
+// through fmgr, and the Expressions subtest analyzes SQL expressions locally
+// and compares the resolved types, deduced parameter types, errors and (where
+// the engine can evaluate them) values with the server's. Opt in with
+// RUN_PGEVAL_DIFFERENTIAL=1: every invocation builds PostgreSQL from source,
+// so this must not run in ordinary PR integration jobs. Build the exact
+// catalog/port version, and fail on any mismatch.
 func TestScalarsAgainstPostgres(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds and starts PostgreSQL; run without -short")
@@ -85,6 +89,13 @@ func TestScalarsAgainstPostgres(t *testing.T) {
 	require.NoError(t, conn.QueryRow(ctx, "SHOW server_version").Scan(&version))
 	require.Equal(t, "17.6", version)
 
+	t.Run("Functions", func(t *testing.T) { compareFunctions(t, ctx, conn, version) })
+	t.Run("Expressions", func(t *testing.T) { compareExpressions(t, ctx, conn) })
+}
+
+// compareFunctions calls every ported builtin directly through fmgr and
+// compares results with the same function invoked on the server.
+func compareFunctions(t *testing.T, ctx context.Context, conn *pgx.Conn, version string) {
 	rng := rand.New(rand.NewPCG(17, 6))
 	comparisons, functions := 0, 0
 	seen := map[string]bool{}

@@ -55,8 +55,10 @@ RUN apt-get update && \
     apt-cache policy pgbackrest && \
     apt-get install -y --no-install-recommends \
     pgbackrest \
+    postgresql-client-17 \
     procps && \
     pgbackrest version && \
+    pg_dump --version && \
     apt-get remove -y ca-certificates curl gnupg lsb-release && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
@@ -73,6 +75,7 @@ COPY --from=builder /src/bin/multiadmin /multigres/bin/
 COPY --from=builder /src/bin/multigateway /multigres/bin/
 COPY --from=builder /src/bin/multiorch /multigres/bin/
 COPY --from=builder /src/bin/multipooler /multigres/bin/
+COPY --from=builder /src/bin/minigres /multigres/bin/
 
 # Since this container serves multiple binaries depending on the execution it's impossible to have a healthcheck that applies to all at this point.
 # The healthcheck below exists only to satisfy Super-linter CHECKOV and it's not a reliable healthcheck for production.

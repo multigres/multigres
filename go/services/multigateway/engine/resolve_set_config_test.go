@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -87,7 +88,7 @@ func (e *resolveApplyExec) StreamExecute(
 	_ string,
 	_ string,
 	sql string,
-	_ *query.ExecuteSqlPreparedStatement,
+	_ *query.PreparedStatement,
 	_ *handler.MultigatewayConnectionState,
 	_ PlanExecInfo,
 	_ bool,
@@ -140,7 +141,7 @@ func (e *resolveApplyExec) ConcludeTransaction(context.Context, *server.Conn, *h
 	return nil
 }
 
-func (e *resolveApplyExec) StreamReplication(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+func (e *resolveApplyExec) StreamReplication(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (queryservice.ReplicationStream, error) {
 	return nil, nil
 }
 

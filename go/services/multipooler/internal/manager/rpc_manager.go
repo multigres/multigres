@@ -38,6 +38,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
+	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 // rewindOperationTimeout bounds the detached stop -> pg_rewind ->
@@ -667,6 +668,19 @@ func (pm *MultipoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 	return status, nil
 }
 
+// writeHeartbeatForAckedProposal writes a heartbeat that records a quorum-acked rule
+// proposal as the quorum-commit proof, so a newly promoted leader isn't judged on the
+// previous leader's stale watermark. Best effort: it never fails the rule write, but a failure is logged
+// as a warning because the stale watermark can then trigger a needless failover.
+func (pm *MultipoolerManager) writeHeartbeatForAckedProposal(ctx context.Context, lsn pgutil.LSN, startedAt time.Time) {
+	if pm.replTracker == nil {
+		return
+	}
+	if err := pm.replTracker.HeartbeatWriter().WriteProven(ctx, lsn, startedAt); err != nil {
+		pm.logger.WarnContext(ctx, "failed to write the heartbeat for an acked rule proposal", "lsn", lsn.String(), "error", err)
+	}
+}
+
 // PrimaryStatus gets the status of the leader server
 func (pm *MultipoolerManager) PrimaryStatus(ctx context.Context) (*multipoolermanagerdatapb.PrimaryStatus, error) {
 	if err := pm.checkReady(); err != nil {
@@ -860,7 +874,7 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 	// Publish the physical standby role, but keep the node DRAINING while its WAL
 	// remains rewind-suspect. The rewind path re-enables reads after it clears the
 	// flag.
-	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence()); err != nil {
+	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence(), pm.migrationServingHold()); err != nil {
 		return mterrors.Wrap(err, "failed to publish standby state after demote")
 	}
 
@@ -1198,7 +1212,7 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	// mid-rewind: clear the sentinel. A failure here is not fatal — the node
 	// is healthy — but leaves a stale sentinel that the monitor's healthy path would
 	// otherwise re-arm into a benign no-op re-rewind, so surface it as a warning.
-	if err := pm.removeRewindSentinel(); err != nil {
+	if err := pm.rewindSentinel().remove(); err != nil {
 		pm.logger.WarnContext(ctx, "failed to remove rewind sentinel after successful restart as standby", "error", err)
 	}
 
@@ -1215,7 +1229,7 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 	// Persist the restart guard before installing restore_command. From this point
 	// until restartAsStandbyLocked verifies a streaming standby, a crash must not
 	// allow the monitor to start postgres without first clearing archive recovery.
-	if err := pm.writeRewindSentinel(); err != nil {
+	if err := pm.rewindSentinel().write(); err != nil {
 		return false, mterrors.Wrap(err, "failed to write rewind sentinel before pg_rewind")
 	}
 

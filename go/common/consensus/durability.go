@@ -19,8 +19,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/tools/sortedmaps"
 )
@@ -295,6 +297,17 @@ func normalizeIDs(ids []*clustermetadatapb.ID) []*clustermetadatapb.ID {
 	return sortedmaps.Values(byKey)
 }
 
+// requirePrimaryInCohort fails unless primary is a member of cohort. Sync
+// replication configs count the primary's own write toward durability, which only
+// holds when the primary is one of the cohort members acknowledging it.
+func requirePrimaryInCohort(cohort []*clustermetadatapb.ID, primary *clustermetadatapb.ID) error {
+	if _, member := poolerKeysOf(cohort)[topoclient.ClusterIDString(primary)]; primary == nil || !member {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			fmt.Sprintf("cannot establish synchronous replication: primary %s is not in the cohort", topoclient.ClusterIDString(primary)))
+	}
+	return nil
+}
+
 // validateMajority returns nil if recruited forms a strict majority of cohort
 // (|recruited| >= cohort/2 + 1). This guarantees recruitment-set intersection:
 // any two recruitments that each clear a majority must share at least one
@@ -329,41 +342,56 @@ func unrecruitedOf(cohort, recruited []*clustermetadatapb.ID) []*clustermetadata
 
 // CheckSufficientRecruitment returns nil if recruited is sufficient to
 // safely establish a new leader under policy. It enforces the two
-// proposal-agnostic invariants every policy needs:
+// proposal-agnostic invariants every policy needs, in this order:
 //
-//   - Majority: recruited is a strict majority of cohort. This is what
-//     makes proposal numbers unique — any two coordinators attempting a
-//     rule change at the same term must recruit overlapping majorities, so
+//   - checkRecruitedMajority: recruited is a strict majority of cohort. This
+//     is what makes proposal numbers unique — any two coordinators attempting
+//     a rule change at the same term must recruit overlapping majorities, so
 //     only one of them can win the term.
-//   - Revocation: the un-recruited leftover poolers cannot themselves
-//     achieve the policy — checked by asking the policy's own SatisfiedBy
-//     about the leftover set. If the leftovers *could* achieve it, they
-//     could work together to write a durable transaction under the
-//     outgoing rule, so the rule isn't actually frozen and revocation is
-//     violated. This is why every policy's bespoke revocation check turned
-//     out to be SatisfiedBy inverted and applied to the complementary set:
-//     achievability and revocation are the same question, just asked about
-//     the two sides of the recruited/un-recruited split — no
-//     policy-specific code is needed here at all.
+//   - checkUnrecruitedCannotCommit: the un-recruited leftover poolers cannot
+//     themselves achieve the policy, so the outgoing rule is frozen.
 //
 // Candidacy (whether recruited itself satisfies the policy for the
 // *proposed* leadership change) is not checked here — that is a
 // proposal-specific concern handled by the leader-appointment layer via
 // SatisfiedBy(recruited) or similar.
 func CheckSufficientRecruitment(policy DurabilityPolicy, cohort, recruited []*clustermetadatapb.ID) error {
+	if err := checkRecruitedMajority(cohort, recruited); err != nil {
+		return err
+	}
+	return checkUnrecruitedCannotCommit(policy, cohort, recruited)
+}
+
+// checkRecruitedMajority returns nil if recruited is a strict majority of
+// cohort, so any two recruitments of the same cohort overlap (see
+// validateMajority). It serves term exclusivity: competing coordinators cannot
+// both win a term.
+func checkRecruitedMajority(cohort, recruited []*clustermetadatapb.ID) error {
 	// Normalize before any counting: a duplicate entry in either slice must
-	// not be double-counted by validateMajority or leak a repeated pooler
-	// into the revocation check below.
+	// not be double-counted by validateMajority.
 	cohort = normalizeIDs(cohort)
 	recruited = normalizeIDs(recruited)
-
 	if err := validateRecruitedSubset(cohort, recruited); err != nil {
 		return err
 	}
-	if err := validateMajority(cohort, recruited); err != nil {
+	return validateMajority(cohort, recruited)
+}
+
+// checkUnrecruitedCannotCommit returns nil if the cohort members that were not
+// recruited cannot themselves achieve policy — checked by asking the policy's
+// own SatisfiedBy about the leftover set. If the leftovers *could* achieve it,
+// they could work together to write a durable transaction under the outgoing
+// rule, so the rule isn't actually frozen and revocation is violated. This is
+// why every policy's bespoke revocation check turned out to be SatisfiedBy
+// inverted and applied to the complementary set: achievability and revocation
+// are the same question, just asked about the two sides of the
+// recruited/un-recruited split — no policy-specific code is needed here at all.
+func checkUnrecruitedCannotCommit(policy DurabilityPolicy, cohort, recruited []*clustermetadatapb.ID) error {
+	cohort = normalizeIDs(cohort)
+	recruited = normalizeIDs(recruited)
+	if err := validateRecruitedSubset(cohort, recruited); err != nil {
 		return err
 	}
-
 	unrecruited := unrecruitedOf(cohort, recruited)
 	if policy.SatisfiedBy(unrecruited) == nil {
 		return fmt.Errorf("revocation not satisfied: un-recruited cohort poolers %s could independently satisfy %s",

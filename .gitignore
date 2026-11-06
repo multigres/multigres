@@ -14,6 +14,10 @@ bin/
 # Code coverage profiles and other test artifacts
 *.out
 /coverage/
+# Left behind by .github/scripts/run-coverage-slice.sh when run locally
+/coverage-*.txt
+/coverage-subprocess-raw/
+/coverage-test-results.jsonl
 
 # Dependency directories (remove the comment below to include it)
 vendor/

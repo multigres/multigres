@@ -19,104 +19,58 @@ on:
     branches: [main]
 permissions: {}
 jobs:
-  coverage-direct:
-    # Runs against Multigres and, under the topology switch, against a single
-    # Minigres process; the Multigres entry keeps the original check name.
-    name: ${{ matrix.topology == 'minigres' && 'Direct test coverage (Minigres)' || 'Direct test coverage' }}
+  coverage:
+    # One job per slice of the test tree. Tests inside a package run
+    # sequentially, so the three end-to-end packages that each take 10-20
+    # minutes are split by test name across shards; everything else fits in
+    # one job. Each job collects both coverage mechanisms in a single pass:
+    # -coverpkg instruments the test process, and
+    # MULTIGRES_SUBPROCESS_GOCOVERDIR (see pathutil.PrependBinToPath) points
+    # the spawned bin/cov services at a directory we own, since `go test`
+    # otherwise hands them a private GOCOVERDIR whose contents it discards.
+    name: Coverage (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
-        topology: [multigres, minigres]
-    runs-on: ubuntu-24.04
-    permissions:
-      checks: write
-      contents: read
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version-file: go.mod
-      - name: Set up test environment
-        run: .github/scripts/setup-test-environment.sh
-      - name: Build
-        run: make build
-      - name: Start port pool server
-        run: |
-          ./bin/portpoolserver --socket /tmp/multigres-port-pool.sock &
-          echo "PORT_POOL_PID=$!" >> "$GITHUB_ENV"
-          echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
-
-      # Coverage jobs cannot use gotestsum's --rerun-fails: a retry would
-      # re-invoke `go test` against the failing package and overwrite the
-      # single -coverprofile file, truncating coverage for packages that
-      # passed the first time. We instead retry the whole suite on failure,
-      # which preserves coverage correctness at the cost of one extra full
-      # pass on a flake. test-short / test-race / test-integration handle
-      # per-package retries and feed the flake aggregator; coverage just
-      # needs to converge on a clean profile without manual restarts.
-      - name: Run tests with direct coverage
-        shell: bash
-        env:
+        include:
+          # Unit tests plus every end-to-end package not sharded below.
+          - name: rest
+            topology: multigres
+            packages: ./...
+            skip_packages: /endtoend/(multiorch|queryserving|multipooler)$
+          - name: multiorch-1
+            topology: multigres
+            packages: ./go/test/endtoend/multiorch/
+            shard: 1/3
+          - name: multiorch-2
+            topology: multigres
+            packages: ./go/test/endtoend/multiorch/
+            shard: 2/3
+          - name: multiorch-3
+            topology: multigres
+            packages: ./go/test/endtoend/multiorch/
+            shard: 3/3
+          - name: queryserving-1
+            topology: multigres
+            packages: ./go/test/endtoend/queryserving/
+            shard: 1/2
+          - name: queryserving-2
+            topology: multigres
+            packages: ./go/test/endtoend/queryserving/
+            shard: 2/2
+          - name: multipooler
+            topology: multigres
+            packages: ./go/test/endtoend/multipooler/
           # Minigres runs the packages that run against it in
-          # test-integration.yml; Multigres runs everything.
-          MULTIGRES_E2E_TOPOLOGY: ${{ matrix.topology }}
-          TEST_PACKAGES: ${{ matrix.topology == 'minigres' && './go/test/endtoend/queryserving/ ./go/test/endtoend/queryserving/pgparity/' || './...' }}
-        run: |
-          set -o pipefail
-          read -ra packages <<<"$TEST_PACKAGES"
-          attempt=1
-          max_attempts=3
-          while [ $attempt -le $max_attempts ]; do
-            # Coverage instrumentation adds ~30-50% overhead to test
-            # execution, so the per-package go-test default of 10m is too
-            # tight for the integration packages (multiorch, multipooler,
-            # queryserving) that spin up real Postgres. 30m matches what
-            # test-integration.yml uses for uninstrumented runs.
-            if go test -json -v -timeout=30m -skip TestPostgreSQLRegression \
-                -cover -covermode=atomic \
-                -coverprofile=coverage-direct.txt \
-                -coverpkg=./... "${packages[@]}" \
-                | tee coverage-direct-test-results.jsonl \
-                | go tool tparse -follow ; then
-              break
-            fi
-            if [ $attempt -ge $max_attempts ]; then
-              echo "::error::coverage tests failed after $max_attempts attempts"
-              exit 1
-            fi
-            echo "::warning::coverage attempt $attempt failed; retrying"
-            attempt=$((attempt + 1))
-          done
-
-      - name: Stop port pool server
-        run: kill "$PORT_POOL_PID" || true
-      - name: Write timing summary
-        if: ${{ !cancelled() }}
-        run: go run ./go/tools/testtiming/summary coverage-direct-test-results.jsonl
-      - name: Upload direct coverage artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
-        with:
-          name: coverage-direct${{ matrix.topology == 'minigres' && '-minigres' || '' }}
-          path: coverage-direct.txt
-          retention-days: 7
-      - name: Test Report
-        uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
-        if: ${{ !cancelled() }}
-        with:
-          name: Direct Coverage Tests${{ matrix.topology == 'minigres' && ' (Minigres)' || '' }}
-          path: coverage-direct-test-results.jsonl
-          reporter: golang-json
-  coverage-subprocess:
-    # See coverage-direct for the topology matrix.
-    name: ${{ matrix.topology == 'minigres' && 'Subprocess coverage (Minigres)' || 'Subprocess coverage' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        topology: [multigres, minigres]
+          # test-integration.yml.
+          - name: minigres-queryserving-1
+            topology: minigres
+            packages: ./go/test/endtoend/queryserving/ ./go/test/endtoend/queryserving/pgparity/
+            shard: 1/2
+          - name: minigres-queryserving-2
+            topology: minigres
+            packages: ./go/test/endtoend/queryserving/ ./go/test/endtoend/queryserving/pgparity/
+            shard: 2/2
     runs-on: ubuntu-24.04
     permissions:
       checks: write
@@ -139,70 +93,39 @@ jobs:
           echo "PORT_POOL_PID=$!" >> "$GITHUB_ENV"
           echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
 
-      # See note in coverage-direct: we retry the whole suite on failure
-      # rather than per-package, because per-package retry would corrupt
-      # the GOCOVERDIR output (a clean dir is the simplest invariant).
-      - name: Run tests with subprocess coverage
-        shell: bash
+      - name: Run tests with coverage
         env:
-          # Minigres runs the packages that run against it in
-          # test-integration.yml; Multigres runs everything.
           MULTIGRES_E2E_TOPOLOGY: ${{ matrix.topology }}
-          TEST_PACKAGES: ${{ matrix.topology == 'minigres' && './go/test/endtoend/queryserving/ ./go/test/endtoend/queryserving/pgparity/' || './...' }}
-        run: |
-          set -o pipefail
-          read -ra packages <<<"$TEST_PACKAGES"
-          mkdir -p coverage-subprocess-raw
-          export GOCOVERDIR="$PWD/coverage-subprocess-raw"
-          attempt=1
-          max_attempts=3
-          while [ $attempt -le $max_attempts ]; do
-            # Wipe the coverage dir before each attempt so the final
-            # profile reflects only the successful pass. The :? guard
-            # forces the script to abort if GOCOVERDIR ever ends up
-            # empty, so we can never accidentally rm -rf /*.
-            rm -rf "${GOCOVERDIR:?}"/*
-            # Match the per-package timeout used by the direct-coverage job
-            # and the integration workflow, so a slow package doesn't trip
-            # Go's default 10m timeout under load.
-            if go test -json -v -timeout=30m -skip TestPostgreSQLRegression "${packages[@]}" \
-                | tee coverage-subprocess-test-results.jsonl \
-                | go tool tparse -follow ; then
-              break
-            fi
-            if [ $attempt -ge $max_attempts ]; then
-              echo "::error::subprocess coverage tests failed after $max_attempts attempts"
-              exit 1
-            fi
-            echo "::warning::subprocess coverage attempt $attempt failed; retrying"
-            attempt=$((attempt + 1))
-          done
+          TEST_PACKAGES: ${{ matrix.packages }}
+          SKIP_PACKAGES: ${{ matrix.skip_packages }}
+          SHARD: ${{ matrix.shard }}
+        run: .github/scripts/run-coverage-slice.sh
 
       - name: Stop port pool server
         run: kill "$PORT_POOL_PID" || true
       - name: Write timing summary
         if: ${{ !cancelled() }}
-        run: go run ./go/tools/testtiming/summary coverage-subprocess-test-results.jsonl
-      - name: Convert subprocess coverage to text format
-        run: go tool covdata textfmt -i=coverage-subprocess-raw -o=coverage-subprocess.txt
-      - name: Upload subprocess coverage artifact
+        run: go run ./go/tools/testtiming/summary coverage-test-results.jsonl
+      - name: Upload coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: coverage-subprocess${{ matrix.topology == 'minigres' && '-minigres' || '' }}
-          path: coverage-subprocess.txt
+          name: coverage-${{ matrix.name }}
+          path: |
+            coverage-direct.txt
+            coverage-subprocess.txt
           retention-days: 7
       - name: Test Report
         uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
         if: ${{ !cancelled() }}
         with:
-          name: Subprocess Coverage Tests${{ matrix.topology == 'minigres' && ' (Minigres)' || '' }}
-          path: coverage-subprocess-test-results.jsonl
+          name: Coverage Tests (${{ matrix.name }})
+          path: coverage-test-results.jsonl
           reporter: golang-json
   merge-and-upload:
     name: Merge coverage and upload
     runs-on: ubuntu-24.04
-    needs: [coverage-direct, coverage-subprocess]
+    needs: [coverage]
     if: always()
     environment:
       name: ci
@@ -217,12 +140,12 @@ jobs:
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: go.mod
-      # One artifact per coverage job and topology, each downloaded into a
-      # directory named after it.
+      # One artifact per matrix slice, each downloaded into a directory
+      # named after it and holding a direct and a subprocess profile.
       - name: Download coverage artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          pattern: coverage-{direct,subprocess}*
+          pattern: coverage-*
           path: ./coverage-artifacts
       - name: Merge coverage files
         run: |
@@ -254,7 +177,7 @@ jobs:
   coveralls-finish:
     name: Finish Coveralls upload
     runs-on: ubuntu-24.04
-    needs: [coverage-direct, coverage-subprocess, merge-and-upload]
+    needs: [coverage, merge-and-upload]
     permissions:
       pull-requests: write
     steps:

@@ -66,6 +66,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfAlterForeignServerStmt(in)
 	case *AlterFunctionStmt:
 		return CloneRefOfAlterFunctionStmt(in)
+	case *AlterMigrationStmt:
+		return CloneRefOfAlterMigrationStmt(in)
 	case *AlterObjectDependsStmt:
 		return CloneRefOfAlterObjectDependsStmt(in)
 	case *AlterObjectSchemaStmt:
@@ -100,6 +102,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfAlterTSDictionaryStmt(in)
 	case *AlterTableCmd:
 		return CloneRefOfAlterTableCmd(in)
+	case *AlterTableGroupStmt:
+		return CloneRefOfAlterTableGroupStmt(in)
 	case *AlterTableMoveAllStmt:
 		return CloneRefOfAlterTableMoveAllStmt(in)
 	case *AlterTableSpaceStmt:
@@ -184,6 +188,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfCreateAssertionStmt(in)
 	case *CreateCastStmt:
 		return CloneRefOfCreateCastStmt(in)
+	case *CreateConnectionStmt:
+		return CloneRefOfCreateConnectionStmt(in)
 	case *CreateConversionStmt:
 		return CloneRefOfCreateConversionStmt(in)
 	case *CreateDomainStmt:
@@ -202,6 +208,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfCreateForeignTableStmt(in)
 	case *CreateFunctionStmt:
 		return CloneRefOfCreateFunctionStmt(in)
+	case *CreateMigrationStmt:
+		return CloneRefOfCreateMigrationStmt(in)
 	case *CreateOpClassItem:
 		return CloneRefOfCreateOpClassItem(in)
 	case *CreateOpClassStmt:
@@ -232,6 +240,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfCreateSubscriptionStmt(in)
 	case *CreateTableAsStmt:
 		return CloneRefOfCreateTableAsStmt(in)
+	case *CreateTableGroupStmt:
+		return CloneRefOfCreateTableGroupStmt(in)
 	case *CreateTableSpaceStmt:
 		return CloneRefOfCreateTableSpaceStmt(in)
 	case *CreateTransformStmt:
@@ -256,8 +266,14 @@ func CloneNode(in Node) Node {
 		return CloneRefOfDeleteStmt(in)
 	case *DiscardStmt:
 		return CloneRefOfDiscardStmt(in)
+	case *DistinctExpr:
+		return CloneRefOfDistinctExpr(in)
 	case *DoStmt:
 		return CloneRefOfDoStmt(in)
+	case *DropConnectionStmt:
+		return CloneRefOfDropConnectionStmt(in)
+	case *DropMigrationStmt:
+		return CloneRefOfDropMigrationStmt(in)
 	case *DropOwnedStmt:
 		return CloneRefOfDropOwnedStmt(in)
 	case *DropReplicationSlotCmd:
@@ -410,6 +426,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfNotifyStmt(in)
 	case *Null:
 		return CloneRefOfNull(in)
+	case *NullIfExpr:
+		return CloneRefOfNullIfExpr(in)
 	case *NullTest:
 		return CloneRefOfNullTest(in)
 	case *ObjectWithArgs:
@@ -510,6 +528,8 @@ func CloneNode(in Node) Node {
 		return CloneRefOfSetOperationStmt(in)
 	case *SetToDefault:
 		return CloneRefOfSetToDefault(in)
+	case *ShowConnectionsStmt:
+		return CloneRefOfShowConnectionsStmt(in)
 	case *SinglePartitionSpec:
 		return CloneRefOfSinglePartitionSpec(in)
 	case *SortBy:
@@ -848,6 +868,18 @@ func CloneRefOfAlterFunctionStmt(n *AlterFunctionStmt) *AlterFunctionStmt {
 	return &out
 }
 
+// CloneRefOfAlterMigrationStmt creates a deep clone of the input.
+func CloneRefOfAlterMigrationStmt(n *AlterMigrationStmt) *AlterMigrationStmt {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.When = CloneRefOfA_Expr(n.When)
+	out.Options = CloneRefOfNodeList(n.Options)
+	return &out
+}
+
 // CloneRefOfAlterObjectDependsStmt creates a deep clone of the input.
 func CloneRefOfAlterObjectDependsStmt(n *AlterObjectDependsStmt) *AlterObjectDependsStmt {
 	if n == nil {
@@ -1052,6 +1084,18 @@ func CloneRefOfAlterTableCmd(n *AlterTableCmd) *AlterTableCmd {
 	out.BaseNode = CloneBaseNode(n.BaseNode)
 	out.Newowner = CloneRefOfRoleSpec(n.Newowner)
 	out.Def = CloneNode(n.Def)
+	return &out
+}
+
+// CloneRefOfAlterTableGroupStmt creates a deep clone of the input.
+func CloneRefOfAlterTableGroupStmt(n *AlterTableGroupStmt) *AlterTableGroupStmt {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Sources = CloneRefOfNodeList(n.Sources)
+	out.Targets = CloneRefOfNodeList(n.Targets)
 	return &out
 }
 
@@ -1452,6 +1496,7 @@ func CloneRefOfConst(n *Const) *Const {
 	}
 	out := *n
 	out.BaseExpr = CloneBaseExpr(n.BaseExpr)
+	out.Constvalue = CloneDatum(n.Constvalue)
 	return &out
 }
 
@@ -1546,6 +1591,17 @@ func CloneRefOfCreateCastStmt(n *CreateCastStmt) *CreateCastStmt {
 	out.SourceType = CloneRefOfTypeName(n.SourceType)
 	out.TargetType = CloneRefOfTypeName(n.TargetType)
 	out.Func = CloneRefOfObjectWithArgs(n.Func)
+	return &out
+}
+
+// CloneRefOfCreateConnectionStmt creates a deep clone of the input.
+func CloneRefOfCreateConnectionStmt(n *CreateConnectionStmt) *CreateConnectionStmt {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Options = CloneRefOfNodeList(n.Options)
 	return &out
 }
 
@@ -1656,6 +1712,18 @@ func CloneRefOfCreateFunctionStmt(n *CreateFunctionStmt) *CreateFunctionStmt {
 	out.ReturnType = CloneRefOfTypeName(n.ReturnType)
 	out.Options = CloneRefOfNodeList(n.Options)
 	out.SQLBody = CloneNode(n.SQLBody)
+	return &out
+}
+
+// CloneRefOfCreateMigrationStmt creates a deep clone of the input.
+func CloneRefOfCreateMigrationStmt(n *CreateMigrationStmt) *CreateMigrationStmt {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Objects = CloneRefOfNodeList(n.Objects)
+	out.Options = CloneRefOfNodeList(n.Options)
 	return &out
 }
 
@@ -1850,6 +1918,17 @@ func CloneRefOfCreateTableAsStmt(n *CreateTableAsStmt) *CreateTableAsStmt {
 	return &out
 }
 
+// CloneRefOfCreateTableGroupStmt creates a deep clone of the input.
+func CloneRefOfCreateTableGroupStmt(n *CreateTableGroupStmt) *CreateTableGroupStmt {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Shards = CloneRefOfNodeList(n.Shards)
+	return &out
+}
+
 // CloneRefOfCreateTableSpaceStmt creates a deep clone of the input.
 func CloneRefOfCreateTableSpaceStmt(n *CreateTableSpaceStmt) *CreateTableSpaceStmt {
 	if n == nil {
@@ -1995,6 +2074,17 @@ func CloneRefOfDiscardStmt(n *DiscardStmt) *DiscardStmt {
 	return &out
 }
 
+// CloneRefOfDistinctExpr creates a deep clone of the input.
+func CloneRefOfDistinctExpr(n *DistinctExpr) *DistinctExpr {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseExpr = CloneBaseExpr(n.BaseExpr)
+	out.Args = CloneRefOfNodeList(n.Args)
+	return &out
+}
+
 // CloneRefOfDoStmt creates a deep clone of the input.
 func CloneRefOfDoStmt(n *DoStmt) *DoStmt {
 	if n == nil {
@@ -2003,6 +2093,30 @@ func CloneRefOfDoStmt(n *DoStmt) *DoStmt {
 	out := *n
 	out.BaseNode = CloneBaseNode(n.BaseNode)
 	out.Args = CloneRefOfNodeList(n.Args)
+	return &out
+}
+
+// CloneRefOfDropConnectionStmt creates a deep clone of the input.
+func CloneRefOfDropConnectionStmt(n *DropConnectionStmt) *DropConnectionStmt {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Names = CloneRefOfNodeList(n.Names)
+	return &out
+}
+
+// CloneRefOfDropMigrationStmt creates a deep clone of the input.
+func CloneRefOfDropMigrationStmt(n *DropMigrationStmt) *DropMigrationStmt {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	out.Names = CloneRefOfNodeList(n.Names)
+	out.When = CloneRefOfA_Expr(n.When)
+	out.Options = CloneRefOfNodeList(n.Options)
 	return &out
 }
 
@@ -2158,6 +2272,8 @@ func CloneExpr(in Expr) Expr {
 		return CloneRefOfConvertRowtypeExpr(in)
 	case *CurrentOfExpr:
 		return CloneRefOfCurrentOfExpr(in)
+	case *DistinctExpr:
+		return CloneRefOfDistinctExpr(in)
 	case *FieldSelect:
 		return CloneRefOfFieldSelect(in)
 	case *FieldStore:
@@ -2208,6 +2324,8 @@ func CloneExpr(in Expr) Expr {
 		return CloneRefOfNamedArgExpr(in)
 	case *NextValueExpr:
 		return CloneRefOfNextValueExpr(in)
+	case *NullIfExpr:
+		return CloneRefOfNullIfExpr(in)
 	case *NullTest:
 		return CloneRefOfNullTest(in)
 	case *OnConflictExpr:
@@ -2318,6 +2436,8 @@ func CloneExpression(in Expression) Expression {
 		return CloneRefOfConvertRowtypeExpr(in)
 	case *CurrentOfExpr:
 		return CloneRefOfCurrentOfExpr(in)
+	case *DistinctExpr:
+		return CloneRefOfDistinctExpr(in)
 	case *FieldSelect:
 		return CloneRefOfFieldSelect(in)
 	case *FieldStore:
@@ -2376,6 +2496,8 @@ func CloneExpression(in Expression) Expression {
 		return CloneRefOfNextValueExpr(in)
 	case *Null:
 		return CloneRefOfNull(in)
+	case *NullIfExpr:
+		return CloneRefOfNullIfExpr(in)
 	case *NullTest:
 		return CloneRefOfNullTest(in)
 	case *OnConflictExpr:
@@ -3254,6 +3376,17 @@ func CloneRefOfNull(n *Null) *Null {
 	return &out
 }
 
+// CloneRefOfNullIfExpr creates a deep clone of the input.
+func CloneRefOfNullIfExpr(n *NullIfExpr) *NullIfExpr {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseExpr = CloneBaseExpr(n.BaseExpr)
+	out.Args = CloneRefOfNodeList(n.Args)
+	return &out
+}
+
 // CloneRefOfNullTest creates a deep clone of the input.
 func CloneRefOfNullTest(n *NullTest) *NullTest {
 	if n == nil {
@@ -3891,6 +4024,16 @@ func CloneRefOfSetToDefault(n *SetToDefault) *SetToDefault {
 	return &out
 }
 
+// CloneRefOfShowConnectionsStmt creates a deep clone of the input.
+func CloneRefOfShowConnectionsStmt(n *ShowConnectionsStmt) *ShowConnectionsStmt {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	out.BaseNode = CloneBaseNode(n.BaseNode)
+	return &out
+}
+
 // CloneRefOfSinglePartitionSpec creates a deep clone of the input.
 func CloneRefOfSinglePartitionSpec(n *SinglePartitionSpec) *SinglePartitionSpec {
 	if n == nil {
@@ -3979,6 +4122,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfAlterForeignServerStmt(in)
 	case *AlterFunctionStmt:
 		return CloneRefOfAlterFunctionStmt(in)
+	case *AlterMigrationStmt:
+		return CloneRefOfAlterMigrationStmt(in)
 	case *AlterObjectDependsStmt:
 		return CloneRefOfAlterObjectDependsStmt(in)
 	case *AlterObjectSchemaStmt:
@@ -4011,6 +4156,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfAlterTSConfigurationStmt(in)
 	case *AlterTSDictionaryStmt:
 		return CloneRefOfAlterTSDictionaryStmt(in)
+	case *AlterTableGroupStmt:
+		return CloneRefOfAlterTableGroupStmt(in)
 	case *AlterTableMoveAllStmt:
 		return CloneRefOfAlterTableMoveAllStmt(in)
 	case *AlterTableSpaceStmt:
@@ -4045,6 +4192,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfCreateAssertionStmt(in)
 	case *CreateCastStmt:
 		return CloneRefOfCreateCastStmt(in)
+	case *CreateConnectionStmt:
+		return CloneRefOfCreateConnectionStmt(in)
 	case *CreateConversionStmt:
 		return CloneRefOfCreateConversionStmt(in)
 	case *CreateDomainStmt:
@@ -4063,6 +4212,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfCreateForeignTableStmt(in)
 	case *CreateFunctionStmt:
 		return CloneRefOfCreateFunctionStmt(in)
+	case *CreateMigrationStmt:
+		return CloneRefOfCreateMigrationStmt(in)
 	case *CreateOpClassItem:
 		return CloneRefOfCreateOpClassItem(in)
 	case *CreateOpClassStmt:
@@ -4093,6 +4244,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfCreateSubscriptionStmt(in)
 	case *CreateTableAsStmt:
 		return CloneRefOfCreateTableAsStmt(in)
+	case *CreateTableGroupStmt:
+		return CloneRefOfCreateTableGroupStmt(in)
 	case *CreateTableSpaceStmt:
 		return CloneRefOfCreateTableSpaceStmt(in)
 	case *CreateTransformStmt:
@@ -4115,6 +4268,10 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfDiscardStmt(in)
 	case *DoStmt:
 		return CloneRefOfDoStmt(in)
+	case *DropConnectionStmt:
+		return CloneRefOfDropConnectionStmt(in)
+	case *DropMigrationStmt:
+		return CloneRefOfDropMigrationStmt(in)
 	case *DropOwnedStmt:
 		return CloneRefOfDropOwnedStmt(in)
 	case *DropReplicationSlotCmd:
@@ -4217,6 +4374,8 @@ func CloneStmt(in Stmt) Stmt {
 		return CloneRefOfSecLabelStmt(in)
 	case *SelectStmt:
 		return CloneRefOfSelectStmt(in)
+	case *ShowConnectionsStmt:
+		return CloneRefOfShowConnectionsStmt(in)
 	case *SinglePartitionSpec:
 		return CloneRefOfSinglePartitionSpec(in)
 	case *SortBy:
@@ -4690,6 +4849,11 @@ func CloneSliceOfInt32(n []int32) []int32 {
 	return res
 }
 
+// CloneDatum creates a deep clone of the input.
+func CloneDatum(n Datum) Datum {
+	return *CloneRefOfDatum(&n)
+}
+
 // CloneSliceOfRefOfConstraint creates a deep clone of the input.
 func CloneSliceOfRefOfConstraint(n []*Constraint) []*Constraint {
 	if n == nil {
@@ -4870,4 +5034,13 @@ func CloneSliceOfBool(n []bool) []bool {
 	res := make([]bool, len(n))
 	copy(res, n)
 	return res
+}
+
+// CloneRefOfDatum creates a deep clone of the input.
+func CloneRefOfDatum(n *Datum) *Datum {
+	if n == nil {
+		return nil
+	}
+	out := *n
+	return &out
 }

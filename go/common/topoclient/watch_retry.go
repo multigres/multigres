@@ -58,13 +58,21 @@ func WatchPathWithRetry(
 
 		conn, err := store.ConnForCell(ctx, cell)
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			logger.ErrorContext(ctx, "failed to get topo connection", "cell", cell, "error", err)
+			recordWatchReconnect(ctx, WatchReconnectConnectionFailed)
 			continue
 		}
 
 		initial, changes, err := conn.WatchRecursive(ctx, path)
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			logger.ErrorContext(ctx, "failed to start recursive watch", "cell", cell, "path", path, "error", err)
+			recordWatchReconnect(ctx, WatchReconnectWatchStartFailed)
 			continue
 		}
 
@@ -73,6 +81,9 @@ func WatchPathWithRetry(
 		resetTimer := time.AfterFunc(30*time.Second, r.Reset)
 		watchFn(changes)
 		resetTimer.Stop()
+		if ctx.Err() == nil {
+			recordWatchReconnect(ctx, WatchReconnectStreamEnded)
+		}
 	}
 }
 

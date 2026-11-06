@@ -34,7 +34,7 @@ import (
 // leaderInfoPropagationInterval is deliberately much shorter than a recovery
 // cycle: telling a pooler who the leader is (or that it's rewind-ready) is
 // always safe (SetPrimary no-ops when the pooler is already current), so
-// this doesn't need recovery's grace periods or backoff.
+// this doesn't need recovery's backoff.
 const leaderInfoPropagationInterval = 1 * time.Second
 
 const setPrimaryPropagationTimeout = 5 * time.Second
@@ -54,23 +54,23 @@ const leaderInfoStaleHealthThreshold = 1 * time.Minute
 // rewind-ready. This loop runs on its own short interval so that information
 // reaches standbys promptly regardless of what the recovery cycle is doing.
 func (re *Engine) runLeaderInfoPropagation(ctx context.Context) {
-	for _, shardKey := range distinctShardKeys(re.poolerCache) {
-		re.propagateLeaderInfoForShard(ctx, shardKey)
+	for _, shardRef := range distinctShardRefs(re.poolerCache) {
+		re.propagateLeaderInfoForShard(ctx, shardRef)
 	}
 }
 
-// distinctShardKeys returns one ShardKey per shard currently represented in
-// the pooler cache. Deliberately cheaper than analysis.GenerateShardAnalyses,
-// which builds a full per-pooler liveness analysis this loop doesn't need —
+// distinctShardRefs returns one ShardRef per shard currently represented in
+// the pooler cache. Deliberately cheaper than store.SnapshotShards,
+// which freezes every pooler's health, more than this loop needs —
 // it only cares which shards exist, then re-derives everything else itself
 // via store.FindShardMembers.
-func distinctShardKeys(cache *store.PoolerCache) []*clustermetadatapb.ShardKey {
-	seen := make(map[commontypes.ShardKeyString]*clustermetadatapb.ShardKey)
+func distinctShardRefs(cache *store.PoolerCache) []*clustermetadatapb.ShardRef {
+	seen := make(map[commontypes.ShardRefString]*clustermetadatapb.ShardRef)
 	for _, entry := range cache.All() {
-		key := entry.Pooler.GetShardKey()
-		seen[commontypes.FormatShardKey(key)] = key
+		key := entry.Pooler.GetShardRef()
+		seen[commontypes.FormatShardRef(key)] = key
 	}
-	keys := make([]*clustermetadatapb.ShardKey, 0, len(seen))
+	keys := make([]*clustermetadatapb.ShardRef, 0, len(seen))
 	for _, key := range seen {
 		keys = append(keys, key)
 	}
@@ -80,10 +80,10 @@ func distinctShardKeys(cache *store.PoolerCache) []*clustermetadatapb.ShardKey {
 // propagateLeaderInfoForShard tells every non-leader pooler in the shard
 // about the current leader and its rewind-readiness, skipping any pooler
 // that already knows both.
-func (re *Engine) propagateLeaderInfoForShard(ctx context.Context, shardKey *clustermetadatapb.ShardKey) {
-	members := store.FindShardMembers(re.poolerCache, shardKey)
+func (re *Engine) propagateLeaderInfoForShard(ctx context.Context, shardRef *clustermetadatapb.ShardRef) {
+	members := store.FindShardMembers(re.poolerCache, shardRef)
 	leader := members.Leader
-	if leader == nil || members.HighestKnownPosition == nil {
+	if leader == nil || members.HighestIntendedRule.IsEmpty() {
 		return
 	}
 
@@ -112,7 +112,7 @@ func (re *Engine) propagateLeaderInfoForShard(ctx context.Context, shardKey *clu
 		wg.Add(1)
 		go func(pooler *store.Pooler) {
 			defer wg.Done()
-			re.propagateLeaderInfoToPooler(ctx, pooler, leaderAddress, leaderRewindReady, members.HighestKnownPosition)
+			re.propagateLeaderInfoToPooler(ctx, pooler, leaderAddress, leaderRewindReady, members.HighestIntendedRule)
 		}(pooler)
 	}
 	wg.Wait()
@@ -148,12 +148,12 @@ func shouldPropagateLeaderInfo(
 	now time.Time,
 	leaderAddress *clustermetadatapb.PoolerAddress,
 	leaderRewindReady bool,
-	highestKnownPosition *clustermetadatapb.RulePosition,
+	intendedRule commonconsensus.RuleTransition,
 ) bool {
 	if now.Sub(lastSeen.AsTime()) > leaderInfoStaleHealthThreshold {
 		return false // likely unreachable; don't let it stall the poolers behind it
 	}
-	positionMatches := commonconsensus.ReplicationPrimaryMatches(rp, leaderAddress, highestKnownPosition)
+	positionMatches := commonconsensus.ReplicationPrimaryMatches(rp, leaderAddress, intendedRule.Position())
 	// rewind_ready only ever goes false -> true within a coordinator term (see
 	// RecordTermPrimary), so never tell a pooler that already believes true
 	// otherwise — even if our own cached view of the leader is stale-false.
@@ -170,16 +170,16 @@ func (re *Engine) propagateLeaderInfoToPooler(
 	pooler *store.Pooler,
 	leaderAddress *clustermetadatapb.PoolerAddress,
 	leaderRewindReady bool,
-	highestKnownPosition *clustermetadatapb.RulePosition,
+	intendedRule commonconsensus.RuleTransition,
 ) {
 	health := pooler.Health()
 	rp := commonconsensus.ReplicationPrimaryOrNil(health.GetConsensusStatus())
-	if !shouldPropagateLeaderInfo(rp, health.GetLastSeen(), time.Now(), leaderAddress, leaderRewindReady, highestKnownPosition) {
+	if !shouldPropagateLeaderInfo(rp, health.GetLastSeen(), time.Now(), leaderAddress, leaderRewindReady, intendedRule) {
 		return
 	}
 
 	replicationPrimary := &clustermetadatapb.ReplicationPrimary{
-		Position:    highestKnownPosition,
+		Position:    intendedRule.Position(),
 		Primary:     leaderAddress,
 		RewindReady: leaderRewindReady,
 	}

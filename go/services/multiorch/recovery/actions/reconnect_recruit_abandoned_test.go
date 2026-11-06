@@ -37,14 +37,14 @@ import (
 
 func TestReconnectRecruitAbandonedAction(t *testing.T) {
 	ctx := context.Background()
-	shardKey := &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: "default", Shard: "0"}
+	shardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default", Shard: "0"}
 	replicaID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica1"}
 
 	leaderMP := &clustermetadatapb.Multipooler{
-		Id: fixReplPrimaryID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_PRIMARY,
+		Id: fixReplPrimaryID, ShardRef: shardRef, Type: clustermetadatapb.PoolerType_PRIMARY,
 		Hostname: "primary.example.com", PortMap: map[string]int32{"postgres": 5432},
 	}
-	replicaMP := &clustermetadatapb.Multipooler{Id: replicaID, ShardKey: shardKey, Type: clustermetadatapb.PoolerType_REPLICA}
+	replicaMP := &clustermetadatapb.Multipooler{Id: replicaID, ShardRef: shardRef, Type: clustermetadatapb.PoolerType_REPLICA}
 
 	// followerRevocation revokes the term-1 rule (recruited at term 2, transitioning
 	// away from the term-1 rule the leader still holds).
@@ -80,7 +80,7 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 
 	problem := types.Problem{
 		Code:     types.ProblemReplicaRecruitAbandoned,
-		ShardKey: shardKey,
+		ShardRef: shardRef,
 		PoolerID: replicaID,
 	}
 

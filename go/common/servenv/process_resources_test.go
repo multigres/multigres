@@ -29,11 +29,12 @@ func TestProcessResourcesValidate(t *testing.T) {
 		ServEnv:    NewServEnv(reg),
 		GrpcServer: NewGrpcServer(reg),
 	}
-	require.NoError(t, complete.Validate())
+	require.NoError(t, complete.Validate(), "QueryGrpcServer is optional")
 
 	err := ProcessResources{}.Validate()
 	require.Error(t, err)
 	for _, missing := range []string{"ServEnv", "GrpcServer"} {
 		assert.Contains(t, err.Error(), missing)
 	}
+	assert.NotContains(t, err.Error(), "QueryGrpcServer")
 }

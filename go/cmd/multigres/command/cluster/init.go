@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/provisioner"
 	s3tools "github.com/multigres/multigres/go/tools/s3"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -33,6 +34,7 @@ import (
 // initCmd holds the init command configuration
 type initCmd struct {
 	provisioner    viperutil.Value[string]
+	topology       viperutil.Value[string]
 	backupPath     viperutil.Value[string]
 	backupURL      viperutil.Value[string]
 	region         viperutil.Value[string]
@@ -60,6 +62,16 @@ func (icmd *initCmd) buildConfigFromFlags(cmd *cobra.Command, configPaths []stri
 	backupConfig, err := icmd.buildBackupConfig(configPaths)
 	if err != nil {
 		return nil, err
+	}
+
+	// DefaultConfig's options map carries backup settings and the topology
+	// choice together — both are just named options the provisioner reads,
+	// not separate mechanisms.
+	if topology := icmd.topology.Get(); topology != "" {
+		if topology != constants.ServiceMinigres {
+			return nil, fmt.Errorf("unknown --topology %q (supported: %q, or omit for the default multi-process topology)", topology, constants.ServiceMinigres)
+		}
+		backupConfig["topology"] = topology
 	}
 
 	// Get the provisioner instance
@@ -260,6 +272,11 @@ func AddInitCommand(clusterCmd *cobra.Command) {
 			FlagName: "provisioner",
 			Dynamic:  false,
 		}),
+		topology: viperutil.Configure(reg, "topology", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "topology",
+			Dynamic:  false,
+		}),
 		backupPath: viperutil.Configure(reg, "backup-path", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "backup-path",
@@ -290,6 +307,12 @@ func AddInitCommand(clusterCmd *cobra.Command) {
 Currently, only the 'local' provisioner is supported. This creates a multi-cell
 cluster configuration on a single machine that can be started with 'multigres cluster start'.
 
+By default this generates the classic multi-process topology (separate
+multigateway, multipooler and multiorch services across 3 cells). Pass
+--topology minigres to generate a single-cell topology running one minigres
+process (gateway and pooler combined, no multiorch) instead — see
+docs/general/minigres.md for what Minigres is and its known limitations.
+
 The cluster can be configured with either local filesystem backups or S3-compatible
 backups (including AWS S3, s3mock for testing, etc.). Backups can optionally be
 encrypted client-side with --encrypt-backups.
@@ -304,12 +327,13 @@ S3 Backup Examples:
 	}
 
 	cmd.Flags().String("provisioner", icmd.provisioner.Default(), "Provisioner to use (only 'local' is supported)")
+	cmd.Flags().String("topology", icmd.topology.Default(), "Cluster topology: omit for the default multi-process topology, or 'minigres' for a single-cell minigres topology")
 	cmd.Flags().String("backup-path", icmd.backupPath.Default(), "Path for local backups (defaults to {configDir}/data/backups)")
 	cmd.Flags().String("backup-url", icmd.backupURL.Default(), "S3 backup URL (format: s3://bucket/prefix)")
 	cmd.Flags().String("region", icmd.region.Default(), "AWS region (required for S3 backups)")
 	cmd.Flags().Bool("encrypt-backups", icmd.encryptBackups.Default(), "Encrypt backups client-side: the cluster generates a cipher key file and encrypts the initial repository at stanza creation")
 
-	viperutil.BindFlags(cmd.Flags(), icmd.provisioner, icmd.backupPath,
+	viperutil.BindFlags(cmd.Flags(), icmd.provisioner, icmd.topology, icmd.backupPath,
 		icmd.backupURL, icmd.region, icmd.encryptBackups)
 
 	clusterCmd.AddCommand(cmd)

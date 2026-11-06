@@ -257,7 +257,7 @@ func newTestManager(t *testing.T, opts ...testManagerOption) *MultipoolerManager
 		baselineRouting.Role = servingstate.RoutingRolePrimary
 		baselineRouting.Rule = cs.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber()
 	} else {
-		baselineRouting.Rule = commonconsensus.PossiblyUndecidedRule(commonconsensus.HighestKnownRule([]*clustermetadatapb.ConsensusStatus{cs})).GetRuleNumber()
+		baselineRouting.Rule = commonconsensus.PossiblyUndecidedRule(commonconsensus.HighestIntendedRule([]*clustermetadatapb.ConsensusStatus{cs})).GetRuleNumber()
 	}
 	baseline := servingstate.State{
 		Routing:       baselineRouting,

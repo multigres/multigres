@@ -182,4 +182,102 @@ func TestLoadRealData(t *testing.T) {
 	assert.Len(t, cat.Procs, 3314)
 	assert.Len(t, cat.Operators, 799)
 	assert.Len(t, cat.Casts, 229)
+
+	// Defaults come from system_functions.sql, not pg_proc.dat.
+	withDefaults := map[string]int16{}
+	for _, p := range cat.Procs {
+		if p.NArgDefaults > 0 {
+			withDefaults[p.Name] = p.NArgDefaults
+		}
+	}
+	assert.Len(t, withDefaults, 33, "distinct function names with defaults")
+	assert.Equal(t, int16(2), withDefaults["random_normal"])
+	assert.Equal(t, int16(7), withDefaults["make_interval"])
+	assert.Equal(t, int16(1), withDefaults["jsonb_set"])
+	assert.Equal(t, int16(1), withDefaults["pg_terminate_backend"])
+	assert.Equal(t, int16(2), withDefaults["jsonb_path_query"])
+	assert.Equal(t, int16(1), withDefaults["pg_logical_emit_message"], "both overloads")
+}
+
+func TestParseSystemFunctionDefaults(t *testing.T) {
+	known := func(name string) bool {
+		switch name {
+		case "int4", "float8", "text", "_text", "bool", "name", "pg_lsn", "bytea":
+			return true
+		}
+		return false
+	}
+	src := []byte(`
+-- a comment with CREATE OR REPLACE FUNCTION in it, DEFAULT too
+/* a block comment,
+   CREATE OR REPLACE FUNCTION nope(x int DEFAULT 1) */
+CREATE OR REPLACE FUNCTION
+ random_normal(mean float8 DEFAULT 0, stddev float8 DEFAULT 1)
+ RETURNS float8
+ LANGUAGE internal
+ STRICT VOLATILE PARALLEL RESTRICTED
+ AS 'drandom_normal';
+
+CREATE OR REPLACE FUNCTION pg_logical_slot_get_changes(
+    IN slot_name name, IN upto_lsn pg_lsn, IN upto_nchanges int, VARIADIC options text[] DEFAULT '{a,b}',
+    OUT lsn pg_lsn, OUT xid xid, OUT data text)
+RETURNS SETOF RECORD LANGUAGE INTERNAL AS 'pg_logical_slot_get_changes';
+
+CREATE OR REPLACE FUNCTION
+  "normalize"(text, text DEFAULT 'NFC')
+RETURNS text LANGUAGE internal AS 'unicode_normalize_func';
+
+CREATE OR REPLACE FUNCTION
+  make_interval(secs double precision DEFAULT 0.0)
+RETURNS text LANGUAGE internal AS 'make_interval';
+
+CREATE OR REPLACE FUNCTION no_defaults(a int, b text) RETURNS text LANGUAGE internal AS 'x';
+
+REVOKE EXECUTE ON FUNCTION pg_backup_start(text, boolean) FROM public;
+`)
+	defaults, err := ParseSystemFunctionDefaults(src, known)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]int16{
+		"random_normal(float8,float8)":                        2,
+		"pg_logical_slot_get_changes(name,pg_lsn,int4,_text)": 1,
+		"normalize(text,text)":                                1,
+		"make_interval(float8)":                               1,
+	}, defaults)
+
+	// A defaulted signature with a type the catalog does not know is an
+	// error rather than a silently dropped default.
+	_, err = ParseSystemFunctionDefaults([]byte(`CREATE OR REPLACE FUNCTION f(x nosuch DEFAULT 1) RETURNS int AS 'f';`), known)
+	require.ErrorContains(t, err, `unknown parameter type "nosuch"`)
+	_, err = ParseSystemFunctionDefaults([]byte(`CREATE OR REPLACE FUNCTION f(x int DEFAULT 1 RETURNS int AS 'f';`), known)
+	require.ErrorContains(t, err, "unbalanced parentheses")
+	_, err = ParseSystemFunctionDefaults([]byte(`CREATE OR REPLACE FUNCTION f`), known)
+	require.ErrorContains(t, err, "without a parameter list")
+	_, err = ParseSystemFunctionDefaults([]byte(`CREATE OR REPLACE FUNCTION f(x int DEFAULT 1) RETURNS int AS 'f';
+CREATE OR REPLACE FUNCTION f(x int DEFAULT 2) RETURNS int AS 'f';`), known)
+	require.ErrorContains(t, err, "defined twice")
+}
+
+func TestApplySystemFunctionDefaults(t *testing.T) {
+	cat := &Catalog{
+		Types: []TypeRow{{Oid: 23, Name: "int4"}, {Oid: 25, Name: "text"}},
+		Procs: []ProcRow{
+			{Oid: 1, Name: "f", ArgTypes: []uint32{23, 25}},
+			{Oid: 2, Name: "f", ArgTypes: []uint32{23}},
+			{Oid: 3, Name: "g", ArgTypes: []uint32{23}},
+		},
+	}
+	require.NoError(t, cat.applySystemFunctionDefaults([]byte(
+		`CREATE OR REPLACE FUNCTION f(a int, b text DEFAULT 'x') RETURNS int AS 'f';`)))
+	assert.Equal(t, int16(1), cat.Procs[0].NArgDefaults, "the two-argument overload")
+	assert.Zero(t, cat.Procs[1].NArgDefaults, "the one-argument overload is untouched")
+	assert.Zero(t, cat.Procs[2].NArgDefaults)
+
+	err := cat.applySystemFunctionDefaults([]byte(
+		`CREATE OR REPLACE FUNCTION h(a int DEFAULT 1) RETURNS int AS 'h';`))
+	require.ErrorContains(t, err, "h(int4) has no pg_proc.dat row")
+
+	cat.Procs = append(cat.Procs, ProcRow{Oid: 4, Name: "g", ArgTypes: []uint32{23}})
+	err = cat.applySystemFunctionDefaults([]byte(
+		`CREATE OR REPLACE FUNCTION g(a int DEFAULT 1) RETURNS int AS 'g';`))
+	require.ErrorContains(t, err, "g(int4) matches more than one pg_proc.dat row")
 }

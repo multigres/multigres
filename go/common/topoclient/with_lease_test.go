@@ -28,15 +28,15 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-var withLeaseShardKey = &clustermetadatapb.ShardKey{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
+var withLeaseShardRef = &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: "0"}
 
 // backupLeaseOps returns the acquire/revoke/check closures for backup lease tests.
-func backupLeaseOps(ts topoclient.Store, shardKey *clustermetadatapb.ShardKey) (topoclient.LeaseAcquirer, topoclient.LeaseRevoker, topoclient.LeaseChecker) {
+func backupLeaseOps(ts topoclient.Store, shardRef *clustermetadatapb.ShardRef) (topoclient.LeaseAcquirer, topoclient.LeaseRevoker, topoclient.LeaseChecker) {
 	return func(ctx context.Context, action string) (context.Context, func(*error), error) {
-			return ts.TryLockBackup(ctx, shardKey, action)
+			return ts.TryLockBackup(ctx, shardRef, action)
 		},
-		func(ctx context.Context) error { return ts.RevokeBackup(ctx, shardKey) },
-		func(ctx context.Context) error { return topoclient.AssertBackupLockHeld(ctx, shardKey) }
+		func(ctx context.Context) error { return ts.RevokeBackup(ctx, shardRef) },
+		func(ctx context.Context) error { return topoclient.AssertBackupLockHeld(ctx, shardRef) }
 }
 
 func TestWithLease(t *testing.T) {
@@ -46,12 +46,12 @@ func TestWithLease(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactoryWithConfig(ctx, config, "zone1")
 	t.Cleanup(func() { ts.Close() })
 
-	acquire, revoke, check := backupLeaseOps(ts, withLeaseShardKey)
+	acquire, revoke, check := backupLeaseOps(ts, withLeaseShardRef)
 
 	called := false
 	err := topoclient.WithLease(ctx, "test-op by pooler-1", acquire, revoke, check, func(ctx context.Context) error {
 		called = true
-		require.NoError(t, topoclient.AssertBackupLockHeld(ctx, withLeaseShardKey))
+		require.NoError(t, topoclient.AssertBackupLockHeld(ctx, withLeaseShardRef))
 		return nil
 	})
 	require.NoError(t, err)
@@ -71,7 +71,7 @@ func TestWithLeaseSteal(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactoryWithConfig(ctx, config, "zone1")
 	t.Cleanup(func() { ts.Close() })
 
-	acquire, revoke, check := backupLeaseOps(ts, withLeaseShardKey)
+	acquire, revoke, check := backupLeaseOps(ts, withLeaseShardRef)
 
 	// Hold a lease in background with a short check interval so it detects
 	// revocation quickly.

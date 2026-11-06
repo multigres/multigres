@@ -413,18 +413,11 @@ func (l *Lexer) parseHexCodepoint(hex string) (rune, error) {
 	return codepoint, nil
 }
 
-// truncateIdentifier truncates an identifier to PostgreSQL's maximum length
+// truncateIdentifier truncates an identifier to PostgreSQL's maximum length, at a character
+// boundary.
 // Equivalent to postgres/src/backend/parser/scansup.c:truncate_identifier
 func (l *Lexer) truncateIdentifier(ident string) string {
-	const NAMEDATALEN = 64 // PostgreSQL's maximum identifier length + 1
-	maxLen := NAMEDATALEN - 1
-
-	if len(ident) <= maxLen {
-		return ident
-	}
-
-	// Truncate and warn (in a real implementation, this would log a warning)
-	return ident[:maxLen]
+	return truncateIdentifier(ident, true)
 }
 
 // nextTokenInternal is the internal token scanning function

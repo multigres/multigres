@@ -209,15 +209,15 @@ func (pb *PostgresBuilder) RunContribTests(t *testing.T, ctx context.Context, mo
 			srcOutDir: moduleDir,
 		}, multigatewayPort, password)
 		if res == nil {
-			// No TAP output: module has no REGRESS tests or the harness failed
-			// to execute. Log and continue so one module can't abort the set.
-			t.Logf("contrib/%s: no test results (%v)", mod, err)
-			continue
+			// No TAP output: the harness failed before running anything. Record
+			// it as a failed test so the suite goes red instead of silently
+			// shrinking, without aborting the remaining modules.
+			res = harnessFailure(err)
+		} else {
+			// Re-evaluate each test's verdict via the patch pipeline (bare names,
+			// before the module prefix is applied below).
+			pb.verifyContribModule(ctx, mod, res, mode)
 		}
-
-		// Re-evaluate each test's verdict via the patch pipeline (bare names,
-		// before the module prefix is applied below).
-		pb.verifyContribModule(ctx, mod, res, mode)
 
 		for _, tr := range res.Tests {
 			tr.Name = mod + "/" + tr.Name

@@ -38,8 +38,8 @@
 package fmgr
 
 import (
+	"github.com/multigres/multigres/go/common/parser/datum"
 	"github.com/multigres/multigres/go/common/parser/pgoid"
-	"github.com/multigres/multigres/go/common/pgeval/datum"
 	"github.com/multigres/multigres/go/common/pgeval/pgerror"
 )
 
@@ -163,6 +163,21 @@ func FunctionCall2Coll(flinfo *FmgrInfo, collation Oid, arg1, arg2 datum.Datum) 
 	fcinfo := NewFunctionCallInfo(flinfo, 2, collation)
 	fcinfo.Args[0] = datum.NullableDatum{Value: arg1}
 	fcinfo.Args[1] = datum.NullableDatum{Value: arg2}
+	result := flinfo.FnAddr(fcinfo)
+	if fcinfo.IsNull {
+		pgerror.Elogf("function %d returned NULL", flinfo.FnOid)
+	}
+	return result
+}
+
+// FunctionCall3Coll calls a three-argument function through its FmgrInfo
+// with known non-NULL arguments - fmgr.c:1169 (FunctionCall3Coll). The type
+// input and receive functions take this shape: (value, typioparam, typmod).
+func FunctionCall3Coll(flinfo *FmgrInfo, collation Oid, arg1, arg2, arg3 datum.Datum) datum.Datum {
+	fcinfo := NewFunctionCallInfo(flinfo, 3, collation)
+	fcinfo.Args[0] = datum.NullableDatum{Value: arg1}
+	fcinfo.Args[1] = datum.NullableDatum{Value: arg2}
+	fcinfo.Args[2] = datum.NullableDatum{Value: arg3}
 	result := flinfo.FnAddr(fcinfo)
 	if fcinfo.IsNull {
 		pgerror.Elogf("function %d returned NULL", flinfo.FnOid)

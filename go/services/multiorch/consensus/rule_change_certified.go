@@ -40,12 +40,12 @@ import (
 // against the proposed cohort.
 func (c *Coordinator) ApplyCertifiedRuleChange(
 	ctx context.Context,
-	shardKey *clustermetadatapb.ShardKey,
+	shardRef *clustermetadatapb.ShardRef,
 	proposedTransition *clustermetadatapb.RulePosition,
 	cert *clustermetadatapb.ExternallyCertifiedRevocation,
 	reason string,
 ) error {
-	if err := validateCertifiedRuleChange(shardKey, proposedTransition, cert); err != nil {
+	if err := validateCertifiedRuleChange(shardRef, proposedTransition, cert); err != nil {
 		return err
 	}
 
@@ -53,7 +53,7 @@ func (c *Coordinator) ApplyCertifiedRuleChange(
 	// the pre-vote check in coordinatorLedRuleChange.Run sees real positions;
 	// without primed statuses the externally-certified pre-vote sees an empty
 	// set and fails before recruitment can prove the cert is acceptable.
-	statusesByPoolerID, err := c.refreshShardConsensusStatuses(ctx, shardKey)
+	statusesByPoolerID, err := c.refreshShardConsensusStatuses(ctx, shardRef)
 	if err != nil {
 		return err
 	}
@@ -100,15 +100,17 @@ func (c *Coordinator) ApplyCertifiedRuleChange(
 	buildProposal := func(_ commonconsensus.RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
 		return proposal, nil
 	}
+	incomingCohort := proposedTransition.GetProposal().GetCohortMembers()
+	incomingPolicy := proposedTransition.GetProposal().GetDurabilityPolicy()
 	tryBuildProposal := func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) (*consensusdatapb.CoordinatorProposal, error) {
-		return commonconsensus.BuildExternallyCertifiedProposal(cert, statuses, buildProposal)
+		return commonconsensus.BuildExternallyCertifiedProposal(cert, incomingCohort, incomingPolicy, statuses, buildProposal)
 	}
 	checkProposalPossible := func(_ *clustermetadatapb.TermRevocation, statuses []*clustermetadatapb.ConsensusStatus) error {
-		return commonconsensus.CheckExternallyCertifiedProposalPossible(cert, statuses, buildProposal)
+		return commonconsensus.CheckExternallyCertifiedProposalPossible(cert, incomingCohort, incomingPolicy, statuses, buildProposal)
 	}
 
 	c.logger.InfoContext(ctx, "applying certified rule change",
-		"shard", shardKey,
+		"shard", shardRef,
 		"leader", proposedTransition.GetProposal().GetLeaderId().GetName(),
 		"cohort_size", len(cohort),
 		"outgoing_term", revocation.GetOutgoingRule().GetCoordinatorTerm(),
@@ -131,7 +133,7 @@ func (c *Coordinator) ApplyCertifiedRuleChange(
 // not list might miss a pooler that is ahead of the cert.
 func (c *Coordinator) refreshShardConsensusStatuses(
 	ctx context.Context,
-	shardKey *clustermetadatapb.ShardKey,
+	shardRef *clustermetadatapb.ShardRef,
 ) (map[string]*clustermetadatapb.ConsensusStatus, error) {
 	cellNames, err := c.topoStore.GetCellNames(ctx)
 	if err != nil {
@@ -141,16 +143,16 @@ func (c *Coordinator) refreshShardConsensusStatuses(
 	for _, cell := range cellNames {
 		infos, err := c.topoStore.GetMultipoolersByCell(ctx, cell, &topoclient.GetMultipoolersByCellOptions{
 			DatabaseShard: &topoclient.DatabaseShard{
-				Database:   shardKey.GetDatabase(),
-				TableGroup: shardKey.GetTableGroup(),
-				Shard:      shardKey.GetShard(),
+				Database:   shardRef.GetDatabase(),
+				TableGroup: shardRef.GetTableGroup(),
+				Shard:      shardRef.GetShard(),
 			},
 		})
 		if err != nil {
 			return nil, mterrors.Wrapf(err, "failed to list poolers in cell %s during shard status refresh", cell)
 		}
 		for _, info := range infos {
-			if info.Multipooler != nil {
+			if info.Multipooler != nil && topoclient.IsManagedPooler(info.Multipooler) {
 				poolers = append(poolers, info.Multipooler)
 			}
 		}
@@ -199,6 +201,14 @@ func (c *Coordinator) resolveCohort(
 			return nil, nil, mterrors.Wrapf(err,
 				"failed to look up cohort member %s", topoclient.ClusterIDString(id))
 		}
+		// The cohort is caller-supplied: a member multiorch may not manage
+		// fails the request rather than being dropped, which would change the
+		// cohort that was proposed.
+		if !topoclient.IsManagedPooler(info.Multipooler) {
+			return nil, nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+				"cohort member %s is not managed by multiorch (leadership mode %s)",
+				topoclient.ClusterIDString(id), info.Multipooler.GetLeadershipMode())
+		}
 		key := topoclient.ClusterIDString(id)
 		addressByID[key] = topoclient.PoolerAddressFor(info.Multipooler)
 		cohort = append(cohort, &multiorchdatapb.PoolerHealthState{
@@ -213,14 +223,14 @@ func (c *Coordinator) resolveCohort(
 // rule_number must agree with the cert's revoked_below_term, and the leader
 // must be in the proposed cohort.
 func validateCertifiedRuleChange(
-	shardKey *clustermetadatapb.ShardKey,
+	shardRef *clustermetadatapb.ShardRef,
 	proposedTransition *clustermetadatapb.RulePosition,
 	cert *clustermetadatapb.ExternallyCertifiedRevocation,
 ) error {
 	proposedRule := proposedTransition.GetProposal()
 
-	if shardKey == nil || shardKey.GetDatabase() == "" || shardKey.GetTableGroup() == "" || shardKey.GetShard() == "" {
-		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "shard_key is required (database, table_group, shard)")
+	if shardRef == nil || shardRef.GetDatabase() == "" || shardRef.GetTableGroup() == "" || shardRef.GetShard() == "" {
+		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "shard_ref is required (database, table_group, shard)")
 	}
 	if proposedRule == nil {
 		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "proposed_rule is required")

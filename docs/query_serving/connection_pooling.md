@@ -114,24 +114,27 @@ messages until `ReadyForQuery` to keep connections clean. Connection-level error
 (read failures, broken pipes) cause the connection to be closed rather than
 returned to the pool.
 
-**Stale-Connection Retry:**
+**Stale-Connection Recovery:**
 
-A pooled socket can be silently closed by PostgreSQL while it sits idle (idle
-session timeout, server restart, etc.). The first write on that socket fails
-with a connection-class error (EOF, EPIPE, FATAL 57P0x). The regular pool
-recovers transparently in two places, both bounded by
-`constants.MaxConnPoolRetryAttempts` attempts with `constants.ConnPoolRetryBackoff`
-between them:
+A pooled socket can be closed by PostgreSQL while it sits idle (idle session
+timeout, server restart, failover, `pg_terminate_backend`). PostgreSQL writes a
+FATAL to the socket before closing it, and a query sent afterwards reads that
+FATAL back as if it were the reply. The regular pool recovers transparently in
+two places:
 
 - `regular.Pool.GetWithSettings` retries when applying SETs hits a stale socket
-  during acquisition (the underlying connpool closes the conn but does not
-  retry on its own); each attempt dials a fresh replacement.
-- `Conn.QueryWithRetry` / `QueryStreamingWithRetry` / `QueryArgsWithRetry`
-  reconnect the same socket in place via `retryOnConnectionError` and re-run
-  the op.
+  during acquisition, up to `constants.MaxConnPoolRetryAttempts` attempts with
+  `constants.ConnPoolRetryBackoff` between them. Replaying SETs is harmless.
+- `Conn.StatelessQuery` / `StatelessQueryStreaming` / `StatelessQueryArgs`
+  check the idle socket with `client.Conn.CheckIdle` before sending: a
+  non-blocking peek that sends nothing. If PostgreSQL already closed it, the
+  socket is reconnected in place and the query is sent on the fresh session.
 
-Together these cover both acquisition-time and execution-time stale-socket
-failures for the non-reserved query path.
+A query is never sent twice. Once it has been sent, a lost connection does not
+show whether PostgreSQL ran it (it may have committed an INSERT or consumed a
+sequence value before the backend died), so the error goes to the client, as
+it would for a client connected directly to PostgreSQL. The admin pool follows
+the same rule.
 
 #### ReservedPool
 

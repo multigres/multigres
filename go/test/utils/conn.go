@@ -9,9 +9,11 @@
 package utils
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,4 +37,23 @@ func RequirePinned(t *testing.T, conn *sql.Conn) int {
 	pid2 := GetBackendPID(t, conn)
 	require.Equal(t, pid1, pid2, "session should be pinned: backend PID must be stable")
 	return pid1
+}
+
+// PgxExec runs sql on conn in conn's configured protocol mode and returns its
+// error. Use it instead of conn.Exec when the protocol matters: pgx's Exec
+// always uses the simple protocol for a statement without arguments, whatever
+// DefaultQueryExecMode says, while Query honours it.
+func PgxExec(ctx context.Context, conn *pgx.Conn, sql string, args ...any) error {
+	rows, err := conn.Query(ctx, sql, args...)
+	if err != nil {
+		return err
+	}
+	rows.Close()
+	return rows.Err()
+}
+
+// RequirePgxExec is PgxExec that fails the test on error.
+func RequirePgxExec(t *testing.T, ctx context.Context, conn *pgx.Conn, sql string, args ...any) {
+	t.Helper()
+	require.NoError(t, PgxExec(ctx, conn, sql, args...), "%s", sql)
 }

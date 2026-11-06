@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
 	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -61,7 +62,7 @@ func (m *txMockIExecute) StreamExecute(
 	_ string,
 	_ string,
 	sql string,
-	_ *query.ExecuteSqlPreparedStatement,
+	_ *query.PreparedStatement,
 	_ *handler.MultigatewayConnectionState,
 	info PlanExecInfo,
 	_ bool,
@@ -111,7 +112,7 @@ func (m *txMockIExecute) CopyOutStream(context.Context, *server.Conn, string, st
 	return nil, nil
 }
 
-func (m *txMockIExecute) StreamReplication(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+func (m *txMockIExecute) StreamReplication(context.Context, *server.Conn, string, string, *handler.MultigatewayConnectionState, *multipoolerpb.StreamReplicationInit) (queryservice.ReplicationStream, error) {
 	return nil, nil
 }
 

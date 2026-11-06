@@ -23,6 +23,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // controlledConn embeds *mockConn and overrides WatchRecursive for fine-grained control.
@@ -50,6 +51,14 @@ func (s *staticConnProvider) ConnForCell(_ context.Context, _ string) (Conn, err
 }
 
 func (s *staticConnProvider) Status() map[string]string { return nil }
+
+type connProviderFunc func(context.Context, string) (Conn, error)
+
+func (f connProviderFunc) ConnForCell(ctx context.Context, cell string) (Conn, error) {
+	return f(ctx, cell)
+}
+
+func (connProviderFunc) Status() map[string]string { return nil }
 
 func discardLogger() *slog.Logger {
 	return slog.New(slog.DiscardHandler)
@@ -215,6 +224,53 @@ func TestWatchPathWithRetry_ShutdownOnContextCancel(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("WatchPathWithRetry did not return after ctx cancel within 1s")
 	}
+}
+
+func TestWatchPathWithRetry_DoesNotRecordCanceledConnectionSetup(t *testing.T) {
+	reader := installTestMetrics(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	done := make(chan struct{})
+	provider := connProviderFunc(func(ctx context.Context, _ string) (Conn, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+
+	go func() {
+		WatchPathWithRetry(ctx, provider, "zone1", "poolers", discardLogger(), func([]*WatchDataRecursive) {}, func(<-chan *WatchDataRecursive) {})
+		close(done)
+	}()
+	<-started
+	cancel()
+	<-done
+
+	got := collect(t, reader)
+	assert.Zero(t, sumValue(got["topoclient.watch.reconnects"], attribute.String("reason", "connection_failed")))
+}
+
+func TestWatchPathWithRetry_DoesNotRecordCanceledWatchSetup(t *testing.T) {
+	reader := installTestMetrics(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	done := make(chan struct{})
+	conn := &controlledConn{mockConn: newMockConn(0)}
+	conn.watchRecursiveFn = func(ctx context.Context, _ string) ([]*WatchDataRecursive, <-chan *WatchDataRecursive, error) {
+		close(started)
+		<-ctx.Done()
+		return nil, nil, ctx.Err()
+	}
+
+	go func() {
+		WatchPathWithRetry(ctx, &staticConnProvider{conn: conn}, "zone1", "poolers", discardLogger(), func([]*WatchDataRecursive) {}, func(<-chan *WatchDataRecursive) {})
+		close(done)
+	}()
+	<-started
+	cancel()
+	<-done
+
+	got := collect(t, reader)
+	assert.Zero(t, sumValue(got["topoclient.watch.reconnects"], attribute.String("reason", "watch_start_failed")))
 }
 
 func TestExtractCellFromPath(t *testing.T) {

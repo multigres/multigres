@@ -19,28 +19,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/common/callerid"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
-	"github.com/multigres/multigres/go/common/protoutil"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
-	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
-	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
-	"github.com/multigres/multigres/go/services/multipooler/internal/pools/admin"
 )
 
 // poolerService is the gRPC wrapper for Multipooler
@@ -59,80 +50,14 @@ func RegisterPoolerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServer) {
 	})
 }
 
-// admissionKind classifies a query-path request for StartRequest. A non-zero
-// reservedConnID means it continues an EXISTING reserved connection; otherwise
-// reserves reports whether the request will create a NEW reserved connection —
-// if not, it is a single autocommit query. Each handler computes reserves from
-// the signal it actually carries, mirroring the executor's own reservation
-// decision (reservation reasons for StreamExecute, MaxRows or reasons for
-// portals, always for COPY). The graceful drain serves single queries longer
-// than new reservations, so the distinction matters during shutdown.
-func admissionKind(reservedConnID uint64, reserves bool) poolerserver.RequestKind {
-	switch {
-	case reservedConnID > 0:
-		return poolerserver.RequestExistingReserved
-	case reserves:
-		return poolerserver.RequestNewReservation
-	default:
-		return poolerserver.RequestSingleQuery
-	}
-}
-
-// portalReserves reports whether a PortalStreamExecute will use or create a
-// reserved connection, mirroring the executor's reserve decision exactly: a
-// suspendable cursor (MaxRows > 0) OR a portal carrying reservation reasons.
-// The reasons case is reachable on the extended-query path — a deferred BEGIN
-// is folded into the first portal as ReasonTransaction while MaxRows == 0 — so
-// checking MaxRows alone would mis-admit such a portal as a single query during
-// a graceful drain, and the executor would then open a reserved connection.
-func portalReserves(options *query.ExecuteOptions, reservationOptions *query.ReservationOptions) bool {
-	return options.GetMaxRows() > 0 || reservationOptions.GetReasons() != 0
-}
-
-// annotateCaller records the request's caller identity on the current span so
-// pooler-side traces attribute a query to the app that issued it, not just the
-// shared database user. No-op when the gateway sent no caller_id or there is no
-// recording span.
-func annotateCaller(ctx context.Context, caller *mtrpcpb.CallerID) {
-	if caller == nil {
-		return
-	}
-	span := trace.SpanFromContext(ctx)
-	if !span.IsRecording() {
-		return
-	}
-	span.SetAttributes(
-		attribute.String(callerid.KeyAuthenticatedUser, caller.GetPrincipal()),
-		attribute.String(callerid.KeyApplicationName, caller.GetComponent()),
-	)
-}
-
 // StreamExecute executes a SQL query and streams the results back to the client.
 // This is the main execution method used by multigateway.
 // When req.ReservationOptions has non-zero reasons, creates or extends a reserved connection.
 func (s *poolerService) StreamExecute(req *multipoolerpb.StreamExecuteRequest, stream multipoolerpb.MultipoolerService_StreamExecuteServer) error {
-	annotateCaller(stream.Context(), req.GetCallerId())
-	// StreamExecute is the only query handler that can create a new reservation
-	// (ReservationOptions reasons with no ReservedConnectionId). Classify it so a
-	// graceful drain keeps serving single queries while rejecting new transactions.
-	if err := s.pooler.StartRequest(req.Target, admissionKind(req.Options.GetReservedConnectionId(), req.GetReservationOptions().GetReasons() != 0)); err != nil {
-		return mterrors.ToGRPC(err)
-	}
-
-	// Validate reservation reasons at the gRPC trust boundary.
-	if reasons := req.GetReservationOptions().GetReasons(); reasons != 0 {
-		if err := protoutil.ValidateReasons(reasons); err != nil {
-			return status.Errorf(codes.InvalidArgument, "invalid reservation reasons: %v", err)
-		}
-	}
-
-	// Get the executor from the pooler
-	executor, err := s.pooler.Executor()
-	if err != nil {
-		return mterrors.ToGRPC(err)
-	}
-
-	return s.streamExecuteTo(stream, executor, req)
+	callerid.AnnotateSpan(stream.Context(), req.GetCallerId())
+	// The pooler's query service admits the request and validates its
+	// reservation reasons before running it.
+	return s.streamExecuteTo(stream, s.pooler.QueryService(), req)
 }
 
 // streamExecuteTo runs the query on exec and writes the response sequence to
@@ -236,20 +161,8 @@ func (s *poolerService) streamExecuteTo(
 // This should be used sparingly only when we know the result set is small,
 // otherwise StreamExecute should be used.
 func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.ExecuteQueryRequest) (*multipoolerpb.ExecuteQueryResponse, error) {
-	annotateCaller(ctx, req.GetCallerId())
-	// No ReservationOptions: an existing reserved connection, otherwise a single query.
-	if err := s.pooler.StartRequest(req.Target, admissionKind(req.Options.GetReservedConnectionId(), false)); err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-
-	// Get the executor from the pooler
-	executor, err := s.pooler.Executor()
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-
-	// Execute the query
-	res, reservedState, err := executor.ExecuteQuery(ctx, req.Target, req.Query, req.Options)
+	callerid.AnnotateSpan(ctx, req.GetCallerId())
+	res, reservedState, err := s.pooler.QueryService().ExecuteQuery(ctx, req.Target, req.Query, req.Options)
 	if err != nil {
 		// Convert errors to gRPC format, preserving PostgreSQL error details
 		return nil, mterrors.ToGRPC(err)
@@ -267,119 +180,18 @@ func (s *poolerService) ExecuteQuery(ctx context.Context, req *multipoolerpb.Exe
 // have access to password hashes and at the time of this request we wouldn't have authenticated
 // that we have permission to run queries under any other user's role.
 func (s *poolerService) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error) {
-	// Validate request.
-	if req.Username == "" {
-		return nil, status.Error(codes.InvalidArgument, "username is required")
-	}
-	if req.Database == "" {
-		return nil, status.Error(codes.InvalidArgument, "database is required")
-	}
-
-	if s.pooler == nil {
-		return nil, status.Error(codes.Unavailable, "pooler not initialized")
-	}
-
-	// Admin credential fetch (not a query). Treat like a new reservation so it is
-	// buffered during any drain — the same behavior as before the two-stage drain.
-	if err := s.pooler.StartRequest(nil, poolerserver.RequestNewReservation); err != nil {
+	resp, err := s.pooler.GetAuthCredentials(ctx, req)
+	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
-
-	poolManager := s.pooler.PoolManager()
-	if poolManager == nil {
-		return nil, status.Error(codes.Unavailable, "pool manager not initialized")
-	}
-
-	// Time the full credential-query path (admin acquire + pg_authid
-	// lookup + decode) for mg.pooler.auth.credential_query.duration so
-	// admin-pool contention shows up before it cascades into
-	// gateway-visible auth latency. The duration is recorded on every
-	// exit, error or not; the error counter only fires on failures so
-	// the success rate is implicit.
-	recorder := poolManager.CredentialQueryRecorder()
-	start := time.Now()
-	var errorType string
-	defer func() {
-		if recorder != nil {
-			recorder.RecordCredentialQuery(ctx, time.Since(start), errorType)
-		}
-	}()
-
-	// An admin connection:
-	// - has permission to read password hashes
-	// - also avoids a chicken-egg scenario of needing to create and use a role-specific connection
-	//   to figure out if the caller should have access to that role-specific connection.
-	conn, err := poolManager.GetAdminConn(ctx)
-	if err != nil {
-		errorType = connpoolmanager.CredentialQueryErrorPoolAcquireFailed
-		return nil, status.Errorf(codes.Unavailable, "failed to get admin connection: %v", err)
-	}
-	defer conn.Recycle()
-
-	// Get the role auth info (password hash + rolreplication) using the admin
-	// connection. This queries pg_authid, which requires superuser access.
-	authInfo, err := conn.Conn.GetRolAuthInfo(ctx, req.Username)
-	if err != nil {
-		switch {
-		case errors.Is(err, admin.ErrUserNotFound):
-			errorType = connpoolmanager.CredentialQueryErrorUserNotFound
-			return nil, status.Errorf(codes.NotFound, "user %q not found", req.Username)
-		case errors.Is(err, admin.ErrLoginDisabled):
-			// Emit as a PgDiagnostic so the SQLSTATE (28000) is the
-			// distinguishing signal at the gateway, not the gRPC code.
-			// gRPC auth interceptors use codes.PermissionDenied /
-			// codes.Unauthenticated for transport failures; keying on code
-			// alone would misclassify an mTLS or authz error as an app-level
-			// "role not permitted to log in" rejection to the end user.
-			errorType = connpoolmanager.CredentialQueryErrorLoginDisabled
-			return nil, mterrors.ToGRPC(mterrors.NewPgError(
-				"FATAL", mterrors.PgSSInvalidAuthSpec,
-				fmt.Sprintf("role %q is not permitted to log in", req.Username),
-				"",
-			))
-		case errors.Is(err, admin.ErrPasswordExpired):
-			// SQLSTATE 28P01 matches PG's opaque "password authentication
-			// failed" error for expired passwords. PgDiagnostic detail
-			// survives the gRPC round trip and the gateway matches on it.
-			errorType = connpoolmanager.CredentialQueryErrorPasswordExpired
-			return nil, mterrors.ToGRPC(mterrors.NewPgError(
-				"FATAL", mterrors.PgSSAuthFailed,
-				fmt.Sprintf("password authentication failed for user %q", req.Username),
-				"",
-			))
-		default:
-			// Genuine DB-level failure (SQL error, unexpected result shape,
-			// connection drop mid-query). Tagged db_error so operators can
-			// alert on it without false positives from the user_not_found
-			// baseline.
-			errorType = connpoolmanager.CredentialQueryErrorDB
-			return nil, status.Errorf(codes.Internal, "failed to get role password: %v", err)
-		}
-	}
-
-	return &multipoolerpb.GetAuthCredentialsResponse{
-		ScramHash:         authInfo.ScramHash,
-		IsReplicationRole: authInfo.IsReplicationRole,
-	}, nil
+	return resp, nil
 }
 
 // Describe returns metadata about a prepared statement or portal.
 // Used by multigateway for the Extended Query Protocol.
 func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.DescribeRequest) (*multipoolerpb.DescribeResponse, error) {
-	annotateCaller(ctx, req.GetCallerId())
-	// No ReservationOptions: an existing reserved connection, otherwise a single query.
-	if err := s.pooler.StartRequest(req.Target, admissionKind(req.Options.GetReservedConnectionId(), false)); err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-
-	// Get the executor from the pooler
-	executor, err := s.pooler.Executor()
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-
-	// Call the executor's Describe method
-	desc, err := executor.Describe(ctx, req.Target, req.PreparedStatement, req.Portal, req.Options)
+	callerid.AnnotateSpan(ctx, req.GetCallerId())
+	desc, err := s.pooler.QueryService().Describe(ctx, req.Target, req.PreparedStatement, req.Portal, req.Options)
 	if err != nil {
 		// Convert errors to gRPC format, preserving PostgreSQL error details
 		return nil, mterrors.ToGRPC(err)
@@ -399,30 +211,10 @@ func (s *poolerService) Describe(ctx context.Context, req *multipoolerpb.Describ
 // PortalStreamExecute executes a portal (bound prepared statement) and streams results.
 // Used by multigateway for the Extended Query Protocol.
 func (s *poolerService) PortalStreamExecute(req *multipoolerpb.PortalStreamExecuteRequest, stream multipoolerpb.MultipoolerService_PortalStreamExecuteServer) error {
-	annotateCaller(stream.Context(), req.GetCallerId())
-	// A portal reserves when it is a suspendable cursor (MaxRows > 0) or carries
-	// reservation reasons (e.g. a deferred BEGIN folded into the first portal),
-	// or is already on a reserved connection — this mirrors the executor's own
-	// reserve decision. Only a fetch-all portal with no reasons runs on a pooled
-	// connection as a single query and may be served during stage 1.
-	if err := s.pooler.StartRequest(req.Target, admissionKind(req.Options.GetReservedConnectionId(), portalReserves(req.Options, req.GetReservationOptions()))); err != nil {
-		return mterrors.ToGRPC(err)
-	}
-
-	// Validate reservation reasons at the gRPC trust boundary (mirrors StreamExecute).
-	if reasons := req.GetReservationOptions().GetReasons(); reasons != 0 {
-		if err := protoutil.ValidateReasons(reasons); err != nil {
-			return status.Errorf(codes.InvalidArgument, "invalid reservation reasons: %v", err)
-		}
-	}
-
-	// Get the executor from the pooler
-	executor, err := s.pooler.Executor()
-	if err != nil {
-		return mterrors.ToGRPC(err)
-	}
-
-	return s.portalStreamExecuteTo(stream, executor, req)
+	callerid.AnnotateSpan(stream.Context(), req.GetCallerId())
+	// The pooler's query service admits the portal (as a reservation when it is
+	// a suspendable cursor or carries reasons) and validates its reasons.
+	return s.portalStreamExecuteTo(stream, s.pooler.QueryService(), req)
 }
 
 // portalStreamExecuteTo runs the portal on exec and writes the response
@@ -543,13 +335,17 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultipoolerService_
 	if req.Phase != multipoolerpb.CopyBidiExecuteRequest_INITIATE {
 		return status.Errorf(codes.InvalidArgument, "expected INITIATE, got %v", req.Phase)
 	}
-	annotateCaller(ctx, req.GetCallerId())
+	callerid.AnnotateSpan(ctx, req.GetCallerId())
 
 	// COPY always pins a connection (the executor adds ReasonCopy internally, so
 	// reservation reasons in the request can be 0 for an autocommit COPY that
 	// still reserves). So a COPY without an existing reserved connection is always
 	// a new reservation, never a single query.
-	if err := s.pooler.StartRequest(req.Target, admissionKind(req.Options.GetReservedConnectionId(), true)); err != nil {
+	//
+	// Admitted here, before CopyReady, rather than by the pooler's query
+	// service: a CopyReady error is answered with an ERROR phase carrying the
+	// reserved state, which an admission failure must not take.
+	if err := s.pooler.StartRequest(req.Target, poolerserver.AdmissionKind(req.Options.GetReservedConnectionId(), true)); err != nil {
 		return mterrors.ToGRPC(err)
 	}
 
@@ -584,7 +380,7 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultipoolerService_
 		errResp := &multipoolerpb.CopyBidiExecuteResponse{
 			Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
 			Error:           err.Error(),
-			ErrorDiagnostic: pgDiagnosticFromError(err),
+			ErrorDiagnostic: mterrors.PgDiagnosticProtoFromError(err),
 			ReservedState:   reservedState,
 		}
 		_ = stream.Send(errResp)
@@ -659,7 +455,7 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultipoolerService_
 				errorResp := &multipoolerpb.CopyBidiExecuteResponse{
 					Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
 					Error:           err.Error(),
-					ErrorDiagnostic: pgDiagnosticFromError(err),
+					ErrorDiagnostic: mterrors.PgDiagnosticProtoFromError(err),
 					ReservedState:   abortState,
 				}
 				_ = stream.Send(errorResp)
@@ -688,7 +484,7 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultipoolerService_
 				errorResp := &multipoolerpb.CopyBidiExecuteResponse{
 					Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
 					Error:           err.Error(),
-					ErrorDiagnostic: pgDiagnosticFromError(err),
+					ErrorDiagnostic: mterrors.PgDiagnosticProtoFromError(err),
 					ReservedState:   reservedState,
 					Notices:         errNotices,
 				}
@@ -749,19 +545,6 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultipoolerService_
 	}
 }
 
-// pgDiagnosticFromError returns the proto representation of a PG diagnostic
-// extracted from err, or nil when err is not a *mterrors.PgDiagnostic (e.g.
-// an infrastructure error). Callers attach the result to
-// CopyBidiExecuteResponse.error_diagnostic so the gateway can re-emit a
-// verbatim ErrorResponse rather than wrapping the message text.
-func pgDiagnosticFromError(err error) *query.PgDiagnostic {
-	var diag *mterrors.PgDiagnostic
-	if errors.As(err, &diag) {
-		return mterrors.PgDiagnosticToProto(diag)
-	}
-	return nil
-}
-
 // noticesToProto converts a slice of mterrors notices to their proto form
 // for forwarding through CopyBidiExecuteResponse.notices.
 func noticesToProto(notices []*mterrors.PgDiagnostic) []*query.PgDiagnostic {
@@ -795,7 +578,7 @@ func (s *poolerService) copyBidiExecuteToStdout(
 		errResp := &multipoolerpb.CopyBidiExecuteResponse{
 			Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
 			Error:           err.Error(),
-			ErrorDiagnostic: pgDiagnosticFromError(err),
+			ErrorDiagnostic: mterrors.PgDiagnosticProtoFromError(err),
 			ReservedState:   reservedState,
 			Notices:         noticesToProto(initNotices),
 		}
@@ -853,7 +636,7 @@ func (s *poolerService) copyBidiExecuteToStdout(
 		errResp := &multipoolerpb.CopyBidiExecuteResponse{
 			Phase:           multipoolerpb.CopyBidiExecuteResponse_ERROR,
 			Error:           err.Error(),
-			ErrorDiagnostic: pgDiagnosticFromError(err),
+			ErrorDiagnostic: mterrors.PgDiagnosticProtoFromError(err),
 			ReservedState:   finalState,
 		}
 		_ = stream.Send(errResp)
@@ -882,17 +665,10 @@ func (s *poolerService) copyBidiExecuteToStdout(
 // ConcludeTransaction concludes a transaction on a reserved connection.
 // Executes COMMIT or ROLLBACK based on the conclusion. Returns remaining reasons if connection is still reserved.
 func (s *poolerService) ConcludeTransaction(ctx context.Context, req *multipoolerpb.ConcludeTransactionRequest) (*multipoolerpb.ConcludeTransactionResponse, error) {
-	annotateCaller(ctx, req.GetCallerId())
-	// Always on an existing reserved connection — admitted regardless of drain.
-	if err := s.pooler.StartRequest(req.Target, poolerserver.RequestExistingReserved); err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
+	callerid.AnnotateSpan(ctx, req.GetCallerId())
 
-	// Get the executor from the pooler
-	executor, err := s.pooler.Executor()
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
+	// The pooler's query service admits it as an existing reservation.
+	executor := s.pooler.QueryService()
 
 	// Conclude the transaction. Forward the per-txn portal-release diff so the
 	// executor can drop exactly the cursor pins PG closed for this ROLLBACK
@@ -946,17 +722,10 @@ func withReservedStateDetail(grpcErr error, state *query.ReservedState) error {
 // DiscardTempTables sends DISCARD TEMP on a reserved connection and removes the temp table reason.
 // Returns remaining reasons if connection is still reserved.
 func (s *poolerService) DiscardTempTables(ctx context.Context, req *multipoolerpb.DiscardTempTablesRequest) (*multipoolerpb.DiscardTempTablesResponse, error) {
-	annotateCaller(ctx, req.GetCallerId())
-	// Always on an existing reserved connection — admitted regardless of drain.
-	if err := s.pooler.StartRequest(req.Target, poolerserver.RequestExistingReserved); err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
+	callerid.AnnotateSpan(ctx, req.GetCallerId())
 
-	// Get the executor from the pooler
-	executor, err := s.pooler.Executor()
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
+	// The pooler's query service admits it as an existing reservation.
+	executor := s.pooler.QueryService()
 
 	result, reservedState, err := executor.DiscardTempTables(ctx, req.Target, req.Options)
 	if err != nil {
@@ -971,18 +740,10 @@ func (s *poolerService) DiscardTempTables(ctx context.Context, req *multipoolerp
 
 // ReleaseReservedConnection forcefully releases a reserved connection regardless of reason.
 func (s *poolerService) ReleaseReservedConnection(ctx context.Context, req *multipoolerpb.ReleaseReservedConnectionRequest) (*multipoolerpb.ReleaseReservedConnectionResponse, error) {
-	annotateCaller(ctx, req.GetCallerId())
-	// Always on an existing reserved connection — admitted regardless of drain.
-	if err := s.pooler.StartRequest(req.Target, poolerserver.RequestExistingReserved); err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
+	callerid.AnnotateSpan(ctx, req.GetCallerId())
 
-	executor, err := s.pooler.Executor()
-	if err != nil {
-		return nil, mterrors.ToGRPC(err)
-	}
-
-	reservedState, err := executor.ReleaseReservedConnection(ctx, req.Target, req.Options, req.GetKeepStickyReservations())
+	// The pooler's query service admits it as an existing reservation.
+	reservedState, err := s.pooler.QueryService().ReleaseReservedConnection(ctx, req.Target, req.Options, req.GetKeepStickyReservations())
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}
@@ -1000,21 +761,15 @@ func (s *poolerService) StreamPoolerHealth(req *multipoolerpb.StreamPoolerHealth
 		return status.Error(codes.Unavailable, "pooler not initialized")
 	}
 
-	// Get the health provider
-	hp := s.pooler.HealthProvider()
-	if hp == nil {
-		return status.Error(codes.Unavailable, "health provider not initialized")
-	}
-
 	// Subscribe to health updates
-	initialState, healthChan, err := hp.SubscribeHealth(ctx)
+	initialState, healthChan, err := s.pooler.SubscribeHealth(ctx)
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed to subscribe to health: %v", err)
+		return mterrors.ToGRPC(err)
 	}
 
 	// Send initial health state
 	if initialState != nil {
-		if err := stream.Send(healthStateToProto(initialState)); err != nil {
+		if err := stream.Send(initialState.ToProto()); err != nil {
 			return err
 		}
 	}
@@ -1029,28 +784,11 @@ func (s *poolerService) StreamPoolerHealth(req *multipoolerpb.StreamPoolerHealth
 				// Channel closed, stream ended
 				return nil
 			}
-			if err := stream.Send(healthStateToProto(state)); err != nil {
+			if err := stream.Send(state.ToProto()); err != nil {
 				return err
 			}
 		}
 	}
-}
-
-// healthStateToProto converts internal health state to proto response.
-func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPoolerHealthResponse {
-	resp := &multipoolerpb.StreamPoolerHealthResponse{
-		PoolerId:      state.PoolerID,
-		ServingStatus: state.ServingStatus,
-		RoutingState:  state.RoutingState,
-	}
-
-	if state.RecommendedStalenessTimeout > 0 {
-		resp.RecommendedStalenessTimeout = durationpb.New(state.RecommendedStalenessTimeout)
-	}
-
-	resp.ReplicationLagNs = state.ReplicationLagNs
-
-	return resp
 }
 
 // NotificationStream keeps one ordered notification stream per gateway client
@@ -1060,83 +798,18 @@ func healthStateToProto(state *poolerserver.HealthState) *multipoolerpb.StreamPo
 // The listener is looked up per stream, not once at registration: the manager
 // replaces it on every connection reopen, and a stale one stays stopped. A
 // stream stays bound to the listener it started on; when that listener stops,
-// it closes notifCh and the stream ends, and the gateway's next subscription
-// update reconnects to the current one.
+// it closes notifCh and the stream ends, and the gateway reopens a stream
+// against the current leader. A stopped listener (this pooler is not the
+// writable, serving leader) refuses new streams rather than acking subscribes
+// it can never deliver on, so a gateway that still routes to a demoted leader
+// keeps retrying until the load balancer observes the new one.
 func (s *poolerService) NotificationStream(stream multipoolerpb.MultipoolerService_NotificationStreamServer) error {
-	listener := s.pooler.PubSubListener()
-	if listener == nil {
-		return errors.New("PubSubListener not initialized")
+	err := s.pooler.ServeNotifications(stream.Context(), stream.Recv, stream.Send)
+	// The pooler's refusals carry a code for the gRPC status; stream and
+	// context errors are returned as they are.
+	var coded mterrors.ErrorWithCode
+	if errors.As(err, &coded) {
+		return mterrors.ToGRPC(err)
 	}
-
-	notifCh := make(chan *sqltypes.Notification, 256)
-	subscribed := make(map[string]bool)
-	defer func() {
-		for ch := range subscribed {
-			listener.Unsubscribe(ch, notifCh)
-		}
-	}()
-
-	reqCh := make(chan *multipoolerpb.NotificationStreamRequest)
-	errCh := make(chan error, 1)
-	go func() {
-		for {
-			req, err := stream.Recv()
-			if err != nil {
-				errCh <- err
-				return
-			}
-			select {
-			case reqCh <- req:
-			case <-stream.Context().Done():
-				return
-			}
-		}
-	}()
-
-	for {
-		select {
-		case <-stream.Context().Done():
-			return stream.Context().Err()
-		case err := <-errCh:
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-			return err
-		case req := <-reqCh:
-			if req.GetUnsubscribeAll() {
-				for ch := range subscribed {
-					listener.Unsubscribe(ch, notifCh)
-					delete(subscribed, ch)
-				}
-			}
-			for _, ch := range req.GetUnsubscribeChannels() {
-				if subscribed[ch] {
-					listener.Unsubscribe(ch, notifCh)
-					delete(subscribed, ch)
-				}
-			}
-			for _, ch := range req.GetSubscribeChannels() {
-				if !subscribed[ch] {
-					listener.SubscribeCh(ch, notifCh)
-					subscribed[ch] = true
-				}
-			}
-			if err := stream.Send(&multipoolerpb.NotificationStreamResponse{Ready: true}); err != nil {
-				return err
-			}
-		case notif := <-notifCh:
-			if notif == nil {
-				return nil
-			}
-			if err := stream.Send(&multipoolerpb.NotificationStreamResponse{
-				Notification: &query.PgNotification{
-					Pid:     notif.PID,
-					Channel: notif.Channel,
-					Payload: notif.Payload,
-				},
-			}); err != nil {
-				return err
-			}
-		}
-	}
+	return err
 }

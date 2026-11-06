@@ -120,9 +120,12 @@ integration jobs do not opt in. The source checkout is cached, but each
 invocation rebuilds and installs PostgreSQL into an isolated directory.
 
 The differential test builds pinned PostgreSQL 17.6 using `pgbuilder` and starts
-one standalone server. It compares direct local fmgr calls, not gateway
-passthrough, with the reference's values, NULLs, type OIDs, SQLSTATEs, error
-messages and severities. Inputs include boundary cross-products, casts, radix
+one standalone server. Its `Functions` subtest compares direct local fmgr calls,
+not gateway passthrough, with the reference's values, NULLs, type OIDs,
+SQLSTATEs, error messages and severities. Its `Expressions` subtest analyzes a
+generated corpus of SQL expressions with `go/common/pgeval/analyze` and compares
+the resolved result types, deduced parameter types, errors and, where these
+builtins can evaluate the analyzed tree, values with the server's. Inputs include boundary cross-products, casts, radix
 and separator syntax, malformed input, and deterministic random values.
 Binary receivers are tested through raw binary Bind parameters, after verifying
 PG's `typreceive` OID. Tests distinguish receiver errors from Bind's trailing-byte

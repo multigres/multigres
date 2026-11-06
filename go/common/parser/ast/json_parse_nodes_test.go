@@ -28,6 +28,8 @@ package ast
 import (
 	"testing"
 
+	"github.com/multigres/multigres/go/common/parser/datum"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -231,7 +233,7 @@ func TestJsonReturning(t *testing.T) {
 // TestJsonValueExpr tests the JsonValueExpr node
 func TestJsonValueExpr(t *testing.T) {
 	t.Run("NewJsonValueExpr", func(t *testing.T) {
-		rawExpr := NewConst(25, Datum(0), false) // TEXT constant
+		rawExpr := NewConst(25, Datum{}, false) // TEXT constant
 		format := NewJsonFormat(JS_FORMAT_JSON, JS_ENC_UTF8, 100)
 		valueExpr := NewJsonValueExpr(rawExpr, format)
 
@@ -248,7 +250,7 @@ func TestJsonValueExpr(t *testing.T) {
 // TestJsonBehavior tests the JsonBehavior node
 func TestJsonBehavior(t *testing.T) {
 	t.Run("NewJsonBehavior", func(t *testing.T) {
-		expr := NewConst(25, Datum(0), false) // TEXT constant
+		expr := NewConst(25, Datum{}, false) // TEXT constant
 		behavior := NewJsonBehavior(JSON_BEHAVIOR_DEFAULT, expr, 200)
 
 		require.NotNil(t, behavior)
@@ -279,7 +281,7 @@ func TestJsonOutput(t *testing.T) {
 // TestJsonArgument tests the JsonArgument node
 func TestJsonArgument(t *testing.T) {
 	t.Run("NewJsonArgument", func(t *testing.T) {
-		valueExpr := NewJsonValueExpr(NewConst(25, Datum(0), false), nil)
+		valueExpr := NewJsonValueExpr(NewConst(25, Datum{}, false), nil)
 		arg := NewJsonArgument(valueExpr, "arg_name")
 
 		require.NotNil(t, arg)
@@ -293,8 +295,8 @@ func TestJsonArgument(t *testing.T) {
 // TestJsonFuncExpr tests the JsonFuncExpr node
 func TestJsonFuncExpr(t *testing.T) {
 	t.Run("NewJsonFuncExpr", func(t *testing.T) {
-		contextItem := NewJsonValueExpr(NewConst(25, Datum(0), false), nil)
-		pathspec := NewConst(25, Datum(0), false) // TEXT constant for JSON path
+		contextItem := NewJsonValueExpr(NewConst(25, Datum{}, false), nil)
+		pathspec := NewConst(25, Datum{}, false) // TEXT constant for JSON path
 		funcExpr := NewJsonFuncExpr(JSON_EXISTS_OP, contextItem, pathspec)
 
 		require.NotNil(t, funcExpr)
@@ -308,8 +310,8 @@ func TestJsonFuncExpr(t *testing.T) {
 	})
 
 	t.Run("CompleteJsonFuncExpr", func(t *testing.T) {
-		contextItem := NewJsonValueExpr(NewConst(25, Datum(0), false), nil)
-		pathspec := NewConst(25, Datum(0), false)
+		contextItem := NewJsonValueExpr(NewConst(25, Datum{}, false), nil)
+		pathspec := NewConst(25, Datum{}, false)
 		funcExpr := NewJsonFuncExpr(JSON_QUERY_OP, contextItem, pathspec)
 
 		funcExpr.ColumnName = "json_col"
@@ -328,7 +330,7 @@ func TestJsonFuncExpr(t *testing.T) {
 // TestJsonTablePathSpec tests the JsonTablePathSpec node
 func TestJsonTablePathSpec(t *testing.T) {
 	t.Run("NewJsonTablePathSpec", func(t *testing.T) {
-		pathStr := NewConst(25, Datum(0), false) // TEXT constant for JSON path
+		pathStr := NewConst(25, Datum{}, false) // TEXT constant for JSON path
 		pathSpec := NewJsonTablePathSpec(pathStr, "item_path", 400)
 
 		require.NotNil(t, pathSpec)
@@ -343,8 +345,8 @@ func TestJsonTablePathSpec(t *testing.T) {
 // TestJsonTable tests the JsonTable node
 func TestJsonTable(t *testing.T) {
 	t.Run("NewJsonTable", func(t *testing.T) {
-		contextItem := NewJsonValueExpr(NewConst(25, Datum(0), false), nil)
-		pathStr := NewConst(25, Datum(0), false)
+		contextItem := NewJsonValueExpr(NewConst(25, Datum{}, false), nil)
+		pathStr := NewConst(25, Datum{}, false)
 		pathSpec := NewJsonTablePathSpec(pathStr, "items", 400)
 		jsonTable := NewJsonTable(contextItem, pathSpec)
 
@@ -356,11 +358,11 @@ func TestJsonTable(t *testing.T) {
 	})
 
 	t.Run("CompleteJsonTable", func(t *testing.T) {
-		contextItem := NewJsonValueExpr(NewConst(25, Datum(0), false), nil)
-		pathSpec := NewJsonTablePathSpec(NewConst(25, Datum(0), false), "items", 400)
+		contextItem := NewJsonValueExpr(NewConst(25, Datum{}, false), nil)
+		pathSpec := NewJsonTablePathSpec(NewConst(25, Datum{}, false), "items", 400)
 		jsonTable := NewJsonTable(contextItem, pathSpec)
 
-		alias := NewAlias("jt", NewNodeList(NewConst(25, Datum(0), false)))
+		alias := NewAlias("jt", NewNodeList(NewConst(25, Datum{}, false)))
 		onError := NewJsonBehavior(JSON_BEHAVIOR_ERROR, nil, -1)
 		jsonTable.Alias = alias
 		jsonTable.OnError = onError
@@ -390,7 +392,7 @@ func TestJsonTableColumn(t *testing.T) {
 		column := NewJsonTableColumn(JTC_FORMATTED, "formatted_col")
 
 		typeName := NewTypeName([]string{"text"})
-		pathSpec := NewJsonTablePathSpec(NewConst(25, Datum(0), false), "name_path", 600)
+		pathSpec := NewJsonTablePathSpec(NewConst(25, Datum{}, false), "name_path", 600)
 		format := NewJsonFormat(JS_FORMAT_JSON, JS_ENC_UTF8, 650)
 		onEmpty := NewJsonBehavior(JSON_BEHAVIOR_NULL, nil, -1)
 		onError := NewJsonBehavior(JSON_BEHAVIOR_ERROR, nil, -1)
@@ -418,8 +420,8 @@ func TestJsonTableColumn(t *testing.T) {
 // TestJsonKeyValue tests the JsonKeyValue node
 func TestJsonKeyValue(t *testing.T) {
 	t.Run("NewJsonKeyValue", func(t *testing.T) {
-		key := NewConst(25, Datum(0), false) // TEXT constant
-		value := NewJsonValueExpr(NewConst(25, Datum(0), false), nil)
+		key := NewConst(25, Datum{}, false) // TEXT constant
+		value := NewJsonValueExpr(NewConst(25, Datum{}, false), nil)
 		keyValue := NewJsonKeyValue(key, value)
 
 		require.NotNil(t, keyValue)
@@ -433,7 +435,7 @@ func TestJsonKeyValue(t *testing.T) {
 // TestJsonParseExpr tests the JsonParseExpr node
 func TestJsonParseExpr(t *testing.T) {
 	t.Run("NewJsonParseExpr", func(t *testing.T) {
-		expr := NewJsonValueExpr(NewConst(25, Datum(0), false), nil)
+		expr := NewJsonValueExpr(NewConst(25, Datum{}, false), nil)
 		parseExpr := NewJsonParseExpr(expr, true)
 
 		require.NotNil(t, parseExpr)
@@ -449,7 +451,7 @@ func TestJsonParseExpr(t *testing.T) {
 // TestJsonScalarExpr tests the JsonScalarExpr node
 func TestJsonScalarExpr(t *testing.T) {
 	t.Run("NewJsonScalarExpr", func(t *testing.T) {
-		expr := NewConst(25, Datum(0), false) // TEXT constant
+		expr := NewConst(25, Datum{}, false) // TEXT constant
 		scalarExpr := NewJsonScalarExpr(expr)
 
 		require.NotNil(t, scalarExpr)
@@ -464,7 +466,7 @@ func TestJsonScalarExpr(t *testing.T) {
 // TestJsonSerializeExpr tests the JsonSerializeExpr node
 func TestJsonSerializeExpr(t *testing.T) {
 	t.Run("NewJsonSerializeExpr", func(t *testing.T) {
-		expr := NewJsonValueExpr(NewConst(25, Datum(0), false), nil)
+		expr := NewJsonValueExpr(NewConst(25, Datum{}, false), nil)
 		serializeExpr := NewJsonSerializeExpr(expr)
 
 		require.NotNil(t, serializeExpr)
@@ -479,8 +481,8 @@ func TestJsonSerializeExpr(t *testing.T) {
 // TestJsonObjectConstructor tests the JsonObjectConstructor node
 func TestJsonObjectConstructor(t *testing.T) {
 	t.Run("NewJsonObjectConstructor", func(t *testing.T) {
-		kv1 := NewJsonKeyValue(NewConst(25, Datum(0), false), NewJsonValueExpr(NewConst(25, Datum(0), false), nil))
-		kv2 := NewJsonKeyValue(NewConst(25, Datum(0), false), NewJsonValueExpr(NewConst(25, Datum(0), false), nil))
+		kv1 := NewJsonKeyValue(NewConst(25, Datum{}, false), NewJsonValueExpr(NewConst(25, Datum{}, false), nil))
+		kv2 := NewJsonKeyValue(NewConst(25, Datum{}, false), NewJsonValueExpr(NewConst(25, Datum{}, false), nil))
 		exprs := NewNodeList(kv1, kv2)
 
 		objConstructor := NewJsonObjectConstructor(exprs, true, false)
@@ -499,8 +501,8 @@ func TestJsonObjectConstructor(t *testing.T) {
 // TestJsonArrayConstructor tests the JsonArrayConstructor node
 func TestJsonArrayConstructor(t *testing.T) {
 	t.Run("NewJsonArrayConstructor", func(t *testing.T) {
-		val1 := NewJsonValueExpr(NewConst(25, Datum(0), false), nil)
-		val2 := NewJsonValueExpr(NewConst(25, Datum(0), false), nil)
+		val1 := NewJsonValueExpr(NewConst(25, Datum{}, false), nil)
+		val2 := NewJsonValueExpr(NewConst(25, Datum{}, false), nil)
 		exprs := NewNodeList(val1, val2)
 
 		arrayConstructor := NewJsonArrayConstructor(exprs, false)
@@ -547,8 +549,8 @@ func TestJsonAggConstructor(t *testing.T) {
 		output := NewJsonOutput(nil, nil)
 		aggConstructor := NewJsonAggConstructor(output)
 
-		filter := NewConst(25, Datum(0), false) // TEXT constant
-		orderBy := NewNodeList(NewConst(25, Datum(0), false))
+		filter := NewConst(25, Datum{}, false) // TEXT constant
+		orderBy := NewNodeList(NewConst(25, Datum{}, false))
 		windowDef := NewWindowDef("win", -1)
 
 		aggConstructor.AggFilter = filter
@@ -567,7 +569,7 @@ func TestJsonAggConstructor(t *testing.T) {
 func TestJsonObjectAgg(t *testing.T) {
 	t.Run("NewJsonObjectAgg", func(t *testing.T) {
 		constructor := NewJsonAggConstructor(nil)
-		keyValue := NewJsonKeyValue(NewConst(25, Datum(0), false), NewJsonValueExpr(NewConst(25, Datum(0), false), nil))
+		keyValue := NewJsonKeyValue(NewConst(25, Datum{}, false), NewJsonValueExpr(NewConst(25, Datum{}, false), nil))
 		objectAgg := NewJsonObjectAgg(constructor, keyValue, true, false)
 
 		require.NotNil(t, objectAgg)
@@ -586,7 +588,7 @@ func TestJsonObjectAgg(t *testing.T) {
 func TestJsonArrayAgg(t *testing.T) {
 	t.Run("NewJsonArrayAgg", func(t *testing.T) {
 		constructor := NewJsonAggConstructor(nil)
-		arg := NewJsonValueExpr(NewConst(25, Datum(0), false), nil)
+		arg := NewJsonValueExpr(NewConst(25, Datum{}, false), nil)
 		arrayAgg := NewJsonArrayAgg(constructor, arg, false)
 
 		require.NotNil(t, arrayAgg)
@@ -685,9 +687,9 @@ func TestJsonConstructorType(t *testing.T) {
 // TestJsonConstructorExpr tests the JsonConstructorExpr node
 func TestJsonConstructorExpr(t *testing.T) {
 	t.Run("NewJsonConstructorExpr", func(t *testing.T) {
-		args := NewNodeList(NewConst(23, Datum(42), false))
-		funcExpr := NewConst(25, Datum(100), false)
-		coercionExpr := NewConst(26, Datum(200), false)
+		args := NewNodeList(NewConst(23, datum.Int32GetDatum(42), false))
+		funcExpr := NewConst(25, datum.Int32GetDatum(100), false)
+		coercionExpr := NewConst(26, datum.Int32GetDatum(200), false)
 		returning := NewJsonReturning(nil, 0, 0)
 
 		constructorExpr := NewJsonConstructorExpr(JSCTOR_JSON_OBJECT, args, funcExpr, coercionExpr, returning, true, false, 500)
@@ -723,7 +725,7 @@ func TestJsonConstructorExpr(t *testing.T) {
 // TestJsonIsPredicate tests the JsonIsPredicate node
 func TestJsonIsPredicate(t *testing.T) {
 	t.Run("NewJsonIsPredicate", func(t *testing.T) {
-		expr := NewConst(23, Datum(42), false)
+		expr := NewConst(23, datum.Int32GetDatum(42), false)
 		format := NewJsonFormat(JS_FORMAT_JSON, JS_ENC_UTF8, 100)
 
 		predicate := NewJsonIsPredicate(expr, format, JS_TYPE_OBJECT, true, 600)
@@ -755,12 +757,12 @@ func TestJsonIsPredicate(t *testing.T) {
 // TestJsonExpr tests the JsonExpr node
 func TestJsonExpr(t *testing.T) {
 	t.Run("NewJsonExpr", func(t *testing.T) {
-		formattedExpr := NewConst(23, Datum(42), false)
+		formattedExpr := NewConst(23, datum.Int32GetDatum(42), false)
 		format := NewJsonFormat(JS_FORMAT_JSON, JS_ENC_UTF8, 100)
-		pathSpec := NewConst(25, Datum(100), false)
+		pathSpec := NewConst(25, datum.Int32GetDatum(100), false)
 		returning := NewJsonReturning(format, 0, 0)
 		passingNames := []string{"arg1", "arg2"}
-		passingValues := NewNodeList(NewConst(26, Datum(200), false), NewConst(27, Datum(300), false))
+		passingValues := NewNodeList(NewConst(26, datum.Int32GetDatum(200), false), NewConst(27, datum.Int32GetDatum(300), false))
 		onEmpty := NewJsonBehavior(JSON_BEHAVIOR_NULL, nil, 150)
 		onError := NewJsonBehavior(JSON_BEHAVIOR_ERROR, nil, 160)
 
@@ -808,7 +810,7 @@ func TestJsonExpr(t *testing.T) {
 // TestJsonTablePath tests the JsonTablePath node
 func TestJsonTablePath(t *testing.T) {
 	t.Run("NewJsonTablePath", func(t *testing.T) {
-		value := NewConst(23, Datum(42), false)
+		value := NewConst(23, datum.Int32GetDatum(42), false)
 
 		tablePath := NewJsonTablePath(value, "test_path", 800)
 
@@ -845,7 +847,7 @@ func TestJsonTablePlan(t *testing.T) {
 // TestJsonTablePathScan tests the JsonTablePathScan node
 func TestJsonTablePathScan(t *testing.T) {
 	t.Run("NewJsonTablePathScan", func(t *testing.T) {
-		path := NewJsonTablePath(NewConst(23, Datum(42), false), "scan_path", 100)
+		path := NewJsonTablePath(NewConst(23, datum.Int32GetDatum(42), false), "scan_path", 100)
 		child := NewJsonTablePlan(200)
 
 		pathScan := NewJsonTablePathScan(path, true, child, 5, 10, 1000)

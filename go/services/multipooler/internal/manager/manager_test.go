@@ -27,6 +27,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
@@ -37,6 +38,7 @@ import (
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 func TestManagerState_InitialState(t *testing.T) {
@@ -51,7 +53,7 @@ func TestManagerState_InitialState(t *testing.T) {
 	}
 
 	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
-	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.ShardRef = &clustermetadatapb.ShardRef{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
 	multipooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -82,7 +84,7 @@ func TestManagerState_SyncsConnPoolMetricsState(t *testing.T) {
 	}
 
 	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
-	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.ShardRef = &clustermetadatapb.ShardRef{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
 	multipooler.PoolerDir = t.TempDir()
 
 	config := &Config{
@@ -109,7 +111,7 @@ func TestManagerState_ConnPoolMetricsSyncFailure(t *testing.T) {
 	}
 
 	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
-	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.ShardRef = &clustermetadatapb.ShardRef{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
 	multipooler.PoolerDir = t.TempDir()
 
 	origRegisterAndSync := registerAndSyncStateAware
@@ -147,7 +149,7 @@ func TestManagerState_LoadFailureTimeout(t *testing.T) {
 	factory.AddOperationError(memorytopo.Get, poolerPath, assert.AnError)
 
 	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
-	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.ShardRef = &clustermetadatapb.ShardRef{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
 	multipooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -190,7 +192,7 @@ func TestManagerState_CancellationDuringLoad(t *testing.T) {
 	factory.AddOperationError(memorytopo.Get, poolerPath, assert.AnError)
 
 	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
-	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.ShardRef = &clustermetadatapb.ShardRef{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
 	multipooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -249,7 +251,7 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 		// A PRIMARY record must name itself as leader (the record invariant).
 		RoutingState: &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY},
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
@@ -263,7 +265,7 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 	factory.AddOneTimeOperationError(memorytopo.Get, poolerPath, assert.AnError)
 
 	multipoolerObj := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
-	multipoolerObj.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard}
+	multipoolerObj.ShardRef = &clustermetadatapb.ShardRef{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard}
 	multipoolerObj.PoolerDir = poolerDir
 
 	config := &Config{
@@ -297,7 +299,7 @@ func TestManagerState_NilServiceID(t *testing.T) {
 	// Create Multipooler with nil Id to test validation
 	multipooler := &clustermetadatapb.Multipooler{
 		Id: nil, // Nil ID for testing
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
 		},
@@ -336,7 +338,7 @@ func TestGetBackupLocation(t *testing.T) {
 	}
 	multipooler := &clustermetadatapb.Multipooler{
 		Id: serviceID,
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
@@ -387,7 +389,7 @@ func TestGetBackupLocation_S3(t *testing.T) {
 	}
 	multipooler := &clustermetadatapb.Multipooler{
 		Id: serviceID,
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   database,
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
@@ -507,7 +509,7 @@ func TestManagerState_BackupCipherValidation(t *testing.T) {
 					Cell:      "zone1",
 					Name:      "test-service",
 				},
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   database,
 					TableGroup: constants.DefaultTableGroup,
 					Shard:      constants.DefaultShard,
@@ -565,7 +567,7 @@ func TestWaitUntilReady_Success(t *testing.T) {
 		Name: "test-service",
 	}
 	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
-	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.ShardRef = &clustermetadatapb.ShardRef{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
 	multipooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -599,7 +601,7 @@ func TestWaitUntilReady_Error(t *testing.T) {
 		Name: "test-service",
 	}
 	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
-	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.ShardRef = &clustermetadatapb.ShardRef{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
 	multipooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -634,7 +636,7 @@ func TestWaitUntilReady_Timeout(t *testing.T) {
 		Name: "test-service",
 	}
 	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
-	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.ShardRef = &clustermetadatapb.ShardRef{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
 	multipooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -665,7 +667,7 @@ func TestWaitUntilReady_ConcurrentCalls(t *testing.T) {
 		Name: "test-service",
 	}
 	multipooler := topoclient.NewMultipooler(serviceID.Name, serviceID.Cell, "localhost")
-	multipooler.ShardKey = &clustermetadatapb.ShardKey{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
+	multipooler.ShardRef = &clustermetadatapb.ShardRef{TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard, Database: "testdb"}
 	multipooler.PoolerDir = "/tmp/test"
 
 	config := &Config{
@@ -703,7 +705,7 @@ func TestWaitUntilReady_ConcurrentCalls(t *testing.T) {
 	}
 }
 
-func TestNewMultipoolerManager_MVPValidation(t *testing.T) {
+func TestNewMultipoolerManager_TableGroupAndShardValidation(t *testing.T) {
 	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
@@ -743,18 +745,24 @@ func TestNewMultipoolerManager_MVPValidation(t *testing.T) {
 			errContains: "Shard is required",
 		},
 		{
-			name:        "invalid tablegroup fails",
-			tableGroup:  "custom",
-			shard:       constants.DefaultShard,
-			wantErr:     true,
-			errContains: "only default tablegroup is supported",
+			name:       "non-default tablegroup with partial shard",
+			tableGroup: "commerce",
+			shard:      "0-80",
+			wantErr:    false,
 		},
 		{
-			name:        "invalid shard fails",
-			tableGroup:  constants.DefaultTableGroup,
-			shard:       "0-100",
+			name:        "non-default tablegroup with invalid shard fails",
+			tableGroup:  "commerce",
+			shard:       "garbage",
 			wantErr:     true,
-			errContains: "only shard " + constants.DefaultShard + " is supported",
+			errContains: "invalid shard name",
+		},
+		{
+			name:        "default tablegroup with non-default shard fails",
+			tableGroup:  constants.DefaultTableGroup,
+			shard:       "80-inf",
+			wantErr:     true,
+			errContains: "tablegroup default only supports shard " + constants.DefaultShard,
 		},
 	}
 
@@ -765,7 +773,7 @@ func TestNewMultipoolerManager_MVPValidation(t *testing.T) {
 				Hostname:  "localhost",
 				PortMap:   map[string]int32{"grpc": 8080},
 				PoolerDir: "/tmp/test",
-				ShardKey: &clustermetadatapb.ShardKey{
+				ShardRef: &clustermetadatapb.ShardRef{
 					Database:   "testdb",
 					TableGroup: tt.tableGroup,
 					Shard:      tt.shard,
@@ -790,6 +798,25 @@ func TestNewMultipoolerManager_MVPValidation(t *testing.T) {
 	}
 }
 
+// TestNewMultipoolerManagerRefusesAnUnknownLeadershipMode: a mode this build
+// does not know is neither managed nor unmanaged, so the manager refuses it
+// before constructing anything.
+func TestNewMultipoolerManagerRefusesAnUnknownLeadershipMode(t *testing.T) {
+	ts, _ := memorytopo.NewServerAndFactory(t.Context(), "zone1")
+	t.Cleanup(func() { ts.Close() })
+	multipooler := &clustermetadatapb.Multipooler{
+		Id:             &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p"},
+		LeadershipMode: clustermetadatapb.LeadershipMode(99),
+		ShardRef:       &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard},
+	}
+
+	manager, err := NewMultipoolerManager(slog.New(slog.DiscardHandler), multipooler, &Config{TopoClient: ts})
+
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+	assert.Nil(t, manager)
+}
+
 // TestPause_PreservesPublisher verifies that Pause/resume does not stop the
 // poolerRecord's publisher — the topology entry continues to reflect state
 // changes throughout. (Pause is conceptually "stop serving queries", not
@@ -812,7 +839,7 @@ func TestPause_PreservesPublisher(t *testing.T) {
 		Type:          clustermetadatapb.PoolerType_REPLICA,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
 		PoolerDir:     t.TempDir(),
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
@@ -860,6 +887,63 @@ func TestPause_PreservesPublisher(t *testing.T) {
 	resume(lockCtx)
 }
 
+// TestOpen_HonorsMigrationHoldOnRestart is the regression test for the MEDIUM
+// finding this guards against: openLocked used to publish its target serving
+// status (SERVING, for the common Open() path) directly, without consulting
+// the migration serving gate at all. A pooler restarting while an IMPORT
+// migration is in progress on this shard would therefore briefly publish
+// SERVING — bypassing the gate entirely — until the next ~5s postgres-monitor
+// tick observed the drift and corrected it via fixDrift. refreshMigrationHold
+// must run synchronously inside openLocked, and the published status must be
+// reconciled against it, the same way every other serving-status transition
+// during a migration already is (ReconcileMigrationHold,
+// releaseForMigrationExport).
+func TestOpen_HonorsMigrationHoldOnRestart(t *testing.T) {
+	ctx := t.Context()
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "zone1")
+	t.Cleanup(func() { ts.Close() })
+
+	serviceID := &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER,
+		Cell:      "zone1",
+		Name:      "test-open-migration-hold",
+	}
+	multipooler := &clustermetadatapb.Multipooler{
+		Id:        serviceID,
+		Hostname:  "localhost",
+		PortMap:   map[string]int32{"grpc": 8080},
+		Type:      clustermetadatapb.PoolerType_PRIMARY,
+		PoolerDir: t.TempDir(),
+		ShardRef: &clustermetadatapb.ShardRef{
+			Database:   "testdb",
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+	}
+	require.NoError(t, ts.CreateMultipooler(ctx, multipooler))
+
+	pm, err := NewMultipoolerManager(logger, multipooler, &Config{TopoClient: ts})
+	require.NoError(t, err)
+	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
+
+	// An active IMPORT migration on this shard: the hold query comes back held
+	// (count > 0), so Open must not publish SERVING unreconciled.
+	mockQS := mock.NewQueryService()
+	mockQS.AddQueryPattern(`SELECT count\(\*\) FROM multigres\.migration`,
+		mock.MakeQueryResult([]string{"count"}, [][]any{{int64(1)}}))
+	pm.qsc = &mockPoolerController{queryService: mockQS}
+
+	lockCtx, err := pm.actionLock.Acquire(ctx, "test-open-migration-hold")
+	require.NoError(t, err)
+	defer pm.actionLock.Release(lockCtx)
+
+	pm.Open(lockCtx)
+
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, pm.record.ServingStatus(),
+		"Open must hold serving (DRAINING) when an IMPORT migration is in progress on this shard, not publish SERVING unreconciled")
+}
+
 // TestPause_RestartsBackupHealthPoller verifies that the backup-health poller
 // survives a Pause/resume cycle. The poller is bound to pm.ctx, which
 // closeLocked cancels and openLocked recreates; StartBackupHealth opts the
@@ -888,7 +972,7 @@ func TestPause_RestartsBackupHealthPoller(t *testing.T) {
 		Type:          clustermetadatapb.PoolerType_REPLICA,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
 		PoolerDir:     t.TempDir(),
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
@@ -954,7 +1038,7 @@ func TestOpen_EnsuresBackendVpidTableWhenAlreadyPrimary(t *testing.T) {
 		PortMap:   map[string]int32{"grpc": 8080},
 		Type:      clustermetadatapb.PoolerType_PRIMARY,
 		PoolerDir: t.TempDir(),
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
@@ -971,6 +1055,7 @@ func TestOpen_EnsuresBackendVpidTableWhenAlreadyPrimary(t *testing.T) {
 	// not promoted).
 	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+	addShardRefEnsure(mockQS, nil)
 	var ensured bool
 	mockQS.AddQueryPatternWithCallback("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid",
 		mock.MakeQueryResult(nil, nil), func(string) { ensured = true })
@@ -1005,7 +1090,7 @@ func TestOpen_SkipsBackendVpidTableWhenStandby(t *testing.T) {
 		PortMap:   map[string]int32{"grpc": 8080},
 		Type:      clustermetadatapb.PoolerType_REPLICA,
 		PoolerDir: t.TempDir(),
-		ShardKey: &clustermetadatapb.ShardKey{
+		ShardRef: &clustermetadatapb.ShardRef{
 			Database:   "testdb",
 			TableGroup: constants.DefaultTableGroup,
 			Shard:      constants.DefaultShard,
@@ -1020,6 +1105,7 @@ func TestOpen_SkipsBackendVpidTableWhenStandby(t *testing.T) {
 	mockQS := mock.NewQueryService()
 	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	addShardRefEnsure(mockQS, nil)
 	var ensured bool
 	mockQS.AddQueryPatternWithCallback("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid",
 		mock.MakeQueryResult(nil, nil), func(string) { ensured = true })

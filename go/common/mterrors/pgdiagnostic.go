@@ -250,6 +250,17 @@ func PgDiagnosticToProto(d *PgDiagnostic) *query.PgDiagnostic {
 	}
 }
 
+// PgDiagnosticProtoFromError returns the proto form of the PostgreSQL
+// diagnostic err carries, or nil when it carries none (e.g. an infrastructure
+// error), so a pooler can send it for the gateway to re-emit verbatim.
+func PgDiagnosticProtoFromError(err error) *query.PgDiagnostic {
+	var diag *PgDiagnostic
+	if errors.As(err, &diag) {
+		return PgDiagnosticToProto(diag)
+	}
+	return nil
+}
+
 // PgDiagnosticFromProto converts proto PgDiagnostic to mterrors PgDiagnostic.
 func PgDiagnosticFromProto(pd *query.PgDiagnostic) *PgDiagnostic {
 	if pd == nil {

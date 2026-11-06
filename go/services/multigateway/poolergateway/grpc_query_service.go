@@ -61,21 +61,17 @@ type grpcQueryService struct {
 	copyStreams map[uint64]multipoolerservice.MultipoolerService_CopyBidiExecuteClient
 }
 
-// newGRPCQueryService creates a new QueryService that uses gRPC to communicate
-// with a multipooler instance.
+// newGRPCQueryService creates a new Pooler that uses gRPC to communicate
+// with a multipooler instance. Reusable streams are always enabled; the stream
+// pool selects dedicated RPCs only when per-call semantics require it.
 func newGRPCQueryService(
 	conn *grpc.ClientConn,
 	poolerID topoclient.ComponentID,
 	logger *slog.Logger,
-	reuseQueryStreams bool,
-) queryservice.QueryService {
+) queryservice.Pooler {
 	client := multipoolerservice.NewMultipoolerServiceClient(conn)
-	var streams *streamPool
-	if reuseQueryStreams {
-		streams = newStreamPool(client, conn)
-	}
 	return &grpcQueryService{
-		executeStreams: streams,
+		executeStreams: newStreamPool(client, conn),
 		conn:           conn,
 		client:         client,
 		logger:         logger,
@@ -111,11 +107,11 @@ func (g *grpcQueryService) StreamExecute(
 	options *querypb.ExecuteOptions,
 	reservationOptions *querypb.ReservationOptions,
 	callback func(context.Context, *sqltypes.Result) error,
-) (*querypb.ReservedState, error) {
+) (resultState *querypb.ReservedState, resultErr error) {
 	g.logger.DebugContext(ctx, "streaming query execution",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"mode", target.GetMode().String(),
 		"query", sql)
 
@@ -131,25 +127,27 @@ func (g *grpcQueryService) StreamExecute(
 	var stream interface {
 		Recv() (*multipoolerservice.StreamExecuteResponse, error)
 	}
-	if g.executeStreams != nil {
-		reused, used, err := g.executeStreams.Open(ctx, req)
-		if err != nil {
-			if !used {
-				return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start execute stream")
-			}
-			return nil, mterrors.FromGRPC(err)
+	reused, used, err := g.executeStreams.Open(ctx, req)
+	if err != nil {
+		if !used {
+			return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start execute stream")
 		}
-		if used {
-			defer reused.Release()
-			stream = reused
-		}
+		return nil, mterrors.FromGRPC(err)
 	}
-	if stream == nil {
-		legacy, err := g.client.StreamExecute(ctx, req)
+	if used {
+		defer func() { resultErr = reused.finishQuery(resultErr) }()
+		stream = reused
+	} else {
+		dedicated, err := g.client.StreamExecute(ctx, req)
 		if err != nil {
 			return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start stream execute")
 		}
-		stream = legacy
+		defer func() {
+			if resultErr != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				resultErr = mterrors.FromGRPC(completionUnconfirmed())
+			}
+		}()
+		stream = dedicated
 	}
 
 	var reservedState *querypb.ReservedState
@@ -163,6 +161,9 @@ func (g *grpcQueryService) StreamExecute(
 			return reservedState, nil
 		}
 		if err != nil {
+			if !used {
+				err = dedicatedTimeoutError(ctx, err)
+			}
 			return reservedState, mterrors.Wrapf(mterrors.FromGRPC(err), "stream receive error")
 		}
 
@@ -171,6 +172,11 @@ func (g *grpcQueryService) StreamExecute(
 			reservedState = response.GetReservedState()
 		}
 
+		// Keep reading reservation updates and completion after the timeout,
+		// but do not pass late rows to a callback using an expired context.
+		if used && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			continue
+		}
 		// Handle the union type payload (if present)
 		if response.Result == nil {
 			continue
@@ -181,6 +187,9 @@ func (g *grpcQueryService) StreamExecute(
 			// Row data - convert and send to callback
 			result := sqltypes.ResultFromProto(p.Result)
 			if err := callback(ctx, result); err != nil {
+				if used && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					continue
+				}
 				g.logger.DebugContext(ctx, "callback returned error, stopping stream",
 					"pooler_id", g.poolerID,
 					"error", err)
@@ -193,6 +202,9 @@ func (g *grpcQueryService) StreamExecute(
 				Notices: []*mterrors.PgDiagnostic{diag},
 			}
 			if err := callback(ctx, noticeResult); err != nil {
+				if used && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					continue
+				}
 				g.logger.DebugContext(ctx, "callback returned error on notice, stopping stream",
 					"pooler_id", g.poolerID,
 					"error", err)
@@ -210,8 +222,8 @@ func (g *grpcQueryService) StreamExecute(
 func (g *grpcQueryService) ExecuteQuery(ctx context.Context, target *querypb.Target, sql string, options *querypb.ExecuteOptions) (*sqltypes.Result, *querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "executing query",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"mode", target.GetMode().String(),
 		"query", sql)
 
@@ -251,11 +263,11 @@ func (g *grpcQueryService) PortalStreamExecute(
 	portalOptions *multipoolerservice.PortalExecuteOptions,
 	reservationOptions *querypb.ReservationOptions,
 	callback func(context.Context, *sqltypes.Result) error,
-) (*querypb.ReservedState, error) {
+) (resultState *querypb.ReservedState, resultErr error) {
 	g.logger.DebugContext(ctx, "portal stream execute",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"mode", target.GetMode().String(),
 		"portal", portal.Name)
 
@@ -273,25 +285,27 @@ func (g *grpcQueryService) PortalStreamExecute(
 	var stream interface {
 		Recv() (*multipoolerservice.PortalStreamExecuteResponse, error)
 	}
-	if g.executeStreams != nil {
-		reused, used, err := g.executeStreams.open(ctx, queryrpc.Request(req))
-		if err != nil {
-			if !used {
-				return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start portal execute stream")
-			}
-			return nil, mterrors.FromGRPC(err)
+	reused, used, err := g.executeStreams.open(ctx, queryrpc.Request(req))
+	if err != nil {
+		if !used {
+			return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start portal execute stream")
 		}
-		if used {
-			defer reused.Release()
-			stream = executionStream[*multipoolerservice.PortalStreamExecuteResponse]{reused}
-		}
+		return nil, mterrors.FromGRPC(err)
 	}
-	if stream == nil {
-		legacy, err := g.client.PortalStreamExecute(ctx, req)
+	if used {
+		defer func() { resultErr = reused.finishQuery(resultErr) }()
+		stream = executionStream[*multipoolerservice.PortalStreamExecuteResponse]{reused}
+	} else {
+		dedicated, err := g.client.PortalStreamExecute(ctx, req)
 		if err != nil {
 			return nil, mterrors.Wrapf(markStreamStartFailure(err), "failed to start portal stream execute")
 		}
-		stream = legacy
+		defer func() {
+			if resultErr != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				resultErr = mterrors.FromGRPC(completionUnconfirmed())
+			}
+		}()
+		stream = dedicated
 	}
 
 	var reservedState *querypb.ReservedState
@@ -305,6 +319,9 @@ func (g *grpcQueryService) PortalStreamExecute(
 			return reservedState, nil
 		}
 		if err != nil {
+			if !used {
+				err = dedicatedTimeoutError(ctx, err)
+			}
 			return reservedState, mterrors.Wrapf(mterrors.FromGRPC(err), "portal stream receive error")
 		}
 
@@ -316,6 +333,11 @@ func (g *grpcQueryService) PortalStreamExecute(
 				"pooler_id", response.GetReservedState().GetPoolerId().String())
 		}
 
+		// Keep reading reservation updates and completion after the timeout,
+		// but do not pass late rows to a callback using an expired context.
+		if used && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			continue
+		}
 		// Handle the union type payload (if present)
 		if response.Result != nil {
 			switch p := response.Result.GetPayload().(type) {
@@ -323,6 +345,9 @@ func (g *grpcQueryService) PortalStreamExecute(
 				// Row data - convert and send to callback
 				result := sqltypes.ResultFromProto(p.Result)
 				if err := callback(ctx, result); err != nil {
+					if used && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+						continue
+					}
 					g.logger.DebugContext(ctx, "callback returned error, stopping stream",
 						"pooler_id", g.poolerID,
 						"error", err)
@@ -335,6 +360,9 @@ func (g *grpcQueryService) PortalStreamExecute(
 					Notices: []*mterrors.PgDiagnostic{diag},
 				}
 				if err := callback(ctx, noticeResult); err != nil {
+					if used && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+						continue
+					}
 					g.logger.DebugContext(ctx, "callback returned error on notice, stopping stream",
 						"pooler_id", g.poolerID,
 						"error", err)
@@ -357,8 +385,8 @@ func (g *grpcQueryService) Describe(
 ) (*querypb.StatementDescription, error) {
 	g.logger.DebugContext(ctx, "describing statement/portal",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"mode", target.GetMode().String())
 
 	// Create the request
@@ -389,9 +417,7 @@ func (g *grpcQueryService) Describe(
 
 // Close closes the gRPC connection.
 func (g *grpcQueryService) Close() error {
-	if g.executeStreams != nil {
-		g.executeStreams.Close()
-	}
+	g.executeStreams.Close()
 	g.logger.Debug("closing gRPC query service", "pooler_id", g.poolerID)
 	if g.conn != nil {
 		return g.conn.Close()
@@ -407,11 +433,11 @@ func (g *grpcQueryService) CopyReady(
 	copyQuery string,
 	options *querypb.ExecuteOptions,
 	reservationOptions *querypb.ReservationOptions,
-) (int16, []int16, *querypb.ReservedState, error) {
+) (resultFormat int16, resultColumns []int16, resultState *querypb.ReservedState, resultErr error) {
 	g.logger.DebugContext(ctx, "initiating COPY",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"mode", target.GetMode().String(),
 		"query", copyQuery)
 
@@ -432,8 +458,8 @@ func (g *grpcQueryService) CopyReady(
 	success := false
 	defer func() {
 		if !success {
-			// Cancel an abandoned reusable lease before attempting to drain.
-			releaseCopyStream(stream)
+			// A deadline must finish cleanup even if the startup response was invalid.
+			resultState, resultErr = completeCopy(ctx, stream, resultState, resultErr)
 			_ = stream.CloseSend()
 			_, _ = stream.Recv()
 		}
@@ -533,7 +559,7 @@ func (g *grpcQueryService) CopyFinalize(
 	target *querypb.Target,
 	finalData []byte,
 	options *querypb.ExecuteOptions,
-) (*sqltypes.Result, *querypb.ReservedState, error) {
+) (resultValue *sqltypes.Result, resultState *querypb.ReservedState, resultErr error) {
 	if options == nil || options.ReservedConnectionId == 0 {
 		return nil, nil, errors.New("options.ReservedConnectionId is required for CopyFinalize")
 	}
@@ -549,7 +575,7 @@ func (g *grpcQueryService) CopyFinalize(
 	if !ok {
 		return nil, nil, fmt.Errorf("no active COPY stream for reserved connection %d", options.ReservedConnectionId)
 	}
-	defer releaseCopyStream(stream)
+	defer func() { resultState, resultErr = completeCopy(ctx, stream, resultState, resultErr) }()
 
 	// Send DONE message with final data
 	doneReq := &multipoolerservice.CopyBidiExecuteRequest{
@@ -557,12 +583,12 @@ func (g *grpcQueryService) CopyFinalize(
 		Data:  finalData,
 	}
 
-	if err := stream.Send(doneReq); err != nil {
+	if err := stream.Send(doneReq); err != nil && !errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return nil, nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to send DONE")
 	}
 
 	// Close send direction
-	if err := stream.CloseSend(); err != nil {
+	if err := stream.CloseSend(); err != nil && !errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return nil, nil, fmt.Errorf("failed to close send: %w", err)
 	}
 
@@ -632,7 +658,7 @@ func (g *grpcQueryService) CopyAbort(
 	target *querypb.Target,
 	errorMsg string,
 	options *querypb.ExecuteOptions,
-) (*querypb.ReservedState, error) {
+) (resultState *querypb.ReservedState, resultErr error) {
 	if options == nil || options.ReservedConnectionId == 0 {
 		return nil, errors.New("options.ReservedConnectionId is required for CopyAbort")
 	}
@@ -652,7 +678,7 @@ func (g *grpcQueryService) CopyAbort(
 			"reserved_conn_id", options.ReservedConnectionId)
 		return nil, nil
 	}
-	defer releaseCopyStream(stream)
+	defer func() { resultState, resultErr = completeCopy(ctx, stream, resultState, resultErr) }()
 
 	// Send FAIL message
 	failReq := &multipoolerservice.CopyBidiExecuteRequest{
@@ -679,6 +705,9 @@ func (g *grpcQueryService) CopyAbort(
 	// Try to receive response (may be ERROR) and extract reserved state
 	var reservedState *querypb.ReservedState
 	resp, err := stream.Recv()
+	if err != nil && isFatalRPC(err) {
+		return nil, mterrors.FromGRPC(err)
+	}
 	if err != nil && !errors.Is(err, io.EOF) {
 		g.logger.DebugContext(ctx, "error receiving response after FAIL (expected)",
 			"pooler_id", g.poolerID,
@@ -709,8 +738,8 @@ func (g *grpcQueryService) ConcludeTransaction(
 ) (*sqltypes.Result, *querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "conclude transaction",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"conclusion", conclusion.String(),
 		"reserved_conn_id", options.ReservedConnectionId,
 		"release_portal_names", releasePortalNames,
@@ -788,8 +817,8 @@ func (g *grpcQueryService) DiscardTempTables(
 ) (*sqltypes.Result, *querypb.ReservedState, error) {
 	g.logger.DebugContext(ctx, "discard temp tables",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"reserved_conn_id", options.ReservedConnectionId)
 
 	// Create the request
@@ -839,8 +868,8 @@ func (g *grpcQueryService) ReleaseReservedConnection(
 
 	g.logger.DebugContext(ctx, "releasing reserved connection",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"reserved_conn_id", options.ReservedConnectionId)
 
 	// Clean up any stale COPY stream for this connection.
@@ -888,7 +917,7 @@ func (g *grpcQueryService) ReleaseReservedConnection(
 func (g *grpcQueryService) StreamReplication(
 	ctx context.Context,
 	init *multipoolerservice.StreamReplicationInit,
-) (multipoolerservice.MultipoolerService_StreamReplicationClient, error) {
+) (queryservice.ReplicationStream, error) {
 	g.logger.DebugContext(ctx, "opening replication stream",
 		"pooler_id", g.poolerID,
 		"mode", init.GetMode().String(),
@@ -911,31 +940,11 @@ func (g *grpcQueryService) StreamReplication(
 		}
 	}()
 
-	// The Init message MUST be the first message on the stream.
-	if err := stream.Send(&multipoolerservice.StreamReplicationRequest{
-		Msg: &multipoolerservice.StreamReplicationRequest_Init{Init: init},
-	}); err != nil {
-		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to send replication Init")
-	}
-
-	// Await the backend-opened handshake.
-	resp, err := stream.Recv()
-	if err != nil {
-		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to receive replication Ready")
-	}
-
-	// A structured backend error: surface the PgDiagnostic directly (recoverable
-	// via errors.As) so a caller can later re-emit it verbatim as an
-	// ErrorResponse. This method itself only performs the open handshake.
-	if replErr := resp.GetError(); replErr != nil {
-		if diag := replErr.GetDiagnostic(); diag != nil {
-			return nil, mterrors.PgDiagnosticFromProto(diag)
-		}
-		return nil, mterrors.New(mtrpcpb.Code_INTERNAL, "replication stream returned an error without a diagnostic")
-	}
-
-	if resp.GetReady() == nil {
-		return nil, mterrors.New(mtrpcpb.Code_INTERNAL, "expected Ready as the first replication response")
+	// The shared open handshake: init first, then Ready or a structured
+	// backend error, surfaced as its PgDiagnostic so a caller can re-emit it
+	// verbatim as an ErrorResponse.
+	if err := queryservice.OpenReplication(stream, init, mterrors.FromGRPC); err != nil {
+		return nil, err
 	}
 
 	success = true
@@ -967,11 +976,11 @@ func (g *grpcQueryService) CopyOutReady(
 	copyQuery string,
 	options *querypb.ExecuteOptions,
 	reservationOptions *querypb.ReservationOptions,
-) (int16, []int16, []*mterrors.PgDiagnostic, *querypb.ReservedState, error) {
+) (resultFormat int16, resultColumns []int16, resultNotices []*mterrors.PgDiagnostic, resultState *querypb.ReservedState, resultErr error) {
 	g.logger.DebugContext(ctx, "initiating COPY TO STDOUT",
 		"pooler_id", g.poolerID,
-		"tablegroup", target.GetShardKey().GetTableGroup(),
-		"shard", target.GetShardKey().GetShard(),
+		"tablegroup", target.GetShardRef().GetTableGroup(),
+		"shard", target.GetShardRef().GetShard(),
 		"query", copyQuery)
 
 	initiateReq := &multipoolerservice.CopyBidiExecuteRequest{
@@ -990,8 +999,8 @@ func (g *grpcQueryService) CopyOutReady(
 	success := false
 	defer func() {
 		if !success {
-			// Cancel an abandoned reusable lease before attempting to drain.
-			releaseCopyStream(stream)
+			// A deadline must finish cleanup even if the startup response was invalid.
+			resultState, resultErr = completeCopy(ctx, stream, resultState, resultErr)
 			_ = stream.CloseSend()
 			_, _ = stream.Recv()
 		}
@@ -1045,7 +1054,7 @@ func (g *grpcQueryService) CopyOutStream(
 	target *querypb.Target,
 	options *querypb.ExecuteOptions,
 	onMessage func(client.CopyOutMessage) error,
-) (*sqltypes.Result, *querypb.ReservedState, error) {
+) (resultValue *sqltypes.Result, resultState *querypb.ReservedState, resultErr error) {
 	if options == nil || options.ReservedConnectionId == 0 {
 		return nil, nil, errors.New("options.ReservedConnectionId is required for CopyOutStream")
 	}
@@ -1056,7 +1065,7 @@ func (g *grpcQueryService) CopyOutStream(
 	if !ok {
 		return nil, nil, fmt.Errorf("no active COPY stream for reserved connection %d", options.ReservedConnectionId)
 	}
-	defer releaseCopyStream(stream)
+	defer func() { resultState, resultErr = completeCopy(ctx, stream, resultState, resultErr) }()
 
 	for {
 		resp, err := stream.Recv()
@@ -1129,3 +1138,30 @@ func (g *grpcQueryService) CopyOutStream(
 
 // Ensure grpcQueryService implements queryservice.QueryService
 var _ queryservice.QueryService = (*grpcQueryService)(nil)
+
+// GetAuthCredentials fetches a role's credentials. FromGRPC restores any
+// *PgDiagnostic attached by the multipooler so the gateway can read its
+// SQLSTATE.
+func (g *grpcQueryService) GetAuthCredentials(ctx context.Context, req *multipoolerservice.GetAuthCredentialsRequest) (*multipoolerservice.GetAuthCredentialsResponse, error) {
+	resp, err := g.client.GetAuthCredentials(ctx, req)
+	return resp, mterrors.FromGRPC(err)
+}
+
+// SubscribeHealth opens the pooler's health stream.
+func (g *grpcQueryService) SubscribeHealth(ctx context.Context) (func() (*multipoolerservice.StreamPoolerHealthResponse, error), error) {
+	stream, err := g.client.StreamPoolerHealth(ctx, &multipoolerservice.StreamPoolerHealthRequest{})
+	if err != nil {
+		return nil, err
+	}
+	return stream.Recv, nil
+}
+
+// NotificationStream opens the pooler's LISTEN/NOTIFY stream; the gRPC stream
+// is itself a queryservice.NotificationStream.
+func (g *grpcQueryService) NotificationStream(ctx context.Context) (queryservice.NotificationStream, error) {
+	stream, err := g.client.NotificationStream(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return stream, nil
+}

@@ -330,10 +330,20 @@ jobs:
             done
           done
 
+          # Release extra_files are uploaded only when publishing, so stage the
+          # same checked-in contract explicitly for the snapshot bundle.
+          openapi_spec=multiadmin.openapi.yaml
+          test -s "docs/api/${openapi_spec}"
+          cp "docs/api/${openapi_spec}" "dist/${openapi_spec}"
+          if [[ $(grep -Ec "^[0-9a-f]{64}  multiadmin[.]openapi[.]yaml$" dist/checksums.txt) -ne 1 ]]; then
+            echo "::error::Expected exactly one checksum for ${openapi_spec}"
+            exit 1
+          fi
+
           (cd dist && shasum -a 256 -c checksums.txt)
 
           mkdir -p release-artifacts
-          for artifact in "${archives[@]}" "${checksums[@]}"; do
+          for artifact in "${archives[@]}" "${checksums[@]}" "dist/${openapi_spec}"; do
             cp "$artifact" release-artifacts/
           done
 

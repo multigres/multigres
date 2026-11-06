@@ -225,8 +225,16 @@ func ReplicationPrimaryOrNil(cs *clustermetadatapb.ConsensusStatus) *clustermeta
 	return rp
 }
 
-// HighestKnownRule returns the RulePosition with the greatest rule known to
-// any of the given consensus statuses. For each status it considers both the
+// HighestIntendedRule returns the RulePosition with the greatest rule any of the
+// given consensus statuses has told us of. Rules are named at three levels, from
+// most to least settled; name a "highest X" for its level, never just "known":
+//   - decided: the decision half of a pooler's own position (HighestDecidedRule);
+//   - recorded: a pooler's own position, which may also carry an undecided
+//     proposal ("position" always means this level, as in MostAdvancedPosition);
+//   - intended: recorded, plus rules only advertised through a ReplicationPrimary,
+//     which no pooler's WAL need hold yet. This function ranks at this level.
+//
+// For each status it considers both the
 // position the pooler is currently at and the position under which its
 // replication primary holds leadership — a follower can learn of a newer
 // leader (possibly still undecided on the leader's own side) via its
@@ -243,7 +251,7 @@ func ReplicationPrimaryOrNil(cs *clustermetadatapb.ConsensusStatus) *clustermeta
 // by a single coordinator and must name exactly one leader) — i.e. split brain.
 // Today such a tie is resolved silently by keeping the first-seen rule. A future
 // enhancement should surface this as an error rather than papering over it.
-func HighestKnownRule(statuses []*clustermetadatapb.ConsensusStatus) *clustermetadatapb.RulePosition {
+func HighestIntendedRule(statuses []*clustermetadatapb.ConsensusStatus) *clustermetadatapb.RulePosition {
 	var best *clustermetadatapb.RulePosition
 	for _, cs := range statuses {
 		for _, position := range []*clustermetadatapb.RulePosition{
@@ -260,10 +268,10 @@ func HighestKnownRule(statuses []*clustermetadatapb.ConsensusStatus) *clustermet
 
 // HighestDecidedRule returns the highest decided rule number across the given
 // consensus statuses, considering only each status's own CurrentPosition —
-// unlike HighestKnownRule, not ReplicationPrimary, which a follower can learn
+// unlike HighestIntendedRule, not ReplicationPrimary, which a follower can learn
 // of before its own position replays it. This is the exact baseline
 // NewTermRevocation computes as a new attempt's ReplaceDecision; anything
-// comparing against that value must use this, not HighestKnownRule, or the
+// comparing against that value must use this, not HighestIntendedRule, or the
 // two can disagree.
 func HighestDecidedRule(statuses []*clustermetadatapb.ConsensusStatus) *clustermetadatapb.RuleNumber {
 	var decision *clustermetadatapb.RuleNumber

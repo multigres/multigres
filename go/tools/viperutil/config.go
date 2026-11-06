@@ -205,7 +205,46 @@ func (vc *ViperConfig) LoadConfig(reg *Registry) (context.CancelFunc, error) {
 		return nil, err
 	}
 
+	if prepare := *reg.prepare; prepare != nil && reg.static.ConfigFileUsed() != "" {
+		prepareFile := func() (map[string]any, error) {
+			return prepareConfigFile(prepare, reg.static.ConfigFileUsed(), vc.configType.Get())
+		}
+		extra, err := prepareFile()
+		if err != nil {
+			return nil, err
+		}
+		_ = reg.static.MergeConfigMap(extra)
+		reg.dynamic.SetPrepare(prepareFile)
+	}
+
 	return reg.dynamic.Watch(context.TODO(), reg.static, vc.configPersistenceMinInterval.Get())
+}
+
+// prepareConfigFile passes the settings of the file at path alone, without
+// defaults, flags or environment variables, through prepare, and returns the
+// settings it adds as a nested config map.
+func prepareConfigFile(prepare ConfigPreparer, path, configType string) (map[string]any, error) {
+	file := viper.New()
+	file.SetConfigFile(path)
+	if configType != "" {
+		file.SetConfigType(configType)
+	}
+	if err := file.ReadInConfig(); err != nil {
+		return nil, err
+	}
+	settings := make(map[string]any)
+	for _, key := range file.AllKeys() {
+		settings[key] = file.Get(key)
+	}
+	extra, err := prepare(settings)
+	if err != nil {
+		return nil, fmt.Errorf("config file %s: %w", path, err)
+	}
+	nested := viper.New()
+	for key, val := range extra {
+		nested.Set(key, val)
+	}
+	return nested.AllSettings(), nil
 }
 
 // isConfigFileNotFoundError checks if the error is caused because the file wasn't found.

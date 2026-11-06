@@ -200,3 +200,71 @@ func TestInitCommandS3BackupInvalidBucketName(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "bucket name must contain only lowercase")
 }
+
+func TestInitCommandMinigresTopology(t *testing.T) {
+	tmpDir := filepath.Join("/tmp", "mt-test-minigres-topology")
+	configPath := filepath.Join(tmpDir, "config")
+
+	_ = os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir)
+
+	rootCmd := &cobra.Command{Use: "test"}
+	rootCmd.PersistentFlags().StringSlice("config-path", []string{}, "config paths")
+
+	clusterCmd := &cobra.Command{Use: "cluster"}
+	rootCmd.AddCommand(clusterCmd)
+	AddInitCommand(clusterCmd)
+
+	rootCmd.SetArgs([]string{"cluster", "init", "--config-path", configPath, "--topology", "minigres"})
+
+	err := rootCmd.Execute()
+	require.NoError(t, err)
+
+	configFile := filepath.Join(configPath, "multigres.yaml")
+	data, err := os.ReadFile(configFile)
+	require.NoError(t, err)
+
+	var config MultigresConfig
+	require.NoError(t, yaml.Unmarshal(data, &config))
+
+	cells, ok := config.ProvisionerConfig["cells"].(map[string]any)
+	require.True(t, ok, "cells config should exist")
+	require.Len(t, cells, 1, "minigres topology should generate a single cell")
+
+	zone1, ok := cells["zone1"].(map[string]any)
+	require.True(t, ok, "zone1 cell should exist")
+
+	minigres, ok := zone1["minigres"].(map[string]any)
+	require.True(t, ok, "zone1 should have a minigres service configured")
+	assert.NotEmpty(t, minigres["path"])
+
+	// The classic triad must not be present in a minigres cell.
+	_, hasMultigateway := zone1["multigateway"]
+	_, hasMultipooler := zone1["multipooler"]
+	_, hasMultiorch := zone1["multiorch"]
+	assert.False(t, hasMultigateway, "minigres cell should not configure multigateway")
+	assert.False(t, hasMultipooler, "minigres cell should not configure multipooler")
+	assert.False(t, hasMultiorch, "minigres cell should not configure multiorch")
+}
+
+func TestInitCommandInvalidTopology(t *testing.T) {
+	tmpDir := filepath.Join("/tmp", "mt-test-invalid-topology")
+	configPath := filepath.Join(tmpDir, "config")
+
+	_ = os.RemoveAll(tmpDir)
+	defer os.RemoveAll(tmpDir)
+
+	rootCmd := &cobra.Command{Use: "test"}
+	rootCmd.PersistentFlags().StringSlice("config-path", []string{}, "config paths")
+
+	clusterCmd := &cobra.Command{Use: "cluster"}
+	rootCmd.AddCommand(clusterCmd)
+	AddInitCommand(clusterCmd)
+
+	rootCmd.SetArgs([]string{"cluster", "init", "--config-path", configPath, "--topology", "bogus"})
+
+	err := rootCmd.Execute()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown --topology")
+	assert.NoFileExists(t, filepath.Join(configPath, "multigres.yaml"))
+}

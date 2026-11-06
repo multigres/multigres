@@ -32,6 +32,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/parser/datum"
 	"github.com/multigres/multigres/go/common/parser/pgoid"
 )
 
@@ -53,8 +54,12 @@ type AttrNumber int16
 // Index represents an array index - ported from postgres/src/include/c.h:614
 type Index uint32
 
-// Datum represents a PostgreSQL datum - ported from postgres/src/include/postgres.h:64
-type Datum uintptr
+// Datum is the value carried by a Const - ported from postgres/src/include/postgres.h:64.
+// It is the evaluation engine's GC-safe Datum, aliased from the leaf datum
+// package: PostgreSQL's parser and executor share one Datum definition through
+// postgres.h, and the analyzed expression tree here carries exactly the values
+// the engine evaluates.
+type Datum = datum.Datum
 
 // CoercionForm represents type coercion forms - ported from postgres/src/include/nodes/primnodes.h:732-737
 type CoercionForm int
@@ -187,7 +192,7 @@ func (c *Const) String() string {
 	if c.Constisnull {
 		return fmt.Sprintf("Const(NULL)@%d", c.Location())
 	}
-	return fmt.Sprintf("Const(%v)@%d", c.Constvalue, c.Location())
+	return fmt.Sprintf("Const(type:%d)@%d", c.Consttype, c.Location())
 }
 
 // Param represents a parameter reference in a prepared statement.
@@ -289,6 +294,75 @@ func (o *OpExpr) String() string {
 		opType = "unary"
 	}
 	return fmt.Sprintf("OpExpr(%s, oid:%d)@%d", opType, o.Opno, o.Location())
+}
+
+// DistinctExpr represents an IS DISTINCT FROM test. PostgreSQL declares it as
+// "typedef OpExpr DistinctExpr" (primnodes.h:845): the same fields as OpExpr,
+// distinguished only by the node tag, since the executor evaluates the
+// underlying "=" operator with different NULL semantics.
+// Ported from postgres/src/include/nodes/primnodes.h:838
+type DistinctExpr struct {
+	BaseExpr
+	Opno         Oid       // pg_operator OID of the "=" operator - primnodes.h:816
+	Opfuncid     Oid       // Underlying function OID - primnodes.h:817
+	Opresulttype Oid       // Result type (always bool) - primnodes.h:818
+	Opretset     bool      // Returns set? - primnodes.h:819
+	Opcollid     Oid       // Result collation - primnodes.h:820
+	Inputcollid  Oid       // Input collation - primnodes.h:821
+	Args         *NodeList // The two operands - primnodes.h:822
+}
+
+// NewDistinctExpr creates a new DistinctExpr node.
+func NewDistinctExpr(opno Oid, opfuncid Oid, opresulttype Oid, args *NodeList) *DistinctExpr {
+	return &DistinctExpr{
+		BaseExpr:     BaseExpr{BaseNode: BaseNode{Tag: T_DistinctExpr}},
+		Opno:         opno,
+		Opfuncid:     opfuncid,
+		Opresulttype: opresulttype,
+		Args:         args,
+	}
+}
+
+func (d *DistinctExpr) ExpressionType() string {
+	return "DistinctExpr"
+}
+
+func (d *DistinctExpr) String() string {
+	return fmt.Sprintf("DistinctExpr(oid:%d)@%d", d.Opno, d.Location())
+}
+
+// NullIfExpr represents NULLIF(a, b). Like DistinctExpr it is PostgreSQL's
+// "typedef OpExpr NullIfExpr" (primnodes.h:855): the "=" operator's fields,
+// with Opresulttype set to the first operand's type rather than bool.
+// Ported from postgres/src/include/nodes/primnodes.h:848
+type NullIfExpr struct {
+	BaseExpr
+	Opno         Oid       // pg_operator OID of the "=" operator - primnodes.h:816
+	Opfuncid     Oid       // Underlying function OID - primnodes.h:817
+	Opresulttype Oid       // Result type: the first operand's type - primnodes.h:818
+	Opretset     bool      // Returns set? - primnodes.h:819
+	Opcollid     Oid       // Result collation - primnodes.h:820
+	Inputcollid  Oid       // Input collation - primnodes.h:821
+	Args         *NodeList // The two operands - primnodes.h:822
+}
+
+// NewNullIfExpr creates a new NullIfExpr node.
+func NewNullIfExpr(opno Oid, opfuncid Oid, opresulttype Oid, args *NodeList) *NullIfExpr {
+	return &NullIfExpr{
+		BaseExpr:     BaseExpr{BaseNode: BaseNode{Tag: T_NullIfExpr}},
+		Opno:         opno,
+		Opfuncid:     opfuncid,
+		Opresulttype: opresulttype,
+		Args:         args,
+	}
+}
+
+func (n *NullIfExpr) ExpressionType() string {
+	return "NullIfExpr"
+}
+
+func (n *NullIfExpr) String() string {
+	return fmt.Sprintf("NullIfExpr(oid:%d)@%d", n.Opno, n.Location())
 }
 
 // BoolExpr represents a boolean expression (AND/OR/NOT).

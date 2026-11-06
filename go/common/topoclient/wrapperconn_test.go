@@ -748,7 +748,7 @@ func TestRetryConnection_TerminatesWhenClosed(t *testing.T) {
 	// Start retryConnection manually in a goroutine
 	done := make(chan bool, 1)
 	go func() {
-		wrapper.retryConnection(errors.New("test error"))
+		wrapper.retryConnection(ConnFailUnavailable, errors.New("test error"))
 		done <- true
 	}()
 

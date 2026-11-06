@@ -100,3 +100,27 @@ func TestPrependBinToPath(t *testing.T) {
 		}
 	}
 }
+
+func TestPrependBinToPathSubprocessCoverDir(t *testing.T) {
+	// Simulate `go test -cover`, which hands the test binary its own private
+	// GOCOVERDIR; the override must win and must switch PATH to bin/cov.
+	t.Setenv("GOCOVERDIR", filepath.Join(t.TempDir(), "go-test-private"))
+	ours := filepath.Join(t.TempDir(), "subprocess-cov")
+	t.Setenv("MULTIGRES_SUBPROCESS_GOCOVERDIR", ours)
+	t.Setenv("PATH", "/usr/bin:/bin")
+
+	if err := PrependBinToPath(); err != nil {
+		t.Fatalf("PrependBinToPath() failed: %v", err)
+	}
+	if got := os.Getenv("GOCOVERDIR"); got != ours {
+		t.Errorf("GOCOVERDIR = %q, want %q", got, ours)
+	}
+	root, err := findModuleRoot()
+	if err != nil {
+		t.Fatalf("findModuleRoot() failed: %v", err)
+	}
+	wantPrefix := filepath.Join(root, "bin", "cov") + string(os.PathListSeparator)
+	if got := os.Getenv("PATH"); len(got) < len(wantPrefix) || got[:len(wantPrefix)] != wantPrefix {
+		t.Errorf("PATH = %q, want prefix %q", got, wantPrefix)
+	}
+}

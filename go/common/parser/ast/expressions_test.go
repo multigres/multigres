@@ -28,6 +28,8 @@ package ast
 import (
 	"testing"
 
+	"github.com/multigres/multigres/go/common/parser/datum"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -88,7 +90,7 @@ func TestVar(t *testing.T) {
 func TestConst(t *testing.T) {
 	t.Run("NonNull", func(t *testing.T) {
 		consttype := Oid(23) // int4
-		constvalue := Datum(42)
+		constvalue := datum.Int32GetDatum(42)
 
 		c := NewConst(consttype, constvalue, false)
 
@@ -99,13 +101,13 @@ func TestConst(t *testing.T) {
 		assert.Equal(t, consttype, c.Consttype)
 		assert.Equal(t, constvalue, c.Constvalue)
 		assert.False(t, c.Constisnull)
-		assert.Contains(t, c.String(), "42")
+		assert.Equal(t, "Const(type:23)@0", c.String())
 	})
 
 	t.Run("Null", func(t *testing.T) {
 		consttype := Oid(23)
 
-		c := NewConst(consttype, 0, true)
+		c := NewConst(consttype, datum.Int32GetDatum(0), true)
 
 		require.NotNil(t, c)
 		assert.True(t, c.Constisnull)
@@ -136,7 +138,7 @@ func TestFuncExpr(t *testing.T) {
 	funcid := Oid(100)
 	funcresulttype := Oid(23)
 	arg1 := NewVar(1, 1, 23)
-	arg2 := NewConst(23, 42, false)
+	arg2 := NewConst(23, datum.Int32GetDatum(42), false)
 	args := NewNodeList(arg1, arg2)
 
 	f := NewFuncExpr(funcid, funcresulttype, args)
@@ -161,7 +163,7 @@ func TestOpExpr(t *testing.T) {
 		opfuncid := Oid(65)     // int4eq function
 		opresulttype := Oid(16) // bool
 		left := NewVar(1, 1, 23)
-		right := NewConst(23, 42, false)
+		right := NewConst(23, datum.Int32GetDatum(42), false)
 		args := NewNodeList(left, right)
 
 		o := NewOpExpr(opno, opfuncid, opresulttype, args)
@@ -191,7 +193,7 @@ func TestOpExpr(t *testing.T) {
 	t.Run("ConvenienceConstructor", func(t *testing.T) {
 		opno := Oid(96)
 		left := NewVar(1, 1, 23)
-		right := NewConst(23, 42, false)
+		right := NewConst(23, datum.Int32GetDatum(42), false)
 
 		o := NewBinaryOp(opno, left, right)
 
@@ -261,7 +263,7 @@ func TestExpressionInterfaces(t *testing.T) {
 		expr Expr
 	}{
 		{"Var", NewVar(1, 1, 23)},
-		{"Const", NewConst(23, 42, false)},
+		{"Const", NewConst(23, datum.Int32GetDatum(42), false)},
 		{"Param", NewParam(PARAM_EXTERN, 1, 23)},
 		{"FuncExpr", NewFuncExpr(100, 23, NewNodeList())},
 		{"OpExpr", NewOpExpr(96, 65, 16, NewNodeList())},
@@ -286,7 +288,7 @@ func TestExpressionInterfaces(t *testing.T) {
 // TestExpressionUtilities tests the utility functions.
 func TestExpressionUtilities(t *testing.T) {
 	t.Run("IsConstant", func(t *testing.T) {
-		constExpr := NewConst(23, 42, false)
+		constExpr := NewConst(23, datum.Int32GetDatum(42), false)
 		varExpr := NewVar(1, 1, 23)
 
 		assert.True(t, IsConstant(constExpr))
@@ -295,7 +297,7 @@ func TestExpressionUtilities(t *testing.T) {
 
 	t.Run("IsVariable", func(t *testing.T) {
 		varExpr := NewVar(1, 1, 23)
-		constExpr := NewConst(23, 42, false)
+		constExpr := NewConst(23, datum.Int32GetDatum(42), false)
 
 		assert.True(t, IsVariable(varExpr))
 		assert.False(t, IsVariable(constExpr))
@@ -311,7 +313,7 @@ func TestExpressionUtilities(t *testing.T) {
 
 	t.Run("GetExpressionArgs", func(t *testing.T) {
 		arg1 := NewVar(1, 1, 23)
-		arg2 := NewConst(23, 42, false)
+		arg2 := NewConst(23, datum.Int32GetDatum(42), false)
 
 		funcExpr := NewFuncExpr(100, 23, NewNodeList(arg1, arg2))
 		args := GetExpressionArgs(funcExpr)
@@ -334,7 +336,7 @@ func TestExpressionUtilities(t *testing.T) {
 
 	t.Run("CountArgs", func(t *testing.T) {
 		arg1 := NewVar(1, 1, 23)
-		arg2 := NewConst(23, 42, false)
+		arg2 := NewConst(23, datum.Int32GetDatum(42), false)
 
 		funcExpr := NewFuncExpr(100, 23, NewNodeList(arg1, arg2))
 		assert.Equal(t, 2, CountArgs(funcExpr))
@@ -374,12 +376,12 @@ func TestComplexExpressionTrees(t *testing.T) {
 
 		// col1 = 42
 		col1 := NewVar(1, 1, 23)
-		val42 := NewConst(23, 42, false)
+		val42 := NewConst(23, datum.Int32GetDatum(42), false)
 		eq := NewBinaryOp(96, col1, val42)
 
 		// col2 > 10
 		col2 := NewVar(1, 2, 23)
-		val10 := NewConst(23, 10, false)
+		val10 := NewConst(23, datum.Int32GetDatum(10), false)
 		gt := NewBinaryOp(521, col2, val10) // ">" operator
 
 		// (col1 = 42) AND (col2 > 10)
@@ -407,8 +409,8 @@ func TestComplexExpressionTrees(t *testing.T) {
 		// Build: SUBSTRING(col1, 1, 5)
 
 		stringCol := NewVar(1, 1, 25) // text column
-		startPos := NewConst(23, 1, false)
-		length := NewConst(23, 5, false)
+		startPos := NewConst(23, datum.Int32GetDatum(1), false)
+		length := NewConst(23, datum.Int32GetDatum(5), false)
 
 		substring := NewFuncExpr(883, 25, NewNodeList(stringCol, startPos, length))
 
@@ -429,8 +431,8 @@ func TestCaseExpr(t *testing.T) {
 	t.Run("SimpleCase", func(t *testing.T) {
 		// CASE status WHEN 1 THEN 'Active' WHEN 2 THEN 'Inactive' ELSE 'Unknown' END
 		statusVar := NewVar(1, 1, 23) // status column
-		when1 := NewCaseWhen(NewConst(23, 1, false), NewString("Active"))
-		when2 := NewCaseWhen(NewConst(23, 2, false), NewString("Inactive"))
+		when1 := NewCaseWhen(NewConst(23, datum.Int32GetDatum(1), false), NewString("Active"))
+		when2 := NewCaseWhen(NewConst(23, datum.Int32GetDatum(2), false), NewString("Inactive"))
 		elseResult := NewString("Unknown")
 
 		caseExpr := NewCaseExpr(25, statusVar, NewNodeList(when1, when2), elseResult)
@@ -449,8 +451,8 @@ func TestCaseExpr(t *testing.T) {
 	t.Run("SearchedCase", func(t *testing.T) {
 		// CASE WHEN age < 18 THEN 'Minor' WHEN age >= 65 THEN 'Senior' ELSE 'Adult' END
 		ageVar := NewVar(1, 2, 23)
-		when1 := NewCaseWhen(NewBinaryOp(97, ageVar, NewConst(23, 18, false)), NewString("Minor"))
-		when2 := NewCaseWhen(NewBinaryOp(525, ageVar, NewConst(23, 65, false)), NewString("Senior"))
+		when1 := NewCaseWhen(NewBinaryOp(97, ageVar, NewConst(23, datum.Int32GetDatum(18), false)), NewString("Minor"))
+		when2 := NewCaseWhen(NewBinaryOp(525, ageVar, NewConst(23, datum.Int32GetDatum(65), false)), NewString("Senior"))
 		elseResult := NewString("Adult")
 
 		caseExpr := NewSearchedCase(NewNodeList(when1, when2), elseResult)
@@ -463,7 +465,7 @@ func TestCaseExpr(t *testing.T) {
 
 	t.Run("ConvenienceConstructor", func(t *testing.T) {
 		statusVar := NewVar(1, 1, 23)
-		whens := NewNodeList(NewCaseWhen(NewConst(23, 1, false), NewString("Active")))
+		whens := NewNodeList(NewCaseWhen(NewConst(23, datum.Int32GetDatum(1), false), NewString("Active")))
 		elseResult := NewString("Unknown")
 
 		simpleCase := NewSimpleCase(statusVar, whens, elseResult)
@@ -478,7 +480,7 @@ func TestCaseExpr(t *testing.T) {
 
 // TestCaseWhen tests the CaseWhen expression node.
 func TestCaseWhen(t *testing.T) {
-	condition := NewBinaryOp(96, NewVar(1, 1, 23), NewConst(23, 42, false))
+	condition := NewBinaryOp(96, NewVar(1, 1, 23), NewConst(23, datum.Int32GetDatum(42), false))
 	result := NewString("matched")
 
 	when := NewCaseWhen(condition, result)
@@ -517,9 +519,9 @@ func TestCoalesceExpr(t *testing.T) {
 func TestArrayExpr(t *testing.T) {
 	t.Run("SimpleArray", func(t *testing.T) {
 		// ARRAY[1, 2, 3]
-		elem1 := NewConst(23, 1, false)
-		elem2 := NewConst(23, 2, false)
-		elem3 := NewConst(23, 3, false)
+		elem1 := NewConst(23, datum.Int32GetDatum(1), false)
+		elem2 := NewConst(23, datum.Int32GetDatum(2), false)
+		elem3 := NewConst(23, datum.Int32GetDatum(3), false)
 		elements := NewNodeList(elem1, elem2, elem3)
 
 		array := NewArrayExpr(1007, 23, elements) // int4[] type
@@ -537,7 +539,7 @@ func TestArrayExpr(t *testing.T) {
 	})
 
 	t.Run("MultiDimArray", func(t *testing.T) {
-		elements := NewNodeList(NewConst(23, 1, false))
+		elements := NewNodeList(NewConst(23, datum.Int32GetDatum(1), false))
 		array := NewArrayExpr(1007, 23, elements)
 		array.Multidims = true
 
@@ -547,7 +549,7 @@ func TestArrayExpr(t *testing.T) {
 	})
 
 	t.Run("ConvenienceConstructor", func(t *testing.T) {
-		elements := NewNodeList(NewConst(23, 1, false), NewConst(23, 2, false))
+		elements := NewNodeList(NewConst(23, datum.Int32GetDatum(1), false), NewConst(23, datum.Int32GetDatum(2), false))
 		array := NewArrayConstructor(elements)
 
 		require.NotNil(t, array)
@@ -561,7 +563,7 @@ func TestScalarArrayOpExpr(t *testing.T) {
 	t.Run("AnyOperation", func(t *testing.T) {
 		// column = ANY(ARRAY[1, 2, 3])
 		column := NewVar(1, 1, 23)
-		array := NewArrayConstructor(NewNodeList(NewConst(23, 1, false), NewConst(23, 2, false), NewConst(23, 3, false)))
+		array := NewArrayConstructor(NewNodeList(NewConst(23, datum.Int32GetDatum(1), false), NewConst(23, datum.Int32GetDatum(2), false), NewConst(23, datum.Int32GetDatum(3), false)))
 
 		anyExpr := NewScalarArrayOpExpr(96, true, column, array) // "=" operator with ANY
 
@@ -580,7 +582,7 @@ func TestScalarArrayOpExpr(t *testing.T) {
 	t.Run("AllOperation", func(t *testing.T) {
 		// column <> ALL(ARRAY[1, 2, 3])
 		column := NewVar(1, 1, 23)
-		array := NewArrayConstructor(NewNodeList(NewConst(23, 1, false)))
+		array := NewArrayConstructor(NewNodeList(NewConst(23, datum.Int32GetDatum(1), false)))
 
 		allExpr := NewScalarArrayOpExpr(518, false, column, array) // "<>" operator with ALL
 
@@ -592,7 +594,7 @@ func TestScalarArrayOpExpr(t *testing.T) {
 
 	t.Run("ConvenienceConstructors", func(t *testing.T) {
 		column := NewVar(1, 1, 23)
-		array := NewArrayConstructor(NewNodeList(NewConst(23, 1, false)))
+		array := NewArrayConstructor(NewNodeList(NewConst(23, datum.Int32GetDatum(1), false)))
 
 		// Test IN expression
 		inExpr := NewInExpr(column, array)
@@ -623,7 +625,7 @@ func TestRowExpr(t *testing.T) {
 		// ROW(col1, col2, 42)
 		col1 := NewVar(1, 1, 23)
 		col2 := NewVar(1, 2, 25)
-		literal := NewConst(23, 42, false)
+		literal := NewConst(23, datum.Int32GetDatum(42), false)
 		fields := NewNodeList(col1, col2, literal)
 
 		row := NewRowExpr(fields, 2249) // record type OID
@@ -641,7 +643,7 @@ func TestRowExpr(t *testing.T) {
 	})
 
 	t.Run("ConvenienceConstructor", func(t *testing.T) {
-		fields := NewNodeList(NewConst(23, 1, false), NewConst(23, 2, false))
+		fields := NewNodeList(NewConst(23, datum.Int32GetDatum(1), false), NewConst(23, datum.Int32GetDatum(2), false))
 		row := NewRowConstructor(fields)
 
 		require.NotNil(t, row)
@@ -657,7 +659,7 @@ func TestTier2ExpressionInterfaces(t *testing.T) {
 		expr Expr
 	}{
 		{"CaseExpr", NewCaseExpr(25, nil, NewNodeList(), nil)},
-		{"CaseWhen", NewCaseWhen(NewConst(16, 1, false), NewString("result"))},
+		{"CaseWhen", NewCaseWhen(NewConst(16, datum.Int32GetDatum(1), false), NewString("result"))},
 		{"CoalesceExpr", NewCoalesceExpr(25, NewNodeList())},
 		{"ArrayExpr", NewArrayExpr(1007, 23, NewNodeList())},
 		{"ScalarArrayOpExpr", NewScalarArrayOpExpr(96, true, NewVar(1, 1, 23), NewArrayConstructor(NewNodeList()))},
@@ -723,8 +725,8 @@ func TestTier2ExpressionUtilities(t *testing.T) {
 	})
 
 	t.Run("CaseExpressionUtilities", func(t *testing.T) {
-		when1 := NewCaseWhen(NewConst(23, 1, false), NewString("One"))
-		when2 := NewCaseWhen(NewConst(23, 2, false), NewString("Two"))
+		when1 := NewCaseWhen(NewConst(23, datum.Int32GetDatum(1), false), NewString("One"))
+		when2 := NewCaseWhen(NewConst(23, datum.Int32GetDatum(2), false), NewString("Two"))
 		elseResult := NewString("Other")
 
 		caseExpr := NewCaseExpr(25, nil, NewNodeList(when1, when2), elseResult)
@@ -741,8 +743,8 @@ func TestTier2ExpressionUtilities(t *testing.T) {
 	})
 
 	t.Run("ArrayUtilities", func(t *testing.T) {
-		elem1 := NewConst(23, 1, false)
-		elem2 := NewConst(23, 2, false)
+		elem1 := NewConst(23, datum.Int32GetDatum(1), false)
+		elem2 := NewConst(23, datum.Int32GetDatum(2), false)
 		elements := NewNodeList(elem1, elem2)
 
 		arrayExpr := NewArrayExpr(1007, 23, elements)
@@ -771,7 +773,7 @@ func TestTier2ExpressionUtilities(t *testing.T) {
 		args = GetExpressionArgs(coalesceExpr)
 		assert.Equal(t, 2, args.Len())
 
-		arrayExpr := NewArrayConstructor(NewNodeList(NewConst(23, 1, false), NewConst(23, 2, false)))
+		arrayExpr := NewArrayConstructor(NewNodeList(NewConst(23, datum.Int32GetDatum(1), false), NewConst(23, datum.Int32GetDatum(2), false)))
 		args = GetExpressionArgs(arrayExpr)
 		assert.Equal(t, 2, args.Len()) // Should return Elements
 
@@ -787,7 +789,7 @@ func TestComplexTier2ExpressionTrees(t *testing.T) {
 		// COALESCE(CASE WHEN status = 1 THEN 'Active' ELSE NULL END, 'Unknown')
 
 		statusVar := NewVar(1, 1, 23)
-		statusCheck := NewBinaryOp(96, statusVar, NewConst(23, 1, false)) // status = 1
+		statusCheck := NewBinaryOp(96, statusVar, NewConst(23, datum.Int32GetDatum(1), false)) // status = 1
 		when := NewCaseWhen(statusCheck, NewString("Active"))
 		caseExpr := NewCaseExpr(25, nil, NewNodeList(when), NewNull())
 
@@ -809,9 +811,9 @@ func TestComplexTier2ExpressionTrees(t *testing.T) {
 
 		userIdVar := NewVar(1, 1, 23)
 		allowedIds := NewArrayConstructor(NewNodeList(
-			NewConst(23, 1, false),
-			NewConst(23, 2, false),
-			NewConst(23, 3, false),
+			NewConst(23, datum.Int32GetDatum(1), false),
+			NewConst(23, datum.Int32GetDatum(2), false),
+			NewConst(23, datum.Int32GetDatum(3), false),
 		))
 
 		inExpr := NewInExpr(userIdVar, allowedIds)
@@ -831,7 +833,7 @@ func TestComplexTier2ExpressionTrees(t *testing.T) {
 func TestExpressionNodeTraversal(t *testing.T) {
 	// Create a complex expression tree
 	left := NewVar(1, 1, 23)
-	right := NewConst(23, 42, false)
+	right := NewConst(23, datum.Int32GetDatum(42), false)
 	comparison := NewBinaryOp(96, left, right)
 
 	// Walk the tree (basic test - will be enhanced when traversal system is complete)
@@ -940,7 +942,7 @@ func TestAggref(t *testing.T) {
 
 	t.Run("Aggregate with FILTER", func(t *testing.T) {
 		arg := NewVar(1, 1, 23)
-		filter := NewBinaryOp(96, arg, NewConst(23, 10, false)) // arg = 10
+		filter := NewBinaryOp(96, arg, NewConst(23, datum.Int32GetDatum(10), false)) // arg = 10
 		aggref := NewCount(arg)
 		aggref.Aggfilter = filter
 
@@ -951,8 +953,8 @@ func TestAggref(t *testing.T) {
 
 	t.Run("Ordered-Set Aggregate", func(t *testing.T) {
 		arg := NewVar(1, 1, 23)
-		directArg := NewConst(25, 50, false)            // 0.5 for percentile
-		aggref := NewAggref(3972, 23, NewNodeList(arg)) // percentile_cont
+		directArg := NewConst(25, datum.Int32GetDatum(50), false) // 0.5 for percentile
+		aggref := NewAggref(3972, 23, NewNodeList(arg))           // percentile_cont
 		aggref.Aggdirectargs = NewNodeList(directArg)
 		aggref.Aggorder = NewNodeList(arg)
 
@@ -1018,7 +1020,7 @@ func TestWindowFunc(t *testing.T) {
 
 	t.Run("Window Function with Filter", func(t *testing.T) {
 		arg := NewVar(1, 1, 23)
-		filter := NewBinaryOp(96, arg, NewConst(23, 0, false))
+		filter := NewBinaryOp(96, arg, NewConst(23, datum.Int32GetDatum(0), false))
 		winFunc := NewWindowFunc(2108, 23, NewNodeList(arg), 1) // SUM
 		winFunc.Aggfilter = filter
 
@@ -1105,8 +1107,8 @@ func TestTier3ComplexExpressions(t *testing.T) {
 	t.Run("Aggregate in CASE Expression", func(t *testing.T) {
 		// CASE WHEN COUNT(*) > 10 THEN 'High' ELSE 'Low' END
 		countStar := NewCountStar()
-		threshold := NewConst(23, 10, false)                // 10
-		condition := NewBinaryOp(521, countStar, threshold) // COUNT(*) > 10
+		threshold := NewConst(23, datum.Int32GetDatum(10), false) // 10
+		condition := NewBinaryOp(521, countStar, threshold)       // COUNT(*) > 10
 		highResult := NewString("High")
 		lowResult := NewString("Low")
 		whenClause := NewCaseWhen(condition, highResult)
@@ -1226,7 +1228,7 @@ func TestEnumTypes(t *testing.T) {
 // TestGroupingFunc tests the GroupingFunc node implementation
 func TestGroupingFunc(t *testing.T) {
 	t.Run("NewGroupingFunc", func(t *testing.T) {
-		args := NewNodeList(NewConst(Oid(23), 1, false), NewConst(Oid(23), 2, false))
+		args := NewNodeList(NewConst(Oid(23), datum.Int32GetDatum(1), false), NewConst(Oid(23), datum.Int32GetDatum(2), false))
 		refs := NewNodeList(NewInteger(1), NewInteger(2))
 		cols := NewNodeList(NewInteger(10), NewInteger(20))
 		aggLevelsUp := Index(0)
@@ -1245,7 +1247,7 @@ func TestGroupingFunc(t *testing.T) {
 	})
 
 	t.Run("String", func(t *testing.T) {
-		args := NewNodeList(NewConst(Oid(23), 1, false))
+		args := NewNodeList(NewConst(Oid(23), datum.Int32GetDatum(1), false))
 		refs := NewNodeList(NewInteger(1))
 		cols := NewNodeList(NewInteger(10))
 		gf := NewGroupingFunc(args, refs, cols, Index(1), 200)
@@ -1277,7 +1279,7 @@ func TestWindowFuncRunCondition(t *testing.T) {
 		opno := Oid(96) // = operator OID
 		inputCollid := Oid(100)
 		wfuncLeft := true
-		arg := NewConst(Oid(23), Datum(42), false)
+		arg := NewConst(Oid(23), datum.Int32GetDatum(42), false)
 		location := 200
 
 		wfrc := NewWindowFuncRunCondition(opno, inputCollid, wfuncLeft, arg, location)
@@ -1352,7 +1354,7 @@ func TestMergeSupportFunc(t *testing.T) {
 // TestNamedArgExpr tests the NamedArgExpr node implementation
 func TestNamedArgExpr(t *testing.T) {
 	t.Run("NewNamedArgExpr", func(t *testing.T) {
-		arg := NewConst(Oid(25), Datum(uintptr(0)), false)
+		arg := NewConst(Oid(25), Datum{}, false)
 		name := "param_name"
 		argNumber := 1
 		location := 400
@@ -1435,8 +1437,8 @@ func TestMinMaxExpr(t *testing.T) {
 		inputCollid := Oid(0)
 		op := IS_GREATEST
 		args := NewNodeList(
-			NewConst(Oid(23), Datum(1), false),
-			NewConst(Oid(23), Datum(2), false),
+			NewConst(Oid(23), datum.Int32GetDatum(1), false),
+			NewConst(Oid(23), datum.Int32GetDatum(2), false),
 		)
 		location := 600
 
@@ -1453,7 +1455,7 @@ func TestMinMaxExpr(t *testing.T) {
 	})
 
 	t.Run("String GREATEST", func(t *testing.T) {
-		args := NewNodeList(NewConst(Oid(23), Datum(1), false))
+		args := NewNodeList(NewConst(Oid(23), datum.Int32GetDatum(1), false))
 		mme := NewMinMaxExpr(Oid(23), Oid(0), Oid(0), IS_GREATEST, args, 650)
 		str := mme.String()
 
@@ -1464,7 +1466,7 @@ func TestMinMaxExpr(t *testing.T) {
 	})
 
 	t.Run("String LEAST", func(t *testing.T) {
-		args := NewNodeList(NewConst(Oid(23), Datum(1), false))
+		args := NewNodeList(NewConst(Oid(23), datum.Int32GetDatum(1), false))
 		mme := NewMinMaxExpr(Oid(23), Oid(0), Oid(0), IS_LEAST, args, 700)
 		str := mme.String()
 
@@ -1492,8 +1494,8 @@ func TestRowCompareExpr(t *testing.T) {
 		opnos := []Oid{Oid(96), Oid(97)}          // Operator OIDs
 		opfamilies := []Oid{Oid(1), Oid(2)}       // Operator family OIDs
 		inputCollids := []Oid{Oid(100), Oid(101)} // Collation OIDs
-		largs := []Expression{NewConst(Oid(23), Datum(1), false)}
-		rargs := []Expression{NewConst(Oid(23), Datum(2), false)}
+		largs := []Expression{NewConst(Oid(23), datum.Int32GetDatum(1), false)}
+		rargs := []Expression{NewConst(Oid(23), datum.Int32GetDatum(2), false)}
 		location := 800
 
 		rce := NewRowCompareExpr(rctype, opnos, opfamilies, inputCollids, largs, rargs, location)
@@ -1522,8 +1524,8 @@ func TestRowCompareExpr(t *testing.T) {
 		}
 
 		for _, tt := range tests {
-			largs := []Expression{NewConst(Oid(23), Datum(1), false)}
-			rargs := []Expression{NewConst(Oid(23), Datum(2), false)}
+			largs := []Expression{NewConst(Oid(23), datum.Int32GetDatum(1), false)}
+			rargs := []Expression{NewConst(Oid(23), datum.Int32GetDatum(2), false)}
 			rce := NewRowCompareExpr(tt.rctype, nil, nil, nil, largs, rargs, 850)
 			str := rce.String()
 
@@ -1608,9 +1610,9 @@ func TestXmlExpr(t *testing.T) {
 	t.Run("NewXmlExpr", func(t *testing.T) {
 		op := IS_XMLCONCAT
 		name := "test_element"
-		namedArgs := NewNodeList(NewConst(Oid(25), Datum(uintptr(0)), false))
+		namedArgs := NewNodeList(NewConst(Oid(25), Datum{}, false))
 		argNames := NewNodeList(NewString("attr_name"))
-		args := NewNodeList(NewConst(Oid(25), Datum(uintptr(0)), false))
+		args := NewNodeList(NewConst(Oid(25), Datum{}, false))
 		xmloption := XMLOPTION_DOCUMENT
 		indent := true
 		typ := Oid(142) // xml type OID
@@ -1649,7 +1651,7 @@ func TestXmlExpr(t *testing.T) {
 		}
 
 		for _, tt := range tests {
-			args := NewNodeList(NewConst(Oid(25), Datum(uintptr(0)), false))
+			args := NewNodeList(NewConst(Oid(25), Datum{}, false))
 			xe := NewXmlExpr(tt.op, "", nil, nil, args, XMLOPTION_DOCUMENT, false, Oid(142), -1, 1050)
 			str := xe.String()
 
@@ -1675,20 +1677,20 @@ func TestXmlExpr(t *testing.T) {
 func TestTableFunc(t *testing.T) {
 	t.Run("NewTableFunc", func(t *testing.T) {
 		functype := TFT_XMLTABLE
-		nsUris := []Expression{NewConst(Oid(25), Datum(uintptr(0)), false)}
+		nsUris := []Expression{NewConst(Oid(25), Datum{}, false)}
 		nsNames := []string{"ns1"}
-		docexpr := NewConst(Oid(25), Datum(uintptr(0)), false)
-		rowexpr := NewConst(Oid(25), Datum(uintptr(0)), false)
+		docexpr := NewConst(Oid(25), Datum{}, false)
+		rowexpr := NewConst(Oid(25), Datum{}, false)
 		colnames := []string{"col1", "col2"}
 		coltypes := []Oid{Oid(25), Oid(23)} // text, int4
 		coltypmods := []int{-1, -1}
 		colcollations := []Oid{Oid(100), Oid(0)}
-		colexprs := []Expression{NewConst(Oid(25), Datum(uintptr(0)), false)}
-		coldefexprs := []Expression{NewConst(Oid(25), Datum(uintptr(0)), false)}
-		colvalexprs := []Expression{NewConst(Oid(25), Datum(uintptr(0)), false)}
-		passingvalexprs := []Expression{NewConst(Oid(23), Datum(42), false)}
+		colexprs := []Expression{NewConst(Oid(25), Datum{}, false)}
+		coldefexprs := []Expression{NewConst(Oid(25), Datum{}, false)}
+		colvalexprs := []Expression{NewConst(Oid(25), Datum{}, false)}
+		passingvalexprs := []Expression{NewConst(Oid(23), datum.Int32GetDatum(42), false)}
 		notnulls := []bool{true, false}
-		plan := NewConst(Oid(25), Datum(uintptr(0)), false)
+		plan := NewConst(Oid(25), Datum{}, false)
 		ordinalitycol := 1
 		location := 1100
 
@@ -1823,8 +1825,8 @@ func TestMergeAction(t *testing.T) {
 		matchKind := MERGE_WHEN_MATCHED
 		commandType := CMD_UPDATE
 		override := OVERRIDING_USER_VALUE
-		qual := NewConst(Oid(16), Datum(0), false)
-		targetList := []*TargetEntry{NewTargetEntry(NewConst(Oid(23), Datum(1), false), AttrNumber(1), "col1")}
+		qual := NewConst(Oid(16), datum.Int32GetDatum(0), false)
+		targetList := []*TargetEntry{NewTargetEntry(NewConst(Oid(23), datum.Int32GetDatum(1), false), AttrNumber(1), "col1")}
 		updateColnos := []AttrNumber{AttrNumber(1), AttrNumber(2)}
 		location := 1400
 
@@ -1854,7 +1856,7 @@ func TestMergeAction(t *testing.T) {
 		}
 
 		for _, tt := range tests {
-			targetList := []*TargetEntry{NewTargetEntry(NewConst(Oid(23), Datum(1), false), AttrNumber(1), "col1")}
+			targetList := []*TargetEntry{NewTargetEntry(NewConst(Oid(23), datum.Int32GetDatum(1), false), AttrNumber(1), "col1")}
 			ma := NewMergeAction(tt.matchKind, tt.commandType, OVERRIDING_NOT_SET, nil, targetList, nil, 1450)
 			str := ma.String()
 

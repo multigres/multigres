@@ -102,8 +102,9 @@ func (c *Conn) VerifySessionState(ctx context.Context) (connpool.Divergence, err
 	}
 	sort.Strings(customNames)
 
-	// Plain Query, never QueryWithRetry: a retry reconnects the socket, which
-	// resets the very session state being inspected and would mask divergence.
+	// Plain Query, never StatelessQuery: replacing a closed socket would start
+	// a fresh session, resetting the very state being inspected and masking
+	// divergence.
 	results, err := c.Query(ctx, sessionStateQuery(customNames))
 	if err != nil {
 		return div, err

@@ -54,11 +54,12 @@ type Writer struct {
 	runner *timer.PeriodicRunner
 
 	// lastProven is the (LSN, ts) pair captured pre-commit by the most recent
-	// successful write. Written only from writeHeartbeat's own goroutine (the
-	// PeriodicRunner never overlaps ticks), but read from other goroutines via
-	// LastProven() (e.g. an RPC handler reporting the leader's own view). Each
-	// write replaces the whole pointer rather than mutating fields in place,
-	// so a plain atomic pointer swap covers it -- no mutex needed.
+	// proven write. It is raised from two goroutines: the heartbeat tick, after a
+	// write that waited for quorum, and WriteProven, when the rule store acks a
+	// proposal. Both go through raiseProven, a compare-and-swap that replaces the
+	// whole pointer and never moves it backwards, so no mutex is needed. Other
+	// goroutines read it via LastProven() (e.g. an RPC handler reporting the
+	// leader's own view).
 	lastProven atomic.Pointer[provenWatermark]
 
 	writes      atomic.Int64
@@ -112,7 +113,7 @@ func (w *Writer) writeHeartbeat(ctx context.Context) {
 	writeCtx, cancel := context.WithTimeout(ctx, w.interval)
 	defer cancel()
 
-	err := w.write(writeCtx)
+	err := w.write(writeCtx, true)
 	if err != nil {
 		w.logger.ErrorContext(ctx, "failed to write heartbeat", "error", err)
 		w.writeErrors.Add(1)
@@ -134,7 +135,7 @@ func (w *Writer) writeHeartbeat(ctx context.Context) {
 // trustworthy once its own write already succeeded (proving quorum) before
 // the write embedding it began. Nil (and thus a NULL row) until the second
 // successful write, e.g. right after a promotion.
-func (w *Writer) write(ctx context.Context) error {
+func (w *Writer) write(ctx context.Context, waitForQuorum bool) error {
 	now := w.now()
 
 	var lsnArg, provenTsArg any
@@ -143,9 +144,21 @@ func (w *Writer) write(ctx context.Context) error {
 		provenTsArg = lastProven.ts
 	}
 
-	result, err := w.queryService.QueryAdminArgs(ctx, `
+	// Only the forced write changes the commit mode, so a configured
+	// synchronous_commit still governs normal ticks. set_config(..., true) is
+	// transaction-local and covers this statement's own commit. QueryAdminArgs
+	// doesn't support multi-statement queries, so this can't be BEGIN/SET LOCAL/
+	// .../COMMIT; one statement is also one round trip, which matters if postgres
+	// is ever remote.
+	prefix, from := "", ""
+	if !waitForQuorum {
+		prefix = "WITH async AS (SELECT set_config('synchronous_commit', 'off', true))"
+		from = " FROM async"
+	}
+
+	result, err := w.queryService.QueryAdminArgs(ctx, prefix+`
 		INSERT INTO multigres.heartbeat (shard_id, leader_id, ts, quorum_commit_lsn, quorum_commit_ts)
-		VALUES ($1, $2, $3, $4::pg_lsn, $5::timestamptz)
+		SELECT $1::bytea, $2::text, $3::bigint, $4::pg_lsn, $5::timestamptz`+from+`
 		ON CONFLICT (shard_id) DO UPDATE
 		SET leader_id = EXCLUDED.leader_id,
 		    ts = EXCLUDED.ts,
@@ -159,11 +172,12 @@ func (w *Writer) write(ctx context.Context) error {
 
 	// Candidate for the NEXT write's quorum_commit_lsn/quorum_commit_ts, paired
 	// with now (also captured pre-commit, above). Best-effort: on failure,
-	// keep the previous candidate and retry next tick.
-	if result != nil && len(result.StructuredRows()) > 0 {
+	// keep the previous candidate and retry next tick. A forced write proves
+	// nothing about its own LSN, so it is no candidate.
+	if waitForQuorum && result != nil && len(result.StructuredRows()) > 0 {
 		if raw, rawErr := executor.GetString(result.StructuredRows()[0], 0); rawErr == nil && raw != "" {
 			if lsn, lsnErr := pgutil.ParseLSN(raw); lsnErr == nil {
-				w.lastProven.Store(&provenWatermark{lsn: lsn, ts: now})
+				w.raiseProven(lsn, now)
 			} else {
 				w.logger.DebugContext(ctx, "failed to parse pg_current_wal_lsn", "value", raw, "error", lsnErr)
 			}
@@ -178,18 +192,39 @@ func (w *Writer) write(ctx context.Context) error {
 // the leader's own first-hand view -- available even when no follower is
 // reachable to relay the replicated row.
 //
-// Purely in-memory, so it goes empty right after a process restart. It can
-// also look stale immediately after a promotion, before this pooler's own
-// first heartbeat write lands -- but Recruit always demotes a former primary
-// to standby and restarts it before it can be recruited again, so becoming
-// leader always means a real pg_promote() out of recovery, which the
-// analyzer's promotion grace period already covers.
+// Purely in-memory, so it goes empty right after a process restart. A new
+// leader's first proof comes from WriteProven when its rule is decided, so it
+// doesn't have to wait for two ticks.
 func (w *Writer) LastProven() (lsn pgutil.LSN, ts time.Time, have bool) {
 	lastProven := w.lastProven.Load()
 	if lastProven == nil {
 		return 0, time.Time{}, false
 	}
 	return lastProven.lsn, lastProven.ts, true
+}
+
+// WriteProven raises the proven watermark to a write the caller has proved quorum-acked,
+// then writes a heartbeat carrying it immediately. startedAt is when that write began, as
+// with a normal tick. The forced write skips the synchronous-commit wait: its WAL precedes
+// the decision's commit, which does wait, so the proof replicates with it. The watermark
+// never moves backwards.
+func (w *Writer) WriteProven(ctx context.Context, lsn pgutil.LSN, startedAt time.Time) error {
+	w.raiseProven(lsn, startedAt)
+	writeCtx, cancel := context.WithTimeout(ctx, w.interval)
+	defer cancel()
+	return w.write(writeCtx, false)
+}
+
+func (w *Writer) raiseProven(lsn pgutil.LSN, at time.Time) {
+	for {
+		current := w.lastProven.Load()
+		if current != nil && !at.After(current.ts) {
+			return
+		}
+		if w.lastProven.CompareAndSwap(current, &provenWatermark{lsn: lsn, ts: at}) {
+			return
+		}
+	}
 }
 
 // Writes returns the number of successful heartbeat writes.

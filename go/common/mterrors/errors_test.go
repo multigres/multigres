@@ -526,6 +526,27 @@ func TestIsConnectionDead(t *testing.T) {
 	}
 }
 
+func TestIsFatal(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{name: "nil", err: nil, expected: false},
+		{name: "FATAL", err: &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "57P01"}, expected: true},
+		{name: "PANIC", err: &PgDiagnostic{MessageType: 'E', Severity: "PANIC", Code: "XX000"}, expected: true},
+		{name: "wrapped FATAL", err: fmt.Errorf("query: %w", &PgDiagnostic{MessageType: 'E', Severity: "FATAL", Code: "57P01"}), expected: true},
+		{name: "ERROR", err: &PgDiagnostic{MessageType: 'E', Severity: "ERROR", Code: "40001"}, expected: false},
+		{name: "transport", err: io.EOF, expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, IsFatal(tt.err))
+		})
+	}
+}
+
 func TestIsAuthenticationError(t *testing.T) {
 	tests := []struct {
 		name     string

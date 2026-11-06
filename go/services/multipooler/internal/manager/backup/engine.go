@@ -23,6 +23,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	commonbackup "github.com/multigres/multigres/go/common/backup"
@@ -39,7 +40,7 @@ const stanzaName = "multigres"
 // Identity exposes the pooler identity the backup engine needs.
 type Identity interface {
 	Id() *clustermetadatapb.ID
-	ShardKey() *clustermetadatapb.ShardKey
+	ShardRef() *clustermetadatapb.ShardRef
 }
 
 // Settings are the static settings fixed at construction (from the pooler's
@@ -50,6 +51,10 @@ type Settings struct {
 	// PgDataDir is the PostgreSQL data directory (for archive-command config in
 	// postgresql.auto.conf).
 	PgDataDir string
+	// NoBackupLease means backups run without the shard's etcd backup lease:
+	// the pooler is a static leader, the only pooler of its shard, so its
+	// action lock already excludes every other backup.
+	NoBackupLease bool
 }
 
 // RunFunc executes a (possibly long-running) command with progress logging. It
@@ -122,6 +127,10 @@ type Engine struct {
 	roleFn     RoleFunc
 	archiverFn ArchiverStatsFunc
 	settingsFn PGSettingsFunc
+
+	// archiverQueryFailing is true while consecutive archiver reads are failing,
+	// so only the first failure of a streak is logged at Warn.
+	archiverQueryFailing atomic.Bool
 }
 
 // NewEngine constructs a backup engine and its metrics from the given fixed
@@ -256,7 +265,7 @@ func (e *Engine) pgbackrestCmd(ctx context.Context, args ...string) *executil.Cm
 
 // shardID returns this pooler's shard identifier.
 func (e *Engine) shardID() string {
-	return e.id.ShardKey().GetShard()
+	return e.id.ShardRef().GetShard()
 }
 
 // Metrics returns the engine's pgBackRest metrics. The manager uses this to

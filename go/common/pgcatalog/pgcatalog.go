@@ -127,12 +127,22 @@ type Proc struct {
 	Oid      Oid    // oid - pg_proc.h:32
 	Name     string // proname - pg_proc.h:35
 	ArgTypes []Oid  // proargtypes; pronargs == len(ArgTypes) - pg_proc.h:95
-	RetType  Oid    // prorettype - pg_proc.h:87
-	Strict   bool   // proisstrict - pg_proc.h:68
-	Volatile byte   // provolatile - pg_proc.h:74
-	RetSet   bool   // proretset - pg_proc.h:71
-	Kind     byte   // prokind - pg_proc.h:59
-	Src      string // prosrc - pg_proc.h:115
+	// Variadic is provariadic: the element type of the trailing VARIADIC
+	// parameter, or 0 for a non-variadic function - pg_proc.h:84.
+	Variadic Oid
+	// NArgDefaults is pronargdefaults: how many trailing parameters have
+	// defaults - pg_proc.h:62. pg_proc.dat leaves it 0; the value is the one
+	// initdb installs through system_functions.sql (CREATE OR REPLACE
+	// FUNCTION ... DEFAULT). The default expressions themselves
+	// (proargdefaults) are not carried; a call that would need them is
+	// recognized but cannot be completed here.
+	NArgDefaults int16
+	RetType      Oid    // prorettype - pg_proc.h:87
+	Strict       bool   // proisstrict - pg_proc.h:68
+	Volatile     byte   // provolatile - pg_proc.h:74
+	RetSet       bool   // proretset - pg_proc.h:71
+	Kind         byte   // prokind - pg_proc.h:59
+	Src          string // prosrc - pg_proc.h:115
 }
 
 // Operator is a builtin operator (full pg_operator row minus the

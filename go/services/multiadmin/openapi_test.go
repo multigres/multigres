@@ -179,7 +179,7 @@ func TestOpenAPIWireSchemas(t *testing.T) {
 		validate(t, "clustermetadata.BackupLocation", map[string]any{"filesystem": map[string]any{}, "s3": map[string]any{}}, false)
 	})
 	t.Run("required certificate choice", func(t *testing.T) {
-		path := "/api/v1/shards/{shard_key.database}/{shard_key.table_group}/{shard_key.shard}/rule-change"
+		path := "/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/rule-change"
 		ref := "#/paths/" + strings.ReplaceAll(path, "/", "~1") + "/post/requestBody/content/application~1json/schema"
 		for _, field := range []string{"cert", "unsafeDeriveCert"} {
 			validate(t, ref, map[string]any{field: map[string]any{}, "reason": "test"}, true)

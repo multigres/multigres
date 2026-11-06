@@ -47,12 +47,16 @@ func (p multiCellPolicy) SatisfiedBy(poolers []*clustermetadatapb.ID) error {
 // must apply to satisfy MULTI_CELL_AT_LEAST_N. Standbys in the primary's own
 // cell are excluded so synchronous acknowledgement always crosses a cell boundary.
 //
-// Errors when no eligible different-cell standbys exist or when the eligible
-// set is too small to satisfy num_sync.
+// Errors when the primary is not in the cohort, or when no eligible different-cell
+// standbys exist.
 func (p multiCellPolicy) BuildSyncReplicationConfig(
 	cohort []*clustermetadatapb.ID,
 	primary *clustermetadatapb.ID,
 ) (*SyncReplicationConfig, error) {
+	if err := requirePrimaryInCohort(cohort, primary); err != nil {
+		return nil, err
+	}
+
 	// Drop cohort members in the primary's own cell so synchronous
 	// acknowledgement always crosses a cell boundary. The primary itself is
 	// naturally excluded (it's in its own cell).

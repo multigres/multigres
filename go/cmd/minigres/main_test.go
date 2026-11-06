@@ -15,8 +15,6 @@
 package main
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -44,6 +42,22 @@ func TestCreateMinigresCommand_RegistersAllFlags(t *testing.T) {
 		"pgctld-addr", "database", "table-group", "shard", "pooler-dir", // pooler-only
 	} {
 		assert.NotNil(t, cmd.Flags().Lookup(name), "flag %q should be registered", name)
+	}
+}
+
+// TestCreateMinigresCommand_RejectsSeveralPoolersFlags checks that the features
+// that need several poolers or gateways cannot be configured.
+func TestCreateMinigresCommand_RejectsSeveralPoolersFlags(t *testing.T) {
+	for _, name := range []string{
+		"pg-replica-port", "low-replication-lag-ms", "high-replication-lag-tolerance-ms", // replica reads
+		"buffer-enabled",                                        // failover buffering
+		"multipooler-grpc-cert", "multipooler-grpc-require-tls", // remote poolers, cancel forwarding
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, fs := newTestMinigres(t)
+			assert.Nil(t, fs.Lookup(name))
+			assert.ErrorContains(t, fs.Parse([]string{"--" + name + "=1"}), "unknown flag")
+		})
 	}
 }
 
@@ -140,18 +154,6 @@ func newPreRunCommand(t *testing.T, args ...string) (*minigres, *cobra.Command) 
 	require.NoError(t, m.registerFlags(cmd.Flags()))
 	require.NoError(t, cmd.Flags().Parse(args))
 	return m, cmd
-}
-
-func TestPreRun_RejectsConfigFile(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "minigres.yaml")
-	require.NoError(t, os.WriteFile(file, []byte("pg-require-ssl: true\n"), 0o600))
-	m, cmd := newPreRunCommand(t, "--config-file="+file)
-
-	err := m.preRun(cmd)
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "does not support configuration files yet")
-	assert.Contains(t, err.Error(), file)
 }
 
 func TestPreRun_OneServiceIDForProcessAndBothHalves(t *testing.T) {

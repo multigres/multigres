@@ -1,5 +1,9 @@
 version: 2
 
+before:
+  hooks:
+    - make openapi-lint
+
 builds:
   - id: multigres
     main: ./go/cmd/multigres
@@ -104,6 +108,8 @@ archives:
 
 checksum:
   name_template: checksums.txt
+  extra_files:
+    - glob: docs/api/multiadmin.openapi.yaml
 
 changelog:
   use: github
@@ -133,6 +139,8 @@ release:
     owner: multigres
     name: multigres
   prerelease: auto
+  extra_files:
+    - glob: docs/api/multiadmin.openapi.yaml
   footer: |
     ---
 
@@ -143,4 +151,5 @@ release:
     - `ghcr.io/multigres/multiadmin-web:{{ .Tag }}`
 
     Downloadable binary archives and checksums are attached to this GitHub release.
+    The Multiadmin REST API contract is attached as `multiadmin.openapi.yaml` and included in `checksums.txt`.
     Source archives are available on this GitHub release.

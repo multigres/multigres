@@ -36,9 +36,22 @@ type ProcessResources struct {
 	// GrpcServer is the gRPC server the serving loop starts. Components register
 	// their services on it; main registers its flags.
 	GrpcServer *GrpcServer
+
+	// QueryGrpcServer is where the multipooler serves its query service over
+	// gRPC: the same as GrpcServer. Nil in minigres, where the only caller,
+	// the multigateway in the same process, calls the pooler directly, so the
+	// query service is not served over gRPC at all. Optional.
+	QueryGrpcServer *GrpcServer
+
+	// SequencedShutdown is set when main runs the components' shutdown
+	// itself, in order, instead of each component registering it as a
+	// shutdown hook of its own. Minigres sets it so its gateway drains before
+	// its pooler stops PostgreSQL: servenv runs the hooks of one phase all at
+	// once.
+	SequencedShutdown bool
 }
 
-// Validate reports whether every resource is set. A component given an
+// Validate reports whether every required resource is set. A component given an
 // incomplete ProcessResources would, for example, register its services on a
 // gRPC server that is never started.
 func (pr ProcessResources) Validate() error {

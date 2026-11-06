@@ -33,9 +33,11 @@ import (
 // the manager package's TestMonitor_StartFatalLoop_NotQuarantinedWhenDisabled).
 func TestPostgresUnrecoverableDefaults(t *testing.T) {
 	reg := viperutil.NewRegistry()
+	grpcServer := servenv.NewGrpcServer(reg)
 	mp := NewMultipooler(telemetry.NewTelemetry(), reg, servenv.ProcessResources{
-		ServEnv:    servenv.NewServEnv(reg),
-		GrpcServer: servenv.NewGrpcServer(reg),
+		ServEnv:         servenv.NewServEnv(reg),
+		GrpcServer:      grpcServer,
+		QueryGrpcServer: grpcServer,
 	}, "/", false)
 
 	// A positive default timeout is what turns the classifier on.

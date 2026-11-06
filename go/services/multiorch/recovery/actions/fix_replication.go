@@ -108,7 +108,7 @@ func NewFixReplicationAction(
 func (a *FixReplicationAction) Execute(ctx context.Context, rechecked types.RecheckedProblem) error {
 	problem := rechecked.Problem
 	a.logger.InfoContext(ctx, "executing fix replication action",
-		"shard_key", problem.ShardKey.String(),
+		"shard_key", problem.ShardRef.String(),
 		"pooler", problem.PoolerID.Name,
 		"problem_code", string(problem.Code))
 
@@ -118,11 +118,11 @@ func (a *FixReplicationAction) Execute(ctx context.Context, rechecked types.Rech
 		return mterrors.Wrap(err, "failed to find affected replica")
 	}
 
-	members := store.FindShardMembers(a.poolerStore, problem.ShardKey)
+	members := store.FindShardMembers(a.poolerStore, problem.ShardRef)
 	leader := members.Leader
 	if leader == nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"no consensus leader known for shard %s", problem.ShardKey)
+			"no consensus leader known for shard %s", problem.ShardRef)
 	}
 
 	a.logger.InfoContext(ctx, "found primary for replication",
@@ -136,7 +136,7 @@ func (a *FixReplicationAction) Execute(ctx context.Context, rechecked types.Rech
 	}
 	if !needsFix {
 		a.logger.InfoContext(ctx, "replication already configured correctly, problem resolved",
-			"shard_key", problem.ShardKey.String(),
+			"shard_key", problem.ShardRef.String(),
 			"pooler", problem.PoolerID.Name)
 		return nil
 	}
@@ -205,13 +205,13 @@ func (a *FixReplicationAction) fixNotReplicating(
 	}
 
 	// Configure primary_conninfo on the replica via SetPrimary. The rule is the
-	// shard's highest-known rule (authoritative — the leader may not yet know it
+	// shard's highest intended rule (authoritative — the leader may not yet know it
 	// holds that rule), the contact is the leader's topology address, and we
 	// relay the leader's self-reported rewind_ready so a diverged replica defers
 	// its pg_rewind until the leader has checkpointed onto its current timeline.
 	setPrimaryReq := &consensusdatapb.SetPrimaryRequest{
 		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
-			Position:    members.HighestKnownPosition,
+			Position:    members.HighestIntendedRule.Position(),
 			Primary:     topoclient.PoolerAddressFor(leader.Health().Multipooler),
 			RewindReady: commonconsensus.ReplicationPrimaryOrNil(leader.Health().GetConsensusStatus()).GetRewindReady(),
 		},
@@ -428,11 +428,6 @@ func (a *FixReplicationAction) Metadata() types.RecoveryMetadata {
 		LockTimeout: 15 * time.Second,
 		Retryable:   true,
 	}
-}
-
-func (a *FixReplicationAction) GracePeriod() *types.GracePeriodConfig {
-	// No grace period needed, execute immediately
-	return nil
 }
 
 // =============================================================================

@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -194,12 +195,20 @@ type Problem struct {
 	Code           ProblemCode                 // Category of problem
 	CheckName      CheckName                   // Which check detected it
 	PoolerID       *clustermetadatapb.ID       // Affected pooler; can be nil for shard-scoped problems
-	ShardKey       *clustermetadatapb.ShardKey // Identifies the affected shard
+	ShardRef       *clustermetadatapb.ShardRef // Identifies the affected shard
 	Description    string                      // Human-readable description
 	Priority       Priority                    // Priority of this problem
 	Scope          ProblemScope                // Whether this affects the whole cluster or just one pooler
 	DetectedAt     time.Time                   // When the problem was detected
 	RecoveryAction RecoveryAction              // What to do about it
+
+	// SkipPreRecheckRefresh tells the engine that a live refresh of pooler health
+	// before the recheck cannot change this problem's verdict, so it should not spend
+	// time on one. Why that holds is the analyzer's business. The zero value means
+	// refresh (when the action asks for it), so a problem that says nothing is still
+	// verified. Consensus safety does not depend on this: the refresh only avoids
+	// acting on a wrong guess, which would otherwise cause an unnecessary failover.
+	SkipPreRecheckRefresh bool
 }
 
 // IsShardWide reports whether this problem affects the entire shard.
@@ -209,33 +218,27 @@ func (p Problem) IsShardWide() bool {
 
 // EntityID returns a stable string identifying the affected entity.
 // For pooler-scoped problems this is the pooler ID string; for shard-scoped
-// problems it is the shard key string. Safe to call when PoolerID is nil.
+// problems it is the shard ref string. Safe to call when PoolerID is nil.
 func (p Problem) EntityID() string {
 	if p.Scope == ScopePooler && p.PoolerID != nil {
 		return string(topoclient.ComponentIDString(p.PoolerID))
 	}
-	return string(commontypes.FormatShardKey(p.ShardKey))
-}
-
-// GracePeriodConfig holds grace period settings for recovery actions.
-type GracePeriodConfig struct {
-	BaseDelay time.Duration
-	MaxJitter time.Duration
+	return string(commontypes.FormatShardRef(p.ShardRef))
 }
 
 // RecheckedProblem pairs a Problem with the exact consensus rule the engine's
-// pre-execution recheck just re-verified it against (the same ShardAnalysis
+// pre-execution recheck just re-verified it against (the same shard snapshot
 // that redetected the problem — see recovery_loop.go's recheckProblem). The
 // two are bundled deliberately: an action performing a CAS-anchored mutation
 // must judge safety and anchor its CAS on the same rule, or the two could
 // silently disagree. Passing them as independent parameters would let a
 // caller pass a mismatched pair and still compile; this makes that
 // structurally impossible — the only way to obtain one is from a successful
-// recheck. HighestKnownRule is nil if no rule was known for the shard at
+// recheck. HighestIntendedRule is empty if no rule was known for the shard at
 // recheck time; actions that don't mutate the consensus rule can ignore it.
 type RecheckedProblem struct {
 	Problem
-	HighestKnownRule *clustermetadatapb.RulePosition
+	HighestIntendedRule commonconsensus.RuleTransition
 }
 
 // RecoveryAction is a function that fixes a problem.
@@ -252,10 +255,6 @@ type RecoveryAction interface {
 	// This provides an extra guardrail to avoid accidental operations on replicas
 	// when the cluster is not healthy (e.g., can't fix replica replication if leader is dead).
 	RequiresHealthyLeader() bool
-
-	// GracePeriod returns the grace period configuration for this action.
-	// Returns nil if no grace period is needed (action executes immediately).
-	GracePeriod() *GracePeriodConfig
 }
 
 // RecoveryMetadata describes the recovery action.
@@ -268,6 +267,14 @@ type RecoveryMetadata struct {
 	// Defaults to 15 seconds if zero.
 	LockTimeout time.Duration
 	Retryable   bool
+	// RefreshBeforeRecheckTimeout, when positive, asks the engine to refresh the
+	// shard's reachable poolers with a live Status RPC, waiting at most this long
+	// overall, before it re-runs the analyzer for the recheck, for problems whose
+	// problem does not set SkipPreRecheckRefresh. For actions
+	// disruptive enough (a failover) to warrant more confidence than the streamed
+	// cache gives. Zero means no refresh. A pooler that does not answer in time is
+	// itself evidence for the recheck, which then uses its cached state.
+	RefreshBeforeRecheckTimeout time.Duration
 }
 
 // GetLockTimeout returns the lock timeout, defaulting to 15 seconds if not set.

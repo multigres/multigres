@@ -15,6 +15,7 @@
 package consensus
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -404,10 +405,8 @@ func TestAtLeastNPolicy_BuildSyncReplicationConfig(t *testing.T) {
 	t.Run("empty cohort returns error", func(t *testing.T) {
 		p := AtLeastNPolicy{N: 2}
 		cfg, err := p.BuildSyncReplicationConfig([]*clustermetadatapb.ID{}, leader)
-		require.Error(t, err)
+		require.EqualError(t, err, "cannot establish synchronous replication: primary cell-primary_primary is not in the cohort")
 		require.Nil(t, cfg)
-		require.Contains(t, err.Error(), "cannot establish synchronous replication")
-		require.Contains(t, err.Error(), "insufficient cohort members")
 	})
 
 	t.Run("insufficient cohort returns error", func(t *testing.T) {
@@ -418,10 +417,8 @@ func TestAtLeastNPolicy_BuildSyncReplicationConfig(t *testing.T) {
 			id("mp2", "us-west-1b"),
 		}
 		cfg, err := p.BuildSyncReplicationConfig(cohort, leader)
-		require.Error(t, err)
+		require.EqualError(t, err, "cannot establish synchronous replication: insufficient cohort members (required 4 standbys, available 2)")
 		require.Nil(t, cfg)
-		require.Contains(t, err.Error(), "required 4 standbys")
-		require.Contains(t, err.Error(), "available 3")
 	})
 
 	t.Run("includes the full cohort (leader + standbys) in result", func(t *testing.T) {
@@ -445,4 +442,34 @@ func TestAtLeastNPolicy_BuildSyncReplicationConfig(t *testing.T) {
 func TestAtLeastNPolicy_Description(t *testing.T) {
 	require.Equal(t, "AT_LEAST_N(N=2)", AtLeastNPolicy{N: 2}.Description())
 	require.Equal(t, "AT_LEAST_N(N=3)", AtLeastNPolicy{N: 3}.Description())
+}
+
+func TestAtLeastNPolicy_BuildSyncReplicationConfig_PrimaryOutsideCohort(t *testing.T) {
+	cohort := []*clustermetadatapb.ID{id("mp1", "cell1"), id("mp2", "cell1"), id("mp3", "cell1")}
+	outsider := id("primary", "cell-primary")
+
+	for _, n := range []int{1, 2, 3} {
+		t.Run(fmt.Sprintf("N=%d", n), func(t *testing.T) {
+			_, err := AtLeastNPolicy{N: n}.BuildSyncReplicationConfig(cohort, outsider)
+
+			require.EqualError(t, err, "cannot establish synchronous replication: primary cell-primary_primary is not in the cohort")
+		})
+	}
+
+	t.Run("a missing primary is outside the cohort", func(t *testing.T) {
+		_, err := AtLeastNPolicy{N: 2}.BuildSyncReplicationConfig(cohort, nil)
+
+		require.Error(t, err)
+	})
+}
+
+// The primary never acknowledges itself, so a cohort of the primary and two
+// standbys cannot satisfy N=4.
+func TestAtLeastNPolicy_BuildSyncReplicationConfig_TooFewStandbys(t *testing.T) {
+	leader := id("primary", "cell-primary")
+	cohort := []*clustermetadatapb.ID{leader, id("mp1", "cell1"), id("mp2", "cell1")}
+
+	_, err := AtLeastNPolicy{N: 4}.BuildSyncReplicationConfig(cohort, leader)
+
+	require.EqualError(t, err, "cannot establish synchronous replication: insufficient cohort members (required 3 standbys, available 2)")
 }

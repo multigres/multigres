@@ -75,6 +75,9 @@ type ImportQual struct {
 }
 
 %union {
+	migrationAction *ast.MigrationActionSpec
+	migrationDropBehavior *ast.MigrationDropBehavior
+	migrationTables *ast.MigrationTables
 	keyword    string
 	bval       bool
 	byt        byte
@@ -143,6 +146,7 @@ type ImportQual struct {
  */
 %token <keyword> ALL ALTER AS CASCADE CONCURRENTLY CREATE DROP IF_P EXISTS
 %token <keyword> AND NOT NULLS_P OR REPLACE RESTRICT WITH
+%token <keyword> MIGRATION EXPORT PHASE
 /* Expression keywords */
 %token <keyword> BETWEEN CASE COLLATE DEFAULT DISTINCT ESCAPE
 %token <keyword> FALSE_P ILIKE IN_P LIKE NULL_P SIMILAR TRUE_P UNKNOWN WHEN
@@ -214,6 +218,8 @@ type ImportQual struct {
 %token <keyword> ORDER
 /* Missing tokens that are used in keyword rules */
 %token <keyword> ANY BOTH CAST CHECK COLUMN
+/* Multigres tablegroup DDL keywords (docs/sharding/ddl.md) */
+%token <keyword> RESHARD SHARDS TABLEGROUP
 %token           COLON_EQUALS EQUALS_GREATER
 
 /*
@@ -344,6 +350,8 @@ type ImportQual struct {
 %type <stmt>         SelectStmt PreparableStmt select_no_parens select_with_parens select_clause simple_select
 %type <stmt>         InsertStmt UpdateStmt DeleteStmt MergeStmt CopyStmt
 %type <stmt>         CreateStmt IndexStmt AlterTableStmt DropStmt RenameStmt CreateAsStmt CreateAssertionStmt RuleStmt
+%type <stmt>         CreateTableGroupStmt AlterTableGroupStmt
+%type <list>         opt_tablegroup_shards shard_range_list
 %type <stmt>         ClusterStmt ReindexStmt CheckPointStmt DiscardStmt
 %type <stmt>         DeclareCursorStmt FetchStmt ClosePortalStmt PrepareStmt ExecuteStmt DeallocateStmt
 %type <stmt>         ListenStmt UnlistenStmt NotifyStmt LoadStmt LockStmt TruncateStmt
@@ -493,6 +501,11 @@ type ImportQual struct {
 %type <ival>     	 event
 
 %type <stmt>         CreateFunctionStmt AlterFunctionStmt CreateTrigStmt ViewStmt ReturnStmt VariableSetStmt VariableResetStmt ConstraintsSetStmt PLAssignStmt PLpgSQL_Expr RemoveFuncStmt RemoveAggrStmt RemoveOperStmt ExplainStmt VacuumStmt VariableShowStmt AlterSystemStmt ExplainableStmt AnalyzeStmt
+%type <stmt>         CreateMigrationStmt AlterMigrationStmt DropMigrationStmt CreateConnectionStmt DropConnectionStmt ShowConnectionsStmt
+%type <migrationAction> migration_action
+%type <migrationDropBehavior> migration_drop_behavior
+%type <node>          opt_when_clause
+%type <migrationTables> migration_tables
 %type <stmt>         TransactionStmt TransactionStmtLegacy CreateRoleStmt AlterRoleStmt AlterRoleSetStmt DropRoleStmt CreateGroupStmt AlterGroupStmt CreateUserStmt GrantStmt RevokeStmt GrantRoleStmt RevokeRoleStmt AlterDefaultPrivilegesStmt CommentStmt SecLabelStmt DoStmt CallStmt
 %type <str>          opt_in_database
 %type <bval>         opt_transaction_chain
@@ -655,6 +668,8 @@ stmt:
 		|	CreateStmt								{ $$ = $1 }
 		|	IndexStmt								{ $$ = $1 }
 		|	AlterTableStmt							{ $$ = $1 }
+		|	AlterTableGroupStmt						{ $$ = $1 }
+		|	CreateTableGroupStmt					{ $$ = $1 }
 		|	DropStmt								{ $$ = $1 }
 		|	RenameStmt								{ $$ = $1 }
 		|	CreateFunctionStmt						{ $$ = $1 }
@@ -740,6 +755,12 @@ stmt:
 		|	VacuumStmt								{ $$ = $1 }
 		| 	AnalyzeStmt								{ $$ = $1 }
 		|	VariableShowStmt						{ $$ = $1 }
+		|	CreateMigrationStmt						{ $$ = $1 }
+		|	AlterMigrationStmt						{ $$ = $1 }
+		|	DropMigrationStmt						{ $$ = $1 }
+		|	CreateConnectionStmt					{ $$ = $1 }
+		|	DropConnectionStmt						{ $$ = $1 }
+		|	ShowConnectionsStmt						{ $$ = $1 }
 		|	AlterSystemStmt							{ $$ = $1 }
 		|	ClusterStmt								{ $$ = $1 }
 		|	ReindexStmt								{ $$ = $1 }
@@ -1135,6 +1156,7 @@ unreserved_keyword:
 			| EXCLUSIVE									{ $$ = "exclusive" }
 			| EXECUTE										{ $$ = "execute" }
 			| EXPLAIN										{ $$ = "explain" }
+			| EXPORT									{ $$ = "export" }
 			| EXPRESSION									{ $$ = "expression" }
 			| EXTENSION									{ $$ = "extension" }
 			| EXTERNAL									{ $$ = "external" }
@@ -1200,6 +1222,7 @@ unreserved_keyword:
 			| MAXVALUE									{ $$ = "maxvalue" }
 			| MERGE										{ $$ = "merge" }
 			| METHOD										{ $$ = "method" }
+			| MIGRATION									{ $$ = "migration" }
 			| MINUTE_P									{ $$ = "minute" }
 			| MINVALUE									{ $$ = "minvalue" }
 			| MODE										{ $$ = "mode" }
@@ -1243,6 +1266,7 @@ unreserved_keyword:
 			| PASSING										{ $$ = "passing" }
 			| PASSWORD									{ $$ = "password" }
 			| PATH										{ $$ = "path" }
+			| PHASE										{ $$ = "phase" }
 			| PLAN										{ $$ = "plan" }
 			| PLANS										{ $$ = "plans" }
 			| POLICY										{ $$ = "policy" }
@@ -1275,6 +1299,7 @@ unreserved_keyword:
 			| REPLACE										{ $$ = "replace" }
 			| REPLICA										{ $$ = "replica" }
 			| RESET										{ $$ = "reset" }
+			| RESHARD										{ $$ = "reshard" }
 			| RESTART										{ $$ = "restart" }
 			| RESTRICT									{ $$ = "restrict" }
 			| RETURN										{ $$ = "return" }
@@ -1302,6 +1327,7 @@ unreserved_keyword:
 			| SESSION										{ $$ = "session" }
 			| SET										{ $$ = "set" }
 			| SETS										{ $$ = "sets" }
+			| SHARDS										{ $$ = "shards" }
 			| SHARE										{ $$ = "share" }
 			| SHOW										{ $$ = "show" }
 			| SIMPLE										{ $$ = "simple" }
@@ -1325,6 +1351,7 @@ unreserved_keyword:
 			| SUPPORT										{ $$ = "support" }
 			| SYSID										{ $$ = "sysid" }
 			| SYSTEM_P									{ $$ = "system" }
+			| TABLEGROUP										{ $$ = "tablegroup" }
 			| TABLES										{ $$ = "tables" }
 			| TABLESPACE									{ $$ = "tablespace" }
 			| TARGET										{ $$ = "target" }
@@ -1713,6 +1740,7 @@ bare_label_keyword:
 			| EXECUTE										{ $$ = "execute" }
 			| EXISTS										{ $$ = "exists" }
 			| EXPLAIN										{ $$ = "explain" }
+			| EXPORT									{ $$ = "export" }
 			| EXPRESSION									{ $$ = "expression" }
 			| EXTENSION									{ $$ = "extension" }
 			| EXTERNAL									{ $$ = "external" }
@@ -1813,6 +1841,7 @@ bare_label_keyword:
 			| MERGE										{ $$ = "merge" }
 			| MERGE_ACTION										{ $$ = "merge_action" }
 			| METHOD										{ $$ = "method" }
+			| MIGRATION									{ $$ = "migration" }
 			| MINVALUE										{ $$ = "minvalue" }
 			| MODE										{ $$ = "mode" }
 			| MOVE										{ $$ = "move" }
@@ -1867,6 +1896,7 @@ bare_label_keyword:
 			| PASSING										{ $$ = "passing" }
 			| PASSWORD										{ $$ = "password" }
 			| PATH										{ $$ = "path" }
+			| PHASE										{ $$ = "phase" }
 			| PLACING										{ $$ = "placing" }
 			| PLAN										{ $$ = "plan" }
 			| PLANS										{ $$ = "plans" }
@@ -1904,6 +1934,7 @@ bare_label_keyword:
 			| REPLACE										{ $$ = "replace" }
 			| REPLICA										{ $$ = "replica" }
 			| RESET										{ $$ = "reset" }
+			| RESHARD										{ $$ = "reshard" }
 			| RESTART										{ $$ = "restart" }
 			| RESTRICT										{ $$ = "restrict" }
 			| RETURN										{ $$ = "return" }
@@ -1935,6 +1966,7 @@ bare_label_keyword:
 			| SET										{ $$ = "set" }
 			| SETOF										{ $$ = "setof" }
 			| SETS										{ $$ = "sets" }
+			| SHARDS										{ $$ = "shards" }
 			| SHARE										{ $$ = "share" }
 			| SHOW										{ $$ = "show" }
 			| SIMILAR										{ $$ = "similar" }
@@ -1965,6 +1997,7 @@ bare_label_keyword:
 			| SYSTEM_P										{ $$ = "system" }
 			| SYSTEM_USER										{ $$ = "system_user" }
 			| TABLE										{ $$ = "table" }
+			| TABLEGROUP										{ $$ = "tablegroup" }
 			| TABLES										{ $$ = "tables" }
 			| TABLESAMPLE										{ $$ = "tablesample" }
 			| TABLESPACE										{ $$ = "tablespace" }
@@ -2075,8 +2108,7 @@ a_expr:		c_expr								{ $$ = $1 }
 			}
 		|	'-' a_expr %prec UMINUS
 			{
-				name := ast.NewNodeList(ast.NewString("-"))
-				$$ = ast.NewA_Expr(ast.AEXPR_OP, name, nil, $2, 0)
+				$$ = doNegate($2, 0)
 			}
 		|	a_expr '+' a_expr
 			{
@@ -7706,6 +7738,60 @@ OptTableSpace:
 		|	/* EMPTY */					{ $$ = "" }
 		;
 
+/*****************************************************************************
+ *
+ *		Multigres tablegroup DDL (docs/sharding/ddl.md)
+ *
+ *		CREATE TABLEGROUP [IF NOT EXISTS] name [SHARDS ('range', ...)]
+ *		ALTER TABLEGROUP name RENAME TO name
+ *		ALTER TABLEGROUP name RESHARD ('range', ...) INTO ('range', ...)
+ *		DROP TABLEGROUP is an alternative of DropStmt.
+ *
+ *****************************************************************************/
+
+CreateTableGroupStmt:
+			CREATE TABLEGROUP name opt_tablegroup_shards
+				{
+					$$ = ast.NewCreateTableGroupStmt($3, $4, false)
+				}
+		|	CREATE TABLEGROUP IF_P NOT EXISTS name opt_tablegroup_shards
+				{
+					$$ = ast.NewCreateTableGroupStmt($6, $7, true)
+				}
+		;
+
+opt_tablegroup_shards:
+			SHARDS '(' shard_range_list ')'	{ $$ = $3 }
+		|	/* EMPTY */						{ $$ = nil }
+		;
+
+AlterTableGroupStmt:
+			ALTER TABLEGROUP name RENAME TO name
+				{
+					$$ = ast.NewAlterTableGroupRename($3, $6)
+				}
+		|	ALTER TABLEGROUP name RESHARD '(' shard_range_list ')' INTO '(' shard_range_list ')'
+				{
+					$$ = ast.NewAlterTableGroupReshard($3, $6, $10)
+				}
+		;
+
+/*
+ * Shard ranges are 'lower-upper' string literals. Their shape (hex bounds,
+ * inf, coverage) is checked by the implementation, not the grammar.
+ */
+shard_range_list:
+			Sconst
+				{
+					$$ = ast.NewNodeList(ast.NewString($1))
+				}
+		|	shard_range_list ',' Sconst
+				{
+					$1.Append(ast.NewString($3))
+					$$ = $1
+				}
+		;
+
 OptConsTableSpace:
 			USING INDEX TABLESPACE name	{ $$ = $4 }
 		|	/* EMPTY */					{ $$ = "" }
@@ -8484,6 +8570,27 @@ DropStmt:	DROP object_type_any_name IF_P EXISTS any_name_list opt_drop_behavior
 					n.Objects = $5
 					n.Behavior = $6
 					n.Concurrent = false
+					$$ = n
+				}
+			| DROP TABLEGROUP name opt_drop_behavior
+				{
+					n := &ast.DropStmt{
+						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+					}
+					n.RemoveType = ast.OBJECT_TABLEGROUP
+					n.Objects = ast.NewNodeList(ast.NewNodeList(ast.NewString($3)))
+					n.Behavior = $4
+					$$ = n
+				}
+			| DROP TABLEGROUP IF_P EXISTS name opt_drop_behavior
+				{
+					n := &ast.DropStmt{
+						BaseNode: ast.BaseNode{Tag: ast.T_DropStmt},
+					}
+					n.RemoveType = ast.OBJECT_TABLEGROUP
+					n.MissingOk = true
+					n.Objects = ast.NewNodeList(ast.NewNodeList(ast.NewString($5)))
+					n.Behavior = $6
 					$$ = n
 				}
 			| DROP object_type_any_name any_name_list opt_drop_behavior
@@ -12562,6 +12669,120 @@ AlterPublicationStmt:
 				$$ = ast.NewAlterPublicationStmt($3, nil, $5, ast.AP_DropObjects)
 			}
 		;
+
+/*
+ * Multigres migration and connection statements.
+ *
+ * These are NOT part of PostgreSQL. The multigateway parses them and handles
+ * them in-gateway, translating to migrator RPCs, rather than forwarding to
+ * PostgreSQL. The table-selection clause reuses pub_obj_list from CREATE
+ * PUBLICATION, and the OPTIONS clauses reuse create_generic_options and
+ * alter_generic_options from CREATE SERVER.
+ */
+CreateConnectionStmt:
+		CREATE CONNECTION name create_generic_options
+			{
+				$$ = ast.NewCreateConnectionStmt($3, $4, false)
+			}
+	|	CREATE CONNECTION IF_P NOT EXISTS name create_generic_options
+			{
+				$$ = ast.NewCreateConnectionStmt($6, $7, true)
+			}
+	;
+
+DropConnectionStmt:
+		DROP CONNECTION name_list
+			{
+				$$ = ast.NewDropConnectionStmt($3, false)
+			}
+	|	DROP CONNECTION IF_P EXISTS name_list
+			{
+				$$ = ast.NewDropConnectionStmt($5, true)
+			}
+	;
+
+ShowConnectionsStmt:
+		SHOW CONNECTION name
+			{
+				$$ = ast.NewShowConnectionsStmt($3)
+			}
+	;
+
+CreateMigrationStmt:
+		CREATE MIGRATION name CONNECTION name FOR migration_tables opt_definition
+			{
+				$$ = ast.NewCreateMigrationStmt($3, $5, $7, $8, false)
+			}
+	|	CREATE MIGRATION IF_P NOT EXISTS name CONNECTION name FOR migration_tables opt_definition
+			{
+				$$ = ast.NewCreateMigrationStmt($6, $8, $10, $11, true)
+			}
+	;
+
+migration_tables:
+		ALL TABLES			{ $$ = &ast.MigrationTables{ForAllTables: true} }
+	|	pub_obj_list		{ $$ = &ast.MigrationTables{Objects: $1} }
+	;
+
+AlterMigrationStmt:
+		ALTER MIGRATION name migration_action
+			{
+				$$ = ast.NewAlterMigrationStmt($3, false, $4)
+			}
+	|	ALTER MIGRATION IF_P EXISTS name migration_action
+			{
+				$$ = ast.NewAlterMigrationStmt($5, true, $6)
+			}
+	;
+
+// CONNECTION conn / SET (...) subcommands, re-pointing a migration's source
+// connection or changing its sequence_margin or objects in place, are a
+// candidate for future reintroduction but are not currently implemented.
+// PHASE is the only ALTER MIGRATION action.
+migration_action:
+		PHASE IMPORT_P opt_when_clause opt_definition
+			{
+				when, _ := $3.(*ast.A_Expr)
+				$$ = &ast.MigrationActionSpec{Direction: ast.MigrationDirectionImport, When: when, Options: $4}
+			}
+	|	PHASE EXPORT opt_when_clause opt_definition
+			{
+				when, _ := $3.(*ast.A_Expr)
+				$$ = &ast.MigrationActionSpec{Direction: ast.MigrationDirectionExport, When: when, Options: $4}
+			}
+	;
+
+// opt_when_clause is the WHEN (cond) readiness-gate clause shared by ALTER
+// MIGRATION's PHASE action and DROP MIGRATION's migration_drop_behavior. cond
+// is a full a_expr, not a restricted "field OP constant" production: the
+// gateway validates the shape (and the field/operator combination) itself at
+// runtime, the same way it already does for the stat_migration view's WHERE
+// clause, rather than the grammar restricting it up front.
+opt_when_clause:
+		WHEN '(' a_expr ')'	{ $$ = $3 }
+	|	/* EMPTY */			{ $$ = nil }
+	;
+
+DropMigrationStmt:
+		DROP MIGRATION name_list migration_drop_behavior
+			{
+				$$ = ast.NewDropMigrationStmt($3, false, $4)
+			}
+	|	DROP MIGRATION IF_P EXISTS name_list migration_drop_behavior
+			{
+				$$ = ast.NewDropMigrationStmt($5, true, $6)
+			}
+	;
+
+migration_drop_behavior:
+		FORCE opt_definition
+			{ $$ = &ast.MigrationDropBehavior{Force: true, Options: $2} }
+	|	opt_when_clause opt_definition
+			{
+				when, _ := $1.(*ast.A_Expr)
+				$$ = &ast.MigrationDropBehavior{When: when, Options: $2}
+			}
+	;
 
 pub_obj_list:
 		PublicationObjSpec						{ $$ = ast.NewNodeList(); $$.Append($1) }

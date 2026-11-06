@@ -46,6 +46,15 @@ const (
 	// function name.
 	MultigresVersionFunction = "version"
 
+	// MultigresMultigatewaysView and MultigresMultipoolersView are the gateway
+	// views `multigres.multigateways` and `multigres.multipoolers`. They have no
+	// backend relation: the gateway folds each reference into a VALUES subquery
+	// of its current cluster snapshot at execution time (see
+	// engine/cluster_view.go). The `multigres` qualifier is required — the
+	// gateway does not know a session's search_path.
+	MultigresMultigatewaysView = "multigateways"
+	MultigresMultipoolersView  = "multipoolers"
+
 	// MaxBufferingRetries is the maximum number of times a query will be
 	// retried after failover buffering completes.
 	MaxBufferingRetries = 3

@@ -518,7 +518,7 @@ func leaderID(name string) *clustermetadatapb.ID {
 	return &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: name}
 }
 
-func TestHighestKnownRule(t *testing.T) {
+func TestHighestIntendedRule(t *testing.T) {
 	// status with a current_position rule.
 	posStatus := func(term int64, leader string) *clustermetadatapb.ConsensusStatus {
 		return &clustermetadatapb.ConsensusStatus{
@@ -541,12 +541,12 @@ func TestHighestKnownRule(t *testing.T) {
 	}
 
 	t.Run("nil when no statuses carry a rule", func(t *testing.T) {
-		assert.Nil(t, HighestKnownRule(nil))
-		assert.Nil(t, PossiblyUndecidedRule(HighestKnownRule([]*clustermetadatapb.ConsensusStatus{{}})))
+		assert.Nil(t, HighestIntendedRule(nil))
+		assert.Nil(t, PossiblyUndecidedRule(HighestIntendedRule([]*clustermetadatapb.ConsensusStatus{{}})))
 	})
 
 	t.Run("highest rule number across positions wins", func(t *testing.T) {
-		got := PossiblyUndecidedRule(HighestKnownRule([]*clustermetadatapb.ConsensusStatus{posStatus(5, "a"), posStatus(7, "b"), posStatus(6, "c")}))
+		got := PossiblyUndecidedRule(HighestIntendedRule([]*clustermetadatapb.ConsensusStatus{posStatus(5, "a"), posStatus(7, "b"), posStatus(6, "c")}))
 		assert.Equal(t, "b", got.GetLeaderId().GetName())
 	})
 
@@ -554,7 +554,7 @@ func TestHighestKnownRule(t *testing.T) {
 		// A follower positioned at rule 5 but replicating from a leader at rule 8.
 		follower := posStatus(5, "old")
 		follower.ReplicationPrimary = replStatus(8, "new").ReplicationPrimary
-		got := PossiblyUndecidedRule(HighestKnownRule([]*clustermetadatapb.ConsensusStatus{follower, posStatus(5, "old")}))
+		got := PossiblyUndecidedRule(HighestIntendedRule([]*clustermetadatapb.ConsensusStatus{follower, posStatus(5, "old")}))
 		assert.Equal(t, "new", got.GetLeaderId().GetName(), "newer leader via replication primary should win")
 	})
 
@@ -566,7 +566,7 @@ func TestHighestKnownRule(t *testing.T) {
 		phantom.ReplicationPrimary = &clustermetadatapb.ReplicationPrimary{
 			Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(0, 0)}},
 		}
-		got := PossiblyUndecidedRule(HighestKnownRule([]*clustermetadatapb.ConsensusStatus{phantom}))
+		got := PossiblyUndecidedRule(HighestIntendedRule([]*clustermetadatapb.ConsensusStatus{phantom}))
 		assert.Equal(t, "leader", got.GetLeaderId().GetName(), "real position rule should win over phantom 0/0 replication primary")
 	})
 }
@@ -593,7 +593,7 @@ func TestHighestDecidedRule(t *testing.T) {
 		assert.Equal(t, int64(7), got.GetCoordinatorTerm())
 	})
 
-	t.Run("ignores ReplicationPrimary, unlike HighestKnownRule", func(t *testing.T) {
+	t.Run("ignores ReplicationPrimary, unlike HighestIntendedRule", func(t *testing.T) {
 		// A follower decided at term 5 but replicating from a leader it has
 		// learned is at term 8 via ReplicationPrimary. Must not be picked up —
 		// NewTermRevocation's ReplaceDecision computation doesn't see it either,

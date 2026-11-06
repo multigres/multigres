@@ -39,6 +39,7 @@ import (
 	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
 	"github.com/multigres/multigres/go/test/endtoend/testconst"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 const (
@@ -107,6 +108,7 @@ type Setup struct {
 	TLSCertPaths *clustersetup.MultigatewayTLSCertPaths
 
 	baselineGucs   map[string]string
+	etcdCmd        *executil.Cmd
 	tempDirCleanup func()
 	runningCtx     context.Context
 	cancel         context.CancelFunc
@@ -147,12 +149,13 @@ func New(t *testing.T, opts ...Option) *Setup {
 	t.Logf("Starting etcd for topology...")
 	etcdDataDir := filepath.Join(tempDir, "etcd_data")
 	require.NoError(t, os.MkdirAll(etcdDataDir, 0o755))
-	etcdClientAddr, _, err := clustersetup.StartEtcd(runningCtx, t, etcdDataDir)
+	etcdClientAddr, etcdCmd, err := clustersetup.StartEtcd(runningCtx, t, etcdDataDir)
 	if err != nil {
 		cancel()
 		t.Fatalf("failed to start etcd: %v", err)
 	}
 	s.EtcdClientAddr = etcdClientAddr
+	s.etcdCmd = etcdCmd
 	s.TopoServer = clustersetup.CreateTopologyCell(t, etcdClientAddr, cellName)
 
 	backupDir := filepath.Join(tempDir, "backup-repo")
@@ -167,8 +170,8 @@ func New(t *testing.T, opts ...Option) *Setup {
 		s.TLSCertPaths = clustersetup.GenerateMultigatewayTLSCerts(t, filepath.Join(tempDir, "minigres-tls"))
 	}
 
-	// pgctld runs PostgreSQL. No pgBackRest TLS server: with one pooler the
-	// first backup and restore are local (MUL-1714).
+	// pgctld runs PostgreSQL. No pgBackRest TLS server: a static leader backs
+	// up and restores locally.
 	s.Pgctld = clustersetup.CreatePgctldInstance(t, serviceID, tempDir,
 		utils.GetFreePort(t), utils.GetFreePort(t), utils.GetFreePort(t), 0, "", backupLocation)
 	s.Minigres = s.newMinigresInstance(t, cfg)
@@ -235,6 +238,16 @@ func (s *Setup) newMinigresInstance(t *testing.T, cfg *config) *clustersetup.Pro
 	return inst
 }
 
+// StopEtcd stops etcd, to check that Minigres serves without the topology.
+// Only for a topology owned by one test (NewIsolated).
+func (s *Setup) StopEtcd(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, stopped := s.etcdCmd.Stop(ctx)
+	require.True(t, stopped, "etcd did not stop within the deadline")
+}
+
 // waitForPrimary waits until the pooler has bootstrapped and promoted itself:
 // the manager reports it initialized, PostgreSQL ready, and the pooler PRIMARY.
 func (s *Setup) waitForPrimary(t *testing.T) {
@@ -271,13 +284,20 @@ func (s *Setup) waitForPrimary(t *testing.T) {
 // saveBaselineGucs records the clean-state settings after bootstrap.
 func (s *Setup) saveBaselineGucs(t *testing.T) {
 	t.Helper()
-	client, err := clustersetup.NewMultipoolerClient(s.Minigres.GrpcPort)
+	pg, err := s.postgresClient()
 	require.NoError(t, err)
-	defer client.Close()
+	defer pg.Close()
 
 	ctx, cancel := context.WithTimeout(s.runningCtx, 10*time.Second)
 	defer cancel()
-	s.baselineGucs = clustersetup.SaveGUCs(ctx, client.Pooler, baselineGucNames)
+	s.baselineGucs = clustersetup.SaveGUCs(ctx, pg, baselineGucNames)
+}
+
+// postgresClient connects directly to PostgreSQL. The harness checks and resets
+// PostgreSQL state this way because the multipooler's query service is served
+// only inside the minigres process.
+func (s *Setup) postgresClient() (*clustersetup.PostgresClient, error) {
+	return clustersetup.NewPostgresClient(s.Pgctld.PgPort)
 }
 
 // ClientPort returns the minigres client port.
@@ -351,24 +371,24 @@ func (s *Setup) SetupTest(t *testing.T, opts ...clustersetup.SetupTestOption) {
 		t.Fatalf("SetupTest: %v. Previous test leaked state.", err)
 	}
 
-	client, err := clustersetup.NewMultipoolerClient(s.Minigres.GrpcPort)
+	pg, err := s.postgresClient()
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	restore := maps.Clone(s.baselineGucs)
-	maps.Copy(restore, clustersetup.SaveGUCs(ctx, client.Pooler, cfg.GucsToReset))
+	maps.Copy(restore, clustersetup.SaveGUCs(ctx, pg, cfg.GucsToReset))
 	cancel()
-	client.Close()
+	pg.Close()
 
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cleanupCancel()
-		client, err := clustersetup.NewMultipoolerClient(s.Minigres.GrpcPort)
+		pg, err := s.postgresClient()
 		if err != nil {
-			t.Errorf("Cleanup: failed to connect to minigres: %v", err)
+			t.Errorf("Cleanup: failed to connect to postgres: %v", err)
 			return
 		}
-		clustersetup.RestoreGUCs(cleanupCtx, t, client.Pooler, restore, serviceID)
-		client.Close()
+		clustersetup.RestoreGUCs(cleanupCtx, t, pg, restore, serviceID)
+		pg.Close()
 
 		require.Eventually(t, func() bool {
 			return s.validateCleanState() == nil
@@ -403,7 +423,13 @@ func (s *Setup) validateCleanState() error {
 	}
 	defer client.Close()
 
-	inRecovery, err := clustersetup.QueryStringValue(ctx, client.Pooler, "SELECT pg_is_in_recovery()")
+	pg, err := s.postgresClient()
+	if err != nil {
+		return fmt.Errorf("failed to connect to postgres: %w", err)
+	}
+	defer pg.Close()
+
+	inRecovery, err := clustersetup.QueryStringValue(ctx, pg, "SELECT pg_is_in_recovery()")
 	if err != nil {
 		return fmt.Errorf("failed to query pg_is_in_recovery: %w", err)
 	}
@@ -427,7 +453,7 @@ func (s *Setup) validateCleanState() error {
 	}
 
 	for _, name := range slices.Sorted(maps.Keys(s.baselineGucs)) {
-		if err := clustersetup.ValidateGUCValue(ctx, client.Pooler, name, s.baselineGucs[name], serviceID); err != nil {
+		if err := clustersetup.ValidateGUCValue(ctx, pg, name, s.baselineGucs[name], serviceID); err != nil {
 			return err
 		}
 	}

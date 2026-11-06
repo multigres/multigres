@@ -21,6 +21,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -41,6 +43,28 @@ func (s *eofNotificationStream) Recv() (*multipoolerpb.NotificationStreamRequest
 	return nil, io.EOF
 }
 
+// stopBeforeSubscribeStream stops the listener after the handler's Running
+// check has passed and then delivers the first subscribe, reproducing the
+// demotion landing inside that window.
+type stopBeforeSubscribeStream struct {
+	multipoolerpb.MultipoolerService_NotificationStreamServer
+	ctx      context.Context
+	listener *pubsub.Listener
+	sent     bool
+}
+
+func (s *stopBeforeSubscribeStream) Context() context.Context { return s.ctx }
+
+func (s *stopBeforeSubscribeStream) Recv() (*multipoolerpb.NotificationStreamRequest, error) {
+	if s.sent {
+		<-s.ctx.Done()
+		return nil, s.ctx.Err()
+	}
+	s.sent = true
+	s.listener.Stop()
+	return &multipoolerpb.NotificationStreamRequest{SubscribeChannels: []string{"ch"}}, nil
+}
+
 // The manager replaces the listener on every connection reopen, after the gRPC
 // service is registered. The service must serve the listener current at the
 // time of the stream, not the one (here: none) present at registration.
@@ -49,10 +73,45 @@ func TestNotificationStream_UsesListenerSetAfterRegistration(t *testing.T) {
 	p := poolerserver.NewQueryPoolerServer(logger, nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", nil, 0, false)
 	srv := &poolerService{pooler: p}
 
-	p.SetPubSubListener(pubsub.NewListener(nil, logger, nil))
+	l := pubsub.NewListener(nil, logger, nil)
+	l.Start(t.Context())
+	t.Cleanup(l.Stop)
+	p.SetPubSubListener(l)
 
 	err := srv.NotificationStream(&eofNotificationStream{ctx: t.Context()})
 	require.NoError(t, err)
+}
+
+// A pooler that is not the writable, serving leader has a stopped listener.
+// It must refuse the stream so the gateway retries against the current
+// leader instead of holding a stream that acks subscribes it cannot serve.
+func TestNotificationStream_ListenerNotRunning(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	p := poolerserver.NewQueryPoolerServer(logger, nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", nil, 0, false)
+	srv := &poolerService{pooler: p}
+	p.SetPubSubListener(pubsub.NewListener(nil, logger, nil))
+
+	err := srv.NotificationStream(&eofNotificationStream{ctx: t.Context()})
+	require.Equal(t, codes.Unavailable, status.Code(err))
+}
+
+// A listener that stops between the Running check and the first subscribe
+// never registers the stream's channel, so it would never close it either.
+// The handler must not ack that subscribe: it would leave the stream open
+// with nothing behind it, and the gateway waiting for an EOF that never
+// comes. Refusing the stream makes the gateway reconnect instead.
+func TestNotificationStream_ListenerStopsBeforeFirstSubscribe(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+	p := poolerserver.NewQueryPoolerServer(logger, nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", nil, 0, false)
+	srv := &poolerService{pooler: p}
+
+	l := pubsub.NewListener(nil, logger, nil)
+	l.Start(t.Context())
+	t.Cleanup(l.Stop)
+	p.SetPubSubListener(l)
+
+	err := srv.NotificationStream(&stopBeforeSubscribeStream{ctx: t.Context(), listener: l})
+	require.Equal(t, codes.Unavailable, status.Code(err))
 }
 
 // NotificationStream is only reachable once the manager has run its startup

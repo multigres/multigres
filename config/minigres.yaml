@@ -1,0 +1,20 @@
+# minigres configuration file
+# A multigateway and a multipooler in one process.
+# See docs/general/minigres.md.
+
+# The process: ports, logging and topology
+grpc-port: 15100
+http-port: 15001
+log-level: info
+topo-global-server-addresses: localhost:2379
+topo-global-root: /multigres/global
+
+# Shared by both halves: written once, applied to both
+cell: zone1
+
+# The multigateway's settings, behind its name
+multigateway.pg-port: 15432
+
+# The multipooler's settings, behind its name
+multipooler.pgctld-addr: localhost:15200
+multipooler.database: postgres

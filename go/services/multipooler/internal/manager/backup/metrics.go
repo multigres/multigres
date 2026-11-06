@@ -45,16 +45,18 @@ type Metrics struct {
 
 	// Observable gauges, registered against a HealthTracker via
 	// RegisterHealthCallback.
-	lastSuccessAge       metric.Float64ObservableGauge
-	completeCount        metric.Int64ObservableGauge
-	failuresSinceSuccess metric.Int64ObservableGauge
-	ready                metric.Int64ObservableGauge
-	archiveLag           metric.Float64ObservableGauge
-	lastArchiveAge       metric.Float64ObservableGauge
-	pendingSegments      metric.Int64ObservableGauge
-	inProgress           metric.Int64ObservableGauge
-	inProgressDuration   metric.Float64ObservableGauge
-	leaseHeld            metric.Int64ObservableGauge
+	lastSuccessAge            metric.Float64ObservableGauge
+	completeCount             metric.Int64ObservableGauge
+	failuresSinceSuccess      metric.Int64ObservableGauge
+	ready                     metric.Int64ObservableGauge
+	archiveLag                metric.Float64ObservableGauge
+	lastArchiveAge            metric.Float64ObservableGauge
+	pendingSegments           metric.Int64ObservableGauge
+	inProgress                metric.Int64ObservableGauge
+	inProgressDuration        metric.Float64ObservableGauge
+	restoreInProgress         metric.Int64ObservableGauge
+	restoreInProgressDuration metric.Float64ObservableGauge
+	leaseHeld                 metric.Int64ObservableGauge
 }
 
 // NewMetrics creates and registers the pgBackRest backup counters and declares
@@ -203,6 +205,19 @@ func NewMetrics() (*Metrics, error) {
 	)
 	errs = append(errs, err)
 
+	m.restoreInProgress, err = meter.Int64ObservableGauge(
+		"pgbackrest.restore.in_progress",
+		metric.WithDescription("1 if the pgBackRest restore command is currently running, 0 otherwise"),
+	)
+	errs = append(errs, err)
+
+	m.restoreInProgressDuration, err = meter.Float64ObservableGauge(
+		"pgbackrest.restore.in_progress_duration_seconds",
+		metric.WithDescription("Seconds the pgBackRest restore command has been running, excluding setup and PostgreSQL startup; 0 if none"),
+		metric.WithUnit("s"),
+	)
+	errs = append(errs, err)
+
 	m.leaseHeld, err = meter.Int64ObservableGauge(
 		"pgbackrest.backup.lease_held",
 		metric.WithDescription("1 if this pooler currently holds the backup lease, 0 otherwise"),
@@ -223,8 +238,10 @@ func (m *Metrics) RegisterHealthCallback(tracker *HealthTracker) error {
 	meter := otel.Meter(meterName)
 	_, err := meter.RegisterCallback(
 		func(_ context.Context, o metric.Observer) error {
-			// One consistent read; derive ages from timestamps at observe
-			// time so they stay accurate between polls.
+			// One consistent read. Ages anchored on a fixed past event are
+			// derived here, at observe time, so they stay accurate between
+			// polls. The archive backlog is not such an age and is reported as
+			// measured — see below.
 			snap := tracker.Snapshot()
 			now := time.Now()
 
@@ -240,23 +257,28 @@ func (m *Metrics) RegisterHealthCallback(tracker *HealthTracker) error {
 			}
 			o.ObserveInt64(m.ready, readyVal, metric.WithAttributes(attribute.String("reason", snap.Reason)))
 
+			// Both archiver gauges below depend on a reading that only the
+			// archiver poller refreshes. Once that reading ages out, neither is
+			// emitted: a gap is a signal alerting can act on, whereas a stale
+			// value is indistinguishable from a live one.
+			archiverFresh := snap.ArchiverFresh(now)
+
 			// Wall-clock recency (observability): seconds since the last
 			// archive. Grows while idle; emitted only once something has been
 			// archived.
-			if !snap.LastArchived.IsZero() {
+			if archiverFresh && !snap.LastArchived.IsZero() {
 				o.ObserveFloat64(m.lastArchiveAge, now.Sub(snap.LastArchived).Seconds())
 			}
 
-			// Archiving backlog (alertable): age of the oldest WAL segment
-			// still awaiting archive; 0 when caught up, so an idle primary reads
-			// 0. Emitted on a primary even when caught up (explicit 0) so
-			// alerting sees a continuous series rather than a gap.
-			if snap.ArchiverOnPrimary {
-				var archiveLag float64
-				if !snap.OldestPending.IsZero() {
-					archiveLag = now.Sub(snap.OldestPending).Seconds()
-				}
-				o.ObserveFloat64(m.archiveLag, archiveLag)
+			// Archiving backlog (alertable): reported exactly as the poller
+			// measured it. It is deliberately not recomputed from OldestPending
+			// against the clock here — the backlog collapses to zero the moment
+			// that segment is archived, so deriving it would report a queue that
+			// has already drained and grow the figure for as long as the reading
+			// stood. A caught-up primary measures 0 and emits it, so alerting
+			// still sees a continuous series.
+			if snap.ArchiverOnPrimary && archiverFresh {
+				o.ObserveFloat64(m.archiveLag, snap.ArchiveLagSeconds)
 				o.ObserveInt64(m.pendingSegments, snap.PendingCount)
 			}
 
@@ -269,6 +291,15 @@ func (m *Metrics) RegisterHealthCallback(tracker *HealthTracker) error {
 			o.ObserveInt64(m.inProgress, inProgressVal)
 			o.ObserveFloat64(m.inProgressDuration, inProgressDur)
 
+			restoreInProgressVal := int64(0)
+			var restoreInProgressDur float64
+			if !snap.RestoreInProgressStart.IsZero() {
+				restoreInProgressVal = 1
+				restoreInProgressDur = now.Sub(snap.RestoreInProgressStart).Seconds()
+			}
+			o.ObserveInt64(m.restoreInProgress, restoreInProgressVal)
+			o.ObserveFloat64(m.restoreInProgressDuration, restoreInProgressDur)
+
 			leaseVal := int64(0)
 			if snap.LeaseHeld {
 				leaseVal = 1
@@ -278,7 +309,7 @@ func (m *Metrics) RegisterHealthCallback(tracker *HealthTracker) error {
 		},
 		m.lastSuccessAge, m.completeCount, m.failuresSinceSuccess, m.ready,
 		m.archiveLag, m.lastArchiveAge, m.pendingSegments,
-		m.inProgress, m.inProgressDuration, m.leaseHeld,
+		m.inProgress, m.inProgressDuration, m.restoreInProgress, m.restoreInProgressDuration, m.leaseHeld,
 	)
 	return err
 }

@@ -1,0 +1,5 @@
+# Custom runner labels that actionlint's runner-label rule should accept.
+# Blacksmith labels follow blacksmith-<N>vcpu-ubuntu-<ver>[-arm].
+self-hosted-runner:
+  labels:
+    - blacksmith-*

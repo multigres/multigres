@@ -20,11 +20,12 @@ import (
 	"time"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
-	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 )
 
 // Pooler is multiorch's per-pooler cache rider. It bundles the proto
@@ -88,19 +89,16 @@ func NewPooler(initial *multiorchdatapb.PoolerHealthState, hs *HealthStream) *Po
 	return p
 }
 
-// Health returns the pooler's current health state snapshot. Returns nil
-// if no state has been published yet.
+// Health returns the pooler's current health state, or nil if none has been
+// published yet. A published state never changes: Mutate always replaces the
+// whole proto, so a returned pointer is safe to read from any goroutine.
 //
-// IMPORTANT: callers MUST NOT mutate the returned proto. The snapshot is
-// shared with other readers and with future Mutate calls (which copy the
-// current pointer as their starting point). Mutating it would corrupt
-// state visible to other goroutines.
+// Callers MUST NOT mutate the returned proto: it is shared with other readers
+// and is the starting point for the next Mutate.
 //
-// (Why no clone-on-read: snapshots are immutable by construction —
-// Mutate always allocates a new proto and atomic-publishes it — so the
-// safety contract is "writers don't reach in," not "readers defensively
-// copy." Read paths are hot — analyzers call Health() in tight loops —
-// so cloning every read would be wasteful.)
+// Each call returns whatever is current, so two calls can differ. Code that
+// needs one consistent view across several reads (analysis, actions) should
+// take a snapshot once, with SnapshotShard, and read from that.
 func (p *Pooler) Health() *multiorchdatapb.PoolerHealthState {
 	return p.state.Load()
 }
@@ -127,71 +125,54 @@ func (p *Pooler) Mutate(fn func(*multiorchdatapb.PoolerHealthState)) {
 	p.state.Store(next)
 }
 
-// ObservationAge reports how long ago — on the orchestrator's clock — this
-// pooler's most recent successful health snapshot was recorded, measured
-// against now. ok is false when no snapshot time has ever been recorded
-// (LastSeen unset), letting callers distinguish "never observed" from
-// "observed but stale".
+// applyStatusResponse updates p's cached health from a fresh StatusResponse, from
+// a live RPC that was issued at requestedAt. It returns false, leaving p unmodified,
+// if the response has no Status payload: an empty answer must not clobber good cached
+// data.
 //
-// It deliberately uses LastSeen (the orchestrator-clock receipt time) rather
-// than the pooler-clock pooler_captured_at, so the subtraction against now
-// stays same-clock and is unaffected by skew between the hosts.
-func (p *Pooler) ObservationAge(now time.Time) (time.Duration, bool) {
-	ls := p.Health().GetLastSeen()
-	if ls == nil {
-		return 0, false
+// If a streamed snapshot landed after requestedAt, it is at least as fresh as this
+// response, so the write is skipped (and true is returned) rather than moving the
+// cache backwards with a slow reply.
+//
+// Known limitation: nothing orders this against an older streamed snapshot that was
+// queued before the RPC answered; it can briefly overwrite the fresher state.
+func (p *Pooler) applyStatusResponse(status *multipoolermanagerdatapb.StatusResponse, now *timestamppb.Timestamp, requestedAt time.Time) bool {
+	if status.GetStatus() == nil {
+		return false
 	}
-	return now.Sub(ls.AsTime()), true
+	p.Mutate(func(h *multiorchdatapb.PoolerHealthState) {
+		if seen := h.GetLastSeen(); seen != nil && seen.AsTime().After(requestedAt) {
+			return
+		}
+		applyStatusFields(h, status, now)
+	})
+	return true
 }
 
-// DefaultObservationFreshness is the default staleness tolerance for callers
-// that need a trustworthy health snapshot but have no more specific policy of
-// their own (e.g. actions, which can't import the analysis package's
-// AvailabilityPolicy). analysis.DefaultAvailabilityPolicy's ObservationFreshness
-// uses this same value, so the two packages share one source of truth.
-const DefaultObservationFreshness = 15 * time.Second
+// applyStatusFields writes a StatusResponse's fields into h. status.GetStatus() must be
+// non-nil.
+func applyStatusFields(h *multiorchdatapb.PoolerHealthState, status *multipoolermanagerdatapb.StatusResponse, now *timestamppb.Timestamp) {
+	h.LastSeen = now
+	h.Status = proto.Clone(status.GetStatus()).(*multipoolermanagerdatapb.Status)
+	if av := status.GetAvailabilityStatus(); av != nil {
+		h.AvailabilityStatus = proto.Clone(av).(*clustermetadatapb.AvailabilityStatus)
+	} else {
+		h.AvailabilityStatus = nil
+	}
+	if cs := status.GetConsensusStatus(); cs != nil {
+		h.ConsensusStatus = proto.Clone(cs).(*clustermetadatapb.ConsensusStatus)
+	} else {
+		h.ConsensusStatus = nil
+	}
+	if status.GetStatus().GetPostgresReady() {
+		h.LastPostgresReadyTime = now
+	}
+	// NOTE: when PostgresReady is false, LastPostgresReadyTime is intentionally
+	// left at its previous value so callers can reason about "last known good" time.
+}
 
-// HealthWithin returns the pooler's health snapshot if it was recorded within
-// maxAge of now, and ok=false otherwise (including "never observed"). Prefer
-// this over Health() wherever a decision depends on how current the data is —
-// it makes the staleness tolerance an explicit, mandatory choice at the call
-// site instead of a separately-remembered ObservationAge/observationFresh
-// check that's easy to omit.
+// HealthWithin returns the pooler's current snapshot if it was recorded within
+// maxAge of now (see snapshot.HealthWithin).
 func (p *Pooler) HealthWithin(now time.Time, maxAge time.Duration) (*multiorchdatapb.PoolerHealthState, bool) {
-	age, ok := p.ObservationAge(now)
-	if !ok || age > maxAge {
-		return nil, false
-	}
-	return p.Health(), true
-}
-
-// DefaultLeaderWriteFreshness is the default freshness bound for
-// LeaderWritesProgressing's health-report check, shared so analysis and
-// actions packages (which can't import each other) don't each pick their own
-// value.
-const DefaultLeaderWriteFreshness = 15 * time.Second
-
-// LeaderWritesProgressing reports whether it looks safe to attempt a
-// leader-led rule write right now (a cohort reconcile, a no-op rule advance,
-// etc.): a recent health report, postgres genuinely out of recovery (a
-// resigning leader can still be a writable primary — recovery mode is what
-// actually precludes writes), and the shard's highest known rule fully
-// decided — no outstanding proposal to race against.
-//
-// TODO: this is a proxy for "the leader can currently commit a synchronous
-// write", not direct proof of it — the strongest signal would be a recent
-// successful heartbeat write, which isn't surfaced through health today.
-// Tighten this once that signal exists.
-func LeaderWritesProgressing(leader *Pooler, highestKnownPosition *clustermetadatapb.RulePosition, now time.Time, freshness time.Duration) bool {
-	if leader == nil {
-		return false
-	}
-	age, ok := leader.ObservationAge(now)
-	if !ok || age > freshness {
-		return false
-	}
-	if leader.Health().GetStatus().GetPostgresStatus() != multipoolermanagerdatapb.PostgresStatus_POSTGRES_STATUS_PRIMARY {
-		return false
-	}
-	return commonconsensus.IsRuleDecided(highestKnownPosition)
+	return snapshot.HealthWithin(p.Health(), now, maxAge)
 }

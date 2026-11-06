@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	statuspb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
@@ -428,15 +429,9 @@ func TestReusableCopyMalformedCompletion(t *testing.T) {
 	}
 }
 
-func TestReusableCopyFallback(t *testing.T) {
+func TestCopyMetadataFallback(t *testing.T) {
 	var calls atomic.Int32
-	s := &operationTestServer{custom: func(stream pb.MultipoolerService_ExecuteStreamServer) error {
-		if err := stream.Send(&pb.ExecuteStreamResponse{Ready: true, SupportedOperations: []pb.ExecuteStreamOperation{pb.ExecuteStreamOperation_STREAM_EXECUTE}}); err != nil {
-			return err
-		}
-		_, err := stream.Recv()
-		return err
-	}, copy: func(stream pb.MultipoolerService_CopyBidiExecuteServer) error {
+	s := &operationTestServer{copy: func(stream pb.MultipoolerService_CopyBidiExecuteServer) error {
 		calls.Add(1)
 		if _, err := stream.Recv(); err != nil {
 			return err
@@ -446,7 +441,7 @@ func TestReusableCopyFallback(t *testing.T) {
 	g := queryServiceForCopy(t, s)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	stream, err := g.openCopy(ctx, &pb.CopyBidiExecuteRequest{})
+	stream, err := g.openCopy(metadata.AppendToOutgoingContext(ctx, "x-test", "value"), &pb.CopyBidiExecuteRequest{})
 	require.NoError(t, err)
 	_, err = stream.Recv()
 	require.NoError(t, err)

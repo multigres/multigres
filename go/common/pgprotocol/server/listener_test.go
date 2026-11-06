@@ -15,7 +15,11 @@
 package server
 
 import (
+	"context"
+	"net"
+	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -130,4 +134,75 @@ func TestAssignConnectionID_WrapsAndFindsSlot(t *testing.T) {
 	prefix, localID := pid.DecodePID(connID)
 	assert.Equal(t, gatewayID, prefix)
 	assert.Equal(t, uint32(1), localID)
+}
+
+// servingListener returns a listener serving on a free local port.
+func servingListener(t *testing.T) *Listener {
+	t.Helper()
+	l := testListenerWithGatewayID(t, 1)
+	go func() { _ = l.Serve() }()
+	return l
+}
+
+// dialOpen opens a client connection to l and waits until l handles it.
+func dialOpen(t *testing.T, l *Listener) net.Conn {
+	t.Helper()
+	conn, err := net.Dial("tcp", l.listener.Addr().String())
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+	require.Eventually(t, func() bool {
+		l.connsMu.Lock()
+		defer l.connsMu.Unlock()
+		return len(l.open) == 1
+	}, 5*time.Second, 5*time.Millisecond)
+	return conn
+}
+
+// TestListenerShutdown_ReturnsWhenConnectionsEnd checks that Shutdown stops
+// accepting connections and returns once the open ones end, before ctx does.
+func TestListenerShutdown_ReturnsWhenConnectionsEnd(t *testing.T) {
+	l := servingListener(t)
+	conn := dialOpen(t, l)
+
+	done := make(chan error, 1)
+	go func() { done <- l.Shutdown(t.Context()) }()
+	select {
+	case <-done:
+		t.Fatal("Shutdown returned while a connection was open")
+	case <-time.After(100 * time.Millisecond):
+	}
+	_, err := net.Dial("tcp", l.listener.Addr().String())
+	assert.Error(t, err, "new connections are refused once Shutdown starts")
+
+	require.NoError(t, conn.Close())
+	select {
+	case err := <-done:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Shutdown did not return once the connection ended")
+	}
+}
+
+// TestListenerShutdown_CutsConnectionsWhenCtxEnds checks that a connection
+// still open when ctx ends is cut: its socket is closed, as the process
+// exiting would close it, and Shutdown returns.
+func TestListenerShutdown_CutsConnectionsWhenCtxEnds(t *testing.T) {
+	l := servingListener(t)
+	conn := dialOpen(t, l)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	require.NoError(t, l.Shutdown(ctx))
+	assert.GreaterOrEqual(t, time.Since(start), 100*time.Millisecond, "Shutdown waits for ctx")
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
+	_, err := conn.Read(make([]byte, 1))
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, os.ErrDeadlineExceeded, "the connection must be cut, not left open")
+	require.Eventually(t, func() bool {
+		l.connsMu.Lock()
+		defer l.connsMu.Unlock()
+		return len(l.open) == 0
+	}, 5*time.Second, 5*time.Millisecond, "the cut connection's handler ends")
 }

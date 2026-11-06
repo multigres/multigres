@@ -70,3 +70,10 @@ func TestQueryContextError_CancelOverDeadline(t *testing.T) {
 	err := queryContextError(ctx, context.DeadlineExceeded)
 	assert.Equal(t, errQueryCanceled, err)
 }
+
+func TestQueryContextError_PreservesFatalCleanupFailure(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cancel(errQueryCanceled)
+	fatal := mterrors.NewPgError("FATAL", mterrors.PgSSConnectionFailure, "cleanup unconfirmed", "")
+	assert.Same(t, fatal, queryContextError(ctx, fatal))
+}

@@ -55,6 +55,9 @@ func newStandaloneMultipooler(tel *telemetry.Telemetry) *standaloneMultipooler {
 	resources := servenv.ProcessResources{
 		ServEnv:    s.senv,
 		GrpcServer: s.grpcServer,
+		// A standalone process serves everything, the query service
+		// included, on its one gRPC server.
+		QueryGrpcServer: s.grpcServer,
 	}
 	// The multipooler's settings share the process's registry, so a
 	// configuration file loaded by servenv reaches them.

@@ -29,6 +29,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/multigres/multigres/go/common/parser/datum"
+
 	"github.com/stretchr/testify/assert"
 )
 
@@ -38,7 +40,7 @@ import (
 
 func TestTargetEntry(t *testing.T) {
 	// Create a simple constant expression for testing
-	expr := NewConst(1, 42, false)
+	expr := NewConst(1, datum.Int32GetDatum(42), false)
 
 	// Test basic TargetEntry creation
 	te := NewTargetEntry(expr, 1, "test_column")
@@ -59,7 +61,7 @@ func TestTargetEntry(t *testing.T) {
 }
 
 func TestJunkTargetEntry(t *testing.T) {
-	expr := NewConst(1, 42, false)
+	expr := NewConst(1, datum.Int32GetDatum(42), false)
 	te := NewJunkTargetEntry(expr, 2)
 
 	// Verify junk properties
@@ -72,7 +74,7 @@ func TestJunkTargetEntry(t *testing.T) {
 }
 
 func TestTargetEntryWithOriginInfo(t *testing.T) {
-	expr := NewConst(1, 42, false)
+	expr := NewConst(1, datum.Int32GetDatum(42), false)
 	te := NewTargetEntry(expr, 1, "test_column")
 
 	// Set origin information
@@ -95,7 +97,7 @@ func TestFromExpr(t *testing.T) {
 	fromlist := NewNodeList(table1, table2)
 
 	// Create test qualification
-	quals := NewConst(1, Datum(1), false) // Simple boolean constant
+	quals := NewConst(1, datum.Int32GetDatum(1), false) // Simple boolean constant
 
 	// Test FromExpr creation
 	fe := NewFromExpr(fromlist, quals)
@@ -135,7 +137,7 @@ func TestJoinExpr(t *testing.T) {
 	// Create test tables
 	larg := NewRangeVar("left_table", "public", "")
 	rarg := NewRangeVar("right_table", "public", "")
-	quals := NewConst(1, Datum(1), false)
+	quals := NewConst(1, datum.Int32GetDatum(1), false)
 
 	// Test INNER JOIN
 	je := NewJoinExpr(JOIN_INNER, larg, rarg, quals)
@@ -490,8 +492,8 @@ func TestOnConflictDoNothing(t *testing.T) {
 
 func TestOnConflictDoUpdate(t *testing.T) {
 	// Create update targets
-	target1 := NewResTarget("col1", NewConst(23, Datum(100), false))
-	target2 := NewResTarget("col2", NewConst(25, Datum(0), false))
+	target1 := NewResTarget("col1", NewConst(23, datum.Int32GetDatum(100), false))
+	target2 := NewResTarget("col2", NewConst(25, Datum{}, false))
 	updateTargets := NewNodeList(target1, target2)
 
 	oce := NewOnConflictDoUpdate(updateTargets)
@@ -521,13 +523,13 @@ func TestQueryExecutionNodesInteraction(t *testing.T) {
 	// Test that query execution nodes work together correctly
 
 	// Create a TargetEntry
-	expr := NewConst(23, 42, false)
+	expr := NewConst(23, datum.Int32GetDatum(42), false)
 	te := NewTargetEntry(expr, 1, "result_column")
 
 	// Create a FromExpr with JoinExpr
 	table1 := NewRangeVar("table1", "public", "")
 	table2 := NewRangeVar("table2", "public", "")
-	joinQuals := NewConst(16, Datum(1), false) // boolean
+	joinQuals := NewConst(16, datum.Int32GetDatum(1), false) // boolean
 	join := NewJoinExpr(JOIN_INNER, table1, table2, joinQuals)
 
 	fromExpr := NewFromExpr(NewNodeList(join), nil)
@@ -569,7 +571,7 @@ func TestCTEWithWindowFunction(t *testing.T) {
 // ==============================================================================
 
 func BenchmarkTargetEntryCreation(b *testing.B) {
-	expr := NewConst(23, 42, false)
+	expr := NewConst(23, datum.Int32GetDatum(42), false)
 
 	for i := 0; b.Loop(); i++ {
 		_ = NewTargetEntry(expr, AttrNumber(i%100), "test_column")
@@ -579,7 +581,7 @@ func BenchmarkTargetEntryCreation(b *testing.B) {
 func BenchmarkJoinExprCreation(b *testing.B) {
 	larg := NewRangeVar("left_table", "public", "")
 	rarg := NewRangeVar("right_table", "public", "")
-	quals := NewConst(16, Datum(1), false)
+	quals := NewConst(16, datum.Int32GetDatum(1), false)
 
 	for b.Loop() {
 		_ = NewJoinExpr(JOIN_INNER, larg, rarg, quals)
@@ -587,7 +589,7 @@ func BenchmarkJoinExprCreation(b *testing.B) {
 }
 
 func BenchmarkStringRepresentation(b *testing.B) {
-	te := NewTargetEntry(NewConst(23, 42, false), 1, "test_column")
+	te := NewTargetEntry(NewConst(23, datum.Int32GetDatum(42), false), 1, "test_column")
 
 	for b.Loop() {
 		_ = te.String()
