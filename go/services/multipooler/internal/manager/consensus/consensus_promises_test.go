@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -152,24 +153,29 @@ func TestConsensusPromises_EnsureRecruitBlockedUntilAtLeastRequiresActionLock(t 
 }
 
 func TestConsensusPromises_RecruitBlockedUntilNeverLowers(t *testing.T) {
-	floorAt := func(term int64, lsn string) *clustermetadatapb.LsnPosition {
-		return &clustermetadatapb.LsnPosition{
-			Position: &clustermetadatapb.RuleNumberPosition{Decision: &clustermetadatapb.RuleNumber{CoordinatorTerm: term}},
-			Lsn:      lsn,
+	floorAt := func(decision, proposal int64, lsn string) *clustermetadatapb.LsnPosition {
+		pos := &clustermetadatapb.RuleNumberPosition{Decision: &clustermetadatapb.RuleNumber{CoordinatorTerm: decision}}
+		if proposal != 0 {
+			pos.Proposal = &clustermetadatapb.RuleNumber{CoordinatorTerm: proposal}
 		}
+		return &clustermetadatapb.LsnPosition{Position: pos, Lsn: lsn}
 	}
 	tests := []struct {
-		name     string
-		first    *clustermetadatapb.LsnPosition
-		second   *clustermetadatapb.LsnPosition
-		wantTerm int64
-		wantLSN  string
+		name   string
+		first  *clustermetadatapb.LsnPosition
+		second *clustermetadatapb.LsnPosition
+		want   *clustermetadatapb.LsnPosition
 	}{
-		{name: "lower LSN, same rule", first: floorAt(3, "0/5000"), second: floorAt(3, "0/1000"), wantTerm: 3, wantLSN: "0/5000"},
-		{name: "lower rule, higher LSN", first: floorAt(3, "0/5000"), second: floorAt(2, "0/9000"), wantTerm: 3, wantLSN: "0/5000"},
-		{name: "higher LSN, same rule", first: floorAt(3, "0/5000"), second: floorAt(3, "0/9000"), wantTerm: 3, wantLSN: "0/9000"},
-		{name: "higher rule, lower LSN", first: floorAt(3, "0/5000"), second: floorAt(4, "0/1000"), wantTerm: 4, wantLSN: "0/1000"},
-		{name: "identical", first: floorAt(3, "0/5000"), second: floorAt(3, "0/5000"), wantTerm: 3, wantLSN: "0/5000"},
+		{name: "lower LSN, same rule", first: floorAt(3, 0, "0/5000"), second: floorAt(3, 0, "0/1000"), want: floorAt(3, 0, "0/5000")},
+		{name: "lower rule, higher LSN", first: floorAt(3, 0, "0/5000"), second: floorAt(2, 0, "0/9000"), want: floorAt(3, 0, "0/5000")},
+		{name: "higher LSN, same rule", first: floorAt(3, 0, "0/5000"), second: floorAt(3, 0, "0/9000"), want: floorAt(3, 0, "0/9000")},
+		{name: "higher rule, lower LSN", first: floorAt(3, 0, "0/5000"), second: floorAt(4, 0, "0/1000"), want: floorAt(4, 0, "0/1000")},
+		{name: "identical", first: floorAt(3, 0, "0/5000"), second: floorAt(3, 0, "0/5000"), want: floorAt(3, 0, "0/5000")},
+		{name: "same decision, lower proposal", first: floorAt(3, 5, "0/5000"), second: floorAt(3, 4, "0/9000"), want: floorAt(3, 5, "0/5000")},
+		{name: "same decision, higher proposal", first: floorAt(3, 4, "0/5000"), second: floorAt(3, 5, "0/1000"), want: floorAt(3, 5, "0/1000")},
+		// LSNs are compared numerically: as strings "0/9000" > "0/10000" and "0/FFFFFFFF" > "1/0".
+		{name: "LSN of different width", first: floorAt(3, 0, "0/9000"), second: floorAt(3, 0, "0/10000"), want: floorAt(3, 0, "0/10000")},
+		{name: "LSN across the high word", first: floorAt(3, 0, "0/FFFFFFFF"), second: floorAt(3, 0, "1/0"), want: floorAt(3, 0, "1/0")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -181,30 +187,94 @@ func TestConsensusPromises_RecruitBlockedUntilNeverLowers(t *testing.T) {
 
 			require.NoError(t, promises.EnsureRecruitBlockedUntilAtLeast(ctx, tt.first))
 			require.NoError(t, promises.EnsureRecruitBlockedUntilAtLeast(ctx, tt.second))
-
-			got := promises.GetRecruitBlockedUntil()
-			assert.Equal(t, tt.wantTerm, got.GetPosition().GetDecision().GetCoordinatorTerm())
-			assert.Equal(t, tt.wantLSN, got.GetLsn())
+			assert.True(t, proto.Equal(tt.want, promises.GetRecruitBlockedUntil()), "got %v, want %v", promises.GetRecruitBlockedUntil(), tt.want)
 
 			// The kept floor must also be what a restart recovers.
 			reloaded := NewConsensusPromises(dir, nil)
 			_, err = reloaded.Load()
 			require.NoError(t, err)
-			assert.Equal(t, tt.wantTerm, reloaded.GetRecruitBlockedUntil().GetPosition().GetDecision().GetCoordinatorTerm())
-			assert.Equal(t, tt.wantLSN, reloaded.GetRecruitBlockedUntil().GetLsn())
+			assert.True(t, proto.Equal(tt.want, reloaded.GetRecruitBlockedUntil()), "reloaded %v, want %v", reloaded.GetRecruitBlockedUntil(), tt.want)
 		})
 	}
 }
 
-func TestConsensusPromises_RecruitBlockedUntilRejectsUnparsableLSNOverFloor(t *testing.T) {
+func TestConsensusPromises_RecruitBlockedUntilRejectsInvalidFloorBeforeWriting(t *testing.T) {
+	tests := []struct {
+		name  string
+		first *clustermetadatapb.LsnPosition
+		pos   *clustermetadatapb.LsnPosition
+	}{
+		{name: "unparsable LSN over a floor", first: &clustermetadatapb.LsnPosition{Lsn: "0/5000"}, pos: &clustermetadatapb.LsnPosition{Lsn: "garbage"}},
+		{name: "empty LSN over a floor", first: &clustermetadatapb.LsnPosition{Lsn: "0/5000"}, pos: &clustermetadatapb.LsnPosition{}},
+		{name: "unparsable LSN with no floor", pos: &clustermetadatapb.LsnPosition{Lsn: "garbage"}},
+		{name: "nil position with no floor"},
+		{name: "nil position over a floor", first: &clustermetadatapb.LsnPosition{Lsn: "0/5000"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			ctx := withTestActionLock(t)
+			promises := NewConsensusPromises(dir, nil)
+			_, err := promises.Load()
+			require.NoError(t, err)
+			if tt.first != nil {
+				require.NoError(t, promises.EnsureRecruitBlockedUntilAtLeast(ctx, tt.first))
+			}
+
+			require.ErrorContains(t, promises.EnsureRecruitBlockedUntilAtLeast(ctx, tt.pos), "invalid recruit position floor")
+
+			assert.True(t, proto.Equal(tt.first, promises.GetRecruitBlockedUntil()), "a rejected update must keep the existing floor")
+			reloaded := NewConsensusPromises(dir, nil)
+			_, err = reloaded.Load()
+			require.NoError(t, err)
+			assert.True(t, proto.Equal(tt.first, reloaded.GetRecruitBlockedUntil()), "a rejected update must not reach disk")
+		})
+	}
+}
+
+func TestConsensusPromises_RecruitBlockedUntilKeepsUnparsableStoredFloor(t *testing.T) {
 	ctx := withTestActionLock(t)
 	promises := NewConsensusPromises(t.TempDir(), nil)
 	_, err := promises.Load()
 	require.NoError(t, err)
+	// A mangled promise can't be fulfilled or compared, so it must not be replaced.
+	stored := &clustermetadatapb.LsnPosition{Lsn: "garbage"}
+	promises.recruitBlockedUntil = stored
 
-	require.NoError(t, promises.EnsureRecruitBlockedUntilAtLeast(ctx, &clustermetadatapb.LsnPosition{Lsn: "0/5000"}))
-	err = promises.EnsureRecruitBlockedUntilAtLeast(ctx, &clustermetadatapb.LsnPosition{Lsn: "garbage"})
+	err = promises.EnsureRecruitBlockedUntilAtLeast(ctx, &clustermetadatapb.LsnPosition{Lsn: "0/5000"})
 
 	require.ErrorContains(t, err, "failed to compare recruit position floors")
-	assert.Equal(t, "0/5000", promises.GetRecruitBlockedUntil().GetLsn(), "a rejected update must keep the existing floor")
+	assert.True(t, proto.Equal(stored, promises.GetRecruitBlockedUntil()))
+}
+
+func TestConsensusPromises_RecruitBlockedUntilLowerFloorWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	ctx := withTestActionLock(t)
+	promises := NewConsensusPromises(dir, nil)
+	_, err := promises.Load()
+	require.NoError(t, err)
+	require.NoError(t, promises.EnsureRecruitBlockedUntilAtLeast(ctx, &clustermetadatapb.LsnPosition{Lsn: "0/5000"}))
+
+	// With the directory read-only, any write would fail.
+	require.NoError(t, os.Chmod(dir, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	require.NoError(t, promises.EnsureRecruitBlockedUntilAtLeast(ctx, &clustermetadatapb.LsnPosition{Lsn: "0/1000"}))
+	assert.Equal(t, "0/5000", promises.GetRecruitBlockedUntil().GetLsn())
+}
+
+func TestConsensusPromises_RecruitBlockedUntilFailedRaiseKeepsFloor(t *testing.T) {
+	dir := t.TempDir()
+	ctx := withTestActionLock(t)
+	promises := NewConsensusPromises(dir, nil)
+	_, err := promises.Load()
+	require.NoError(t, err)
+	require.NoError(t, promises.EnsureRecruitBlockedUntilAtLeast(ctx, &clustermetadatapb.LsnPosition{Lsn: "0/5000"}))
+
+	require.NoError(t, os.Chmod(dir, 0o555))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+
+	err = promises.EnsureRecruitBlockedUntilAtLeast(ctx, &clustermetadatapb.LsnPosition{Lsn: "0/9000"})
+	require.ErrorContains(t, err, "failed to save recruit position floor")
+	assert.Equal(t, "0/5000", promises.GetRecruitBlockedUntil().GetLsn(), "a failed save must not raise the in-memory floor")
 }

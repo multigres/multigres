@@ -345,9 +345,8 @@ func TestRecruitPositionFloorIfOutstanding(t *testing.T) {
 			promises := NewConsensusPromises(t.TempDir(), nil)
 			_, err := promises.Load()
 			require.NoError(t, err)
-			if tt.floor != nil {
-				require.NoError(t, promises.EnsureRecruitBlockedUntilAtLeast(actionLockCtx(t), tt.floor))
-			}
+			// Seeded directly: EnsureRecruitBlockedUntilAtLeast rejects the mangled floors this covers.
+			promises.recruitBlockedUntil = tt.floor
 			cm := NewManagerForTesting(t, nil, promises, nil, nil)
 
 			got := cm.recruitPositionFloorIfOutstanding(tt.pos)

@@ -1029,13 +1029,7 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		if err != nil {
 			return false, mterrors.Wrap(err, "failed to read position before rewind")
 		}
-		floor := &clustermetadatapb.LsnPosition{
-			Position: &clustermetadatapb.RuleNumberPosition{
-				Decision: status.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber(),
-				Proposal: status.GetCurrentPosition().GetPosition().GetProposal().GetRuleNumber(),
-			},
-			Lsn: status.GetCurrentPosition().GetLsn(),
-		}
+		floor := commonconsensus.LsnPositionOf(status.GetCurrentPosition())
 		if err := pm.consensusMgr.Promises().EnsureRecruitBlockedUntilAtLeast(ctx, floor); err != nil {
 			return false, mterrors.Wrap(err, "failed to record recruit position floor")
 		}

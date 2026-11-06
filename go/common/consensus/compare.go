@@ -397,25 +397,60 @@ func RuleNamesLeader(rule *clustermetadatapb.ShardRule, id *clustermetadatapb.ID
 // resulting rule does LSN break the tie. A missing or unparsable LSN is
 // treated as less than any valid LSN.
 func ComparePoolerPosition(a, b *clustermetadatapb.PoolerPosition) int {
-	if cmp := CompareRulePosition(a.GetPosition(), b.GetPosition()); cmp != 0 {
+	if cmp, err := CompareLsnPositions(LsnPositionOf(a), LsnPositionOf(b)); err == nil {
 		return cmp
 	}
-	lsnA, errA := pgutil.ParseLSN(a.GetLsn())
-	lsnB, errB := pgutil.ParseLSN(b.GetLsn())
-	okA := errA == nil
-	okB := errB == nil
+	// The rules tie and an LSN can't be parsed: one that can't is behind.
+	_, errA := pgutil.ParseLSN(a.GetLsn())
+	_, errB := pgutil.ParseLSN(b.GetLsn())
 	switch {
-	case !okA && !okB:
+	case errA != nil && errB != nil:
 		return 0
-	case !okA:
+	case errA != nil:
 		return -1
-	case !okB:
-		return 1
-	case lsnA < lsnB:
-		return -1
-	case lsnA > lsnB:
-		return 1
 	default:
-		return 0
+		return 1
 	}
+}
+
+// LsnPositionOf reduces a PoolerPosition to the bare rule numbers and LSN an
+// LsnPosition carries.
+func LsnPositionOf(pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.LsnPosition {
+	rules := RuleNumberPositionOf(pos.GetPosition())
+	return &clustermetadatapb.LsnPosition{
+		Position: &clustermetadatapb.RuleNumberPosition{Decision: rules.Decision, Proposal: rules.Proposal},
+		Lsn:      pos.GetLsn(),
+	}
+}
+
+// CompareLsnPositions returns negative, zero, or positive based on whether a is
+// behind, equal to, or ahead of b, ordered like ComparePoolerPosition: rule
+// position first, then LSN. Unlike it, an LSN that can't be parsed is an error
+// rather than the lowest value, so a caller holding a promise can fail closed.
+// LSNs are parsed only to break a rule tie.
+//
+// TODO: callers of ComparePoolerPosition already drop unparsable positions first
+// (filterByValidPosition, MostAdvancedPosition), so it could be strict too.
+func CompareLsnPositions(a, b *clustermetadatapb.LsnPosition) (int, error) {
+	rules := func(p *clustermetadatapb.LsnPosition) RuleNumberPosition {
+		return RuleNumberPosition{Decision: p.GetPosition().GetDecision(), Proposal: p.GetPosition().GetProposal()}
+	}
+	if cmp := rules(a).Compare(rules(b)); cmp != 0 {
+		return cmp, nil
+	}
+	lsnA, err := pgutil.ParseLSN(a.GetLsn())
+	if err != nil {
+		return 0, err
+	}
+	lsnB, err := pgutil.ParseLSN(b.GetLsn())
+	if err != nil {
+		return 0, err
+	}
+	switch {
+	case lsnA < lsnB:
+		return -1, nil
+	case lsnA > lsnB:
+		return 1, nil
+	}
+	return 0, nil
 }
