@@ -391,7 +391,7 @@ func statusReplicationPrimary(pos *clustermetadatapb.PoolerPosition, replication
 	// Whichever position wins is republished whole (decision and proposal
 	// together), not flattened to a single merged rule.
 	position := ruleStorePosition
-	if consensus.CompareRulePosition(highestKnownPosition, ruleStorePosition) >= 0 {
+	if consensus.CompareKnowledge(highestKnownPosition, ruleStorePosition) >= 0 {
 		// RPC-delivered position leads or ties the rule store — use it.
 		position = highestKnownPosition
 	}
@@ -696,21 +696,22 @@ func ruleNamesCohortMember(rule *clustermetadatapb.ShardRule, selfID *clustermet
 
 // recruitPositionFloorIfOutstanding returns the recorded recruit-position
 // floor (see ConsensusPromises.GetRecruitBlockedUntil) if pos hasn't caught
-// up to it yet, or nil if there's no floor or it's satisfied. Rule position
-// takes precedence over LSN (mirroring consensus.ComparePoolerPosition); LSN
-// only breaks a tie between equal rule positions. Fails closed on a parse
-// error. No explicit clearing — omitted from ConsensusStatus once satisfied.
+// up to it yet, or nil if there's no floor or it's satisfied. Like
+// consensus.CompareWALProgress, the latest rule takes precedence over LSN and
+// what the node knows is decided plays no part; LSN only breaks a tie. Fails
+// closed on a parse error. No explicit clearing — omitted from ConsensusStatus
+// once satisfied.
 func (cm *ConsensusManager) recruitPositionFloorIfOutstanding(pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.LsnPosition {
 	floor := cm.promises.GetRecruitBlockedUntil()
 	if floor == nil {
 		return nil
 	}
-	current := consensus.RuleNumberPositionOf(pos.GetPosition())
-	floorPos := consensus.RuleNumberPosition{
+	currentLatest := consensus.RuleNumberPositionOf(pos.GetPosition()).Latest()
+	floorLatest := consensus.RuleNumberPosition{
 		Decision: floor.GetPosition().GetDecision(),
 		Proposal: floor.GetPosition().GetProposal(),
-	}
-	if cmp := current.Compare(floorPos); cmp != 0 {
+	}.Latest()
+	if cmp := consensus.CompareRuleNumbers(currentLatest, floorLatest); cmp != 0 {
 		if cmp > 0 {
 			return nil
 		}

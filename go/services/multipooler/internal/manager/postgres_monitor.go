@@ -102,7 +102,7 @@ func (pm *MultipoolerManager) staleStandbyDemoteTarget() *clustermetadatapb.Pool
 	// this pooler's own last locally-recovered position — that's the sign
 	// that rewinding against it might actually help. A lower or equal
 	// recorded position is stale relative to us and must not trigger a demote.
-	if commonconsensus.CompareRulePosition(rp.GetPosition(), pm.consensusMgr.Rules().CachedPosition().GetPosition()) <= 0 {
+	if commonconsensus.CompareKnowledge(rp.GetPosition(), pm.consensusMgr.Rules().CachedPosition().GetPosition()) <= 0 {
 		return nil
 	}
 	// Don't race a mid-flight Recruit/Propose: skip a revoked rule.

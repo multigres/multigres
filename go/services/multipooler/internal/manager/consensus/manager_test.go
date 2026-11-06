@@ -211,7 +211,7 @@ func TestRecordTermPrimary_ReturnsCopies(t *testing.T) {
 // that write is still in flight, and a second RecordTermPrimary call then
 // upgrades the same rule from Proposal to Decision once the write succeeds.
 // That upgrade must not silently clear rewind_ready, even though
-// CompareRulePosition ranks a decision above its own term's undecided
+// CompareKnowledge ranks a decision above its own term's undecided
 // proposal.
 func TestRecordTermPrimary_RewindReadySurvivesProposalBecomingDecision(t *testing.T) {
 	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p1"}
@@ -306,6 +306,14 @@ func TestRecruitPositionFloorIfOutstanding(t *testing.T) {
 			name:            "DecisionTied_ProposalBehind_Outstanding",
 			floor:           floorAt(5, 7, "0/2000"),
 			pos:             poolerPosAt(5, 6, "0/9999"),
+			wantOutstanding: true,
+		},
+		{
+			// Both sit at latest rule 6, so the node has not regained the WAL the floor
+			// recorded: it learned that rule is decided but is behind the floor's LSN.
+			name:            "LatestRuleTied_DecisionAhead_LSNBehind_Outstanding",
+			floor:           floorAt(5, 6, "0/2000"),
+			pos:             poolerPosAt(6, 0, "0/1000"),
 			wantOutstanding: true,
 		},
 		{

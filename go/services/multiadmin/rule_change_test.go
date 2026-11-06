@@ -225,10 +225,47 @@ func TestProbeMostAdvanced_FailsOnMissingPooler(t *testing.T) {
 	s.SetRPCClient(rpcclient.NewFakeClient())
 
 	cohort := []*clustermetadatapb.ID{poolerID("cell1", "missing")}
-	_, err := s.probeMostAdvanced(ctx, cohort, atLeastN(1))
+	_, _, err := s.probeMostAdvanced(ctx, cohort, atLeastN(1))
 	require.Error(t, err)
 	st, _ := status.FromError(err)
 	assert.Equal(t, codes.NotFound, st.Code())
+}
+
+func TestProbeMostAdvanced_RejectsInvalidDurabilityPolicy(t *testing.T) {
+	s := newTestServer(t)
+	s.SetRPCClient(rpcclient.NewFakeClient())
+
+	invalid := &clustermetadatapb.DurabilityPolicy{QuorumType: clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN}
+	_, _, err := s.probeMostAdvanced(t.Context(), []*clustermetadatapb.ID{poolerID("cell1", "mp1")}, invalid)
+
+	require.Error(t, err)
+	st, _ := status.FromError(err)
+	assert.Equal(t, codes.InvalidArgument, st.Code())
+	assert.Contains(t, st.Message(), "invalid durability_policy")
+}
+
+func TestProbeMostAdvanced_RejectsEmptyLSNOfMostAdvanced(t *testing.T) {
+	ctx := t.Context()
+	s := newTestServer(t)
+	mp1 := makePooler("cell1", "mp1")
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
+	fc := rpcclient.NewFakeClient()
+	fc.SetStatusResponse(mpKey(mp1.Id), &multipoolermanagerdatapb.StatusResponse{
+		ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+			Id: mp1.Id,
+			CurrentPosition: &clustermetadatapb.PoolerPosition{
+				Position: &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3}}},
+			},
+		},
+	})
+	s.SetRPCClient(fc)
+
+	_, _, err := s.probeMostAdvanced(ctx, []*clustermetadatapb.ID{mp1.Id}, atLeastN(1))
+
+	require.Error(t, err)
+	st, _ := status.FromError(err)
+	assert.Equal(t, codes.Unavailable, st.Code())
+	assert.Contains(t, st.Message(), "empty LSN")
 }
 
 func TestProbeMostAdvanced_PicksMostAdvanced(t *testing.T) {
@@ -266,13 +303,60 @@ func TestProbeMostAdvanced_PicksMostAdvanced(t *testing.T) {
 	}
 	s.SetRPCClient(fc)
 
-	best, err := s.probeMostAdvanced(ctx,
+	best, highestDecision, err := s.probeMostAdvanced(ctx,
 		[]*clustermetadatapb.ID{mp1.Id, mp2.Id, mp3.Id},
 		atLeastN(2),
 	)
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), best.GetPosition().GetDecision().GetRuleNumber().GetCoordinatorTerm())
 	assert.Equal(t, "0/200", best.GetLsn())
+	assert.Equal(t, int64(5), highestDecision.GetCoordinatorTerm())
+}
+
+// The member holding the most WAL need not be the one that knows the highest
+// decision: mp1 knows rule 3 is decided, mp2 holds more WAL under rule 3 but
+// still has rule 2 as its decision.
+func TestProbeMostAdvanced_MostWALIsNotHighestDecision(t *testing.T) {
+	ctx := t.Context()
+	s := newTestServer(t)
+
+	mp1 := makePooler("cell1", "mp1")
+	mp2 := makePooler("cell1", "mp2")
+	mp3 := makePooler("cell1", "mp3")
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp1))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp2))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, mp3))
+
+	rule := func(term int64) *clustermetadatapb.ShardRule {
+		return &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term}}
+	}
+	fc := rpcclient.NewFakeClient()
+	for _, p := range []struct {
+		pooler   *clustermetadatapb.Multipooler
+		position *clustermetadatapb.RulePosition
+		lsn      string
+	}{
+		{mp1, &clustermetadatapb.RulePosition{Decision: rule(3)}, "0/100"},
+		{mp2, &clustermetadatapb.RulePosition{Decision: rule(2), Proposal: rule(3)}, "0/200"},
+		{mp3, &clustermetadatapb.RulePosition{Decision: rule(2)}, "0/50"},
+	} {
+		fc.SetStatusResponse(mpKey(p.pooler.Id), &multipoolermanagerdatapb.StatusResponse{
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				Id:              p.pooler.Id,
+				CurrentPosition: &clustermetadatapb.PoolerPosition{Position: p.position, Lsn: p.lsn},
+			},
+		})
+	}
+	s.SetRPCClient(fc)
+
+	best, highestDecision, err := s.probeMostAdvanced(ctx,
+		[]*clustermetadatapb.ID{mp1.Id, mp2.Id, mp3.Id},
+		atLeastN(2),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, "0/200", best.GetLsn(), "the frozen LSN must cover the WAL mp2 holds")
+	assert.Equal(t, int64(3), highestDecision.GetCoordinatorTerm())
 }
 
 func TestProbeMostAdvanced_InsufficientCohortRecruitment(t *testing.T) {
@@ -302,7 +386,7 @@ func TestProbeMostAdvanced_InsufficientCohortRecruitment(t *testing.T) {
 	fc.Errors[mpKey(mp3.Id)] = errors.New("mp3 unreachable")
 	s.SetRPCClient(fc)
 
-	_, err := s.probeMostAdvanced(ctx,
+	_, _, err := s.probeMostAdvanced(ctx,
 		[]*clustermetadatapb.ID{mp1.Id, mp2.Id, mp3.Id},
 		atLeastN(2),
 	)

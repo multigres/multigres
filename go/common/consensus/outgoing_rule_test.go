@@ -54,9 +54,24 @@ func TestObservedOutgoingRule_Revoke_UndecidedProposal(t *testing.T) {
 		require.EqualError(t, err, "insufficient outgoing cohort recruitment: majority not satisfied: recruited 0 of 3 cohort poolers, need at least 2")
 	})
 
-	t.Run("a majority of the decision's cohort is enough", func(t *testing.T) {
-		// A majority of the proposal's five-member cohort is not required.
-		require.NoError(t, proveRevoked(statuses(zone1.a, zone1.b)))
+	t.Run("a majority of the decision's cohort is not enough when the proposal may be decided", func(t *testing.T) {
+		// The proposal may be decided, after which {c, d, e} could commit on their own.
+		err := proveRevoked(statuses(zone1.a, zone1.b))
+		require.EqualError(t, err, "insufficient undecided proposal cohort recruitment: revocation not satisfied: un-recruited cohort poolers [zone1_pooler-c, zone1_pooler-d, zone1_pooler-e] could independently satisfy AT_LEAST_N(N=2)")
+	})
+
+	t.Run("a proposal with an invalid policy is rejected", func(t *testing.T) {
+		invalid := &clustermetadatapb.DurabilityPolicy{QuorumType: clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN}
+		position := &clustermetadatapb.RulePosition{Decision: decision, Proposal: makeRule(ruleNum(3, 1), invalid, zone1.a, zone1.b, zone1.c)}
+		err := proveRevoked([]*clustermetadatapb.ConsensusStatus{
+			makeStatusWithProposal(zone1.a, position, rev, "0/1000000"),
+			makeStatusWithProposal(zone1.b, position, rev, "0/1000000"),
+		})
+		require.EqualError(t, err, "failed to parse durability policy from rule: unsupported quorum type: QUORUM_TYPE_UNKNOWN")
+	})
+
+	t.Run("recruits that leave the proposal's cohort unable to commit are enough", func(t *testing.T) {
+		require.NoError(t, proveRevoked(statuses(zone1.a, zone1.b, zone1.c, zone1.d)))
 	})
 }
 
@@ -368,6 +383,102 @@ func TestRevokedOutgoingRule_MinimumLeaderPositionAndEligibleLeaders(t *testing.
 	}
 }
 
+// A recruit can lead only if it is at or above the minimum leader position and
+// Promote can lead from it: it holds the outgoing rule decided, or can decide it.
+// When no recruit qualifies there is no eligible leader, rather than a fallback.
+func TestRevokedOutgoingRule_EligibleLeadersExcludeLeadersThatCannotDecide(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	rev := revocation(5, ruleNum(3, 1))
+	// Deciding the latest rule needs all three under the stricter "Both" policy, but
+	// only a and b are recruited, so a leader holding it undecided cannot decide it.
+	prior := makeRule(ruleNum(3, 0), atLeast(3), zone1.a, zone1.b, zone1.c)
+	latest := makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c)
+	knowsDecided := &clustermetadatapb.RulePosition{Decision: latest}
+	holdsUndecided := &clustermetadatapb.RulePosition{Decision: prior, Proposal: latest}
+	cohort := []*clustermetadatapb.ID{zone1.a, zone1.b, zone1.c}
+	const cannotDecide = "outgoing proposal cannot be finalized: recruited members cannot satisfy its policy: durability not satisfied: 2 poolers, required 3"
+
+	tests := []struct {
+		name         string
+		recruits     []*clustermetadatapb.ConsensusStatus
+		basis        revocationBasis
+		wantEligible []string
+		wantErr      string
+	}{
+		{
+			// Not normally reachable: deciding the rule writes more WAL, so a recruit
+			// that knows it is decided would sit at a higher LSN than one holding it
+			// undecided. The tie isolates the decide check from the minimum.
+			name: "tied at the minimum, a recruit that cannot decide the rule is not eligible",
+			recruits: []*clustermetadatapb.ConsensusStatus{
+				makeStatusWithProposal(zone1.a, knowsDecided, rev, "0/2000000"),
+				makeStatusWithProposal(zone1.b, holdsUndecided, rev, "0/2000000"),
+			},
+			wantEligible: []string{zone1.a.GetName()},
+		},
+		{
+			// Not reachable today: deciding a rule is itself a WAL write, so any recruit
+			// with more WAL than one that knows the rule is decided knows it too. It
+			// matters once a commit index advances independently of the WAL: a recruit
+			// can then hold more WAL without knowing the rule is decided, and knowing
+			// that must not outrank holding the extra WAL. Here the only recruit at the
+			// minimum cannot decide the rule, so none can lead.
+			name: "a recruit that need not decide the rule but sits below the minimum cannot lead",
+			recruits: []*clustermetadatapb.ConsensusStatus{
+				makeStatusWithProposal(zone1.a, knowsDecided, rev, "0/1000000"),
+				makeStatusWithProposal(zone1.b, holdsUndecided, rev, "0/2000000"),
+			},
+			wantErr: "no recruited node at or above the required position can lead: " + cannotDecide,
+		},
+		{
+			name: "when no recruit can decide the rule, none can lead",
+			recruits: []*clustermetadatapb.ConsensusStatus{
+				makeStatusWithProposal(zone1.a, holdsUndecided, rev, "0/2000000"),
+				makeStatusWithProposal(zone1.b, holdsUndecided, rev, "0/2000000"),
+			},
+			wantErr: "no recruited node at or above the required position can lead: " + cannotDecide,
+		},
+		{
+			// d is outside the policy's cohort and knows the rule is decided, so
+			// excluding b leaves both a and d eligible.
+			name: "a recruit that cannot decide the rule does not exclude the others",
+			recruits: []*clustermetadatapb.ConsensusStatus{
+				makeStatusWithProposal(zone1.a, knowsDecided, rev, "0/2000000"),
+				makeStatusWithProposal(zone1.b, holdsUndecided, rev, "0/2000000"),
+				makeStatusWithProposal(zone1.d, knowsDecided, rev, "0/2000000"),
+			},
+			wantEligible: []string{zone1.a.GetName(), zone1.d.GetName()},
+		},
+		{
+			name: "under a cert nothing needs deciding, so tied recruits all stay eligible",
+			recruits: []*clustermetadatapb.ConsensusStatus{
+				makeStatusWithProposal(zone1.a, knowsDecided, rev, "0/2000000"),
+				makeStatusWithProposal(zone1.b, holdsUndecided, rev, "0/2000000"),
+			},
+			basis:        mustCertBasis(rev, "0/1000000", cohort, atLeast(2)),
+			wantEligible: []string{zone1.a.GetName(), zone1.b.GetName()},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			revoked := mustProveRevoked(t, tt.recruits, ruleNum(3, 1), tt.basis)
+
+			eligible, err := revoked.eligibleLeaders()
+
+			if tt.wantErr != "" {
+				require.EqualError(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			var names []string
+			for _, cs := range eligible {
+				names = append(names, cs.GetId().GetName())
+			}
+			assert.ElementsMatch(t, tt.wantEligible, names)
+		})
+	}
+}
+
 // A cert revokes the outgoing rule without recruiting its cohort; coordinator-led
 // revocation of the same lone recruit is rejected.
 func TestObservedOutgoingRule_Revoke_CertAcceptsWhatRecruitmentRejects(t *testing.T) {
@@ -544,12 +655,114 @@ func TestDiscoverOutgoingRule_InconsistentRecruits(t *testing.T) {
 	require.EqualError(t, err, "recruits zone1_pooler-a and zone1_pooler-b agree on rule number but disagree on content; inconsistent discovery result")
 }
 
-func TestDiscoverOutgoingRulePosition_NoRecruits(t *testing.T) {
-	recruits, position, err := discoverOutgoingRulePosition(nil)
+func TestDiscoverOutgoing(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	rev := revocation(5, ruleNum(3, 1))
+	prior := makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c)
+	latest := makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c)
+	status := func(id *clustermetadatapb.ID, position *clustermetadatapb.RulePosition) *clustermetadatapb.ConsensusStatus {
+		return makeStatusWithProposal(id, position, rev, "0/1000000")
+	}
 
-	require.NoError(t, err)
-	assert.Empty(t, recruits)
-	assert.Nil(t, position)
+	t.Run("no statuses", func(t *testing.T) {
+		view, err := discoverOutgoing(nil)
+
+		require.NoError(t, err)
+		assert.Nil(t, view.base)
+		assert.Nil(t, view.latest)
+		assert.Empty(t, view.holders)
+	})
+
+	t.Run("a rule is held by those that know it is decided and those that do not", func(t *testing.T) {
+		knows := status(zone1.a, &clustermetadatapb.RulePosition{Decision: latest})
+		holds := status(zone1.b, &clustermetadatapb.RulePosition{Decision: prior, Proposal: latest})
+		behind := status(zone1.c, &clustermetadatapb.RulePosition{Decision: prior})
+
+		view, err := discoverOutgoing([]*clustermetadatapb.ConsensusStatus{behind, holds, knows})
+
+		require.NoError(t, err)
+		assert.Equal(t, ruleNum(3, 1), view.latest.GetRuleNumber())
+		assert.Equal(t, ruleNum(3, 1), view.base.GetRuleNumber(), "the highest decision any status knows is the base")
+		assert.True(t, view.transition().IsDecided())
+		require.Len(t, view.holders, 2)
+		assert.Equal(t, zone1.b.GetName(), view.holders[0].GetId().GetName())
+		assert.Equal(t, zone1.a.GetName(), view.holders[1].GetId().GetName())
+	})
+
+	t.Run("an undecided proposal beyond every decision is the transition's proposal", func(t *testing.T) {
+		view, err := discoverOutgoing([]*clustermetadatapb.ConsensusStatus{
+			status(zone1.a, &clustermetadatapb.RulePosition{Decision: prior, Proposal: latest}),
+			status(zone1.b, &clustermetadatapb.RulePosition{Decision: prior}),
+		})
+
+		require.NoError(t, err)
+		assert.False(t, view.transition().IsDecided())
+		assert.Equal(t, ruleNum(3, 0), view.transition().Decision().GetRuleNumber())
+		assert.Equal(t, ruleNum(3, 1), view.transition().Proposal().GetRuleNumber())
+	})
+
+	t.Run("deciding a proposal may rewrite bookkeeping without disagreeing", func(t *testing.T) {
+		decided := proto.Clone(latest).(*clustermetadatapb.ShardRule)
+		decided.CoordinatorId = zone1.c
+
+		_, err := discoverOutgoing([]*clustermetadatapb.ConsensusStatus{
+			status(zone1.a, &clustermetadatapb.RulePosition{Decision: decided}),
+			status(zone1.b, &clustermetadatapb.RulePosition{Decision: prior, Proposal: latest}),
+		})
+
+		require.NoError(t, err)
+	})
+
+	t.Run("a decision that disagrees on content is refused", func(t *testing.T) {
+		other := makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b)
+
+		_, err := discoverOutgoing([]*clustermetadatapb.ConsensusStatus{
+			status(zone1.a, &clustermetadatapb.RulePosition{Decision: prior}),
+			status(zone1.b, &clustermetadatapb.RulePosition{Decision: other}),
+		})
+
+		require.EqualError(t, err, "recruits zone1_pooler-a and zone1_pooler-b agree on rule number but disagree on content; inconsistent discovery result")
+	})
+
+	t.Run("a rule that disagrees on leader or policy is refused", func(t *testing.T) {
+		otherLeader := proto.Clone(prior).(*clustermetadatapb.ShardRule)
+		otherLeader.LeaderId = zone1.b
+		otherPolicy := makeRule(ruleNum(3, 0), atLeast(3), zone1.a, zone1.b, zone1.c)
+		withLeader := proto.Clone(prior).(*clustermetadatapb.ShardRule)
+		withLeader.LeaderId = zone1.a
+
+		for _, tc := range []struct {
+			name  string
+			other *clustermetadatapb.ShardRule
+		}{{"leader", otherLeader}, {"policy", otherPolicy}} {
+			_, err := discoverOutgoing([]*clustermetadatapb.ConsensusStatus{
+				status(zone1.a, &clustermetadatapb.RulePosition{Decision: withLeader}),
+				status(zone1.b, &clustermetadatapb.RulePosition{Decision: tc.other}),
+			})
+
+			require.Error(t, err, tc.name)
+		}
+	})
+
+	t.Run("holders of the latest rule that disagree on content are refused", func(t *testing.T) {
+		other := makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b)
+
+		_, err := discoverOutgoing([]*clustermetadatapb.ConsensusStatus{
+			status(zone1.a, &clustermetadatapb.RulePosition{Decision: prior, Proposal: latest}),
+			status(zone1.b, &clustermetadatapb.RulePosition{Decision: prior, Proposal: other}),
+		})
+
+		require.EqualError(t, err, "recruits zone1_pooler-a and zone1_pooler-b agree on rule number but disagree on content; inconsistent discovery result")
+	})
+
+	t.Run("a decision beyond every recorded rule is refused", func(t *testing.T) {
+		// This node records a proposal older than its own decision.
+		_, err := discoverOutgoing([]*clustermetadatapb.ConsensusStatus{
+			status(zone1.a, &clustermetadatapb.RulePosition{Decision: latest, Proposal: prior}),
+		})
+
+		require.EqualError(t, err, "decision 3.1 is beyond every recorded rule 3.0; inconsistent discovery result")
+	})
 }
 
 func TestRevokedOutgoingRule_MinimumLeaderPosition_NoRecruitRecordsRule(t *testing.T) {
@@ -640,4 +853,69 @@ func TestBuildSafeProposal_UndecidedProposalNotFinalizable(t *testing.T) {
 		makeStatusWithProposal(zone1.b, position, nil, "0/1000000"),
 	}, build)
 	require.EqualError(t, err, wantErr)
+}
+
+func TestRevokedOutgoingRule_CheckLeaderCanDecideProposal(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	rev := revocation(5, ruleNum(3, 1))
+	// Deciding the latest rule needs all three under the stricter "Both" policy.
+	prior := makeRule(ruleNum(3, 0), atLeast(3), zone1.a, zone1.b, zone1.c)
+	latest := makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c)
+	knows := makeStatusWithProposal(zone1.a, &clustermetadatapb.RulePosition{Decision: latest}, rev, "0/1000000")
+	holds := makeStatusWithProposal(zone1.b, &clustermetadatapb.RulePosition{Decision: prior, Proposal: latest}, rev, "0/2000000")
+	check := func(basis revocationBasis, leader *clustermetadatapb.ConsensusStatus) error {
+		observed, err := discoverOutgoingRule([]*clustermetadatapb.ConsensusStatus{knows, holds}, ruleNum(3, 1), basis)
+		require.NoError(t, err)
+		return revokedOutgoingRule{observed}.checkLeaderCanDecideProposal(leader)
+	}
+
+	t.Run("a leader that knows the rule is decided needs nothing", func(t *testing.T) {
+		require.NoError(t, check(revocationBasis{}, knows))
+	})
+
+	t.Run("a leader holding the rule undecided needs the recruits to satisfy Both", func(t *testing.T) {
+		err := check(revocationBasis{}, holds)
+		require.EqualError(t, err, "outgoing proposal cannot be finalized: recruited members cannot satisfy its policy: durability not satisfied: 2 poolers, required 3")
+	})
+
+	t.Run("a certified revocation decides the proposal under the incoming policy", func(t *testing.T) {
+		require.NoError(t, check(revocationBasis{cert: &certBasis{}}, holds))
+	})
+}
+
+func TestRevokedOutgoingRule_EligibleLeaders_NoRecruitRecordsRule(t *testing.T) {
+	revoked := revokedOutgoingRule{observedOutgoingRule{transition: NewRuleTransition(&clustermetadatapb.RulePosition{})}}
+
+	_, err := revoked.eligibleLeaders()
+
+	require.EqualError(t, err, "no recruit records the outgoing rule")
+}
+
+// A leader holding the proposal undecided needs the recruits to satisfy the
+// "Both" policy, which for a multi-cell policy means spanning enough cells.
+func TestRevokedOutgoingRule_CheckLeaderCanDecideProposal_MultiCell(t *testing.T) {
+	zone1, zone2, zone3 := poolerIDs.zone1, poolerIDs.zone2, poolerIDs.zone3
+	rev := revocation(5, ruleNum(3, 1))
+	cohort := []*clustermetadatapb.ID{zone1.a, zone2.a, zone2.b}
+	prior := makeRule(ruleNum(3, 0), multiCell(2), cohort...)
+	// Adding a member keeps the outgoing cohort and policy as the "Both" policy.
+	latest := makeRule(ruleNum(3, 1), multiCell(2), append(cohort, zone3.a)...)
+	position := &clustermetadatapb.RulePosition{Decision: prior, Proposal: latest}
+	check := func(recruited ...*clustermetadatapb.ID) error {
+		var statuses []*clustermetadatapb.ConsensusStatus
+		for _, id := range recruited {
+			statuses = append(statuses, makeStatusWithProposal(id, position, rev, "0/1000000"))
+		}
+		observed, err := discoverOutgoingRule(statuses, ruleNum(3, 1), revocationBasis{})
+		require.NoError(t, err)
+		return revokedOutgoingRule{observed}.checkLeaderCanDecideProposal(statuses[0])
+	}
+
+	t.Run("recruits spanning two cells can decide the proposal", func(t *testing.T) {
+		require.NoError(t, check(zone1.a, zone2.a))
+	})
+
+	t.Run("recruits in one cell cannot", func(t *testing.T) {
+		require.ErrorContains(t, check(zone2.a, zone2.b), "outgoing proposal cannot be finalized: recruited members cannot satisfy its policy")
+	})
 }

@@ -18,6 +18,8 @@ import (
 	"errors"
 	"fmt"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
@@ -38,6 +40,94 @@ type observedOutgoingRule struct {
 	basis revocationBasis
 }
 
+// recruitsRecordingRule returns all recruits that record the outgoing rule,
+// whether or not they know it is decided and whether or not they are members of
+// its cohort.
+func (o observedOutgoingRule) recruitsRecordingRule() []*clustermetadatapb.ConsensusStatus {
+	latest := o.transition.PossiblyUndecidedRule().GetRuleNumber()
+	var recording []*clustermetadatapb.ConsensusStatus
+	for _, cs := range o.recruited {
+		if CompareRuleNumbers(RuleNumberPositionOf(cs.GetCurrentPosition().GetPosition()).Latest(), latest) == 0 {
+			recording = append(recording, cs)
+		}
+	}
+	return recording
+}
+
+// outgoingView is what a set of statuses collectively says about the rule a
+// rule change transitions from. Two independent facts are joined, not read from
+// any one status: which rules are decided (a decision is never forgotten, so
+// this is a maximum) and which rule the WAL records last (what a node holds does
+// not depend on what it knows is decided).
+type outgoingView struct {
+	// base is the highest decision any status knows.
+	base *clustermetadatapb.ShardRule
+	// latest is the newest rule any status records: an undecided proposal beyond
+	// base, or base itself.
+	latest *clustermetadatapb.ShardRule
+	// holders are the statuses that record latest.
+	holders []*clustermetadatapb.ConsensusStatus
+}
+
+// discoverOutgoing joins statuses into an outgoingView. It fails if statuses
+// disagree on the content of a rule they share the number of: that is a data
+// inconsistency the caller cannot safely proceed past.
+func discoverOutgoing(statuses []*clustermetadatapb.ConsensusStatus) (outgoingView, error) {
+	var view outgoingView
+	var baseSource, latestSource *clustermetadatapb.ConsensusStatus
+	for _, cs := range statuses {
+		position := cs.GetCurrentPosition().GetPosition()
+		if baseSource == nil || CompareRuleNumbers(position.GetDecision().GetRuleNumber(), view.base.GetRuleNumber()) > 0 {
+			baseSource, view.base = cs, position.GetDecision()
+		}
+		if latestSource == nil || CompareRuleNumbers(PossiblyUndecidedRule(position).GetRuleNumber(), view.latest.GetRuleNumber()) > 0 {
+			latestSource, view.latest = cs, PossiblyUndecidedRule(position)
+		}
+	}
+	for _, cs := range statuses {
+		position := cs.GetCurrentPosition().GetPosition()
+		if CompareRuleNumbers(position.GetDecision().GetRuleNumber(), view.base.GetRuleNumber()) == 0 &&
+			!sameRuleContent(position.GetDecision(), view.base) {
+			return outgoingView{}, disagreeError(baseSource, cs)
+		}
+		if CompareRuleNumbers(PossiblyUndecidedRule(position).GetRuleNumber(), view.latest.GetRuleNumber()) == 0 {
+			if !sameRuleContent(PossiblyUndecidedRule(position), view.latest) {
+				return outgoingView{}, disagreeError(latestSource, cs)
+			}
+			view.holders = append(view.holders, cs)
+		}
+	}
+	if CompareRuleNumbers(view.base.GetRuleNumber(), view.latest.GetRuleNumber()) > 0 {
+		return outgoingView{}, fmt.Errorf("decision %s is beyond every recorded rule %s; inconsistent discovery result",
+			FormatRuleNumber(view.base.GetRuleNumber()), FormatRuleNumber(view.latest.GetRuleNumber()))
+	}
+	return view, nil
+}
+
+func disagreeError(a, b *clustermetadatapb.ConsensusStatus) error {
+	return fmt.Errorf("recruits %s and %s agree on rule number but disagree on content; inconsistent discovery result",
+		topoclient.ClusterIDString(a.GetId()), topoclient.ClusterIDString(b.GetId()))
+}
+
+// sameRuleContent reports whether two rules with the same number agree on what
+// the protocol acts on: leader, cohort and policy. The coordinator and creation
+// time are bookkeeping that deciding a proposal can rewrite.
+func sameRuleContent(a, b *clustermetadatapb.ShardRule) bool {
+	return idsEqual(a.GetLeaderId(), b.GetLeaderId()) &&
+		sameCohort(a.GetCohortMembers(), b.GetCohortMembers()) &&
+		proto.Equal(a.GetDurabilityPolicy(), b.GetDurabilityPolicy())
+}
+
+// transition reads the view as a RuleTransition: the base decision, plus the
+// latest rule as an undecided proposal when it is beyond the base.
+func (v outgoingView) transition() RuleTransition {
+	position := &clustermetadatapb.RulePosition{Decision: v.base}
+	if CompareRuleNumbers(v.latest.GetRuleNumber(), v.base.GetRuleNumber()) > 0 {
+		position.Proposal = v.latest
+	}
+	return NewRuleTransition(position)
+}
+
 // discoverOutgoingRule finds the outgoing rule among recruited and checks that
 // it is the rule number the revocation expects.
 func discoverOutgoingRule(
@@ -45,11 +135,12 @@ func discoverOutgoingRule(
 	expected *clustermetadatapb.RuleNumber,
 	basis revocationBasis,
 ) (observedOutgoingRule, error) {
-	recruitsRecordingRule, position, err := discoverOutgoingRulePosition(recruited)
+	view, err := discoverOutgoing(recruited)
 	if err != nil {
 		return observedOutgoingRule{}, err
 	}
-	transition := NewRuleTransition(position)
+	recruitsRecordingRule := view.holders
+	transition := view.transition()
 	observed := observedOutgoingRule{recruited: recruited, transition: transition, basis: basis}
 	outgoing := transition.PossiblyUndecidedRule()
 	cmp := CompareRuleNumbers(outgoing.GetRuleNumber(), expected)
@@ -125,10 +216,11 @@ func (o observedOutgoingRule) proveRevokedByCert() error {
 //
 // That is the cohort every competing coordinator recruits for this term,
 // whichever rule it believes is outgoing, so a recruited majority forces
-// overlap with all of them. Its leftovers also cannot commit, so no write that
-// is durable under the outgoing rule is invisible to the recruits: while a
-// proposal is undecided, a write needs the "Both" policy of the decision and the
-// proposal, and the cohort of that policy lies within the decision's.
+// overlap with all of them.
+//
+// An undecided proposal may in fact be decided elsewhere, after which writes
+// commit under its policy alone, so unless the recruits show it cannot have
+// been decided, its cohort must be frozen as well.
 func (o observedOutgoingRule) proveRevokedByRecruitment() error {
 	decision := o.transition.Decision()
 	policy, err := NewPolicyFromProto(decision.GetDurabilityPolicy())
@@ -139,7 +231,51 @@ func (o observedOutgoingRule) proveRevokedByRecruitment() error {
 	if err := CheckSufficientRecruitment(policy, cohort, statusesToIDs(filterCohortStatuses(cohort, o.recruited))); err != nil {
 		return fmt.Errorf("insufficient outgoing cohort recruitment: %w", err)
 	}
+	if o.transition.IsDecided() {
+		return nil
+	}
+	return o.proveProposalFrozen(policy)
+}
+
+// proveProposalFrozen requires the unrecruited members of the undecided
+// proposal's cohort to be unable to commit under its policy, unless the
+// proposal cannot have been decided.
+func (o observedOutgoingRule) proveProposalFrozen(decisionPolicy DurabilityPolicy) error {
+	decision := o.transition.Decision()
+	proposal := o.transition.Proposal()
+	proposalPolicy, err := NewPolicyFromProto(proposal.GetDurabilityPolicy())
+	if err != nil {
+		return fmt.Errorf("failed to parse durability policy from rule: %w", err)
+	}
+	transition, err := BuildPolicyTransition(
+		PolicyWithCohort{Policy: decisionPolicy, Cohort: decision.GetCohortMembers()},
+		PolicyWithCohort{Policy: proposalPolicy, Cohort: proposal.GetCohortMembers()},
+	)
+	if err != nil {
+		// Promote can never decide such a proposal, so nothing can commit under it.
+		// A RecruitmentResult can only be built through checkRecruitsCanFinalizeProposal,
+		// which rejects it.
+		return nil //nolint:nilerr // rejected as undecidable, not by this safety check
+	}
+	if !o.proposalMayBeDecided(transition.Both) {
+		return nil
+	}
+	cohort := proposal.GetCohortMembers()
+	recruited := statusesToIDs(filterCohortStatuses(cohort, o.recruited))
+	if err := checkUnrecruitedCannotCommit(proposalPolicy, cohort, recruited); err != nil {
+		return fmt.Errorf("insufficient undecided proposal cohort recruitment: %w", err)
+	}
 	return nil
+}
+
+// proposalMayBeDecided reports whether the proposal could have been decided
+// under both: only the recruits that record it and the unrecruited members of
+// both's cohort could have acknowledged it. Other recruits are fenced.
+func (o observedOutgoingRule) proposalMayBeDecided(both PolicyWithCohort) bool {
+	recruited := statusesToIDs(filterCohortStatuses(both.Cohort, o.recruited))
+	holders := statusesToIDs(filterCohortStatuses(both.Cohort, o.recruitsRecordingRule()))
+	possible := append(holders, unrecruitedOf(normalizeIDs(both.Cohort), normalizeIDs(recruited))...)
+	return both.Policy.SatisfiedBy(possible) == nil
 }
 
 // finalizableOutgoingRule is a revokedOutgoingRule that the recruits can also
@@ -147,6 +283,10 @@ func (o observedOutgoingRule) proveRevokedByRecruitment() error {
 // built by checkRecruitsCanFinalizeProposal, and a RecruitmentResult can only be
 // built from one, so no proposal is built on a stuck proposal that could never be
 // decided.
+//
+// TODO: "finalize" here means "decide". Rename this and
+// checkRecruitsCanFinalizeProposal to decidableOutgoingRule and
+// checkRecruitsCanDecideProposal, with the other "finalize" names.
 type finalizableOutgoingRule struct {
 	revokedOutgoingRule
 }
@@ -166,32 +306,55 @@ type finalizableOutgoingRule struct {
 //
 // Nothing is required for a decided outgoing rule, or when a cert revokes the
 // rule: the pooler then decides the proposal under the incoming policy instead.
+// A decided outgoing rule can still be undecided on the leader that is chosen;
+// see checkLeaderCanDecideProposal.
 func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal() (finalizableOutgoingRule, error) {
 	if r.transition.IsDecided() || r.basis.cert != nil {
 		return finalizableOutgoingRule{r}, nil
 	}
-	decision := r.transition.Decision()
+	if err := r.canDecide(r.transition); err != nil {
+		return finalizableOutgoingRule{}, err
+	}
+	return finalizableOutgoingRule{r}, nil
+}
+
+// checkLeaderCanDecideProposal is checkRecruitsCanFinalizeProposal for the
+// rule as the chosen leader records it. A recruit can lead while recording the
+// outgoing rule as an undecided proposal even though another recruit knows it is
+// decided, and Promote on that leader must finish deciding it first.
+func (r revokedOutgoingRule) checkLeaderCanDecideProposal(leader *clustermetadatapb.ConsensusStatus) error {
+	leaderTransition := NewRuleTransition(leader.GetCurrentPosition().GetPosition())
+	if leaderTransition.IsDecided() || r.basis.cert != nil {
+		return nil
+	}
+	return r.canDecide(leaderTransition)
+}
+
+// canDecide checks that the recruits can satisfy the "Both" policy of t's
+// decision and proposal, which Promote needs to decide the proposal.
+func (r revokedOutgoingRule) canDecide(t RuleTransition) error {
+	decision := t.Decision()
 	decisionPolicy, err := NewPolicyFromProto(decision.GetDurabilityPolicy())
 	if err != nil {
-		return finalizableOutgoingRule{}, fmt.Errorf("failed to parse durability policy from decision: %w", err)
+		return fmt.Errorf("failed to parse durability policy from decision: %w", err)
 	}
-	proposal := r.transition.PossiblyUndecidedRule()
+	proposal := t.PossiblyUndecidedRule()
 	proposalPolicy, err := NewPolicyFromProto(proposal.GetDurabilityPolicy())
 	if err != nil {
-		return finalizableOutgoingRule{}, fmt.Errorf("failed to parse durability policy from rule: %w", err)
+		return fmt.Errorf("failed to parse durability policy from rule: %w", err)
 	}
 	transition, err := BuildPolicyTransition(
 		PolicyWithCohort{Policy: decisionPolicy, Cohort: decision.GetCohortMembers()},
 		PolicyWithCohort{Policy: proposalPolicy, Cohort: proposal.GetCohortMembers()},
 	)
 	if err != nil {
-		return finalizableOutgoingRule{}, fmt.Errorf("outgoing proposal cannot be finalized: %w", err)
+		return fmt.Errorf("outgoing proposal cannot be finalized: %w", err)
 	}
 	reachable := statusesToIDs(filterCohortStatuses(transition.Both.Cohort, r.recruited))
 	if err := transition.Both.Policy.SatisfiedBy(reachable); err != nil {
-		return finalizableOutgoingRule{}, fmt.Errorf("outgoing proposal cannot be finalized: recruited members cannot satisfy its policy: %w", err)
+		return fmt.Errorf("outgoing proposal cannot be finalized: recruited members cannot satisfy its policy: %w", err)
 	}
-	return finalizableOutgoingRule{r}, nil
+	return nil
 }
 
 // minimumLeaderPosition is the lowest position a leader may have: one at or above
@@ -209,7 +372,7 @@ func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal() (finalizableOutg
 func (r revokedOutgoingRule) minimumLeaderPosition() (*clustermetadatapb.PoolerPosition, error) {
 	var minimum *clustermetadatapb.PoolerPosition
 	for _, cs := range r.recruited {
-		if position := cs.GetCurrentPosition(); minimum == nil || ComparePoolerPosition(position, minimum) > 0 {
+		if position := cs.GetCurrentPosition(); minimum == nil || CompareWALProgress(position, minimum) > 0 {
 			minimum = position
 		}
 	}
@@ -218,32 +381,47 @@ func (r revokedOutgoingRule) minimumLeaderPosition() (*clustermetadatapb.PoolerP
 	}
 	if cert := r.basis.cert; cert != nil {
 		frozen := &clustermetadatapb.PoolerPosition{Position: r.transition.Position(), Lsn: cert.frozenLSN.String()}
-		if ComparePoolerPosition(frozen, minimum) > 0 {
+		if CompareWALProgress(frozen, minimum) > 0 {
 			minimum = frozen
 		}
 	}
 	return minimum, nil
 }
 
-// eligibleLeaders returns the recruits at or above the minimum
-// leader position. Only recruits can lead: Promote needs a recruit still in
-// force, which proves the pooler is reachable and fenced and which later events,
-// such as a restore, invalidate.
+// eligibleLeaders returns the recruits that can lead: those at or above the
+// minimum leader position, and that Promote can lead from (see
+// checkLeaderCanDecideProposal). Only recruits can lead: Promote needs a recruit
+// still in force, which proves the pooler is reachable and fenced and which later
+// events, such as a restore, invalidate.
 func (r revokedOutgoingRule) eligibleLeaders() ([]*clustermetadatapb.ConsensusStatus, error) {
 	minimum, err := r.minimumLeaderPosition()
 	if err != nil {
 		return nil, err
 	}
 	var eligible []*clustermetadatapb.ConsensusStatus
+	// The first reason a recruit at or above the minimum can't lead. It is only
+	// reported if no recruit can lead, and is arbitrary: other recruits may have
+	// failed for other reasons.
+	var firstCannotDecide error
 	for _, cs := range r.recruited {
-		if ComparePoolerPosition(cs.GetCurrentPosition(), minimum) >= 0 {
-			eligible = append(eligible, cs)
+		if CompareWALProgress(cs.GetCurrentPosition(), minimum) < 0 {
+			continue
 		}
+		if err := r.checkLeaderCanDecideProposal(cs); err != nil {
+			if firstCannotDecide == nil {
+				firstCannotDecide = err
+			}
+			continue
+		}
+		eligible = append(eligible, cs)
 	}
-	if len(eligible) == 0 {
-		// Only a cert's frozen LSN above every recruit leaves none: otherwise the
-		// minimum is itself a recruit's position.
-		return nil, fmt.Errorf("no recruited nodes at or above the required LSN %s", minimum.GetLsn())
+	if len(eligible) > 0 {
+		return eligible, nil
 	}
-	return eligible, nil
+	if firstCannotDecide != nil {
+		return nil, fmt.Errorf("no recruited node at or above the required position can lead: %w", firstCannotDecide)
+	}
+	// Only a cert's frozen LSN above every recruit leaves none: otherwise the
+	// minimum is itself a recruit's position.
+	return nil, fmt.Errorf("no recruited nodes at or above the required LSN %s", minimum.GetLsn())
 }

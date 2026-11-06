@@ -84,9 +84,9 @@ func (t RuleTransition) IntendedLeaderID() *clustermetadatapb.ID {
 }
 
 // Compare returns negative, zero or positive as t is behind, equal to, or ahead
-// of other. See CompareRulePosition for the ordering.
+// of other. See CompareKnowledge for the ordering.
 func (t RuleTransition) Compare(other RuleTransition) int {
-	return CompareRulePosition(t.pos, other.pos)
+	return CompareKnowledge(t.pos, other.pos)
 }
 
 // IsRevokedBy reports whether revocation revokes this transition's rule. See
