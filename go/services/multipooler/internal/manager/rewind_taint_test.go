@@ -85,12 +85,14 @@ func TestFirstModifiedSince(t *testing.T) {
 		require.Error(t, err)
 	})
 
-	t.Run("an entry that disappears below the root is tolerated", func(t *testing.T) {
+	t.Run("a symlink whose target is gone is an error, not proof that nothing changed", func(t *testing.T) {
+		// A tablespace or pg_wal volume that dropped out after the rewind wrote to it.
 		dir := newAgedDataDir(t)
 		require.NoError(t, os.Symlink(filepath.Join(dir, "missing"), filepath.Join(dir, "dangling")))
 		old := time.Now().Add(-time.Hour)
 		require.NoError(t, os.Chtimes(dir, old, old))
-		assert.Empty(t, scan(t, dir))
+		_, err := firstModifiedSince(dir, ref, filepath.Join(dir, autoConfFileName))
+		require.Error(t, err)
 	})
 
 	t.Run("a symlink target that cannot be inspected is an error", func(t *testing.T) {
@@ -143,7 +145,6 @@ func TestFirstModifiedSince(t *testing.T) {
 
 	t.Run("symlinks that do not point to a directory are not followed", func(t *testing.T) {
 		dir := newAgedDataDir(t)
-		require.NoError(t, os.Symlink(filepath.Join(dir, "missing"), filepath.Join(dir, "dangling")))
 		require.NoError(t, os.Symlink(filepath.Join(dir, "base/1/16384"), filepath.Join(dir, "filelink")))
 		old := time.Now().Add(-time.Hour)
 		require.NoError(t, os.Chtimes(dir, old, old)) // creating the links touched it
@@ -529,6 +530,28 @@ func TestSettleRewindAttempt_WaitsForPgRewindToExit(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, tainted)
 		requirePresent(t, pm.rewindTainted(), true, "")
+		requirePresent(t, pm.rewindAttempt(), true, "kept: a pg_rewind that is still running can delete the verdict")
+
+		// The lingering pg_rewind deletes the verdict, as it does any file only the
+		// target has, and a later settle derives and records it again.
+		require.NoError(t, pm.rewindTainted().remove())
+		tainted, err = pm.settleRewindAttempt(t.Context())
+		require.NoError(t, err)
+		assert.True(t, tainted)
+		requirePresent(t, pm.rewindTainted(), true, "derived again from the kept attempt marker")
+	})
+
+	t.Run("a confirmed exit consumes the attempt marker after recording the verdict", func(t *testing.T) {
+		dir := newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		setWait(t, 50*time.Millisecond)
+		require.NoError(t, pm.rewindAttempt().write())
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "base/1/16384"), []byte("x"), 0o600))
+
+		tainted, err := pm.settleRewindAttempt(t.Context())
+		require.NoError(t, err)
+		assert.True(t, tainted)
+		requirePresent(t, pm.rewindAttempt(), false, "the verdict is durable, so the marker is consumed")
 	})
 
 	t.Run("a cancelled caller context does not cut the wait short", func(t *testing.T) {
@@ -723,5 +746,28 @@ func TestRewindSettleFailures(t *testing.T) {
 
 		_, err := pm.discoverPostgresState(t.Context())
 		require.ErrorContains(t, err, "check rewind taint marker")
+	})
+
+	t.Run("discovery reports the verdict when pgctld is unreachable", func(t *testing.T) {
+		newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		pm.pgctldClient = &mockPgctldClient{statusError: errors.New("pgctld unreachable")}
+		require.NoError(t, pm.rewindTainted().write())
+
+		state, err := pm.discoverPostgresState(t.Context())
+		require.NoError(t, err, "the verdict needs no pgctld")
+		require.True(t, state.rewindTaintedPresent)
+		assert.Equal(t, remedialActionQuarantineTaintedRewind, pm.determineRemedialAction(t.Context(), state))
+	})
+
+	t.Run("discovery reports the verdict when there is no pgctld client", func(t *testing.T) {
+		newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		pm.pgctldClient = nil
+		require.NoError(t, pm.rewindTainted().write())
+
+		state, err := pm.discoverPostgresState(t.Context())
+		require.NoError(t, err)
+		assert.True(t, state.rewindTaintedPresent)
 	})
 }
