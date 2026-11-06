@@ -47,17 +47,37 @@ def run_fixture(*extra, fail=False):
             )
         profile = module / "coverage.txt"
         raw = Path(directory) / "raw.jsonl"
-        command = ["go", "test", *FLAGS, "-short", "-count=1", "-cover",
-                   "-covermode=atomic", f"-coverprofile={profile}", *extra, "."]
+        command = [
+            "go",
+            "test",
+            *FLAGS,
+            "-short",
+            "-count=1",
+            "-cover",
+            "-covermode=atomic",
+            f"-coverprofile={profile}",
+            *extra,
+            ".",
+        ]
         # Match the driver's pipefail/tee/consumer arrangement. The consumer here
         # is cat rather than tparse: this test checks JSON framing and Go status.
         result = subprocess.run(
-            ["bash", "-c", 'set -o pipefail; "$@" | tee "$RAW" | cat',
-             "coverage-fixture", *command],
+            [
+                "bash",
+                "-c",
+                'set -o pipefail; "$@" | tee "$RAW" | cat',
+                "coverage-fixture",
+                *command,
+            ],
             cwd=module,
-            env={**os.environ, "RAW": str(raw),
-                 "REPORTING_FIXTURE_FAIL": "1" if fail else "0"},
-            capture_output=True, text=True, check=False,
+            env={
+                **os.environ,
+                "RAW": str(raw),
+                "REPORTING_FIXTURE_FAIL": "1" if fail else "0",
+            },
+            capture_output=True,
+            text=True,
+            check=False,
         )
         events = [json.loads(line) for line in raw.read_text().splitlines()]
         coverage = profile.read_text()
@@ -87,15 +107,20 @@ class CoverageReportingTest(unittest.TestCase):
         status, events, profile = run_fixture()
         self.assertEqual(status, 0)
         results = strict_results(events)
-        for name in ("TestProgress", "TestSubtests", "TestSubtests/first",
-                     "TestSubtests/second"):
+        for name in (
+            "TestProgress",
+            "TestSubtests",
+            "TestSubtests/first",
+            "TestSubtests/second",
+        ):
             self.assertEqual(results[name]["Action"], "pass")
         self.assertEqual(results["TestSkip"]["Action"], "skip")
         self.assertEqual(events[-1]["Action"], "pass")
         self.assertIn("progress.go:", profile)
         self.assertTrue(profile.startswith("mode: atomic\n"))
-        self.assertTrue(any(int(line.split()[-1]) > 0
-                            for line in profile.splitlines()[1:]))
+        self.assertTrue(
+            any(int(line.split()[-1]) > 0 for line in profile.splitlines()[1:])
+        )
 
     def test_negative_control_explicit_verbose_loses_terminal(self):
         """Demonstrate the old flag combination corrupts terminal events."""
@@ -104,8 +129,13 @@ class CoverageReportingTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "missing elapsed"):
             strict_results(events)
         # Confirm why: testing's PASS text was swallowed by unframed progress.
-        self.assertTrue(any("progress without a newline...--- PASS: TestProgress"
-                            in event.get("Output", "") for event in events))
+        self.assertTrue(
+            any(
+                "progress without a newline...--- PASS: TestProgress"
+                in event.get("Output", "")
+                for event in events
+            )
+        )
 
     def test_failure_and_pipeline_status_are_preserved(self):
         """Keep real failures and the nonzero pipeline status visible."""
@@ -113,8 +143,10 @@ class CoverageReportingTest(unittest.TestCase):
         self.assertNotEqual(status, 0)
         self.assertEqual(strict_results(events)["TestFailure"]["Action"], "fail")
         self.assertEqual(events[-1]["Action"], "fail")
-        self.assertIn("fixture failure must remain visible",
-                      "".join(event.get("Output", "") for event in events))
+        self.assertIn(
+            "fixture failure must remain visible",
+            "".join(event.get("Output", "") for event in events),
+        )
         self.assertTrue(profile.startswith("mode: atomic\n"))
 
     def test_no_repair_of_truncation_or_missing_elapsed(self):
