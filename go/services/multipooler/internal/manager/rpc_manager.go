@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -1293,17 +1294,20 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 	if dryRunResp.Output != "" && strings.Contains(dryRunResp.Output, "servers diverged at") {
 		pm.logger.InfoContext(ctx, "servers diverged, running pg_rewind with -R flag")
 
+		runID := uuid.NewString()
 		rewindReq := &pgctldpb.PgRewindRequest{
 			SourceHost:      sourceHost,
 			SourcePort:      sourcePort,
 			DryRun:          false,
 			ApplicationName: pid.AppName(),
 			ExtraArgs:       append([]string{"-R"}, rewindExtraArgs...),
+			RunId:           runID,
 		}
 		// The reference for telling, after a failure, whether pg_rewind modified the
-		// data directory (see rewind_sentinel.go). It is written after the dry-run
+		// data directory (see rewind_sentinel.go), carrying the run id that is
+		// fenced before the directory is judged. It is written after the dry-run
 		// so that the crash recovery done there is not mistaken for the rewind.
-		if err := pm.rewindAttempt().write(); err != nil {
+		if err := pm.rewindAttemptFor(runID).write(); err != nil {
 			return false, mterrors.Wrap(err, "failed to write rewind attempt marker before pg_rewind")
 		}
 		rewindStart := time.Now()
