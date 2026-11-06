@@ -653,19 +653,26 @@ func (pm *MultipoolerManager) getPrimaryStatusInternal(ctx context.Context) (*mu
 	status.SyncReplicationConfig = syncConfig
 	status.MaxWalSenders = maxWalSenders
 
-	// The leader's own first-hand view of its heartbeat writer's last
-	// proven-quorum-acked write, available even when no follower is reachable
-	// to relay the replicated row.
-	if pm.replTracker != nil {
-		if writer := pm.replTracker.HeartbeatWriter(); writer != nil {
-			if lsn, ts, ok := writer.LastProven(); ok {
-				status.QuorumCommitLsn = lsn.String()
-				status.QuorumCommitTs = timestamppb.New(ts)
-			}
-		}
-	}
+	pm.setLeaderQuorumCommitProof(status)
 
 	return status, nil
+}
+
+// setLeaderQuorumCommitProof sets the leader's own first-hand view of its heartbeat
+// writer's last proven-quorum-acked write, available even when no follower is reachable
+// to relay the replicated row. Withheld while the heartbeat table is incompatible: the
+// writer cannot refresh the proof then, so it would only age and be read as a stalled
+// quorum (see pg_heartbeat_schema.go).
+func (pm *MultipoolerManager) setLeaderQuorumCommitProof(status *multipoolermanagerdatapb.PrimaryStatus) {
+	if pm.replTracker == nil || pm.heartbeatSchemaBroken() {
+		return
+	}
+	if writer := pm.replTracker.HeartbeatWriter(); writer != nil {
+		if lsn, ts, ok := writer.LastProven(); ok {
+			status.QuorumCommitLsn = lsn.String()
+			status.QuorumCommitTs = timestamppb.New(ts)
+		}
+	}
 }
 
 // writeHeartbeatForAckedProposal writes a heartbeat that records a quorum-acked rule

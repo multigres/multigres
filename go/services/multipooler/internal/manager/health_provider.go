@@ -351,6 +351,9 @@ func (pm *MultipoolerManager) runHealthHeartbeat(ctx context.Context, interval t
 			} else if pm.metrics != nil {
 				pm.metrics.failoverSlotReadinessSnapshot.Store(nil)
 			}
+			// Re-check the heartbeat table when the writer or reader has hit a schema
+			// error, or while the last check found it incompatible.
+			pm.maybeRefreshHeartbeatSchema(ctx)
 			pm.broadcastHealth()
 		}
 	}
