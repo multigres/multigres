@@ -107,6 +107,9 @@ func (c *Conn) maybeHandleProxyProtocol() (err error) {
 }
 
 func (l *Listener) trustsProxy(addr netip.Addr) bool {
+	if len(l.trustedProxyCIDRs) == 0 {
+		return true
+	}
 	for _, prefix := range l.trustedProxyCIDRs {
 		if prefix.Contains(addr.Unmap()) {
 			return true

@@ -38,7 +38,7 @@
 //     anything: the peer is speaking TLS, so a plaintext ErrorResponse
 //     would be unintelligible garbage. PostgreSQL also rejects silently.
 //
-// This is the server half of the Envoy SSLRequest-offload model (MINT-37):
+// This is the server half of the proxy SSLRequest-offload model:
 // an edge proxy can answer the client's SSLRequest itself and forward the
 // raw TLS byte stream, which the gateway then sees as a direct TLS
 // connection. Enable TLSOffload for clients that do not send ALPN.

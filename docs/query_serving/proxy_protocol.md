@@ -2,21 +2,22 @@
 
 Multigateway can accept optional PROXY protocol v2 headers before PostgreSQL negotiation or TLS. These headers carry the original client address across a TCP proxy. The primary and replica listeners use the same configuration.
 
-By default, Multigateway rejects PROXY headers. `--pg-trusted-proxy-cidrs` accepts a comma-separated list of trusted proxy networks in CIDR notation, which describes an IP address range. Multigateway tests the immediate TCP peer against these ranges before it reads a header.
+By default, Multigateway accepts PROXY headers from any TCP peer and relies on network access controls for trust. Use this mode when the network restricts access to trusted proxies and clients.
+
+The optional `--pg-trusted-proxy-cidrs` flag restricts which TCP peers can send a PROXY header. It accepts a comma-separated list of networks in CIDR notation, which describes an IP address range. When the list is set, Multigateway tests the immediate TCP peer against these ranges before it reads a header.
 
 ```sh
 multigateway \
   --pg-tls-cert-file=/certs/server.crt \
   --pg-tls-key-file=/certs/server.key \
-  --pg-trusted-proxy-cidrs=10.0.0.10/32,fd00::10/128 \
   --pg-tls-offload
 ```
 
-Replace the example addresses with the addresses of your trusted Envoy proxies. Restrict network access so that untrusted workloads cannot use those source addresses. Any trusted peer can claim another client address through a PROXY header.
+To restrict proxy peers, add `--pg-trusted-proxy-cidrs=10.0.0.10/32,fd00::10/128` with the addresses of your proxies. Any accepted peer can claim another client address through a PROXY header. Without a CIDR restriction, network access controls determine which peers can make that claim.
 
-`--pg-tls-offload` permits TLS without ALPN, the protocol name in the TLS handshake, after a trusted header supplies a client address. Use it when Envoy answers SSLRequest and forwards the TLS bytes directly. The flag requires TLS certificates and at least one trusted proxy range. A conflicting ALPN value remains invalid.
+`--pg-tls-offload` permits TLS without ALPN, the protocol name in the TLS handshake, after a trusted header supplies a client address. Use it when a proxy answers SSLRequest and forwards the TLS bytes directly. The flag requires TLS certificates. Proxy CIDRs are optional, and TLS offload remains disabled by default. A conflicting ALPN value remains invalid.
 
-PROXY v2 does not say whether Envoy answered SSLRequest. The exception therefore covers both direct and negotiated clients forwarded by a trusted proxy. Keep this mode on an endpoint dedicated to PostgreSQL traffic.
+PROXY v2 does not say whether a proxy answered SSLRequest. The exception therefore covers both direct and negotiated clients forwarded by a trusted proxy. Keep this mode on an endpoint dedicated to PostgreSQL traffic.
 
 Clients without a PROXY header retain their existing behavior. They can send a normal SSLRequest or a permitted plaintext startup. Direct TLS without a header still requires `postgresql` ALPN. `LOCAL` and `UNSPEC` headers retain the TCP peer address and do not enable the ALPN exception.
 

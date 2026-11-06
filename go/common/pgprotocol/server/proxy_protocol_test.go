@@ -55,25 +55,28 @@ func TestProxyProtocolParsing(t *testing.T) {
 	for _, tt := range []struct {
 		name      string
 		header    []byte
-		trusted   bool
+		proxyCIDR string
 		remote    string
 		wantError bool
 	}{
-		{"IPv4", v4, true, "192.0.2.10:45678", false},
-		{"IPv6", v6, true, "[2001:db8::1]:45678", false},
-		{"TLV", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), 4, 0, 2, 1, 2)), true, "192.0.2.10:45678", false},
-		{"headerless", nil, true, "127.0.0.1:1234", false},
-		{"disabled", nil, false, "127.0.0.1:1234", false},
-		{"untrusted", v4, false, "", true},
-		{"LOCAL", proxyTestHeader(0x20, 0xff, []byte{1, 2, 3}), true, "127.0.0.1:1234", false},
-		{"UNSPEC", proxyTestHeader(0x21, 0, nil), true, "127.0.0.1:1234", false},
-		{"version", proxyTestHeader(0x31, 0x11, proxyTestAddress(false)), true, "", true},
-		{"command", proxyTestHeader(0x22, 0x11, proxyTestAddress(false)), true, "", true},
-		{"UDP", proxyTestHeader(0x21, 0x12, proxyTestAddress(false)), true, "", true},
-		{"short address", proxyTestHeader(0x21, 0x11, []byte{1}), true, "", true},
-		{"short TLV", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), 1)), true, "", true},
-		{"long TLV", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), 1, 0, 8)), true, "", true},
-		{"signature", []byte("\rxxxxxxxxxxxxxxx"), true, "", true},
+		{"IPv4", v4, "127.0.0.1/32", "192.0.2.10:45678", false},
+		{"IPv6", v6, "127.0.0.1/32", "[2001:db8::1]:45678", false},
+		{"unrestricted IPv4", v4, "", "192.0.2.10:45678", false},
+		{"unrestricted IPv6", v6, "", "[2001:db8::1]:45678", false},
+		{"TLV", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), 4, 0, 2, 1, 2)), "127.0.0.1/32", "192.0.2.10:45678", false},
+		{"headerless", nil, "127.0.0.1/32", "127.0.0.1:1234", false},
+		{"unrestricted headerless", nil, "", "127.0.0.1:1234", false},
+		{"headerless outside CIDRs", nil, "192.0.2.0/24", "127.0.0.1:1234", false},
+		{"untrusted", v4, "192.0.2.0/24", "", true},
+		{"LOCAL", proxyTestHeader(0x20, 0xff, []byte{1, 2, 3}), "127.0.0.1/32", "127.0.0.1:1234", false},
+		{"UNSPEC", proxyTestHeader(0x21, 0, nil), "127.0.0.1/32", "127.0.0.1:1234", false},
+		{"version", proxyTestHeader(0x31, 0x11, proxyTestAddress(false)), "", "", true},
+		{"command", proxyTestHeader(0x22, 0x11, proxyTestAddress(false)), "", "", true},
+		{"UDP", proxyTestHeader(0x21, 0x12, proxyTestAddress(false)), "", "", true},
+		{"short address", proxyTestHeader(0x21, 0x11, []byte{1}), "", "", true},
+		{"short TLV", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), 1)), "", "", true},
+		{"long TLV", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), 1, 0, 8)), "", "", true},
+		{"signature", []byte("\rxxxxxxxxxxxxxxx"), "", "", true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, fragmented := range []bool{false, true} {
@@ -84,8 +87,8 @@ func TestProxyProtocolParsing(t *testing.T) {
 					reader = iotest.OneByteReader(reader)
 				}
 				l := &Listener{}
-				if tt.trusted {
-					l.trustedProxyCIDRs = []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}
+				if tt.proxyCIDR != "" {
+					l.trustedProxyCIDRs = []netip.Prefix{netip.MustParsePrefix(tt.proxyCIDR)}
 				}
 				c := &Conn{
 					listener: l, logger: testLogger(t), bufferedReader: bufio.NewReader(reader),
@@ -117,19 +120,20 @@ func TestProxyProtocolParsing(t *testing.T) {
 
 func TestProxyProtocolTLSOffload(t *testing.T) {
 	for _, tt := range []struct {
-		name                     string
-		offload, header, classic bool
-		alpn                     []string
-		success                  bool
+		name                                    string
+		offload, header, classic, restrictProxy bool
+		alpn                                    []string
+		success                                 bool
 	}{
-		{"offloaded", true, true, false, nil, true},
-		{"offloaded ALPN", true, true, false, []string{protocol.ALPNProtocol}, true},
-		{"offload disabled", false, true, false, nil, false},
-		{"direct no header", true, false, false, nil, false},
-		{"direct ALPN", true, false, false, []string{protocol.ALPNProtocol}, true},
-		{"classic direct", true, false, true, nil, true},
-		{"classic proxied", true, true, true, nil, true},
-		{"wrong negotiated ALPN", true, true, false, []string{"h2"}, false},
+		{"offloaded with CIDRs", true, true, false, true, nil, true},
+		{"offloaded without CIDRs", true, true, false, false, nil, true},
+		{"offloaded ALPN", true, true, false, false, []string{protocol.ALPNProtocol}, true},
+		{"offload disabled", false, true, false, false, nil, false},
+		{"direct no header", true, false, false, false, nil, false},
+		{"direct ALPN", true, false, false, false, []string{protocol.ALPNProtocol}, true},
+		{"classic direct", true, false, true, false, nil, true},
+		{"classic proxied", true, true, true, false, nil, true},
+		{"wrong negotiated ALPN", true, true, false, false, []string{"h2"}, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tlsConfig, ca := generateTestTLSConfig(t)
@@ -138,7 +142,9 @@ func TestProxyProtocolTLSOffload(t *testing.T) {
 			ln, errCh := startDirectTLSServer(t, tlsConfig, func(c *Conn) {
 				serverConn = c
 				c.listener.tlsOffload = tt.offload
-				c.listener.trustedProxyCIDRs = []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}
+				if tt.restrictProxy {
+					c.listener.trustedProxyCIDRs = []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}
+				}
 			})
 			raw, err := net.Dial("tcp", ln.Addr().String())
 			require.NoError(t, err)
@@ -172,7 +178,7 @@ func TestProxyProtocolConfiguration(t *testing.T) {
 	for _, cfg := range []ListenerConfig{
 		{TrustedProxyCIDRs: []string{"invalid"}},
 		{TLSOffload: true},
-		{TLSOffload: true, TLSConfig: &tls.Config{}},
+		{TLSOffload: true, TLSConfig: &tls.Config{}, TrustedProxyCIDRs: []string{"invalid"}},
 		{TLSOffload: true, TrustedProxyCIDRs: []string{"127.0.0.1/32"}},
 	} {
 		cfg.Handler = &mockHandler{}
@@ -180,6 +186,13 @@ func TestProxyProtocolConfiguration(t *testing.T) {
 		_, err := NewListener(cfg)
 		require.Error(t, err)
 	}
+	l, err := NewListener(ListenerConfig{
+		Address: "127.0.0.1:0", Handler: &mockHandler{},
+		CredentialProvider: newMockCredentialProvider("postgres"),
+		TLSOffload:         true, TLSConfig: &tls.Config{},
+	})
+	require.NoError(t, err)
+	require.NoError(t, l.Close())
 }
 
 func TestProxyProtocolStartupDeadline(t *testing.T) {

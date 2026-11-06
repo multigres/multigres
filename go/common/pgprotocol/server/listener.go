@@ -200,13 +200,13 @@ type ListenerConfig struct {
 	// plaintext (matches libpq behavior). Requires TLSConfig != nil.
 	RequireTLS bool
 
-	// TrustedProxyCIDRs permits optional PROXY protocol v2 headers from these
-	// immediate TCP peers. Empty disables PROXY headers. Headerless clients
-	// remain supported. Only include addresses exclusively used by trusted proxies.
+	// TrustedProxyCIDRs restricts PROXY protocol v2 headers to these immediate
+	// TCP peers. Empty accepts headers from any TCP peer and relies on network
+	// access controls for trust. Headerless clients remain supported.
 	TrustedProxyCIDRs []string
 
 	// TLSOffload permits direct TLS without ALPN after a trusted PROXY v2
-	// header supplies a client address. Requires TLS and TrustedProxyCIDRs.
+	// header supplies a client address. Requires TLS. TrustedProxyCIDRs is optional.
 	// Use only behind a proxy that performs PostgreSQL SSL negotiation.
 	TLSOffload bool
 
@@ -255,8 +255,8 @@ func NewListener(config ListenerConfig) (*Listener, error) {
 		}
 		trustedProxyCIDRs = append(trustedProxyCIDRs, prefix.Masked())
 	}
-	if config.TLSOffload && (config.TLSConfig == nil || len(trustedProxyCIDRs) == 0) {
-		return nil, errors.New("TLSOffload requires TLSConfig and TrustedProxyCIDRs")
+	if config.TLSOffload && config.TLSConfig == nil {
+		return nil, errors.New("TLSOffload requires TLSConfig")
 	}
 
 	netListener, err := net.Listen("tcp", config.Address)
