@@ -24,6 +24,7 @@ import (
 	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	multipoolerservice "github.com/multigres/multigres/go/pb/multipoolerservice"
 	http "net/http"
 	strings "strings"
@@ -67,6 +68,9 @@ const (
 	// MultipoolerServiceGetAuthCredentialsProcedure is the fully-qualified name of the
 	// MultipoolerService's GetAuthCredentials RPC.
 	MultipoolerServiceGetAuthCredentialsProcedure = "/multipoolerservice.MultipoolerService/GetAuthCredentials"
+	// MultipoolerServiceGetRoutingSnapshotProcedure is the fully-qualified name of the
+	// MultipoolerService's GetRoutingSnapshot RPC.
+	MultipoolerServiceGetRoutingSnapshotProcedure = "/multipoolerservice.MultipoolerService/GetRoutingSnapshot"
 	// MultipoolerServiceCopyBidiExecuteProcedure is the fully-qualified name of the
 	// MultipoolerService's CopyBidiExecute RPC.
 	MultipoolerServiceCopyBidiExecuteProcedure = "/multipoolerservice.MultipoolerService/CopyBidiExecute"
@@ -117,6 +121,12 @@ type MultipoolerServiceClient interface {
 	// an up-to-date cache of all password hashes and by real-time updates from multipooler
 	// when any credentials change.
 	GetAuthCredentials(context.Context, *connect.Request[multipoolerservice.GetAuthCredentialsRequest]) (*connect.Response[multipoolerservice.GetAuthCredentialsResponse], error)
+	// GetRoutingSnapshot returns a database's routing rules and routing version,
+	// read in one consistent snapshot of its catalog. Gateways poll it. Served
+	// only by the primary of the default tablegroup, which holds the catalog;
+	// any other pooler returns UNAVAILABLE. It is control traffic: it never
+	// goes through query admission.
+	GetRoutingSnapshot(context.Context, *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error)
 	// CopyBidiExecute handles bidirectional streaming operations (e.g., COPY commands).
 	// The gateway sends the initial command and then streams data/messages.
 	// The pooler responds with protocol-specific messages and final result.
@@ -207,6 +217,12 @@ func NewMultipoolerServiceClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(multipoolerServiceMethods.ByName("GetAuthCredentials")),
 			connect.WithClientOptions(opts...),
 		),
+		getRoutingSnapshot: connect.NewClient[multipoolermanagerdata.GetRoutingSnapshotRequest, multipoolermanagerdata.GetRoutingSnapshotResponse](
+			httpClient,
+			baseURL+MultipoolerServiceGetRoutingSnapshotProcedure,
+			connect.WithSchema(multipoolerServiceMethods.ByName("GetRoutingSnapshot")),
+			connect.WithClientOptions(opts...),
+		),
 		copyBidiExecute: connect.NewClient[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse](
 			httpClient,
 			baseURL+MultipoolerServiceCopyBidiExecuteProcedure,
@@ -260,6 +276,7 @@ type multipoolerServiceClient struct {
 	portalStreamExecute       *connect.Client[multipoolerservice.PortalStreamExecuteRequest, multipoolerservice.PortalStreamExecuteResponse]
 	describe                  *connect.Client[multipoolerservice.DescribeRequest, multipoolerservice.DescribeResponse]
 	getAuthCredentials        *connect.Client[multipoolerservice.GetAuthCredentialsRequest, multipoolerservice.GetAuthCredentialsResponse]
+	getRoutingSnapshot        *connect.Client[multipoolermanagerdata.GetRoutingSnapshotRequest, multipoolermanagerdata.GetRoutingSnapshotResponse]
 	copyBidiExecute           *connect.Client[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse]
 	streamReplication         *connect.Client[multipoolerservice.StreamReplicationRequest, multipoolerservice.StreamReplicationResponse]
 	concludeTransaction       *connect.Client[multipoolerservice.ConcludeTransactionRequest, multipoolerservice.ConcludeTransactionResponse]
@@ -297,6 +314,11 @@ func (c *multipoolerServiceClient) Describe(ctx context.Context, req *connect.Re
 // GetAuthCredentials calls multipoolerservice.MultipoolerService.GetAuthCredentials.
 func (c *multipoolerServiceClient) GetAuthCredentials(ctx context.Context, req *connect.Request[multipoolerservice.GetAuthCredentialsRequest]) (*connect.Response[multipoolerservice.GetAuthCredentialsResponse], error) {
 	return c.getAuthCredentials.CallUnary(ctx, req)
+}
+
+// GetRoutingSnapshot calls multipoolerservice.MultipoolerService.GetRoutingSnapshot.
+func (c *multipoolerServiceClient) GetRoutingSnapshot(ctx context.Context, req *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error) {
+	return c.getRoutingSnapshot.CallUnary(ctx, req)
 }
 
 // CopyBidiExecute calls multipoolerservice.MultipoolerService.CopyBidiExecute.
@@ -362,6 +384,12 @@ type MultipoolerServiceHandler interface {
 	// an up-to-date cache of all password hashes and by real-time updates from multipooler
 	// when any credentials change.
 	GetAuthCredentials(context.Context, *connect.Request[multipoolerservice.GetAuthCredentialsRequest]) (*connect.Response[multipoolerservice.GetAuthCredentialsResponse], error)
+	// GetRoutingSnapshot returns a database's routing rules and routing version,
+	// read in one consistent snapshot of its catalog. Gateways poll it. Served
+	// only by the primary of the default tablegroup, which holds the catalog;
+	// any other pooler returns UNAVAILABLE. It is control traffic: it never
+	// goes through query admission.
+	GetRoutingSnapshot(context.Context, *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error)
 	// CopyBidiExecute handles bidirectional streaming operations (e.g., COPY commands).
 	// The gateway sends the initial command and then streams data/messages.
 	// The pooler responds with protocol-specific messages and final result.
@@ -448,6 +476,12 @@ func NewMultipoolerServiceHandler(svc MultipoolerServiceHandler, opts ...connect
 		connect.WithSchema(multipoolerServiceMethods.ByName("GetAuthCredentials")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multipoolerServiceGetRoutingSnapshotHandler := connect.NewUnaryHandler(
+		MultipoolerServiceGetRoutingSnapshotProcedure,
+		svc.GetRoutingSnapshot,
+		connect.WithSchema(multipoolerServiceMethods.ByName("GetRoutingSnapshot")),
+		connect.WithHandlerOptions(opts...),
+	)
 	multipoolerServiceCopyBidiExecuteHandler := connect.NewBidiStreamHandler(
 		MultipoolerServiceCopyBidiExecuteProcedure,
 		svc.CopyBidiExecute,
@@ -504,6 +538,8 @@ func NewMultipoolerServiceHandler(svc MultipoolerServiceHandler, opts ...connect
 			multipoolerServiceDescribeHandler.ServeHTTP(w, r)
 		case MultipoolerServiceGetAuthCredentialsProcedure:
 			multipoolerServiceGetAuthCredentialsHandler.ServeHTTP(w, r)
+		case MultipoolerServiceGetRoutingSnapshotProcedure:
+			multipoolerServiceGetRoutingSnapshotHandler.ServeHTTP(w, r)
 		case MultipoolerServiceCopyBidiExecuteProcedure:
 			multipoolerServiceCopyBidiExecuteHandler.ServeHTTP(w, r)
 		case MultipoolerServiceStreamReplicationProcedure:
@@ -549,6 +585,10 @@ func (UnimplementedMultipoolerServiceHandler) Describe(context.Context, *connect
 
 func (UnimplementedMultipoolerServiceHandler) GetAuthCredentials(context.Context, *connect.Request[multipoolerservice.GetAuthCredentialsRequest]) (*connect.Response[multipoolerservice.GetAuthCredentialsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.GetAuthCredentials is not implemented"))
+}
+
+func (UnimplementedMultipoolerServiceHandler) GetRoutingSnapshot(context.Context, *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolerservice.MultipoolerService.GetRoutingSnapshot is not implemented"))
 }
 
 func (UnimplementedMultipoolerServiceHandler) CopyBidiExecute(context.Context, *connect.BidiStream[multipoolerservice.CopyBidiExecuteRequest, multipoolerservice.CopyBidiExecuteResponse]) error {

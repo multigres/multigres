@@ -615,6 +615,61 @@ func (TableGroupState) EnumDescriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{9}
 }
 
+// RoutingRuleScope is the kind of a routing rule.
+type RoutingRuleScope int32
+
+const (
+	RoutingRuleScope_ROUTING_RULE_SCOPE_UNSPECIFIED RoutingRuleScope = 0
+	// A shard rule: the routing identifiers of the source tablegroup that fall
+	// in the target shard's range are served by that shard. Applied when a query
+	// executes.
+	RoutingRuleScope_ROUTING_RULE_SCOPE_TABLEGROUP RoutingRuleScope = 1
+	// A table rule: the table is planned as a member of the target tablegroup.
+	// Applied when a query is planned.
+	RoutingRuleScope_ROUTING_RULE_SCOPE_TABLE RoutingRuleScope = 2
+)
+
+// Enum value maps for RoutingRuleScope.
+var (
+	RoutingRuleScope_name = map[int32]string{
+		0: "ROUTING_RULE_SCOPE_UNSPECIFIED",
+		1: "ROUTING_RULE_SCOPE_TABLEGROUP",
+		2: "ROUTING_RULE_SCOPE_TABLE",
+	}
+	RoutingRuleScope_value = map[string]int32{
+		"ROUTING_RULE_SCOPE_UNSPECIFIED": 0,
+		"ROUTING_RULE_SCOPE_TABLEGROUP":  1,
+		"ROUTING_RULE_SCOPE_TABLE":       2,
+	}
+)
+
+func (x RoutingRuleScope) Enum() *RoutingRuleScope {
+	p := new(RoutingRuleScope)
+	*p = x
+	return p
+}
+
+func (x RoutingRuleScope) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RoutingRuleScope) Descriptor() protoreflect.EnumDescriptor {
+	return file_multipoolermanagerdata_proto_enumTypes[10].Descriptor()
+}
+
+func (RoutingRuleScope) Type() protoreflect.EnumType {
+	return &file_multipoolermanagerdata_proto_enumTypes[10]
+}
+
+func (x RoutingRuleScope) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RoutingRuleScope.Descriptor instead.
+func (RoutingRuleScope) EnumDescriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{10}
+}
+
 // Status represents the state of a backup
 type BackupMetadata_Status int32
 
@@ -649,11 +704,11 @@ func (x BackupMetadata_Status) String() string {
 }
 
 func (BackupMetadata_Status) Descriptor() protoreflect.EnumDescriptor {
-	return file_multipoolermanagerdata_proto_enumTypes[10].Descriptor()
+	return file_multipoolermanagerdata_proto_enumTypes[11].Descriptor()
 }
 
 func (BackupMetadata_Status) Type() protoreflect.EnumType {
-	return &file_multipoolermanagerdata_proto_enumTypes[10]
+	return &file_multipoolermanagerdata_proto_enumTypes[11]
 }
 
 func (x BackupMetadata_Status) Number() protoreflect.EnumNumber {
@@ -4041,6 +4096,722 @@ func (x *TableGroup) GetShards() []string {
 	return nil
 }
 
+// RoutingTableName names a table by schema and name.
+type RoutingTableName struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Schema        string                 `protobuf:"bytes,1,opt,name=schema,proto3" json:"schema,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RoutingTableName) Reset() {
+	*x = RoutingTableName{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RoutingTableName) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RoutingTableName) ProtoMessage() {}
+
+func (x *RoutingTableName) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RoutingTableName.ProtoReflect.Descriptor instead.
+func (*RoutingTableName) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *RoutingTableName) GetSchema() string {
+	if x != nil {
+		return x.Schema
+	}
+	return ""
+}
+
+func (x *RoutingTableName) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+// RoutingRule is one rule of a database's routing: traffic the catalog would
+// send to the source is served by the target while the owning operation runs.
+// A gateway applies a rule as a single hop on top of the catalog; a rule's
+// target is never routed again.
+type RoutingRule struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// rule_id identifies the rule within its database's catalog.
+	RuleId int64 `protobuf:"varint,1,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`
+	// operation_id is the operation that owns the rule (a UUID).
+	OperationId string           `protobuf:"bytes,2,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	Scope       RoutingRuleScope `protobuf:"varint,3,opt,name=scope,proto3,enum=multipoolermanagerdata.RoutingRuleScope" json:"scope,omitempty"`
+	// from_tablegroup is the tablegroup whose traffic the rule overrides.
+	FromTablegroup string `protobuf:"bytes,4,opt,name=from_tablegroup,json=fromTablegroup,proto3" json:"from_tablegroup,omitempty"`
+	// from_table is the overridden table. Set only for table rules.
+	FromTable *RoutingTableName `protobuf:"bytes,5,opt,name=from_table,json=fromTable,proto3" json:"from_table,omitempty"`
+	// to_tablegroup is the tablegroup that serves the traffic.
+	ToTablegroup string `protobuf:"bytes,6,opt,name=to_tablegroup,json=toTablegroup,proto3" json:"to_tablegroup,omitempty"`
+	// to_shard is the shard that serves the traffic. Set only for shard rules;
+	// the rule covers exactly this shard's range.
+	ToShard string `protobuf:"bytes,7,opt,name=to_shard,json=toShard,proto3" json:"to_shard,omitempty"`
+	// to_key_range is to_shard's key range. An unset start or end is unbounded.
+	ToKeyRange *clustermetadata.KeyRange `protobuf:"bytes,8,opt,name=to_key_range,json=toKeyRange,proto3" json:"to_key_range,omitempty"`
+	// to_shard_key is the name of the table's shard key in the target
+	// tablegroup. Set only for table rules that change the key.
+	ToShardKey string `protobuf:"bytes,9,opt,name=to_shard_key,json=toShardKey,proto3" json:"to_shard_key,omitempty"`
+	// created_version is the routing version that introduced the rule.
+	CreatedVersion int64 `protobuf:"varint,10,opt,name=created_version,json=createdVersion,proto3" json:"created_version,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *RoutingRule) Reset() {
+	*x = RoutingRule{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RoutingRule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RoutingRule) ProtoMessage() {}
+
+func (x *RoutingRule) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RoutingRule.ProtoReflect.Descriptor instead.
+func (*RoutingRule) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *RoutingRule) GetRuleId() int64 {
+	if x != nil {
+		return x.RuleId
+	}
+	return 0
+}
+
+func (x *RoutingRule) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *RoutingRule) GetScope() RoutingRuleScope {
+	if x != nil {
+		return x.Scope
+	}
+	return RoutingRuleScope_ROUTING_RULE_SCOPE_UNSPECIFIED
+}
+
+func (x *RoutingRule) GetFromTablegroup() string {
+	if x != nil {
+		return x.FromTablegroup
+	}
+	return ""
+}
+
+func (x *RoutingRule) GetFromTable() *RoutingTableName {
+	if x != nil {
+		return x.FromTable
+	}
+	return nil
+}
+
+func (x *RoutingRule) GetToTablegroup() string {
+	if x != nil {
+		return x.ToTablegroup
+	}
+	return ""
+}
+
+func (x *RoutingRule) GetToShard() string {
+	if x != nil {
+		return x.ToShard
+	}
+	return ""
+}
+
+func (x *RoutingRule) GetToKeyRange() *clustermetadata.KeyRange {
+	if x != nil {
+		return x.ToKeyRange
+	}
+	return nil
+}
+
+func (x *RoutingRule) GetToShardKey() string {
+	if x != nil {
+		return x.ToShardKey
+	}
+	return ""
+}
+
+func (x *RoutingRule) GetCreatedVersion() int64 {
+	if x != nil {
+		return x.CreatedVersion
+	}
+	return 0
+}
+
+// ShardRoutingRuleSpec requests a shard rule by name: the routing identifiers
+// of from_tablegroup in to_shard's range are served by to_shard of
+// to_tablegroup.
+type ShardRoutingRuleSpec struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	FromTablegroup string                 `protobuf:"bytes,1,opt,name=from_tablegroup,json=fromTablegroup,proto3" json:"from_tablegroup,omitempty"`
+	ToTablegroup   string                 `protobuf:"bytes,2,opt,name=to_tablegroup,json=toTablegroup,proto3" json:"to_tablegroup,omitempty"`
+	ToShard        string                 `protobuf:"bytes,3,opt,name=to_shard,json=toShard,proto3" json:"to_shard,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ShardRoutingRuleSpec) Reset() {
+	*x = ShardRoutingRuleSpec{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ShardRoutingRuleSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ShardRoutingRuleSpec) ProtoMessage() {}
+
+func (x *ShardRoutingRuleSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ShardRoutingRuleSpec.ProtoReflect.Descriptor instead.
+func (*ShardRoutingRuleSpec) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *ShardRoutingRuleSpec) GetFromTablegroup() string {
+	if x != nil {
+		return x.FromTablegroup
+	}
+	return ""
+}
+
+func (x *ShardRoutingRuleSpec) GetToTablegroup() string {
+	if x != nil {
+		return x.ToTablegroup
+	}
+	return ""
+}
+
+func (x *ShardRoutingRuleSpec) GetToShard() string {
+	if x != nil {
+		return x.ToShard
+	}
+	return ""
+}
+
+// GetRoutingSnapshotRequest asks the catalog primary for a database's routing.
+type GetRoutingSnapshotRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// database must be the database the pooler serves.
+	Database string `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
+	// since_version is the routing version the caller already holds, or 0.
+	// Reserved for incremental snapshots; the full snapshot is returned today.
+	SinceVersion  int64 `protobuf:"varint,2,opt,name=since_version,json=sinceVersion,proto3" json:"since_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetRoutingSnapshotRequest) Reset() {
+	*x = GetRoutingSnapshotRequest{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetRoutingSnapshotRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetRoutingSnapshotRequest) ProtoMessage() {}
+
+func (x *GetRoutingSnapshotRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetRoutingSnapshotRequest.ProtoReflect.Descriptor instead.
+func (*GetRoutingSnapshotRequest) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *GetRoutingSnapshotRequest) GetDatabase() string {
+	if x != nil {
+		return x.Database
+	}
+	return ""
+}
+
+func (x *GetRoutingSnapshotRequest) GetSinceVersion() int64 {
+	if x != nil {
+		return x.SinceVersion
+	}
+	return 0
+}
+
+// GetRoutingSnapshotResponse is a database's routing, read in one consistent
+// snapshot of its catalog.
+type GetRoutingSnapshotResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// routing_version increases with every change to effective routing.
+	RoutingVersion int64 `protobuf:"varint,1,opt,name=routing_version,json=routingVersion,proto3" json:"routing_version,omitempty"`
+	// plan_epoch increases when the inputs of query plans change.
+	PlanEpoch int64 `protobuf:"varint,2,opt,name=plan_epoch,json=planEpoch,proto3" json:"plan_epoch,omitempty"`
+	// full is set when rules holds every rule rather than changes since
+	// since_version. Always set today.
+	Full bool `protobuf:"varint,3,opt,name=full,proto3" json:"full,omitempty"`
+	// rules are the routing rules, in rule_id order.
+	Rules         []*RoutingRule `protobuf:"bytes,4,rep,name=rules,proto3" json:"rules,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetRoutingSnapshotResponse) Reset() {
+	*x = GetRoutingSnapshotResponse{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[55]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetRoutingSnapshotResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetRoutingSnapshotResponse) ProtoMessage() {}
+
+func (x *GetRoutingSnapshotResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[55]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetRoutingSnapshotResponse.ProtoReflect.Descriptor instead.
+func (*GetRoutingSnapshotResponse) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{55}
+}
+
+func (x *GetRoutingSnapshotResponse) GetRoutingVersion() int64 {
+	if x != nil {
+		return x.RoutingVersion
+	}
+	return 0
+}
+
+func (x *GetRoutingSnapshotResponse) GetPlanEpoch() int64 {
+	if x != nil {
+		return x.PlanEpoch
+	}
+	return 0
+}
+
+func (x *GetRoutingSnapshotResponse) GetFull() bool {
+	if x != nil {
+		return x.Full
+	}
+	return false
+}
+
+func (x *GetRoutingSnapshotResponse) GetRules() []*RoutingRule {
+	if x != nil {
+		return x.Rules
+	}
+	return nil
+}
+
+// SetRoutingRulesRequest replaces every routing rule of an operation.
+type SetRoutingRulesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// database must be the database the pooler serves.
+	Database string `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
+	// operation_id is the operation that owns the rules (a UUID). It must exist
+	// and not have finished: its state is neither done nor failed (see
+	// OperationState).
+	OperationId string `protobuf:"bytes,2,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	// rules are the operation's new rules. Shard rules only for now. No other
+	// unfinished operation may act on a tablegroup they route from or to.
+	Rules []*ShardRoutingRuleSpec `protobuf:"bytes,3,rep,name=rules,proto3" json:"rules,omitempty"`
+	// expected_routing_version is the routing version the change is based on.
+	// A change already in effect succeeds whatever its value.
+	ExpectedRoutingVersion int64 `protobuf:"varint,4,opt,name=expected_routing_version,json=expectedRoutingVersion,proto3" json:"expected_routing_version,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *SetRoutingRulesRequest) Reset() {
+	*x = SetRoutingRulesRequest{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[56]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetRoutingRulesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetRoutingRulesRequest) ProtoMessage() {}
+
+func (x *SetRoutingRulesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[56]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetRoutingRulesRequest.ProtoReflect.Descriptor instead.
+func (*SetRoutingRulesRequest) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{56}
+}
+
+func (x *SetRoutingRulesRequest) GetDatabase() string {
+	if x != nil {
+		return x.Database
+	}
+	return ""
+}
+
+func (x *SetRoutingRulesRequest) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *SetRoutingRulesRequest) GetRules() []*ShardRoutingRuleSpec {
+	if x != nil {
+		return x.Rules
+	}
+	return nil
+}
+
+func (x *SetRoutingRulesRequest) GetExpectedRoutingVersion() int64 {
+	if x != nil {
+		return x.ExpectedRoutingVersion
+	}
+	return 0
+}
+
+// SetRoutingRulesResponse returns the routing version after the change.
+type SetRoutingRulesResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	RoutingVersion int64                  `protobuf:"varint,1,opt,name=routing_version,json=routingVersion,proto3" json:"routing_version,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *SetRoutingRulesResponse) Reset() {
+	*x = SetRoutingRulesResponse{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[57]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetRoutingRulesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetRoutingRulesResponse) ProtoMessage() {}
+
+func (x *SetRoutingRulesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[57]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetRoutingRulesResponse.ProtoReflect.Descriptor instead.
+func (*SetRoutingRulesResponse) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{57}
+}
+
+func (x *SetRoutingRulesResponse) GetRoutingVersion() int64 {
+	if x != nil {
+		return x.RoutingVersion
+	}
+	return 0
+}
+
+// DeleteRoutingRulesRequest deletes every routing rule of an operation.
+type DeleteRoutingRulesRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// database must be the database the pooler serves.
+	Database string `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
+	// operation_id is the operation that owns the rules (a UUID).
+	OperationId string `protobuf:"bytes,2,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	// expected_routing_version is the routing version the change is based on.
+	// Deleting the rules of an operation that has none succeeds whatever its
+	// value.
+	ExpectedRoutingVersion int64 `protobuf:"varint,3,opt,name=expected_routing_version,json=expectedRoutingVersion,proto3" json:"expected_routing_version,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *DeleteRoutingRulesRequest) Reset() {
+	*x = DeleteRoutingRulesRequest{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[58]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteRoutingRulesRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteRoutingRulesRequest) ProtoMessage() {}
+
+func (x *DeleteRoutingRulesRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[58]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteRoutingRulesRequest.ProtoReflect.Descriptor instead.
+func (*DeleteRoutingRulesRequest) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{58}
+}
+
+func (x *DeleteRoutingRulesRequest) GetDatabase() string {
+	if x != nil {
+		return x.Database
+	}
+	return ""
+}
+
+func (x *DeleteRoutingRulesRequest) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *DeleteRoutingRulesRequest) GetExpectedRoutingVersion() int64 {
+	if x != nil {
+		return x.ExpectedRoutingVersion
+	}
+	return 0
+}
+
+// DeleteRoutingRulesResponse returns the routing version after the change.
+type DeleteRoutingRulesResponse struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	RoutingVersion int64                  `protobuf:"varint,1,opt,name=routing_version,json=routingVersion,proto3" json:"routing_version,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *DeleteRoutingRulesResponse) Reset() {
+	*x = DeleteRoutingRulesResponse{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[59]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeleteRoutingRulesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeleteRoutingRulesResponse) ProtoMessage() {}
+
+func (x *DeleteRoutingRulesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[59]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeleteRoutingRulesResponse.ProtoReflect.Descriptor instead.
+func (*DeleteRoutingRulesResponse) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{59}
+}
+
+func (x *DeleteRoutingRulesResponse) GetRoutingVersion() int64 {
+	if x != nil {
+		return x.RoutingVersion
+	}
+	return 0
+}
+
+// EnsureImportTargetRequest creates, if they do not exist, an import
+// operation and the tablegroup it imports into, with its single 0-inf shard.
+type EnsureImportTargetRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// database must be the database the pooler serves.
+	Database string `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
+	// operation_id is the import operation (a UUID).
+	OperationId string `protobuf:"bytes,2,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	// tablegroup is the tablegroup the import serves the source database from.
+	// It may not be the default tablegroup, nor one another unfinished
+	// operation acts on, such as a tablegroup being created.
+	Tablegroup    string `protobuf:"bytes,3,opt,name=tablegroup,proto3" json:"tablegroup,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EnsureImportTargetRequest) Reset() {
+	*x = EnsureImportTargetRequest{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[60]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnsureImportTargetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnsureImportTargetRequest) ProtoMessage() {}
+
+func (x *EnsureImportTargetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[60]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EnsureImportTargetRequest.ProtoReflect.Descriptor instead.
+func (*EnsureImportTargetRequest) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{60}
+}
+
+func (x *EnsureImportTargetRequest) GetDatabase() string {
+	if x != nil {
+		return x.Database
+	}
+	return ""
+}
+
+func (x *EnsureImportTargetRequest) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *EnsureImportTargetRequest) GetTablegroup() string {
+	if x != nil {
+		return x.Tablegroup
+	}
+	return ""
+}
+
+// EnsureImportTargetResponse confirms the operation, the tablegroup and its
+// shard exist.
+type EnsureImportTargetResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EnsureImportTargetResponse) Reset() {
+	*x = EnsureImportTargetResponse{}
+	mi := &file_multipoolermanagerdata_proto_msgTypes[61]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnsureImportTargetResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnsureImportTargetResponse) ProtoMessage() {}
+
+func (x *EnsureImportTargetResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_multipoolermanagerdata_proto_msgTypes[61]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EnsureImportTargetResponse.ProtoReflect.Descriptor instead.
+func (*EnsureImportTargetResponse) Descriptor() ([]byte, []int) {
+	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{61}
+}
+
 var File_multipoolermanagerdata_proto protoreflect.FileDescriptor
 
 const file_multipoolermanagerdata_proto_rawDesc = "" +
@@ -4271,7 +5042,58 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\rtablegroup_id\x18\x01 \x01(\x03R\ftablegroupId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12=\n" +
 	"\x05state\x18\x03 \x01(\x0e2'.multipoolermanagerdata.TableGroupStateR\x05state\x12\x16\n" +
-	"\x06shards\x18\x04 \x03(\tR\x06shards*\xa4\x01\n" +
+	"\x06shards\x18\x04 \x03(\tR\x06shards\">\n" +
+	"\x10RoutingTableName\x12\x16\n" +
+	"\x06schema\x18\x01 \x01(\tR\x06schema\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\xc3\x03\n" +
+	"\vRoutingRule\x12\x17\n" +
+	"\arule_id\x18\x01 \x01(\x03R\x06ruleId\x12!\n" +
+	"\foperation_id\x18\x02 \x01(\tR\voperationId\x12>\n" +
+	"\x05scope\x18\x03 \x01(\x0e2(.multipoolermanagerdata.RoutingRuleScopeR\x05scope\x12'\n" +
+	"\x0ffrom_tablegroup\x18\x04 \x01(\tR\x0efromTablegroup\x12G\n" +
+	"\n" +
+	"from_table\x18\x05 \x01(\v2(.multipoolermanagerdata.RoutingTableNameR\tfromTable\x12#\n" +
+	"\rto_tablegroup\x18\x06 \x01(\tR\ftoTablegroup\x12\x19\n" +
+	"\bto_shard\x18\a \x01(\tR\atoShard\x12;\n" +
+	"\fto_key_range\x18\b \x01(\v2\x19.clustermetadata.KeyRangeR\n" +
+	"toKeyRange\x12 \n" +
+	"\fto_shard_key\x18\t \x01(\tR\n" +
+	"toShardKey\x12'\n" +
+	"\x0fcreated_version\x18\n" +
+	" \x01(\x03R\x0ecreatedVersion\"\x7f\n" +
+	"\x14ShardRoutingRuleSpec\x12'\n" +
+	"\x0ffrom_tablegroup\x18\x01 \x01(\tR\x0efromTablegroup\x12#\n" +
+	"\rto_tablegroup\x18\x02 \x01(\tR\ftoTablegroup\x12\x19\n" +
+	"\bto_shard\x18\x03 \x01(\tR\atoShard\"\\\n" +
+	"\x19GetRoutingSnapshotRequest\x12\x1a\n" +
+	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12#\n" +
+	"\rsince_version\x18\x02 \x01(\x03R\fsinceVersion\"\xb3\x01\n" +
+	"\x1aGetRoutingSnapshotResponse\x12'\n" +
+	"\x0frouting_version\x18\x01 \x01(\x03R\x0eroutingVersion\x12\x1d\n" +
+	"\n" +
+	"plan_epoch\x18\x02 \x01(\x03R\tplanEpoch\x12\x12\n" +
+	"\x04full\x18\x03 \x01(\bR\x04full\x129\n" +
+	"\x05rules\x18\x04 \x03(\v2#.multipoolermanagerdata.RoutingRuleR\x05rules\"\xd5\x01\n" +
+	"\x16SetRoutingRulesRequest\x12\x1a\n" +
+	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12!\n" +
+	"\foperation_id\x18\x02 \x01(\tR\voperationId\x12B\n" +
+	"\x05rules\x18\x03 \x03(\v2,.multipoolermanagerdata.ShardRoutingRuleSpecR\x05rules\x128\n" +
+	"\x18expected_routing_version\x18\x04 \x01(\x03R\x16expectedRoutingVersion\"B\n" +
+	"\x17SetRoutingRulesResponse\x12'\n" +
+	"\x0frouting_version\x18\x01 \x01(\x03R\x0eroutingVersion\"\x94\x01\n" +
+	"\x19DeleteRoutingRulesRequest\x12\x1a\n" +
+	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12!\n" +
+	"\foperation_id\x18\x02 \x01(\tR\voperationId\x128\n" +
+	"\x18expected_routing_version\x18\x03 \x01(\x03R\x16expectedRoutingVersion\"E\n" +
+	"\x1aDeleteRoutingRulesResponse\x12'\n" +
+	"\x0frouting_version\x18\x01 \x01(\x03R\x0eroutingVersion\"z\n" +
+	"\x19EnsureImportTargetRequest\x12\x1a\n" +
+	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12!\n" +
+	"\foperation_id\x18\x02 \x01(\tR\voperationId\x12\x1e\n" +
+	"\n" +
+	"tablegroup\x18\x03 \x01(\tR\n" +
+	"tablegroup\"\x1c\n" +
+	"\x1aEnsureImportTargetResponse*\xa4\x01\n" +
 	"\x0ePostgresStatus\x12\x1b\n" +
 	"\x17POSTGRES_STATUS_UNKNOWN\x10\x00\x12\x1c\n" +
 	"\x18POSTGRES_STATUS_STARTING\x10\x01\x12\x1b\n" +
@@ -4321,7 +5143,11 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x0fTableGroupState\x12!\n" +
 	"\x1dTABLE_GROUP_STATE_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aTABLE_GROUP_STATE_CREATING\x10\x01\x12\x1c\n" +
-	"\x18TABLE_GROUP_STATE_ACTIVE\x10\x02B=Z;github.com/multigres/multigres/go/pb/multipoolermanagerdatab\x06proto3"
+	"\x18TABLE_GROUP_STATE_ACTIVE\x10\x02*w\n" +
+	"\x10RoutingRuleScope\x12\"\n" +
+	"\x1eROUTING_RULE_SCOPE_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dROUTING_RULE_SCOPE_TABLEGROUP\x10\x01\x12\x1c\n" +
+	"\x18ROUTING_RULE_SCOPE_TABLE\x10\x02B=Z;github.com/multigres/multigres/go/pb/multipoolermanagerdatab\x06proto3"
 
 var (
 	file_multipoolermanagerdata_proto_rawDescOnce sync.Once
@@ -4335,8 +5161,8 @@ func file_multipoolermanagerdata_proto_rawDescGZIP() []byte {
 	return file_multipoolermanagerdata_proto_rawDescData
 }
 
-var file_multipoolermanagerdata_proto_enumTypes = make([]protoimpl.EnumInfo, 11)
-var file_multipoolermanagerdata_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
+var file_multipoolermanagerdata_proto_enumTypes = make([]protoimpl.EnumInfo, 12)
+var file_multipoolermanagerdata_proto_msgTypes = make([]protoimpl.MessageInfo, 65)
 var file_multipoolermanagerdata_proto_goTypes = []any{
 	(PostgresStatus)(0),                         // 0: multipoolermanagerdata.PostgresStatus
 	(PostgresAction)(0),                         // 1: multipoolermanagerdata.PostgresAction
@@ -4348,139 +5174,157 @@ var file_multipoolermanagerdata_proto_goTypes = []any{
 	(OperationKind)(0),                          // 7: multipoolermanagerdata.OperationKind
 	(OperationState)(0),                         // 8: multipoolermanagerdata.OperationState
 	(TableGroupState)(0),                        // 9: multipoolermanagerdata.TableGroupState
-	(BackupMetadata_Status)(0),                  // 10: multipoolermanagerdata.BackupMetadata.Status
-	(*PrimaryConnInfo)(nil),                     // 11: multipoolermanagerdata.PrimaryConnInfo
-	(*StandbyReplicationStatus)(nil),            // 12: multipoolermanagerdata.StandbyReplicationStatus
-	(*WaitForLSNRequest)(nil),                   // 13: multipoolermanagerdata.WaitForLSNRequest
-	(*WaitForLSNResponse)(nil),                  // 14: multipoolermanagerdata.WaitForLSNResponse
-	(*StartReplicationRequest)(nil),             // 15: multipoolermanagerdata.StartReplicationRequest
-	(*StartReplicationResponse)(nil),            // 16: multipoolermanagerdata.StartReplicationResponse
-	(*StopReplicationRequest)(nil),              // 17: multipoolermanagerdata.StopReplicationRequest
-	(*StopReplicationResponse)(nil),             // 18: multipoolermanagerdata.StopReplicationResponse
-	(*SynchronousReplicationConfiguration)(nil), // 19: multipoolermanagerdata.SynchronousReplicationConfiguration
-	(*PrimaryStatus)(nil),                       // 20: multipoolermanagerdata.PrimaryStatus
-	(*Status)(nil),                              // 21: multipoolermanagerdata.Status
-	(*StatusRequest)(nil),                       // 22: multipoolermanagerdata.StatusRequest
-	(*StatusResponse)(nil),                      // 23: multipoolermanagerdata.StatusResponse
-	(*ManagerHealthStreamClientMessage)(nil),    // 24: multipoolermanagerdata.ManagerHealthStreamClientMessage
-	(*ManagerHealthStreamStartRequest)(nil),     // 25: multipoolermanagerdata.ManagerHealthStreamStartRequest
-	(*ManagerHealthStreamPollRequest)(nil),      // 26: multipoolermanagerdata.ManagerHealthStreamPollRequest
-	(*ManagerHealthStreamStartResponse)(nil),    // 27: multipoolermanagerdata.ManagerHealthStreamStartResponse
-	(*ManagerHealthStreamResponse)(nil),         // 28: multipoolermanagerdata.ManagerHealthStreamResponse
-	(*ManagerHealthSnapshot)(nil),               // 29: multipoolermanagerdata.ManagerHealthSnapshot
-	(*UpdateConsensusRuleRequest)(nil),          // 30: multipoolermanagerdata.UpdateConsensusRuleRequest
-	(*UpdateConsensusRuleResponse)(nil),         // 31: multipoolermanagerdata.UpdateConsensusRuleResponse
-	(*BackupRequest)(nil),                       // 32: multipoolermanagerdata.BackupRequest
-	(*BackupResponse)(nil),                      // 33: multipoolermanagerdata.BackupResponse
-	(*GetBackupsRequest)(nil),                   // 34: multipoolermanagerdata.GetBackupsRequest
-	(*GetBackupsResponse)(nil),                  // 35: multipoolermanagerdata.GetBackupsResponse
-	(*GetBackupByJobIdRequest)(nil),             // 36: multipoolermanagerdata.GetBackupByJobIdRequest
-	(*GetBackupByJobIdResponse)(nil),            // 37: multipoolermanagerdata.GetBackupByJobIdResponse
-	(*ExpireBackupsRequest)(nil),                // 38: multipoolermanagerdata.ExpireBackupsRequest
-	(*ExpireBackupsResponse)(nil),               // 39: multipoolermanagerdata.ExpireBackupsResponse
-	(*VerifyBackupsRequest)(nil),                // 40: multipoolermanagerdata.VerifyBackupsRequest
-	(*VerifyBackupsResponse)(nil),               // 41: multipoolermanagerdata.VerifyBackupsResponse
-	(*BackupMetadata)(nil),                      // 42: multipoolermanagerdata.BackupMetadata
-	(*ResignLeadershipRequest)(nil),             // 43: multipoolermanagerdata.ResignLeadershipRequest
-	(*ResignLeadershipResponse)(nil),            // 44: multipoolermanagerdata.ResignLeadershipResponse
-	(*ReconcileFollowersRequest)(nil),           // 45: multipoolermanagerdata.ReconcileFollowersRequest
-	(*ReconcileFollowersResponse)(nil),          // 46: multipoolermanagerdata.ReconcileFollowersResponse
-	(*SetPostgresRestartsEnabledRequest)(nil),   // 47: multipoolermanagerdata.SetPostgresRestartsEnabledRequest
-	(*SetPostgresRestartsEnabledResponse)(nil),  // 48: multipoolermanagerdata.SetPostgresRestartsEnabledResponse
-	(*ReloadConfigRequest)(nil),                 // 49: multipoolermanagerdata.ReloadConfigRequest
-	(*ReloadConfigResponse)(nil),                // 50: multipoolermanagerdata.ReloadConfigResponse
-	(*SettingMismatch)(nil),                     // 51: multipoolermanagerdata.SettingMismatch
-	(*CreateTableGroupRequest)(nil),             // 52: multipoolermanagerdata.CreateTableGroupRequest
-	(*CreateTableGroupResponse)(nil),            // 53: multipoolermanagerdata.CreateTableGroupResponse
-	(*GetOperationRequest)(nil),                 // 54: multipoolermanagerdata.GetOperationRequest
-	(*GetOperationResponse)(nil),                // 55: multipoolermanagerdata.GetOperationResponse
-	(*Operation)(nil),                           // 56: multipoolermanagerdata.Operation
-	(*DropTableGroupRequest)(nil),               // 57: multipoolermanagerdata.DropTableGroupRequest
-	(*DropTableGroupResponse)(nil),              // 58: multipoolermanagerdata.DropTableGroupResponse
-	(*ListTableGroupsRequest)(nil),              // 59: multipoolermanagerdata.ListTableGroupsRequest
-	(*ListTableGroupsResponse)(nil),             // 60: multipoolermanagerdata.ListTableGroupsResponse
-	(*TableGroup)(nil),                          // 61: multipoolermanagerdata.TableGroup
-	nil,                                         // 62: multipoolermanagerdata.BackupRequest.OverridesEntry
-	nil,                                         // 63: multipoolermanagerdata.ExpireBackupsRequest.OverridesEntry
-	nil,                                         // 64: multipoolermanagerdata.ReloadConfigRequest.ExpectedSettingsEntry
-	(*durationpb.Duration)(nil),                 // 65: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil),               // 66: google.protobuf.Timestamp
-	(*clustermetadata.ID)(nil),                  // 67: clustermetadata.ID
-	(clustermetadata.PoolerType)(0),             // 68: clustermetadata.PoolerType
-	(*clustermetadata.AvailabilityStatus)(nil),  // 69: clustermetadata.AvailabilityStatus
-	(*clustermetadata.ConsensusStatus)(nil),     // 70: clustermetadata.ConsensusStatus
-	(*clustermetadata.RuleNumber)(nil),          // 71: clustermetadata.RuleNumber
-	(*clustermetadata.PoolerPosition)(nil),      // 72: clustermetadata.PoolerPosition
-	(clustermetadata.RoutingRole)(0),            // 73: clustermetadata.RoutingRole
+	(RoutingRuleScope)(0),                       // 10: multipoolermanagerdata.RoutingRuleScope
+	(BackupMetadata_Status)(0),                  // 11: multipoolermanagerdata.BackupMetadata.Status
+	(*PrimaryConnInfo)(nil),                     // 12: multipoolermanagerdata.PrimaryConnInfo
+	(*StandbyReplicationStatus)(nil),            // 13: multipoolermanagerdata.StandbyReplicationStatus
+	(*WaitForLSNRequest)(nil),                   // 14: multipoolermanagerdata.WaitForLSNRequest
+	(*WaitForLSNResponse)(nil),                  // 15: multipoolermanagerdata.WaitForLSNResponse
+	(*StartReplicationRequest)(nil),             // 16: multipoolermanagerdata.StartReplicationRequest
+	(*StartReplicationResponse)(nil),            // 17: multipoolermanagerdata.StartReplicationResponse
+	(*StopReplicationRequest)(nil),              // 18: multipoolermanagerdata.StopReplicationRequest
+	(*StopReplicationResponse)(nil),             // 19: multipoolermanagerdata.StopReplicationResponse
+	(*SynchronousReplicationConfiguration)(nil), // 20: multipoolermanagerdata.SynchronousReplicationConfiguration
+	(*PrimaryStatus)(nil),                       // 21: multipoolermanagerdata.PrimaryStatus
+	(*Status)(nil),                              // 22: multipoolermanagerdata.Status
+	(*StatusRequest)(nil),                       // 23: multipoolermanagerdata.StatusRequest
+	(*StatusResponse)(nil),                      // 24: multipoolermanagerdata.StatusResponse
+	(*ManagerHealthStreamClientMessage)(nil),    // 25: multipoolermanagerdata.ManagerHealthStreamClientMessage
+	(*ManagerHealthStreamStartRequest)(nil),     // 26: multipoolermanagerdata.ManagerHealthStreamStartRequest
+	(*ManagerHealthStreamPollRequest)(nil),      // 27: multipoolermanagerdata.ManagerHealthStreamPollRequest
+	(*ManagerHealthStreamStartResponse)(nil),    // 28: multipoolermanagerdata.ManagerHealthStreamStartResponse
+	(*ManagerHealthStreamResponse)(nil),         // 29: multipoolermanagerdata.ManagerHealthStreamResponse
+	(*ManagerHealthSnapshot)(nil),               // 30: multipoolermanagerdata.ManagerHealthSnapshot
+	(*UpdateConsensusRuleRequest)(nil),          // 31: multipoolermanagerdata.UpdateConsensusRuleRequest
+	(*UpdateConsensusRuleResponse)(nil),         // 32: multipoolermanagerdata.UpdateConsensusRuleResponse
+	(*BackupRequest)(nil),                       // 33: multipoolermanagerdata.BackupRequest
+	(*BackupResponse)(nil),                      // 34: multipoolermanagerdata.BackupResponse
+	(*GetBackupsRequest)(nil),                   // 35: multipoolermanagerdata.GetBackupsRequest
+	(*GetBackupsResponse)(nil),                  // 36: multipoolermanagerdata.GetBackupsResponse
+	(*GetBackupByJobIdRequest)(nil),             // 37: multipoolermanagerdata.GetBackupByJobIdRequest
+	(*GetBackupByJobIdResponse)(nil),            // 38: multipoolermanagerdata.GetBackupByJobIdResponse
+	(*ExpireBackupsRequest)(nil),                // 39: multipoolermanagerdata.ExpireBackupsRequest
+	(*ExpireBackupsResponse)(nil),               // 40: multipoolermanagerdata.ExpireBackupsResponse
+	(*VerifyBackupsRequest)(nil),                // 41: multipoolermanagerdata.VerifyBackupsRequest
+	(*VerifyBackupsResponse)(nil),               // 42: multipoolermanagerdata.VerifyBackupsResponse
+	(*BackupMetadata)(nil),                      // 43: multipoolermanagerdata.BackupMetadata
+	(*ResignLeadershipRequest)(nil),             // 44: multipoolermanagerdata.ResignLeadershipRequest
+	(*ResignLeadershipResponse)(nil),            // 45: multipoolermanagerdata.ResignLeadershipResponse
+	(*ReconcileFollowersRequest)(nil),           // 46: multipoolermanagerdata.ReconcileFollowersRequest
+	(*ReconcileFollowersResponse)(nil),          // 47: multipoolermanagerdata.ReconcileFollowersResponse
+	(*SetPostgresRestartsEnabledRequest)(nil),   // 48: multipoolermanagerdata.SetPostgresRestartsEnabledRequest
+	(*SetPostgresRestartsEnabledResponse)(nil),  // 49: multipoolermanagerdata.SetPostgresRestartsEnabledResponse
+	(*ReloadConfigRequest)(nil),                 // 50: multipoolermanagerdata.ReloadConfigRequest
+	(*ReloadConfigResponse)(nil),                // 51: multipoolermanagerdata.ReloadConfigResponse
+	(*SettingMismatch)(nil),                     // 52: multipoolermanagerdata.SettingMismatch
+	(*CreateTableGroupRequest)(nil),             // 53: multipoolermanagerdata.CreateTableGroupRequest
+	(*CreateTableGroupResponse)(nil),            // 54: multipoolermanagerdata.CreateTableGroupResponse
+	(*GetOperationRequest)(nil),                 // 55: multipoolermanagerdata.GetOperationRequest
+	(*GetOperationResponse)(nil),                // 56: multipoolermanagerdata.GetOperationResponse
+	(*Operation)(nil),                           // 57: multipoolermanagerdata.Operation
+	(*DropTableGroupRequest)(nil),               // 58: multipoolermanagerdata.DropTableGroupRequest
+	(*DropTableGroupResponse)(nil),              // 59: multipoolermanagerdata.DropTableGroupResponse
+	(*ListTableGroupsRequest)(nil),              // 60: multipoolermanagerdata.ListTableGroupsRequest
+	(*ListTableGroupsResponse)(nil),             // 61: multipoolermanagerdata.ListTableGroupsResponse
+	(*TableGroup)(nil),                          // 62: multipoolermanagerdata.TableGroup
+	(*RoutingTableName)(nil),                    // 63: multipoolermanagerdata.RoutingTableName
+	(*RoutingRule)(nil),                         // 64: multipoolermanagerdata.RoutingRule
+	(*ShardRoutingRuleSpec)(nil),                // 65: multipoolermanagerdata.ShardRoutingRuleSpec
+	(*GetRoutingSnapshotRequest)(nil),           // 66: multipoolermanagerdata.GetRoutingSnapshotRequest
+	(*GetRoutingSnapshotResponse)(nil),          // 67: multipoolermanagerdata.GetRoutingSnapshotResponse
+	(*SetRoutingRulesRequest)(nil),              // 68: multipoolermanagerdata.SetRoutingRulesRequest
+	(*SetRoutingRulesResponse)(nil),             // 69: multipoolermanagerdata.SetRoutingRulesResponse
+	(*DeleteRoutingRulesRequest)(nil),           // 70: multipoolermanagerdata.DeleteRoutingRulesRequest
+	(*DeleteRoutingRulesResponse)(nil),          // 71: multipoolermanagerdata.DeleteRoutingRulesResponse
+	(*EnsureImportTargetRequest)(nil),           // 72: multipoolermanagerdata.EnsureImportTargetRequest
+	(*EnsureImportTargetResponse)(nil),          // 73: multipoolermanagerdata.EnsureImportTargetResponse
+	nil,                                         // 74: multipoolermanagerdata.BackupRequest.OverridesEntry
+	nil,                                         // 75: multipoolermanagerdata.ExpireBackupsRequest.OverridesEntry
+	nil,                                         // 76: multipoolermanagerdata.ReloadConfigRequest.ExpectedSettingsEntry
+	(*durationpb.Duration)(nil),                 // 77: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),               // 78: google.protobuf.Timestamp
+	(*clustermetadata.ID)(nil),                  // 79: clustermetadata.ID
+	(clustermetadata.PoolerType)(0),             // 80: clustermetadata.PoolerType
+	(*clustermetadata.AvailabilityStatus)(nil),  // 81: clustermetadata.AvailabilityStatus
+	(*clustermetadata.ConsensusStatus)(nil),     // 82: clustermetadata.ConsensusStatus
+	(*clustermetadata.RuleNumber)(nil),          // 83: clustermetadata.RuleNumber
+	(*clustermetadata.PoolerPosition)(nil),      // 84: clustermetadata.PoolerPosition
+	(clustermetadata.RoutingRole)(0),            // 85: clustermetadata.RoutingRole
+	(*clustermetadata.KeyRange)(nil),            // 86: clustermetadata.KeyRange
 }
 var file_multipoolermanagerdata_proto_depIdxs = []int32{
-	65, // 0: multipoolermanagerdata.StandbyReplicationStatus.lag:type_name -> google.protobuf.Duration
-	11, // 1: multipoolermanagerdata.StandbyReplicationStatus.primary_conn_info:type_name -> multipoolermanagerdata.PrimaryConnInfo
-	66, // 2: multipoolermanagerdata.StandbyReplicationStatus.last_msg_receive_time:type_name -> google.protobuf.Timestamp
-	65, // 3: multipoolermanagerdata.StandbyReplicationStatus.wal_receiver_status_interval:type_name -> google.protobuf.Duration
-	65, // 4: multipoolermanagerdata.StandbyReplicationStatus.wal_receiver_timeout:type_name -> google.protobuf.Duration
-	66, // 5: multipoolermanagerdata.StandbyReplicationStatus.last_receive_lsn_advance_time:type_name -> google.protobuf.Timestamp
-	66, // 6: multipoolermanagerdata.StandbyReplicationStatus.quorum_commit_ts:type_name -> google.protobuf.Timestamp
-	65, // 7: multipoolermanagerdata.WaitForLSNRequest.timeout:type_name -> google.protobuf.Duration
+	77, // 0: multipoolermanagerdata.StandbyReplicationStatus.lag:type_name -> google.protobuf.Duration
+	12, // 1: multipoolermanagerdata.StandbyReplicationStatus.primary_conn_info:type_name -> multipoolermanagerdata.PrimaryConnInfo
+	78, // 2: multipoolermanagerdata.StandbyReplicationStatus.last_msg_receive_time:type_name -> google.protobuf.Timestamp
+	77, // 3: multipoolermanagerdata.StandbyReplicationStatus.wal_receiver_status_interval:type_name -> google.protobuf.Duration
+	77, // 4: multipoolermanagerdata.StandbyReplicationStatus.wal_receiver_timeout:type_name -> google.protobuf.Duration
+	78, // 5: multipoolermanagerdata.StandbyReplicationStatus.last_receive_lsn_advance_time:type_name -> google.protobuf.Timestamp
+	78, // 6: multipoolermanagerdata.StandbyReplicationStatus.quorum_commit_ts:type_name -> google.protobuf.Timestamp
+	77, // 7: multipoolermanagerdata.WaitForLSNRequest.timeout:type_name -> google.protobuf.Duration
 	3,  // 8: multipoolermanagerdata.StopReplicationRequest.mode:type_name -> multipoolermanagerdata.ReplicationPauseMode
-	12, // 9: multipoolermanagerdata.StopReplicationResponse.status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
+	13, // 9: multipoolermanagerdata.StopReplicationResponse.status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
 	6,  // 10: multipoolermanagerdata.SynchronousReplicationConfiguration.synchronous_commit:type_name -> multipoolermanagerdata.SynchronousCommitLevel
 	4,  // 11: multipoolermanagerdata.SynchronousReplicationConfiguration.synchronous_method:type_name -> multipoolermanagerdata.SynchronousMethod
-	67, // 12: multipoolermanagerdata.SynchronousReplicationConfiguration.standby_ids:type_name -> clustermetadata.ID
-	67, // 13: multipoolermanagerdata.PrimaryStatus.connected_followers:type_name -> clustermetadata.ID
-	19, // 14: multipoolermanagerdata.PrimaryStatus.sync_replication_config:type_name -> multipoolermanagerdata.SynchronousReplicationConfiguration
-	66, // 15: multipoolermanagerdata.PrimaryStatus.quorum_commit_ts:type_name -> google.protobuf.Timestamp
-	68, // 16: multipoolermanagerdata.Status.pooler_type:type_name -> clustermetadata.PoolerType
-	20, // 17: multipoolermanagerdata.Status.primary_status:type_name -> multipoolermanagerdata.PrimaryStatus
-	12, // 18: multipoolermanagerdata.Status.replication_status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
+	79, // 12: multipoolermanagerdata.SynchronousReplicationConfiguration.standby_ids:type_name -> clustermetadata.ID
+	79, // 13: multipoolermanagerdata.PrimaryStatus.connected_followers:type_name -> clustermetadata.ID
+	20, // 14: multipoolermanagerdata.PrimaryStatus.sync_replication_config:type_name -> multipoolermanagerdata.SynchronousReplicationConfiguration
+	78, // 15: multipoolermanagerdata.PrimaryStatus.quorum_commit_ts:type_name -> google.protobuf.Timestamp
+	80, // 16: multipoolermanagerdata.Status.pooler_type:type_name -> clustermetadata.PoolerType
+	21, // 17: multipoolermanagerdata.Status.primary_status:type_name -> multipoolermanagerdata.PrimaryStatus
+	13, // 18: multipoolermanagerdata.Status.replication_status:type_name -> multipoolermanagerdata.StandbyReplicationStatus
 	0,  // 19: multipoolermanagerdata.Status.postgres_status:type_name -> multipoolermanagerdata.PostgresStatus
 	1,  // 20: multipoolermanagerdata.Status.postgres_action:type_name -> multipoolermanagerdata.PostgresAction
-	65, // 21: multipoolermanagerdata.Status.postgres_action_duration:type_name -> google.protobuf.Duration
-	21, // 22: multipoolermanagerdata.StatusResponse.status:type_name -> multipoolermanagerdata.Status
-	69, // 23: multipoolermanagerdata.StatusResponse.availability_status:type_name -> clustermetadata.AvailabilityStatus
-	70, // 24: multipoolermanagerdata.StatusResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
-	25, // 25: multipoolermanagerdata.ManagerHealthStreamClientMessage.start:type_name -> multipoolermanagerdata.ManagerHealthStreamStartRequest
-	26, // 26: multipoolermanagerdata.ManagerHealthStreamClientMessage.poll:type_name -> multipoolermanagerdata.ManagerHealthStreamPollRequest
-	65, // 27: multipoolermanagerdata.ManagerHealthStreamStartRequest.snapshot_interval:type_name -> google.protobuf.Duration
-	65, // 28: multipoolermanagerdata.ManagerHealthStreamStartRequest.staleness_timeout:type_name -> google.protobuf.Duration
-	65, // 29: multipoolermanagerdata.ManagerHealthStreamStartResponse.snapshot_interval:type_name -> google.protobuf.Duration
-	65, // 30: multipoolermanagerdata.ManagerHealthStreamStartResponse.staleness_timeout:type_name -> google.protobuf.Duration
-	27, // 31: multipoolermanagerdata.ManagerHealthStreamResponse.start:type_name -> multipoolermanagerdata.ManagerHealthStreamStartResponse
-	29, // 32: multipoolermanagerdata.ManagerHealthStreamResponse.snapshot:type_name -> multipoolermanagerdata.ManagerHealthSnapshot
-	23, // 33: multipoolermanagerdata.ManagerHealthSnapshot.status:type_name -> multipoolermanagerdata.StatusResponse
-	65, // 34: multipoolermanagerdata.ManagerHealthSnapshot.timeout:type_name -> google.protobuf.Duration
+	77, // 21: multipoolermanagerdata.Status.postgres_action_duration:type_name -> google.protobuf.Duration
+	22, // 22: multipoolermanagerdata.StatusResponse.status:type_name -> multipoolermanagerdata.Status
+	81, // 23: multipoolermanagerdata.StatusResponse.availability_status:type_name -> clustermetadata.AvailabilityStatus
+	82, // 24: multipoolermanagerdata.StatusResponse.consensus_status:type_name -> clustermetadata.ConsensusStatus
+	26, // 25: multipoolermanagerdata.ManagerHealthStreamClientMessage.start:type_name -> multipoolermanagerdata.ManagerHealthStreamStartRequest
+	27, // 26: multipoolermanagerdata.ManagerHealthStreamClientMessage.poll:type_name -> multipoolermanagerdata.ManagerHealthStreamPollRequest
+	77, // 27: multipoolermanagerdata.ManagerHealthStreamStartRequest.snapshot_interval:type_name -> google.protobuf.Duration
+	77, // 28: multipoolermanagerdata.ManagerHealthStreamStartRequest.staleness_timeout:type_name -> google.protobuf.Duration
+	77, // 29: multipoolermanagerdata.ManagerHealthStreamStartResponse.snapshot_interval:type_name -> google.protobuf.Duration
+	77, // 30: multipoolermanagerdata.ManagerHealthStreamStartResponse.staleness_timeout:type_name -> google.protobuf.Duration
+	28, // 31: multipoolermanagerdata.ManagerHealthStreamResponse.start:type_name -> multipoolermanagerdata.ManagerHealthStreamStartResponse
+	30, // 32: multipoolermanagerdata.ManagerHealthStreamResponse.snapshot:type_name -> multipoolermanagerdata.ManagerHealthSnapshot
+	24, // 33: multipoolermanagerdata.ManagerHealthSnapshot.status:type_name -> multipoolermanagerdata.StatusResponse
+	77, // 34: multipoolermanagerdata.ManagerHealthSnapshot.timeout:type_name -> google.protobuf.Duration
 	2,  // 35: multipoolermanagerdata.ManagerHealthSnapshot.trigger:type_name -> multipoolermanagerdata.SnapshotTrigger
-	66, // 36: multipoolermanagerdata.ManagerHealthSnapshot.captured_at:type_name -> google.protobuf.Timestamp
+	78, // 36: multipoolermanagerdata.ManagerHealthSnapshot.captured_at:type_name -> google.protobuf.Timestamp
 	5,  // 37: multipoolermanagerdata.UpdateConsensusRuleRequest.operation:type_name -> multipoolermanagerdata.RuleOperation
-	67, // 38: multipoolermanagerdata.UpdateConsensusRuleRequest.standby_ids:type_name -> clustermetadata.ID
-	71, // 39: multipoolermanagerdata.UpdateConsensusRuleRequest.expected_outgoing_rule:type_name -> clustermetadata.RuleNumber
-	67, // 40: multipoolermanagerdata.UpdateConsensusRuleRequest.coordinator_id:type_name -> clustermetadata.ID
-	72, // 41: multipoolermanagerdata.UpdateConsensusRuleResponse.current_position:type_name -> clustermetadata.PoolerPosition
-	62, // 42: multipoolermanagerdata.BackupRequest.overrides:type_name -> multipoolermanagerdata.BackupRequest.OverridesEntry
-	42, // 43: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
-	42, // 44: multipoolermanagerdata.GetBackupByJobIdResponse.backup:type_name -> multipoolermanagerdata.BackupMetadata
-	63, // 45: multipoolermanagerdata.ExpireBackupsRequest.overrides:type_name -> multipoolermanagerdata.ExpireBackupsRequest.OverridesEntry
-	65, // 46: multipoolermanagerdata.VerifyBackupsResponse.duration:type_name -> google.protobuf.Duration
-	10, // 47: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
-	73, // 48: multipoolermanagerdata.BackupMetadata.routing_role:type_name -> clustermetadata.RoutingRole
-	66, // 49: multipoolermanagerdata.BackupMetadata.start_timestamp:type_name -> google.protobuf.Timestamp
-	66, // 50: multipoolermanagerdata.BackupMetadata.stop_timestamp:type_name -> google.protobuf.Timestamp
-	67, // 51: multipoolermanagerdata.ReconcileFollowersRequest.followers:type_name -> clustermetadata.ID
-	64, // 52: multipoolermanagerdata.ReloadConfigRequest.expected_settings:type_name -> multipoolermanagerdata.ReloadConfigRequest.ExpectedSettingsEntry
-	66, // 53: multipoolermanagerdata.ReloadConfigResponse.config_load_time:type_name -> google.protobuf.Timestamp
-	51, // 54: multipoolermanagerdata.ReloadConfigResponse.mismatches:type_name -> multipoolermanagerdata.SettingMismatch
-	56, // 55: multipoolermanagerdata.GetOperationResponse.operation:type_name -> multipoolermanagerdata.Operation
+	79, // 38: multipoolermanagerdata.UpdateConsensusRuleRequest.standby_ids:type_name -> clustermetadata.ID
+	83, // 39: multipoolermanagerdata.UpdateConsensusRuleRequest.expected_outgoing_rule:type_name -> clustermetadata.RuleNumber
+	79, // 40: multipoolermanagerdata.UpdateConsensusRuleRequest.coordinator_id:type_name -> clustermetadata.ID
+	84, // 41: multipoolermanagerdata.UpdateConsensusRuleResponse.current_position:type_name -> clustermetadata.PoolerPosition
+	74, // 42: multipoolermanagerdata.BackupRequest.overrides:type_name -> multipoolermanagerdata.BackupRequest.OverridesEntry
+	43, // 43: multipoolermanagerdata.GetBackupsResponse.backups:type_name -> multipoolermanagerdata.BackupMetadata
+	43, // 44: multipoolermanagerdata.GetBackupByJobIdResponse.backup:type_name -> multipoolermanagerdata.BackupMetadata
+	75, // 45: multipoolermanagerdata.ExpireBackupsRequest.overrides:type_name -> multipoolermanagerdata.ExpireBackupsRequest.OverridesEntry
+	77, // 46: multipoolermanagerdata.VerifyBackupsResponse.duration:type_name -> google.protobuf.Duration
+	11, // 47: multipoolermanagerdata.BackupMetadata.status:type_name -> multipoolermanagerdata.BackupMetadata.Status
+	85, // 48: multipoolermanagerdata.BackupMetadata.routing_role:type_name -> clustermetadata.RoutingRole
+	78, // 49: multipoolermanagerdata.BackupMetadata.start_timestamp:type_name -> google.protobuf.Timestamp
+	78, // 50: multipoolermanagerdata.BackupMetadata.stop_timestamp:type_name -> google.protobuf.Timestamp
+	79, // 51: multipoolermanagerdata.ReconcileFollowersRequest.followers:type_name -> clustermetadata.ID
+	76, // 52: multipoolermanagerdata.ReloadConfigRequest.expected_settings:type_name -> multipoolermanagerdata.ReloadConfigRequest.ExpectedSettingsEntry
+	78, // 53: multipoolermanagerdata.ReloadConfigResponse.config_load_time:type_name -> google.protobuf.Timestamp
+	52, // 54: multipoolermanagerdata.ReloadConfigResponse.mismatches:type_name -> multipoolermanagerdata.SettingMismatch
+	57, // 55: multipoolermanagerdata.GetOperationResponse.operation:type_name -> multipoolermanagerdata.Operation
 	7,  // 56: multipoolermanagerdata.Operation.kind:type_name -> multipoolermanagerdata.OperationKind
 	8,  // 57: multipoolermanagerdata.Operation.state:type_name -> multipoolermanagerdata.OperationState
-	66, // 58: multipoolermanagerdata.Operation.created_at:type_name -> google.protobuf.Timestamp
-	66, // 59: multipoolermanagerdata.Operation.updated_at:type_name -> google.protobuf.Timestamp
-	61, // 60: multipoolermanagerdata.ListTableGroupsResponse.table_groups:type_name -> multipoolermanagerdata.TableGroup
+	78, // 58: multipoolermanagerdata.Operation.created_at:type_name -> google.protobuf.Timestamp
+	78, // 59: multipoolermanagerdata.Operation.updated_at:type_name -> google.protobuf.Timestamp
+	62, // 60: multipoolermanagerdata.ListTableGroupsResponse.table_groups:type_name -> multipoolermanagerdata.TableGroup
 	9,  // 61: multipoolermanagerdata.TableGroup.state:type_name -> multipoolermanagerdata.TableGroupState
-	62, // [62:62] is the sub-list for method output_type
-	62, // [62:62] is the sub-list for method input_type
-	62, // [62:62] is the sub-list for extension type_name
-	62, // [62:62] is the sub-list for extension extendee
-	0,  // [0:62] is the sub-list for field type_name
+	10, // 62: multipoolermanagerdata.RoutingRule.scope:type_name -> multipoolermanagerdata.RoutingRuleScope
+	63, // 63: multipoolermanagerdata.RoutingRule.from_table:type_name -> multipoolermanagerdata.RoutingTableName
+	86, // 64: multipoolermanagerdata.RoutingRule.to_key_range:type_name -> clustermetadata.KeyRange
+	64, // 65: multipoolermanagerdata.GetRoutingSnapshotResponse.rules:type_name -> multipoolermanagerdata.RoutingRule
+	65, // 66: multipoolermanagerdata.SetRoutingRulesRequest.rules:type_name -> multipoolermanagerdata.ShardRoutingRuleSpec
+	67, // [67:67] is the sub-list for method output_type
+	67, // [67:67] is the sub-list for method input_type
+	67, // [67:67] is the sub-list for extension type_name
+	67, // [67:67] is the sub-list for extension extendee
+	0,  // [0:67] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }
@@ -4501,8 +5345,8 @@ func file_multipoolermanagerdata_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_multipoolermanagerdata_proto_rawDesc), len(file_multipoolermanagerdata_proto_rawDesc)),
-			NumEnums:      11,
-			NumMessages:   54,
+			NumEnums:      12,
+			NumMessages:   65,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

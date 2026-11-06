@@ -76,6 +76,9 @@ type FakeClient struct {
 	ResignLeadershipResponses           map[topoclient.ComponentID]*multipoolermanagerdatapb.ResignLeadershipResponse
 	ReconcileFollowersResponses         map[topoclient.ComponentID]*multipoolermanagerdatapb.ReconcileFollowersResponse
 	SetPostgresRestartsEnabledResponses map[topoclient.ComponentID]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse
+	SetRoutingRulesResponses            map[topoclient.ComponentID]*multipoolermanagerdatapb.SetRoutingRulesResponse
+	DeleteRoutingRulesResponses         map[topoclient.ComponentID]*multipoolermanagerdatapb.DeleteRoutingRulesResponse
+	EnsureImportTargetResponses         map[topoclient.ComponentID]*multipoolermanagerdatapb.EnsureImportTargetResponse
 	ReloadConfigResponses               map[topoclient.ComponentID]*multipoolermanagerdatapb.ReloadConfigResponse
 
 	// Errors to return - keyed by pooler ID
@@ -121,6 +124,9 @@ func NewFakeClient() *FakeClient {
 		ResignLeadershipResponses:           make(map[topoclient.ComponentID]*multipoolermanagerdatapb.ResignLeadershipResponse),
 		ReconcileFollowersResponses:         make(map[topoclient.ComponentID]*multipoolermanagerdatapb.ReconcileFollowersResponse),
 		SetPostgresRestartsEnabledResponses: make(map[topoclient.ComponentID]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse),
+		SetRoutingRulesResponses:            make(map[topoclient.ComponentID]*multipoolermanagerdatapb.SetRoutingRulesResponse),
+		DeleteRoutingRulesResponses:         make(map[topoclient.ComponentID]*multipoolermanagerdatapb.DeleteRoutingRulesResponse),
+		EnsureImportTargetResponses:         make(map[topoclient.ComponentID]*multipoolermanagerdatapb.EnsureImportTargetResponse),
 		ReloadConfigResponses:               make(map[topoclient.ComponentID]*multipoolermanagerdatapb.ReloadConfigResponse),
 		Errors:                              make(map[topoclient.ComponentID]error),
 		RecruitDelays:                       make(map[topoclient.ComponentID]time.Duration),
@@ -538,6 +544,58 @@ func (f *FakeClient) SetPostgresRestartsEnabled(ctx context.Context, pooler *clu
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse{}, nil
+}
+
+//
+// Manager Service Methods - Routing Rules
+//
+
+func (f *FakeClient) SetRoutingRules(ctx context.Context, pooler *clustermetadatapb.Multipooler, req *multipoolermanagerdatapb.SetRoutingRulesRequest) (*multipoolermanagerdatapb.SetRoutingRulesResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("SetRoutingRules", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.SetRoutingRulesResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.SetRoutingRulesResponse{}, nil
+}
+
+func (f *FakeClient) DeleteRoutingRules(ctx context.Context, pooler *clustermetadatapb.Multipooler, req *multipoolermanagerdatapb.DeleteRoutingRulesRequest) (*multipoolermanagerdatapb.DeleteRoutingRulesResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("DeleteRoutingRules", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.DeleteRoutingRulesResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.DeleteRoutingRulesResponse{}, nil
+}
+
+func (f *FakeClient) EnsureImportTarget(ctx context.Context, pooler *clustermetadatapb.Multipooler, req *multipoolermanagerdatapb.EnsureImportTargetRequest) (*multipoolermanagerdatapb.EnsureImportTargetResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("EnsureImportTarget", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.EnsureImportTargetResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.EnsureImportTargetResponse{}, nil
 }
 
 //

@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
@@ -188,6 +189,40 @@ func TestServer_AuthAndHealthRefusedWhenNotServing(t *testing.T) {
 	requireNotServing(t, err)
 	_, err = after.SubscribeHealth(t.Context())
 	requireNotServing(t, err)
+}
+
+// routingHealthProvider is a health provider that also serves routing, as
+// the manager does.
+type routingHealthProvider struct {
+	fakeHealthProvider
+	resp *multipoolermanagerdatapb.GetRoutingSnapshotResponse
+}
+
+func (r *routingHealthProvider) GetRoutingSnapshot(context.Context, *multipoolermanagerdatapb.GetRoutingSnapshotRequest) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+	return r.resp, nil
+}
+
+// TestServer_GetRoutingSnapshot checks that a routing snapshot is the
+// manager's, refused while the server is not serving, and unavailable from a
+// pooler whose manager serves no routing.
+func TestServer_GetRoutingSnapshot(t *testing.T) {
+	req := &multipoolermanagerdatapb.GetRoutingSnapshotRequest{Database: "d"}
+
+	_, err := NewServer().GetRoutingSnapshot(t.Context(), req)
+	requireNotServing(t, err)
+
+	noRouting, _ := newRegisteredServer(t)
+	_, err = noRouting.GetRoutingSnapshot(t.Context(), req)
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
+
+	want := &multipoolermanagerdatapb.GetRoutingSnapshotResponse{RoutingVersion: 3, Full: true}
+	p := poolerserver.NewQueryPoolerServer(slog.New(slog.DiscardHandler), nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0",
+		&routingHealthProvider{resp: want}, 0, false)
+	s := NewServer()
+	s.register(p)
+	got, err := s.GetRoutingSnapshot(t.Context(), req)
+	require.NoError(t, err)
+	assert.Same(t, want, got)
 }
 
 // TestServer_SubscribeHealth checks that a subscription yields the current
