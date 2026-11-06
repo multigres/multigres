@@ -173,14 +173,14 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 	readCtx, cancel := context.WithTimeout(ctx, r.interval)
 	defer cancel()
 
-	tsNano, receiveLSN, haveReceiveLSN, quorumCommitLSN, haveQuorumCommitLSN, quorumCommitTs, haveQuorumCommitTs, quorumColumns, err := r.fetchMostRecentHeartbeat(readCtx)
+	sample, err := r.fetchMostRecentHeartbeat(readCtx)
 	if err != nil {
 		r.recordError(err)
 		return
 	}
 	// Read the clock once so lag and the advance timestamps reflect the same instant.
 	now := r.now()
-	lag := now.Sub(time.Unix(0, tsNano))
+	lag := now.Sub(time.Unix(0, sample.tsNano))
 	r.reads.Add(1)
 
 	r.lagMu.Lock()
@@ -190,8 +190,8 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 	// First observation, or a genuine increase, marks WAL-receive progress.
 	// receive_lsn is monotonic during streaming; a non-increase (idle keepalives)
 	// leaves the timestamp untouched so it can age out.
-	if haveReceiveLSN && (!r.haveReceiveLSN || receiveLSN > r.lastReceiveLSN) {
-		r.lastReceiveLSN = receiveLSN
+	if sample.haveReceiveLSN && (!r.haveReceiveLSN || sample.receiveLSN > r.lastReceiveLSN) {
+		r.lastReceiveLSN = sample.receiveLSN
 		r.lastReceiveLSNAdvanceTime = now
 		r.haveReceiveLSN = true
 	}
@@ -202,16 +202,16 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 	// A read that could not select the columns at all (the lag-only fallback) forgets
 	// them: the table no longer carries a quorum-commit signal, and a value kept from
 	// before would only age until multiorch read it as a stalled quorum.
-	if !quorumColumns {
+	if !sample.quorumColumns {
 		r.haveQuorumCommitLSN = false
 		r.haveQuorumCommitTs = false
 	}
-	if haveQuorumCommitLSN {
-		r.lastQuorumCommitLSN = quorumCommitLSN
+	if sample.haveQuorumCommitLSN {
+		r.lastQuorumCommitLSN = sample.quorumCommitLSN
 		r.haveQuorumCommitLSN = true
 	}
-	if haveQuorumCommitTs {
-		r.quorumCommitTs = quorumCommitTs
+	if sample.haveQuorumCommitTs {
+		r.quorumCommitTs = sample.quorumCommitTs
 		r.haveQuorumCommitTs = true
 	}
 	r.lagMu.Unlock()
@@ -221,10 +221,28 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 		"lag", lag)
 }
 
+// heartbeatSample is one read of the heartbeat row. Each have* field is false when its
+// value was NULL or unparsable.
+type heartbeatSample struct {
+	// tsNano is the heartbeat timestamp in nanoseconds.
+	tsNano int64
+
+	receiveLSN     pgutil.LSN
+	haveReceiveLSN bool
+
+	// quorumColumns is false when the read could not select the quorum_commit columns at
+	// all (the lag-only fallback), as opposed to selecting them and finding NULLs. The
+	// quorum fields below are then unset.
+	quorumColumns       bool
+	quorumCommitLSN     pgutil.LSN
+	haveQuorumCommitLSN bool
+	quorumCommitTs      time.Time
+	haveQuorumCommitTs  bool
+}
+
 // fetchMostRecentHeartbeat fetches the heartbeat row plus the WAL receiver's
-// current streamed position in one query. It returns the heartbeat timestamp in
-// nanoseconds, the parsed pg_last_wal_receive_lsn() and whether that LSN was
-// present (haveReceiveLSN is false when NULL — streaming disabled/not yet
+// current streamed position in one query. It returns the heartbeat timestamp,
+// the parsed pg_last_wal_receive_lsn() (absent when NULL — streaming disabled/not yet
 // started), and likewise the row's quorum_commit_lsn and quorum_commit_ts. It
 // returns a wrapped error on failure; a missing heartbeat row counts as a
 // failure (the writer always maintains it when multigres is healthy).
@@ -234,19 +252,20 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 // are written by the primary itself and ride that same replication, so their
 // advancement is a distinct "the primary is durably committing with quorum"
 // signal.
-func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, receiveLSN pgutil.LSN, haveReceiveLSN bool, quorumCommitLSN pgutil.LSN, haveQuorumCommitLSN bool, quorumCommitTs time.Time, haveQuorumCommitTs bool, quorumColumns bool, err error) {
+func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (heartbeatSample, error) {
 	result, withQuorum, err := r.queryHeartbeat(ctx)
 	if err != nil {
-		return 0, 0, false, 0, false, time.Time{}, false, false, mterrors.Wrap(err, "failed to read most recent heartbeat")
+		return heartbeatSample{}, mterrors.Wrap(err, "failed to read most recent heartbeat")
 	}
 	if result == nil || len(result.StructuredRows()) == 0 {
-		return 0, 0, false, 0, false, time.Time{}, false, false, mterrors.Wrap(errors.New("no heartbeat found"), "failed to read most recent heartbeat")
+		return heartbeatSample{}, mterrors.Wrap(errors.New("no heartbeat found"), "failed to read most recent heartbeat")
 	}
 	row := result.StructuredRows()[0]
 
-	tsNano, err = executor.GetInt64(row, 0)
+	var sample heartbeatSample
+	sample.tsNano, err = executor.GetInt64(row, 0)
 	if err != nil {
-		return 0, 0, false, 0, false, time.Time{}, false, false, mterrors.Wrap(err, "failed to parse heartbeat timestamp")
+		return heartbeatSample{}, mterrors.Wrap(err, "failed to parse heartbeat timestamp")
 	}
 
 	// receive_lsn is best-effort: a NULL/unparsable value just leaves advance
@@ -255,18 +274,19 @@ func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, re
 		if lsn, lsnErr := pgutil.ParseLSN(raw); lsnErr != nil {
 			r.logger.DebugContext(ctx, "failed to parse pg_last_wal_receive_lsn", "value", raw, "error", lsnErr)
 		} else {
-			receiveLSN, haveReceiveLSN = lsn, true
+			sample.receiveLSN, sample.haveReceiveLSN = lsn, true
 		}
 	}
 	if !withQuorum {
-		return tsNano, receiveLSN, haveReceiveLSN, 0, false, time.Time{}, false, false, nil
+		return sample, nil
 	}
+	sample.quorumColumns = true
 	// Same best-effort treatment for quorum_commit_lsn.
 	if raw, rawErr := executor.GetString(row, 2); rawErr == nil && raw != "" {
 		if lsn, lsnErr := pgutil.ParseLSN(raw); lsnErr != nil {
 			r.logger.DebugContext(ctx, "failed to parse quorum_commit_lsn", "value", raw, "error", lsnErr)
 		} else {
-			quorumCommitLSN, haveQuorumCommitLSN = lsn, true
+			sample.quorumCommitLSN, sample.haveQuorumCommitLSN = lsn, true
 		}
 	}
 	// quorum_commit_ts is NULL until the second successful write; GetTime
@@ -275,9 +295,9 @@ func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, re
 	if ts, tsErr := executor.GetTime(row, 3); tsErr != nil {
 		r.logger.DebugContext(ctx, "failed to parse quorum_commit_ts", "error", tsErr)
 	} else if !ts.IsZero() {
-		quorumCommitTs, haveQuorumCommitTs = ts, true
+		sample.quorumCommitTs, sample.haveQuorumCommitTs = ts, true
 	}
-	return tsNano, receiveLSN, haveReceiveLSN, quorumCommitLSN, haveQuorumCommitLSN, quorumCommitTs, haveQuorumCommitTs, true, nil
+	return sample, nil
 }
 
 // queryHeartbeat runs the heartbeat read, falling back to the lag-only query when the
