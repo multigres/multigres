@@ -56,7 +56,7 @@ func (s *handlerSubSync) SyncSubscriptions(
 	}
 
 	for _, ch := range subscribes {
-		s.notifMgr.Subscribe(ch, notifCh)
+		s.notifMgr.Subscribe(conn.Database(), ch, notifCh)
 	}
 
 	// Start async notification pusher if we have listen channels and no pusher yet.

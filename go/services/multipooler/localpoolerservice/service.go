@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
@@ -247,6 +248,22 @@ func (s *Server) GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetA
 	}
 	defer done()
 	return s.pooler.GetAuthCredentials(ctx, req)
+}
+
+// GetRoutingSnapshot returns a database's routing, as the gRPC handler does:
+// only the catalog primary serves it, and as control traffic it is not
+// admitted through query admission.
+func (s *Server) GetRoutingSnapshot(ctx context.Context, req *multipoolermanagerdatapb.GetRoutingSnapshotRequest) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+	_, done, err := s.begin()
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	provider, err := s.pooler.RoutingProvider()
+	if err != nil {
+		return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, err.Error())
+	}
+	return provider.GetRoutingSnapshot(ctx, req)
 }
 
 // beginStream admits a long-lived stream: refused like a call when not
