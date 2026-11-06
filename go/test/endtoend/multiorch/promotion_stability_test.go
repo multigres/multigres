@@ -48,7 +48,6 @@ func TestPromotionAppointsExactlyOneLeader(t *testing.T) {
 		shardsetup.WithMultipoolerCount(3),
 		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithMultigateway(),
-		shardsetup.WithLeaderFailoverGracePeriod("2s", "0s"),
 	)
 	defer cleanup()
 
@@ -162,7 +161,6 @@ func TestPromotingStatusClearedOnlyWhenReady(t *testing.T) {
 		shardsetup.WithMultipoolerCount(3),
 		shardsetup.WithMultiorchCount(1),
 		shardsetup.WithMultigateway(),
-		shardsetup.WithLeaderFailoverGracePeriod("2s", "0s"),
 	)
 	defer cleanup()
 
