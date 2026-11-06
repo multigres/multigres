@@ -110,7 +110,7 @@ func (pm *MultipoolerManager) markPoolerActive(ctx context.Context) {
 // ResignLeadership gracefully resigns this pooler from leadership for use in a
 // planned failover. It quiesces writes, terminates remaining connections,
 // restarts PostgreSQL as a standby, then publishes REQUESTING_DEMOTION so
-// multiorch's LeaderResignedAnalyzer drives the election.
+// multiorch starts the election.
 //
 // By restarting postgres here, before Recruit runs on any node, we prevent the
 // "proposed leader not eligible" error: the Recruit fan-out disconnects the
@@ -118,9 +118,6 @@ func (pm *MultipoolerManager) markPoolerActive(ctx context.Context) {
 // node is already in standby mode at Recruit time, Recruit runs
 // pauseReplication instead (no new checkpoint), so all nodes end up at the same
 // post-shutdown LSN and the most-advanced standby is eligible.
-//
-// Multiorch's LeaderIsDeadAnalyzer is suppressed for the brief restart window
-// because postgres was ready very recently (within LeaderPostgresResponseThreshold).
 func (pm *MultipoolerManager) ResignLeadership(ctx context.Context, req *multipoolermanagerdatapb.ResignLeadershipRequest) (*multipoolermanagerdatapb.ResignLeadershipResponse, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "consensus/resign_leadership")
 	defer span.End()
@@ -165,28 +162,31 @@ func (pm *MultipoolerManager) ResignLeadership(ctx context.Context, req *multipo
 		pm.logger.WarnContext(ctx, "resign_leadership: failed to terminate write connections (non-fatal)", "error", err)
 	}
 
-	// Step 4: publish REQUESTING_DEMOTION so multiorch's LeaderResignedAnalyzer
-	// drives the election. Best-effort: if this fails the caller can still poll
-	// for a new leader, and multiorch's LeaderIsDeadAnalyzer will eventually act.
-	//
-	// TODO: publish after the restart in step 5, even if it fails, as the doc
-	// comment says. Publishing first lets Recruit disconnect standbys before
-	// the shutdown checkpoint WAL reaches them, risking a pg_rewind on rejoin.
+	// Step 4: restart PostgreSQL as standby. This triggers a fast shutdown, which
+	// writes a shutdown checkpoint and sends it to the connected standbys before
+	// postgres exits.
+	var restartErr error
+	if err := pm.resetRestoreCommand(ctx); err != nil {
+		restartErr = mterrors.Wrap(err, "failed to clear restore_command before resign restart")
+	} else if err := pm.restartPostgresAsStandby(ctx, state); err != nil {
+		restartErr = mterrors.Wrap(err, "failed to restart postgres as standby during resign")
+	}
+
+	// Step 5: publish REQUESTING_DEMOTION so multiorch starts the election. This
+	// comes after the restart: publishing first lets Recruit disconnect the
+	// standbys before the shutdown checkpoint WAL reaches them, which leaves this
+	// node the most advanced, so it can be elected again or need a pg_rewind to
+	// rejoin. It is published even if the restart failed, so multiorch can still
+	// go ahead with the election. Best-effort: if this fails the caller can still
+	// poll for a new leader, and multiorch will eventually replace a leader whose
+	// postgres is not a primary.
 	if cs := pm.consensusMgr.CachedConsensusStatus(); commonconsensus.SelfConsensusRole(cs) == commonconsensus.ConsensusRoleLeader {
 		if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, cs.GetCurrentPosition().GetPosition()); err != nil {
 			pm.logger.WarnContext(ctx, "resign_leadership: failed to publish REQUESTING_DEMOTION (non-fatal)", "error", err)
 		}
 	}
-
-	// Step 5: restart PostgreSQL as standby. This triggers a graceful shutdown
-	// (SIGTERM → smart shutdown → checkpoint → WAL sent to standbys → exit),
-	// so connected standbys receive the shutdown checkpoint WAL before postgres
-	// exits.
-	if err := pm.resetRestoreCommand(ctx); err != nil {
-		return nil, mterrors.Wrap(err, "failed to clear restore_command before resign restart")
-	}
-	if err := pm.restartPostgresAsStandby(ctx, state); err != nil {
-		return nil, mterrors.Wrap(err, "failed to restart postgres as standby during resign")
+	if restartErr != nil {
+		return nil, restartErr
 	}
 
 	// Step 6: mark rewind as not needed — this is a planned failover so there is
