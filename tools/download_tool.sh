@@ -27,10 +27,10 @@ source "$SCRIPT_DIR/tool_checksums.sh"
 source "$SCRIPT_DIR/safe_download.sh"
 
 download_tool() {
-  local tool="$1"
-  local version="$2"
-  local platform_arch="$3"
-  local output_file="$4"
+  local tool="{$1:-}"
+  local version="{$2:-}"
+  local platform_arch="{$3:-}"
+  local output_file="{$4:-}"
 
   if [ -z "$tool" ] || [ -z "$version" ] || [ -z "$platform_arch" ] || [ -z "$output_file" ]; then
     echo "❌ Error: download_tool requires tool, version, platform-arch, and output file" >&2
