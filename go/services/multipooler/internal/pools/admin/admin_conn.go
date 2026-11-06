@@ -341,7 +341,7 @@ func execQueryWithContextCancel(ctx context.Context, conn *client.Conn, op func(
 		// until a standby acks. Best effort; the cancelled query's result is discarded.
 		cancelCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cancelRequestTimeout)
 		if err := conn.SendCancelRequest(cancelCtx); err != nil {
-			slog.DebugContext(ctx, "failed to send cancel request; closing the connection anyway", "error", err)
+			slog.WarnContext(ctx, "failed to cancel a timed-out query on the server; its backend may keep running", "error", err)
 		}
 		cancel()
 		// Force-close the connection to unblock the goroutine's blocking network read.

@@ -32,7 +32,12 @@ const cancelRequestLength = 16
 // handles it before authentication and before it allocates a connection slot, so it
 // needs no session and works even when connection slots are exhausted. It is safe to
 // call from another goroutine while a query is blocked, and returns once the server
-// has closed its end, which it does after handling the request.
+// has closed its end, which it does after handling the request, or when ctx ends.
+//
+// The request goes to the same address as the connection: its unix socket when one is
+// configured. Over TCP it is sent without TLS, which postgres accepts. The secret key
+// is four bytes, as in protocol 3.0; protocol 3.2 allows longer keys, so this must
+// change if the client moves to it, or the server will silently ignore the request.
 //
 // A cancel that arrives after the query finished is ignored by an idle backend, but
 // can hit this connection's next query if it is reused, so callers should close the
@@ -44,11 +49,10 @@ func (c *Conn) SendCancelRequest(ctx context.Context) error {
 	}
 	defer netConn.Close()
 
-	if deadline, ok := ctx.Deadline(); ok {
-		if err := netConn.SetDeadline(deadline); err != nil {
-			return fmt.Errorf("cancel request: %w", err)
-		}
-	}
+	// Closing the connection when ctx ends unblocks the write and the read below,
+	// whether ctx timed out or was cancelled.
+	stop := context.AfterFunc(ctx, func() { _ = netConn.Close() })
+	defer stop()
 
 	var packet [cancelRequestLength]byte
 	binary.BigEndian.PutUint32(packet[0:], cancelRequestLength)
@@ -56,13 +60,22 @@ func (c *Conn) SendCancelRequest(ctx context.Context) error {
 	binary.BigEndian.PutUint32(packet[8:], c.processID)
 	binary.BigEndian.PutUint32(packet[12:], c.secretKey)
 	if _, err := netConn.Write(packet[:]); err != nil {
-		return fmt.Errorf("cancel request: %w", err)
+		return cancelRequestError(ctx, err)
 	}
 
 	// The server closes the connection after it has handled the request; waiting for
 	// that makes sure the signal was sent before the caller moves on.
 	if _, err := io.Copy(io.Discard, netConn); err != nil {
-		return fmt.Errorf("cancel request: %w", err)
+		return cancelRequestError(ctx, err)
 	}
 	return nil
+}
+
+// cancelRequestError reports why sending the request failed, naming ctx's error when
+// it is what ended the attempt.
+func cancelRequestError(ctx context.Context, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return fmt.Errorf("cancel request: %w", ctxErr)
+	}
+	return fmt.Errorf("cancel request: %w", err)
 }
