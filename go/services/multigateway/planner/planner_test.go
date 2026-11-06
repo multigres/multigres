@@ -18,10 +18,33 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/parser"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/services/multigateway/engine"
 )
+
+// TestLogSafeQuery_RedactsConnectionPassword covers the finding this guards
+// against: Plan's pre-dispatch DEBUG log recorded the raw SQL for every
+// statement, including CREATE/ALTER CONNECTION's plaintext source password —
+// bypassing the redaction the handler and executor packages already apply to
+// their own logging of the same statement types.
+func TestLogSafeQuery_RedactsConnectionPassword(t *testing.T) {
+	t.Run("CREATE CONNECTION is redacted", func(t *testing.T) {
+		stmts, err := parser.ParseSQL("CREATE CONNECTION src OPTIONS (host 'h', password 'supersecret')")
+		require.NoError(t, err)
+		got := logSafeQuery(stmts[0].SqlString(), stmts[0])
+		assert.NotContains(t, got, "supersecret")
+		assert.Contains(t, got, "src", "the connection name is still useful to keep for debugging")
+	})
+	t.Run("other statements are logged in full", func(t *testing.T) {
+		stmts, err := parser.ParseSQL("SELECT 1")
+		require.NoError(t, err)
+		got := logSafeQuery(stmts[0].SqlString(), stmts[0])
+		assert.Equal(t, stmts[0].SqlString(), got)
+	})
+}
 
 func TestPrimitiveName(t *testing.T) {
 	tests := []struct {

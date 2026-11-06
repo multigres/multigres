@@ -214,10 +214,16 @@ func selectRow(id int64, name, createdAt string) *sqltypes.Row {
 		sqltypes.Value("true"),                    // copy_data
 		sqltypes.Value("false"),                   // skip_schema_copy
 		sqltypes.Value("IMPORT"),                  // direction
+		sqltypes.Value("[]"),                      // quiesce_roles
+		sqltypes.Value("true"),                    // public_had_connect
+		sqltypes.Value("false"),                   // quiesce_applied
+		sqltypes.Value("{}"),                      // quiesce_role_conn_limits
+		sqltypes.Value("{}"),                      // quiesce_roles_had_connect
 		sqltypes.Value(""),                        // last_error
 		sqltypes.Value(""),                        // reverse_link_error
 		sqltypes.Value(createdAt),                 // created_at
 		nil,                                       // streaming_since (NULL)
+		sqltypes.Value(""),                        // owner_role
 		sqltypes.Value(`["public.orders"]`),       // tables
 	}}
 }
@@ -271,6 +277,65 @@ func TestScanMigration(t *testing.T) {
 
 	_, err = scanMigration(&sqltypes.Row{Values: []sqltypes.Value{sqltypes.Value("only-one")}})
 	require.Error(t, err, "too few columns must error")
+}
+
+// TestScanMigration_QuiesceRoleConnLimits covers the round-trip this guards
+// against: a non-empty quiesce_role_conn_limits column (an operator-set custom
+// CONNECTION LIMIT recorded before the ACTIVATE cutover zeroed it) must survive
+// scanning, not just the degenerate "{}" case every other fixture row uses.
+func TestScanMigration_QuiesceRoleConnLimits(t *testing.T) {
+	row := selectRow(9, "daily", "2026-03-04T05:06:07Z")
+	row.Values[14] = sqltypes.Value(`{"app":5,"reporting":-1}`) // quiesce_role_conn_limits
+	m, err := scanMigration(row)
+	require.NoError(t, err)
+	require.Equal(t, map[string]int32{"app": 5, "reporting": -1}, m.QuiesceRoleConnLimits)
+}
+
+// TestScanMigration_QuiesceRolesHadConnect covers the round-trip this guards
+// against: a non-empty quiesce_roles_had_connect column (recording which
+// quiesce roles genuinely held a personal CONNECT grant before the ACTIVATE
+// cutover revoked it) must survive scanning, not just the degenerate "{}" case
+// every other fixture row uses.
+func TestScanMigration_QuiesceRolesHadConnect(t *testing.T) {
+	row := selectRow(9, "daily", "2026-03-04T05:06:07Z")
+	row.Values[15] = sqltypes.Value(`{"app":true,"reporting":false}`) // quiesce_roles_had_connect
+	m, err := scanMigration(row)
+	require.NoError(t, err)
+	require.Equal(t, map[string]bool{"app": true, "reporting": false}, m.QuiesceRolesHadConnect)
+}
+
+// TestMarshalQuiesceRoles covers both branches of each quiesce marshal
+// helper: the degenerate empty-input case (the "[]"/"{}" column default) and
+// the non-empty json.Marshal success path, which Insert/Update/scanMigration's
+// round-trip tests otherwise always exercise through the empty case only.
+func TestMarshalQuiesceRoles(t *testing.T) {
+	empty, err := marshalQuiesceRoles(nil)
+	require.NoError(t, err)
+	require.Equal(t, "[]", empty)
+
+	nonEmpty, err := marshalQuiesceRoles([]string{"app", "reporting"})
+	require.NoError(t, err)
+	require.JSONEq(t, `["app","reporting"]`, nonEmpty)
+}
+
+func TestMarshalQuiesceRoleConnLimits(t *testing.T) {
+	empty, err := marshalQuiesceRoleConnLimits(nil)
+	require.NoError(t, err)
+	require.Equal(t, "{}", empty)
+
+	nonEmpty, err := marshalQuiesceRoleConnLimits(map[string]int32{"app": 0, "reporting": -1})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"app":0,"reporting":-1}`, nonEmpty)
+}
+
+func TestMarshalQuiesceRolesHadConnect(t *testing.T) {
+	empty, err := marshalQuiesceRolesHadConnect(nil)
+	require.NoError(t, err)
+	require.Equal(t, "{}", empty)
+
+	nonEmpty, err := marshalQuiesceRolesHadConnect(map[string]bool{"app": true, "reporting": false})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"app":true,"reporting":false}`, nonEmpty)
 }
 
 func TestStorePersistsDirection(t *testing.T) {

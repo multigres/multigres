@@ -144,7 +144,7 @@ func TestCreateMigration_ConnectionOwnership(t *testing.T) {
 	t.Run("a caller lacking usage on the connection's owner is rejected, without revealing whether the connection exists", func(t *testing.T) {
 		tc := newTestCoord(t)
 		tc.store.conns[defaultConnID].OwnerRole = "alice"
-		tc.tgt.checkConnectionOwnershipErr = errors.New("role \"mallory\" lacks privilege to use this connection")
+		tc.tgt.checkRoleOwnershipErr = errors.New("role \"mallory\" lacks privilege to use this connection")
 		_, err := tc.c.CreateMigration(context.Background(), CreateParams{
 			ConnectionName: "src", TargetDatabase: "app", Tables: []string{"public.orders"}, CallerRole: "mallory",
 		})
@@ -167,24 +167,24 @@ func TestCreateMigration_ConnectionOwnership(t *testing.T) {
 	t.Run("an empty CallerRole (CLI/multiadmin path) skips the check entirely", func(t *testing.T) {
 		tc := newTestCoord(t)
 		tc.store.conns[defaultConnID].OwnerRole = "alice"
-		tc.tgt.checkConnectionOwnershipErr = errors.New("would reject if called")
+		tc.tgt.checkRoleOwnershipErr = errors.New("would reject if called")
 		tc.src.resolved = []string{"public.orders"}
 		_, err := tc.c.CreateMigration(context.Background(), CreateParams{
 			ConnectionName: "src", TargetDatabase: "app", Tables: []string{"public.orders"},
 		})
 		require.NoError(t, err)
-		require.NotContains(t, tc.log, "target.CheckConnectionOwnership")
+		require.NotContains(t, tc.log, "target.CheckRoleOwnership")
 	})
 
 	t.Run("an empty OwnerRole (a connection predating this check) skips it too", func(t *testing.T) {
 		tc := newTestCoord(t)
-		tc.tgt.checkConnectionOwnershipErr = errors.New("would reject if called")
+		tc.tgt.checkRoleOwnershipErr = errors.New("would reject if called")
 		tc.src.resolved = []string{"public.orders"}
 		_, err := tc.c.CreateMigration(context.Background(), CreateParams{
 			ConnectionName: "src", TargetDatabase: "app", Tables: []string{"public.orders"}, CallerRole: "mallory",
 		})
 		require.NoError(t, err)
-		require.NotContains(t, tc.log, "target.CheckConnectionOwnership")
+		require.NotContains(t, tc.log, "target.CheckRoleOwnership")
 	})
 }
 
@@ -343,6 +343,55 @@ func TestDrop_CompletingResume(t *testing.T) {
 	require.Contains(t, tc.log, "target.DropSubscription", "IMPORT teardown drops the target subscription")
 }
 
+// TestDrop_ConnectionOwnership is the regression test for the HIGH finding
+// this check guards against: a named migration carries no ACL of its own, so
+// without it any role that passes the gateway's CanCreateMigration gate could
+// name another operator's migration and abort it — FORCE included — tearing
+// down replication and lifting the serving hold while target data may be
+// incomplete.
+func TestDrop_ConnectionOwnership(t *testing.T) {
+	t.Run("a caller lacking usage on the migration's owner is rejected, without revealing whether the migration exists", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseCompleting, Direction: DirectionImport, OwnerRole: "alice"})
+		tc.tgt.checkRoleOwnershipErr = errors.New(`role "mallory" lacks privilege to act as "alice"`)
+
+		_, err := tc.c.DropMigration(context.Background(), Ref{ID: testMigID}, DropOptions{Force: true, CallerRole: "mallory"})
+
+		require.ErrorIs(t, err, ErrNotFound, "must not leak that the migration exists but is merely unauthorized")
+		require.Equal(t, "mallory", tc.tgt.lastCallerRole)
+		require.Equal(t, "alice", tc.tgt.lastOwnerRole)
+		require.Empty(t, tc.store.deletes, "nothing must be torn down once ownership is refused")
+	})
+
+	t.Run("the migration's own owner may drop it", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseCompleting, Direction: DirectionImport, OwnerRole: "alice"})
+
+		_, err := tc.c.DropMigration(context.Background(), Ref{ID: testMigID}, DropOptions{Force: true, CallerRole: "alice"})
+		require.NoError(t, err)
+	})
+
+	t.Run("an empty CallerRole (CLI/multiadmin path) skips the check entirely", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseCompleting, Direction: DirectionImport, OwnerRole: "alice"})
+		tc.tgt.checkRoleOwnershipErr = errors.New("would reject if called")
+
+		_, err := tc.c.DropMigration(context.Background(), Ref{ID: testMigID}, DropOptions{Force: true})
+		require.NoError(t, err)
+		require.NotContains(t, tc.log, "target.CheckRoleOwnership")
+	})
+
+	t.Run("an empty OwnerRole (a migration predating this check) skips it too", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseCompleting, Direction: DirectionImport})
+		tc.tgt.checkRoleOwnershipErr = errors.New("would reject if called")
+
+		_, err := tc.c.DropMigration(context.Background(), Ref{ID: testMigID}, DropOptions{Force: true, CallerRole: "mallory"})
+		require.NoError(t, err)
+		require.NotContains(t, tc.log, "target.CheckRoleOwnership")
+	})
+}
+
 func TestDrop_NotStartedRequiresForce(t *testing.T) {
 	tc := newTestCoord(t)
 	tc.seed(&Migration{Phase: PhaseCreated})
@@ -384,15 +433,18 @@ func TestDrop_GracefulImportSuccess(t *testing.T) {
 	require.Contains(t, tc.log, "target.DropSubscription")
 }
 
-func TestDrop_GracefulImportIsReadOnlyOnly(t *testing.T) {
+func TestDrop_GracefulImportSoftQuiesce(t *testing.T) {
 	tc := newTestCoord(t)
-	tc.seed(&Migration{Phase: PhaseImporting})
+	tc.seed(&Migration{Phase: PhaseImporting, QuiesceRoles: []string{"app"}})
 	_, err := tc.c.DropMigration(context.Background(), Ref{ID: testMigID}, DropOptions{})
 	require.NoError(t, err)
-	// A graceful drop leaves the source a standalone primary: read-only only,
-	// never terminating its client backends.
+	// A graceful drop leaves the source a standalone primary, so it uses the soft
+	// quiesce: read-only only, never terminating or fencing the app's own backends.
 	require.Contains(t, tc.log, "source.SetReadOnly(true)", "graceful drop still drains read-only")
 	require.NotContains(t, tc.log, "source.TerminateClientBackends", "graceful drop must not cut the app's backends")
+	require.NotContains(t, tc.log, "source.RevokeConnect", "graceful drop must not fence the app roles")
+	require.NotContains(t, tc.log, "source.GrantConnect",
+		"nothing was ever revoked for this migration, so teardown must not grant CONNECT a role may have been denied for an unrelated reason")
 }
 
 func TestDrop_GracefulDrainFailureRestoresPhase(t *testing.T) {
@@ -417,6 +469,74 @@ func TestSetDirection_Invalid(t *testing.T) {
 	tc := newTestCoord(t)
 	_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: testMigID}, Direction("SIDEWAYS"), ActivateOptions{})
 	require.ErrorContains(t, err, "invalid direction")
+}
+
+// TestSetDirection_ConnectionOwnership is the regression test for the HIGH
+// finding this check guards against: unlike CreateMigration and DropMigration,
+// SetMigrationDirection never checked the caller against the migration's
+// stored OwnerRole — any role that merely passes the gateway's
+// CanCreateMigration gate could start or switch another operator's
+// already-created migration, importing from (or cutting over to) that
+// operator's saved source connection without ever holding its credentials.
+// Covers both the not-yet-started IMPORT (subsumed start) path and an
+// already-running migration's direction switch.
+func TestSetDirection_ConnectionOwnership(t *testing.T) {
+	t.Run("a caller lacking usage on a not-yet-started migration's owner is rejected", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseCreated, OwnerRole: "alice"})
+		tc.tgt.checkRoleOwnershipErr = errors.New(`role "mallory" lacks privilege to act as "alice"`)
+
+		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: testMigID}, DirectionImport, ActivateOptions{CallerRole: "mallory"})
+
+		require.ErrorIs(t, err, ErrNotFound, "must not leak that the migration exists but is merely unauthorized")
+		require.Equal(t, "mallory", tc.tgt.lastCallerRole)
+		require.Equal(t, "alice", tc.tgt.lastOwnerRole)
+		require.NotContains(t, tc.log, "target.CreateSubscription", "setup must never run once ownership is refused")
+	})
+
+	t.Run("a caller lacking usage on an already-running migration's owner is rejected", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseImporting, OwnerRole: "alice"})
+		tc.tgt.checkRoleOwnershipErr = errors.New(`role "mallory" lacks privilege to act as "alice"`)
+		tc.src.lagPresent = true
+		tc.tgt.subExists = true
+
+		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: testMigID}, DirectionExport, ActivateOptions{CallerRole: "mallory", MaxLagBytes: 1024, WaitTimeout: time.Second})
+
+		require.ErrorIs(t, err, ErrNotFound)
+		require.NotContains(t, tc.log, "source.RevokeConnect", "the cutover must never begin once ownership is refused")
+	})
+
+	t.Run("the migration's own owner may start it", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseCreated, OwnerRole: "alice"})
+		tc.tgt.status = &SubscriptionStatus{TotalRelations: 1, ReadyRelations: 1}
+
+		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: testMigID}, DirectionImport, ActivateOptions{CallerRole: "alice"})
+		require.NoError(t, err)
+	})
+
+	t.Run("an empty CallerRole (CLI/multiadmin path) skips the check entirely", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseCreated, OwnerRole: "alice"})
+		tc.tgt.checkRoleOwnershipErr = errors.New("would reject if called")
+		tc.tgt.status = &SubscriptionStatus{TotalRelations: 1, ReadyRelations: 1}
+
+		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: testMigID}, DirectionImport, ActivateOptions{})
+		require.NoError(t, err)
+		require.NotContains(t, tc.log, "target.CheckRoleOwnership")
+	})
+
+	t.Run("an empty OwnerRole (a migration predating this check) skips it too", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseCreated})
+		tc.tgt.checkRoleOwnershipErr = errors.New("would reject if called")
+		tc.tgt.status = &SubscriptionStatus{TotalRelations: 1, ReadyRelations: 1}
+
+		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: testMigID}, DirectionImport, ActivateOptions{CallerRole: "mallory"})
+		require.NoError(t, err)
+		require.NotContains(t, tc.log, "target.CheckRoleOwnership")
+	})
 }
 
 func TestSetDirection_NoOp(t *testing.T) {
@@ -485,6 +605,213 @@ func logIndex(log []string, want string) int {
 	return -1
 }
 
+func TestActivate_HardQuiesceFencesRolesAndTerminates(t *testing.T) {
+	tc := newTestCoord(t)
+	tc.c.now = time.Now
+	m := tc.seed(&Migration{Phase: PhaseImporting, QuiesceRoles: []string{"app"}})
+	tc.src.lagPresent = true
+	tc.src.lag = 0
+	tc.tgt.subExists = true
+
+	_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionExport, ActivateOptions{MaxLagBytes: 1024, WaitTimeout: time.Second})
+	require.NoError(t, err)
+
+	// The hard quiesce fences the named roles and cuts live client backends, and both
+	// must happen before the switch tears the import link down (source.DropPublication).
+	revoke := logIndex(tc.log, "source.RevokeConnect")
+	terminate := logIndex(tc.log, "source.TerminateClientBackends")
+	dropPub := logIndex(tc.log, "source.DropPublication")
+	require.NotEqual(t, -1, revoke, "activate must revoke CONNECT from the fenced roles")
+	require.NotEqual(t, -1, terminate, "activate must terminate live source client backends")
+	require.NotEqual(t, -1, dropPub)
+	require.Less(t, revoke, dropPub, "the fence must precede the switch")
+	require.Less(t, terminate, dropPub, "the write-cut must precede the switch")
+}
+
+// TestActivate_RevokeQueriesAndPersistsPublicHadConnect covers the finding this
+// test guards against: GrantConnect at a later rollback/teardown must only
+// restore PUBLIC's CONNECT when PUBLIC genuinely had it before this
+// migration's ACTIVATE cutover revoked it — never when an operator had
+// already locked PUBLIC out as a hardening measure. That requires querying
+// and persisting the source's actual PUBLIC CONNECT state at revoke time,
+// before the revoke overwrites it.
+func TestActivate_RevokeQueriesAndPersistsPublicHadConnect(t *testing.T) {
+	t.Run("PUBLIC already lacked CONNECT", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.c.now = time.Now
+		m := tc.seed(&Migration{Phase: PhaseImporting, QuiesceRoles: []string{"app"}})
+		tc.src.lagPresent = true
+		tc.tgt.subExists = true
+		tc.src.publicHasConnect = false
+
+		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionExport, ActivateOptions{MaxLagBytes: 1024, WaitTimeout: time.Second})
+		require.NoError(t, err)
+		require.Contains(t, tc.log, "source.PublicHasConnect", "the hard quiesce must query PUBLIC's current state before revoking")
+		require.False(t, m.PublicHadConnect, "must persist that PUBLIC never had CONNECT")
+	})
+
+	t.Run("PUBLIC had CONNECT", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.c.now = time.Now
+		m := tc.seed(&Migration{Phase: PhaseImporting, QuiesceRoles: []string{"app"}})
+		tc.src.lagPresent = true
+		tc.tgt.subExists = true
+		tc.src.publicHasConnect = true
+
+		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionExport, ActivateOptions{MaxLagBytes: 1024, WaitTimeout: time.Second})
+		require.NoError(t, err)
+		require.True(t, m.PublicHadConnect, "must persist that PUBLIC had CONNECT")
+	})
+
+	t.Run("no quiesce roles still queries and revokes PUBLIC", func(t *testing.T) {
+		// Regression test for the finding this guards against: PUBLIC normally
+		// holds CONNECT whether or not any QuiesceRoles are configured, and
+		// default_transaction_read_only is a USERSET GUC a reconnecting client
+		// can override with BEGIN READ WRITE — so an empty QuiesceRoles must
+		// not leave the hard quiesce's barrier open to every other role.
+		tc := newTestCoord(t)
+		tc.c.now = time.Now
+		m := tc.seed(&Migration{Phase: PhaseImporting}) // no QuiesceRoles
+		tc.src.lagPresent = true
+		tc.tgt.subExists = true
+		tc.src.publicHasConnect = true
+
+		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionExport, ActivateOptions{MaxLagBytes: 1024, WaitTimeout: time.Second})
+		require.NoError(t, err)
+		require.Contains(t, tc.log, "source.PublicHasConnect", "PUBLIC's state must still be queried before revoking it")
+		require.Contains(t, tc.log, "source.RevokeConnect", "PUBLIC must still be revoked even with no named roles to fence")
+		require.True(t, m.PublicHadConnect)
+		require.True(t, m.QuiesceApplied, "a hard quiesce ran, regardless of QuiesceRoles being empty")
+	})
+}
+
+// TestActivate_RevokeQueriesAndPersistsQuiesceRoleConnLimits covers the finding
+// this guards against: REVOKE CONNECT alone does not fence a role that
+// inherits CONNECT from an ancestor group role, so RevokeConnect additionally
+// caps each quiesce role's CONNECTION LIMIT to 0 (enforced by Postgres at
+// authentication time, independent of the privilege-inheritance chain). The
+// role's original limit must be queried and persisted before it is zeroed, so
+// an operator-set custom limit (not just the default -1/unlimited) is restored
+// correctly later.
+func TestActivate_RevokeQueriesAndPersistsQuiesceRoleConnLimits(t *testing.T) {
+	tc := newTestCoord(t)
+	tc.c.now = time.Now
+	m := tc.seed(&Migration{Phase: PhaseImporting, QuiesceRoles: []string{"app", "reporting"}})
+	tc.src.lagPresent = true
+	tc.tgt.subExists = true
+	tc.src.roleConnLimits = map[string]int32{"app": 5, "reporting": -1}
+	tc.src.rolesHadConnect = map[string]bool{"app": true, "reporting": false}
+
+	_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionExport, ActivateOptions{MaxLagBytes: 1024, WaitTimeout: time.Second})
+	require.NoError(t, err)
+	require.Contains(t, tc.log, "source.RoleConnLimits", "the hard quiesce must query each role's current limit before zeroing it")
+	require.Equal(t, map[string]int32{"app": 5, "reporting": -1}, m.QuiesceRoleConnLimits, "must persist the pre-revoke limits, not assume -1/unlimited")
+	require.Contains(t, tc.log, "source.RolesHadConnect", "the hard quiesce must query each role's prior direct CONNECT grant before revoking it")
+	require.Equal(t, map[string]bool{"app": true, "reporting": false}, m.QuiesceRolesHadConnect, "must persist which roles genuinely had a personal grant, not assume all of them did")
+}
+
+// TestDrainCurrent_PersistsRestoreStateBeforeRevoke is the regression test for
+// the finding this guards against: PublicHadConnect/QuiesceRoleConnLimits used
+// to live only on the in-memory Migration struct until the whole switch's own
+// store.Update ran at the very end (after switchTo too) — even though
+// RevokeConnect, a live and hard-to-reverse mutation on the source, runs
+// immediately after they're captured. A crash in that window (revoke already
+// applied for real, but before the switch's own final persist) would lose the
+// only record of what GrantConnect's later rollback/teardown should restore:
+// it would then re-grant PUBLIC incorrectly (or not at all) and reset each
+// role's connection limit to a hardcoded default instead of its real prior
+// value. The store must already reflect both fields the moment the hard
+// quiesce captures them — before RevokeConnect runs, not after the switch.
+func TestDrainCurrent_PersistsRestoreStateBeforeRevoke(t *testing.T) {
+	tc := newTestCoord(t)
+	m := tc.seed(&Migration{Phase: PhaseImporting, QuiesceRoles: []string{"app"}})
+	tc.src.publicHasConnect = true
+	tc.src.roleConnLimits = map[string]int32{"app": 7}
+	tc.src.rolesHadConnect = map[string]bool{"app": true}
+
+	_, err := tc.c.drainCurrent(context.Background(), m, DirectionImport, true)
+	require.NoError(t, err)
+
+	// fakeStore.Update shares m's pointer with the store (no copy), so reading
+	// the stored fields back would pass even without a real persist — asserting
+	// on the update counter is what actually proves store.Update was called,
+	// not just that the in-memory struct was mutated.
+	require.GreaterOrEqual(t, tc.store.updates, 1,
+		"drainCurrent's hard quiesce must call store.Update itself, before RevokeConnect runs — not rely on a later caller to persist")
+	require.True(t, m.PublicHadConnect)
+	require.Equal(t, map[string]int32{"app": 7}, m.QuiesceRoleConnLimits)
+	require.Equal(t, map[string]bool{"app": true}, m.QuiesceRolesHadConnect)
+}
+
+func TestActivate_HardQuiesceWithoutRolesStillTerminates(t *testing.T) {
+	tc := newTestCoord(t)
+	tc.c.now = time.Now
+	m := tc.seed(&Migration{Phase: PhaseImporting}) // no QuiesceRoles
+	tc.src.lagPresent = true
+	tc.src.lag = 0
+	tc.tgt.subExists = true
+
+	_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionExport, ActivateOptions{MaxLagBytes: 1024, WaitTimeout: time.Second})
+	require.NoError(t, err)
+	require.Contains(t, tc.log, "source.TerminateClientBackends", "terminate is unconditional at the ACTIVATE barrier")
+	require.Contains(t, tc.log, "source.RevokeConnect", "RevokeConnect must still run to fence PUBLIC, even with no named roles")
+	// PUBLIC's CONNECT must stay revoked all the way through the reverse
+	// subscription attaching — nothing restores it until a later rollback or
+	// teardown, so a successful ACTIVATE must never call GrantConnect.
+	require.NotContains(t, tc.log, "source.GrantConnect", "CONNECT must not be restored mid-switch")
+}
+
+func TestActivate_TerminateErrorAbortsSwitch(t *testing.T) {
+	tc := newTestCoord(t)
+	tc.c.now = time.Now
+	m := tc.seed(&Migration{Phase: PhaseImporting})
+	tc.src.lagPresent = true
+	tc.src.lag = 0
+	tc.tgt.subExists = true
+	tc.src.terminateErr = errors.New("cannot signal backends")
+
+	_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionExport, ActivateOptions{MaxLagBytes: 1024, WaitTimeout: time.Second})
+	require.ErrorContains(t, err, "cannot signal backends")
+	require.NotContains(t, tc.log, "source.DropPublication", "a failed write-cut must not proceed into the switch")
+}
+
+// TestActivate_PartialHardQuiesceFailureRestoresConnectOnTeardown is the
+// regression test for the MEDIUM finding this guards against: a hard quiesce
+// can fail partway through its drainCurrent call — REVOKE CONNECT (and the
+// per-role connection-limit cap) already applied, then the very next step,
+// SetReadOnly(true), fails (e.g. a non-superuser source account lacking the
+// ALTER SYSTEM privilege it needs). The migration is marked FAILED, leaving
+// the fenced app roles locked out of the source — unless a later forced drop
+// restores them via the IMPORT-direction teardown, not just the
+// EXPORT-direction one that only ever runs once ACTIVATE has fully succeeded.
+func TestActivate_PartialHardQuiesceFailureRestoresConnectOnTeardown(t *testing.T) {
+	tc := newTestCoord(t)
+	tc.c.now = time.Now
+	m := tc.seed(&Migration{Phase: PhaseImporting, QuiesceRoles: []string{"app"}})
+	tc.src.lagPresent = true
+	tc.src.lag = 0
+	tc.tgt.subExists = true
+	tc.src.roleConnLimits = map[string]int32{"app": 5}
+	tc.src.rolesHadConnect = map[string]bool{"app": true}
+	tc.src.setROErr = errors.New("permission denied: must be superuser")
+
+	_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionExport, ActivateOptions{MaxLagBytes: 1024, WaitTimeout: time.Second})
+	require.ErrorContains(t, err, "must be superuser")
+	require.Contains(t, tc.log, "source.RevokeConnect", "the revoke must have already run before the failing step")
+	require.Equal(t, PhaseFailed, m.Phase)
+	require.Equal(t, map[string]int32{"app": 5}, m.QuiesceRoleConnLimits, "the pre-revoke limits must still be persisted for the later restore to use")
+
+	// Clear the injected failure and the call log, then force-drop the now-FAILED
+	// migration (force is required: it never reached a caught-up streaming
+	// state). teardown's IMPORT-direction branch must restore CONNECT using
+	// exactly the persisted state captured above.
+	tc.src.setROErr = nil
+	tc.log = nil
+	_, err = tc.c.DropMigration(context.Background(), Ref{ID: m.ID}, DropOptions{Force: true})
+	require.NoError(t, err)
+	require.Contains(t, tc.log, "source.GrantConnect", "CONNECT revoked by the failed hard quiesce must be restored on teardown")
+}
+
 // TestActivate_AlreadyActive_IsNoOp covers the unified verb's symmetric no-op
 // case for EXPORT (TestSetDirection_NoOp covers IMPORT): setting a migration
 // to the direction it is already in succeeds without error or a store write,
@@ -523,14 +850,18 @@ func TestDeactivate_ExportToImportFullSwitch(t *testing.T) {
 	require.Contains(t, tc.log, "target.CreateSubscription", "the forward subscription is re-established on the target")
 }
 
-// TestDeactivate_AdvancesSequencesBeforeDone covers the finding this guards
-// against: sequences must be advanced before the forward (source-publishes-
-// again) subscription is established, so a reconnecting write cannot collide
-// with an already-migrated sequence value.
-func TestDeactivate_AdvancesSequencesBeforeDone(t *testing.T) {
+// TestDeactivate_GrantConnectAfterForwardSubscriptionExists is the regression
+// test for the finding this guards against: EXPORT->IMPORT used to restore app
+// CONNECT before the forward (source-publishes-again) subscription existed, so a
+// reconnecting client could write to the source in the window before that
+// subscription's slot anchored a start point to capture it — silently losing the
+// write. GrantConnect must not run until target.CreateSubscription has
+// succeeded. AdvanceSequences must also precede GrantConnect, so a reconnecting
+// write cannot collide with an already-migrated sequence value.
+func TestDeactivate_GrantConnectAfterForwardSubscriptionExists(t *testing.T) {
 	tc := newTestCoord(t)
 	tc.c.drainForImport = func(context.Context) error { return nil }
-	m := tc.seed(&Migration{Phase: PhaseExporting})
+	m := tc.seed(&Migration{Phase: PhaseExporting, QuiesceRoles: []string{"app"}, QuiesceRolesHadConnect: map[string]bool{"app": true}})
 	tc.src.subExists = true
 
 	_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionImport, ActivateOptions{})
@@ -538,23 +869,103 @@ func TestDeactivate_AdvancesSequencesBeforeDone(t *testing.T) {
 
 	createSub := logIndex(tc.log, "target.CreateSubscription")
 	advanceSeqs := logIndex(tc.log, "source.AdvanceSequences")
+	grantConnect := logIndex(tc.log, "source.GrantConnect")
 	require.NotEqual(t, -1, createSub, "the forward subscription must be (re-)established")
+	require.NotEqual(t, -1, grantConnect, "CONNECT must be restored for the fenced app role")
 	require.NotEqual(t, -1, advanceSeqs, "sequences must be advanced before writes resume")
-	require.Less(t, advanceSeqs, createSub,
-		"sequences must be advanced before the forward subscription attaches, or a reconnecting write can collide with an already-migrated sequence value")
+	require.Less(t, createSub, grantConnect,
+		"CONNECT must not be restored until the forward subscription exists, or a reconnecting write can land before the slot anchors a capture point and be lost")
+	require.Less(t, advanceSeqs, grantConnect,
+		"sequences must be advanced before CONNECT is restored, or a reconnecting write can collide with an already-migrated sequence value")
 }
 
-func TestDeactivate_DrainsTarget(t *testing.T) {
+func TestDeactivate_DrainsTargetAndRestoresConnect(t *testing.T) {
 	tc := newTestCoord(t)
 	drained := 0
 	tc.c.drainForImport = func(context.Context) error { drained++; return nil }
-	m := tc.seed(&Migration{Phase: PhaseExporting})
+	m := tc.seed(&Migration{Phase: PhaseExporting, QuiesceRoles: []string{"app"}, QuiesceRolesHadConnect: map[string]bool{"app": true}})
 	tc.src.subExists = true
 
 	proj, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionImport, ActivateOptions{})
 	require.NoError(t, err)
 	require.Equal(t, PhaseImporting, proj.Phase)
 	require.Equal(t, 1, drained, "deactivate must drain the pooler to non-serving synchronously before the target becomes a subscriber")
+	require.Contains(t, tc.log, "source.GrantConnect", "deactivate restores app CONNECT on the source-as-publisher")
+}
+
+// TestDeactivate_GrantConnectRestoresPublicOnlyWhenItHadConnect is the
+// regression test for the finding: deactivate (rollback) must only restore
+// PUBLIC's CONNECT when the prior ACTIVATE recorded that PUBLIC genuinely had
+// it — never unconditionally, or an operator who had deliberately locked
+// PUBLIC out of a hardened source would find it re-opened to every login role
+// after a rollback.
+func TestDeactivate_GrantConnectRestoresPublicOnlyWhenItHadConnect(t *testing.T) {
+	t.Run("PUBLIC never had CONNECT: not restored", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.c.drainForImport = func(context.Context) error { return nil }
+		m := tc.seed(&Migration{Phase: PhaseExporting, QuiesceRoles: []string{"app"}, QuiesceRolesHadConnect: map[string]bool{"app": true}, PublicHadConnect: false})
+		tc.src.subExists = true
+
+		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionImport, ActivateOptions{})
+		require.NoError(t, err)
+		require.Contains(t, tc.log, "source.GrantConnect", "the named app role is still restored")
+		require.False(t, tc.src.grantConnectRestorePublic, "PUBLIC must not be re-granted CONNECT it never had")
+	})
+
+	t.Run("PUBLIC had CONNECT: restored", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.c.drainForImport = func(context.Context) error { return nil }
+		m := tc.seed(&Migration{Phase: PhaseExporting, QuiesceRoles: []string{"app"}, QuiesceRolesHadConnect: map[string]bool{"app": true}, PublicHadConnect: true})
+		tc.src.subExists = true
+
+		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionImport, ActivateOptions{})
+		require.NoError(t, err)
+		require.True(t, tc.src.grantConnectRestorePublic, "PUBLIC must be restored since it had CONNECT before ACTIVATE revoked it")
+	})
+}
+
+// TestDeactivate_GrantConnectRestoresOriginalConnLimits is the restore-side
+// regression test for the group-role-inheritance finding: GrantConnect must
+// set each quiesce role's CONNECTION LIMIT back to the value persisted at
+// ACTIVATE time (Migration.QuiesceRoleConnLimits), not a hardcoded -1 that
+// would silently discard an operator-set custom limit.
+func TestDeactivate_GrantConnectRestoresOriginalConnLimits(t *testing.T) {
+	tc := newTestCoord(t)
+	tc.c.drainForImport = func(context.Context) error { return nil }
+	m := tc.seed(&Migration{
+		Phase:                 PhaseExporting,
+		QuiesceRoles:          []string{"app", "reporting"},
+		QuiesceRoleConnLimits: map[string]int32{"app": 5, "reporting": -1},
+	})
+	tc.src.subExists = true
+
+	_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionImport, ActivateOptions{})
+	require.NoError(t, err)
+	require.Equal(t, map[string]int32{"app": 5, "reporting": -1}, tc.src.grantConnectLimits)
+}
+
+// TestDeactivate_GrantConnectOnlyRestoresRolesThatHadConnect is the regression
+// test for the MEDIUM finding this guards against: a quiesce role is not
+// guaranteed to have ever held its own personal CONNECT grant — it may only
+// have been reachable via PUBLIC's own (separately restored) grant. Restoring
+// every QuiesceRoles entry unconditionally, as GrantConnect used to be called,
+// would hand such a role a new, permanent personal grant it never had before
+// this migration. Only roles QuiesceRolesHadConnect marks true may be passed
+// to GrantConnect.
+func TestDeactivate_GrantConnectOnlyRestoresRolesThatHadConnect(t *testing.T) {
+	tc := newTestCoord(t)
+	tc.c.drainForImport = func(context.Context) error { return nil }
+	m := tc.seed(&Migration{
+		Phase:                  PhaseExporting,
+		QuiesceRoles:           []string{"app", "reporting"},
+		QuiesceRolesHadConnect: map[string]bool{"app": true, "reporting": false},
+	})
+	tc.src.subExists = true
+
+	_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionImport, ActivateOptions{})
+	require.NoError(t, err)
+	require.Equal(t, []string{"app"}, tc.src.grantConnectRoles,
+		"reporting never had its own CONNECT grant and must not be handed a new one on restore")
 }
 
 func TestDeactivate_DrainForImportErrorAborts(t *testing.T) {
@@ -583,7 +994,7 @@ func TestDeactivate_StuckDrainFailsWithinCeiling(t *testing.T) {
 
 	tc := newTestCoord(t)
 	tc.tgt.waitSlotBlocks = true
-	m := tc.seed(&Migration{Phase: PhaseExporting})
+	m := tc.seed(&Migration{Phase: PhaseExporting, QuiesceRoles: []string{"app"}})
 	tc.src.subExists = true
 
 	done := make(chan error, 1)
@@ -609,6 +1020,14 @@ func TestDeactivate_StuckDrainFailsWithinCeiling(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, PhaseFailed, proj.Phase)
 	require.Contains(t, proj.LastError, "context deadline exceeded")
+}
+
+func TestActivate_ExportGrantsBackOnTeardown(t *testing.T) {
+	tc := newTestCoord(t)
+	// A fenced EXPORT migration torn down (COMPLETING resume) must restore CONNECT.
+	tc.seed(&Migration{Phase: PhaseCompleting, Direction: DirectionExport, QuiesceRoles: []string{"app"}, QuiesceRolesHadConnect: map[string]bool{"app": true}})
+	require.NoError(t, tc.c.Reconcile(context.Background()))
+	require.Contains(t, tc.log, "source.GrantConnect", "EXPORT teardown restores app CONNECT on the standalone source")
 }
 
 func TestReconcile_CopyingToImporting(t *testing.T) {

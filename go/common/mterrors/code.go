@@ -41,6 +41,7 @@ const (
 	PgSSInvalidAuthSpec           = "28000" // invalid_authorization_specification
 	PgSSInvalidCursorName         = "34000" // invalid_cursor_name
 	PgSSDuplicatePreparedStmt     = "42P05" // duplicate_prepared_statement
+	PgSSDuplicateObject           = "42710" // duplicate_object
 	PgSSInsufficientPrivilege     = "42501" // insufficient_privilege
 	PgSSSyntaxError               = "42601" // syntax_error
 	PgSSUndefinedObject           = "42704" // undefined_object
