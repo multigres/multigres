@@ -395,7 +395,7 @@ func RuleNamesLeader(rule *clustermetadatapb.ShardRule, id *clustermetadatapb.ID
 // decisions agree does each side's proposal break the tie (further beyond a
 // shared decision is more advanced), and only when both agree on the
 // resulting rule does LSN break the tie. A missing or unparsable LSN is
-// treated as less than any valid LSN.
+// treated as less than any valid LSN; CompareLsnPositions is the strict version.
 func ComparePoolerPosition(a, b *clustermetadatapb.PoolerPosition) int {
 	if cmp, err := CompareLsnPositions(LsnPositionOf(a), LsnPositionOf(b)); err == nil {
 		return cmp
@@ -424,10 +424,10 @@ func LsnPositionOf(pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.Lsn
 }
 
 // CompareLsnPositions returns negative, zero, or positive based on whether a is
-// behind, equal to, or ahead of b, ordered like ComparePoolerPosition: rule
-// position first, then LSN. Unlike it, an LSN that can't be parsed is an error
-// rather than the lowest value, so a caller holding a promise can fail closed.
-// LSNs are parsed only to break a rule tie.
+// behind, equal to, or ahead of b: rule position first (the decision outranks
+// the proposal, as in ComparePoolerPosition), then LSN. An LSN that can't be
+// parsed is an error rather than the lowest value, so a caller holding a
+// promise can fail closed. LSNs are parsed only to break a rule tie.
 //
 // TODO: callers of ComparePoolerPosition already drop unparsable positions first
 // (filterByValidPosition, MostAdvancedPosition), so it could be strict too.
