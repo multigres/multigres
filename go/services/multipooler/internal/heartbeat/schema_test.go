@@ -15,6 +15,7 @@
 package heartbeat
 
 import (
+	"bytes"
 	"errors"
 	"log/slog"
 	"testing"
@@ -502,5 +503,34 @@ func TestReplTrackerCloseWithoutMetricsRegistration(t *testing.T) {
 	hw := newTestWriter(t, queryService, nil)
 	hr := newTestReader(t, queryService, nil)
 	rt := &ReplTracker{hw: hw, hr: hr, sw: switcher.NewRoleSwitcher(hw, hr)}
+	assert.NotPanics(t, rt.Close)
+}
+
+func TestSchemaReportEdgeCases(t *testing.T) {
+	var nilReport *SchemaReport
+	assert.Equal(t, "unknown", nilReport.String())
+	assert.Equal(t, "compatible", (&SchemaReport{}).String())
+
+	// A column the code does not know is never something to add.
+	unknown := &SchemaReport{Problems: []SchemaProblem{{Kind: ProblemMissingColumn, Column: "bogus"}}}
+	assert.False(t, unknown.Upgradable())
+
+	// A problem with no column renders without a column name.
+	assert.Equal(t, "missing_table: multigres.heartbeat does not exist",
+		SchemaProblem{Kind: ProblemMissingTable, Detail: "multigres.heartbeat does not exist"}.String())
+}
+
+// TestNewReplTrackerSurvivesMetricRegistrationFailure: a metric that cannot be created is
+// logged and skipped; the tracker is still usable.
+func TestNewReplTrackerSurvivesMetricRegistrationFailure(t *testing.T) {
+	previous := otel.GetMeterProvider()
+	t.Cleanup(func() { otel.SetMeterProvider(previous) })
+	otel.SetMeterProvider(failingMeterProvider{fail: map[string]bool{"mg.pooler.heartbeat.errors": true}})
+
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	rt := NewReplTracker(mock.NewQueryService(), logger, []byte("0"), "pooler-1", 250)
+	require.NotNil(t, rt)
+	assert.Contains(t, logs.String(), "failed to initialise some heartbeat metrics")
 	assert.NotPanics(t, rt.Close)
 }
