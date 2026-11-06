@@ -117,14 +117,16 @@ func TestRewindRunFence(t *testing.T) {
 		assert.Equal(t, client.pgRewindAbortReqs[0].GetRunId(), client.pgRewindAbortReqs[1].GetRunId())
 	})
 
-	t.Run("a pgctld without the RPC falls back to the running record", func(t *testing.T) {
-		pm, client := rewindRunSetup(t, nil, errors.New("source demoted while planning"))
+	t.Run("a pgctld without the RPC cannot confirm the run stopped, so the directory is treated as modified", func(t *testing.T) {
+		// An older pgctld neither fences nor writes the running record, so an
+		// untouched-looking directory proves nothing: a late write could still land.
+		pm, client := rewindRunSetup(t, nil, errors.New("connection reset"))
 		client.pgRewindAbortError = status.Error(codes.Unimplemented, "unknown method PgRewindAbort")
 
 		_, err := pm.runPgRewind(t.Context(), "leader", 5432)
-		require.ErrorContains(t, err, "source demoted while planning")
-		require.NotContains(t, err.Error(), "cannot confirm")
-		requirePresent(t, pm.rewindAttempt(), false, "judged and settled as before")
+		require.ErrorContains(t, err, "did not complete")
+		requirePresent(t, pm.rewindTainted(), true, "no running record exists to say the run stopped")
+		requirePresent(t, pm.rewindAttempt(), true, "kept: the run may still be writing and can delete the verdict")
 	})
 
 	t.Run("a marker without a run id is judged without a fence", func(t *testing.T) {
