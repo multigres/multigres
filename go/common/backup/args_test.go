@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestKeyToFlagPrefix(t *testing.T) {
@@ -83,6 +84,11 @@ func TestApplyPgBackRestOverrides(t *testing.T) {
 			baseArgs:  []string{"--stanza=test", "--type=full"},
 			overrides: nil,
 			want:      []string{"--stanza=test", "--type=full"},
+		},
+		{
+			name:      "nil base args appends sorted overrides",
+			overrides: map[string]string{"repo1_path": "/repo", "delta": "y"},
+			want:      []string{"--delta=y", "--repo1-path=/repo"},
 		},
 		{
 			name:      "empty overrides returns base args",
@@ -165,6 +171,18 @@ func TestApplyPgBackRestOverrides(t *testing.T) {
 			want: []string{"--stanza=test", "--delta="},
 		},
 		{
+			name:     "preserve base order and first matching replacement",
+			baseArgs: []string{"--stanza=test", "--pg2-host-port=8432", "expire", "--pg2-host=old", "--pg2-host=second", "--pg2-host-type=tls"},
+			overrides: map[string]string{
+				"pg2_host":      "new host=unchanged",
+				"pg2_host_port": "9999",
+				"repo1_path":    "/custom/repo",
+				"delta":         "",
+				"--ignored":     "invalid",
+			},
+			want: []string{"--stanza=test", "--pg2-host-port=9999", "expire", "--pg2-host=new host=unchanged", "--pg2-host=second", "--pg2-host-type=tls", "--delta=", "--repo1-path=/custom/repo"},
+		},
+		{
 			name:     "multiple arbitrary overrides",
 			baseArgs: []string{"--stanza=test", "--compress-type=lz4"},
 			overrides: map[string]string{
@@ -172,19 +190,47 @@ func TestApplyPgBackRestOverrides(t *testing.T) {
 				"repo1_path":    "/custom/repo",
 				"delta":         "y",
 			},
-			want: []string{"--stanza=test", "--compress-type=gzip", "--repo1-path=/custom/repo", "--delta=y"},
+			want: []string{"--stanza=test", "--compress-type=gzip", "--delta=y", "--repo1-path=/custom/repo"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := ApplyPgBackRestOverrides(tt.baseArgs, tt.overrides)
-			// Use ElementsMatch for tests with multiple new overrides to handle map iteration order
-			if tt.name == "multiple arbitrary overrides" {
-				assert.ElementsMatch(t, tt.want, got)
-			} else {
-				assert.Equal(t, tt.want, got)
-			}
+			assert.Equal(t, tt.want, got)
 		})
+	}
+}
+
+// The argv is compared and logged across runs, so appended overrides must come
+// out in the same order every time, not in Go's randomized map order.
+func TestApplyPgBackRestOverrides_AppendOrderIsDeterministic(t *testing.T) {
+	baseArgs := []string{"--stanza=test", "--type=full"}
+	overrides := map[string]string{
+		"repo1_s3_bucket": "bucket",
+		"compress_type":   "zst",
+		"delta":           "y",
+		"pg2_path":        "/data",
+		"archive_async":   "y",
+		"process_max":     "4",
+		"buffer_size":     "1MiB",
+		"log_level_file":  "detail",
+	}
+	want := []string{
+		"--stanza=test",
+		"--type=full",
+		"--archive-async=y",
+		"--buffer-size=1MiB",
+		"--compress-type=zst",
+		"--delta=y",
+		"--log-level-file=detail",
+		"--pg2-path=/data",
+		"--process-max=4",
+		"--repo1-s3-bucket=bucket",
+	}
+	// Map iteration order is randomized per range statement, so repeating the
+	// call makes an order dependence fail with near certainty.
+	for range 50 {
+		require.Equal(t, want, ApplyPgBackRestOverrides(baseArgs, overrides))
 	}
 }
