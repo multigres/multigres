@@ -44,6 +44,9 @@ type ConsensusPromises struct {
 	// continuity. Persisted alongside revocation; see promise_storage.go. See
 	// ConsensusManager.recruitPositionFloorIfOutstanding for enforcement. Only
 	// ever raised, never cleared: it stops mattering once the pooler reaches it.
+	// So a floor set too high stays too high. A pooler may forget it on learning it
+	// was removed from the cohort at a higher decided rule, but that isn't
+	// implemented.
 	recruitBlockedUntil *clustermetadatapb.LsnPosition
 }
 
