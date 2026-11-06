@@ -137,6 +137,11 @@ type postgresState struct {
 	// starting postgres on it, and to keep the unrecoverable classifier counting
 	// even when postgres appears "running" (the false-healthy waiting-for-WAL state).
 	rewindSentinelPresent bool
+	// rewindAttemptPresent is true when a rewind attempt marker is on disk: a
+	// mutating pg_rewind was launched and its outcome has not been settled yet. It
+	// holds even when suspectedDivergence is already set, so the monitor settles the
+	// attempt before it starts postgres on a directory that may have been modified.
+	rewindAttemptPresent bool
 	// rewindTaintedPresent is true when the rewind taint marker is on disk: a
 	// pg_rewind modified the data directory and did not complete. Durable across
 	// restarts; the monitor quarantines the node rather than rewinding or starting.
@@ -164,6 +169,7 @@ func postgresStateEqual(a, b postgresState) bool {
 		a.pgMode == b.pgMode &&
 		a.bootstrapSentinelPresent == b.bootstrapSentinelPresent &&
 		a.rewindSentinelPresent == b.rewindSentinelPresent &&
+		a.rewindAttemptPresent == b.rewindAttemptPresent &&
 		a.rewindTaintedPresent == b.rewindTaintedPresent &&
 		a.restoreSentinelPresent == b.restoreSentinelPresent &&
 		a.rewindSourceReady == b.rewindSourceReady
@@ -314,6 +320,8 @@ const (
 	// half-rewound directory but instead routed through the rewind-repair path
 	// (running node) or brought up "held" then rewound (down node). Purely sets the
 	// flag; the rewind itself follows on a later tick via remedialActionRewindToLeader.
+	// It also runs when a rewind attempt marker is on disk with the flag already set,
+	// to settle the attempt before anything starts postgres on the directory.
 	remedialActionMarkRewindInterrupted
 
 	// remedialActionQuarantineTaintedRewind means a pg_rewind modified the data
@@ -623,6 +631,14 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 		return state, fmt.Errorf("check rewind sentinel: %w", err)
 	}
 	state.rewindSentinelPresent = rewindSentinelPresent
+
+	rewindAttemptPresent, err := pm.rewindAttempt().present()
+	if err != nil {
+		// Without it we cannot tell whether a launched pg_rewind is still unsettled,
+		// so skip the tick rather than start postgres on a possibly modified directory.
+		return state, fmt.Errorf("check rewind attempt marker: %w", err)
+	}
+	state.rewindAttemptPresent = rewindAttemptPresent
 
 	return state, nil
 }
@@ -1101,7 +1117,14 @@ func (pm *MultipoolerManager) determineRemedialAction(ctx context.Context, curre
 	// the rewind path — and so trackRecoveryOutcome can quarantine if repair fails.
 	// Once set, restartAsStandbyLocked clears it (and removes the sentinel) on a
 	// successful rewind, so this fires at most once per incident.
-	if currentState.rewindSentinelPresent && !pm.consensusMgr.SuspectedDivergence() {
+	//
+	// An attempt marker that has not been settled is handled here too, even when
+	// suspectedDivergence is already set: a rewind that failed while the outcome
+	// could not be confirmed (pgctld unreachable) leaves the flag set and the node
+	// down, and without this the next tick would start postgres on a directory that
+	// may have been modified.
+	if currentState.rewindSentinelPresent &&
+		(!pm.consensusMgr.SuspectedDivergence() || currentState.rewindAttemptPresent) {
 		return remedialActionMarkRewindInterrupted
 	}
 
@@ -1523,10 +1546,13 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// Re-establish the suspected-divergence flag lost across the restart. The
 		// rewind itself follows on a later tick via remedialActionRewindToLeader
 		// (gated on a rewind-ready leader and rate-limited); repeated failures are
-		// counted by trackRecoveryOutcome and eventually quarantine the node.
-		if err := pm.markSuspectedDivergence(ctx); err != nil {
-			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to mark suspected divergence for interrupted rewind", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
-			return nil
+		// counted by trackRecoveryOutcome and eventually quarantine the node. The flag
+		// may already be set when this ran only to settle the attempt.
+		if !pm.consensusMgr.SuspectedDivergence() {
+			if err := pm.markSuspectedDivergence(ctx); err != nil {
+				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to mark suspected divergence for interrupted rewind", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+				return nil
+			}
 		}
 
 	case remedialActionQuarantineTaintedRewind:
