@@ -461,10 +461,10 @@ func (m failingMeter) Int64ObservableCounter(name string, opts ...metric.Int64Ob
 func TestRegisterMetricsInstrumentFailures(t *testing.T) {
 	const ops, errs = "mg.pooler.heartbeat.operations", "mg.pooler.heartbeat.errors"
 	for _, tt := range []struct {
-		name    string
-		fail    []string
-		wantIn  []string
-		wantOut []string
+		name       string
+		fail       []string
+		wantMsgs   []string
+		wantAbsent []string
 	}{
 		{"operations fails", []string{ops}, []string{ops}, []string{errs}},
 		{"errors fails", []string{errs}, []string{errs}, []string{ops}},
@@ -483,10 +483,10 @@ func TestRegisterMetricsInstrumentFailures(t *testing.T) {
 			unregister, err := registerMetrics(newTestWriter(t, queryService, nil), newTestReader(t, queryService, nil))
 
 			require.Error(t, err)
-			for _, want := range tt.wantIn {
+			for _, want := range tt.wantMsgs {
 				assert.ErrorContains(t, err, want)
 			}
-			for _, notWant := range tt.wantOut {
+			for _, notWant := range tt.wantAbsent {
 				assert.NotContains(t, err.Error(), notWant)
 			}
 			assert.NotContains(t, err.Error(), "%!w", "a nil error must not be wrapped")
