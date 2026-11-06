@@ -19,9 +19,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pglogrepl"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -83,13 +85,42 @@ func TestReplicationStatsMetricsExported(t *testing.T) {
 		slot, pub))
 	rt.expectCopyBothResponse()
 
+	// Exercise the startup-keepalive ordering explicitly: an ACK can be
+	// processed before any published transaction has reached the lag tracker.
+	// That ACK alone does not guarantee a non-NULL replay_lag, even after WAL
+	// subsequently arrives. Wait for its replay_lsn before generating WAL so
+	// this regression does not depend on the walsender winning a scheduling race.
+	startupLSN := rt.streamOneFrame(20 * time.Second)
+	rt.sendCopyData(buildStandbyStatus(startupLSN))
+	conn := dialNormalConn(t, setup)
+	require.Eventually(t, func() bool {
+		rows, err := conn.Query(ctx, fmt.Sprintf(`
+			SELECT r.replay_lsn::text
+			FROM pg_stat_replication r
+			JOIN pg_replication_slots s ON s.active_pid = r.pid
+			WHERE s.slot_name = '%s'`, slot))
+		return err == nil && len(rows) == 1 && len(rows[0].Rows) == 1 &&
+			string(rows[0].Rows[0].Values[0]) == pglogrepl.LSN(startupLSN).String()
+	}, 5*time.Second, 50*time.Millisecond, "Postgres must process the startup ACK before the INSERT")
 	insertRow(t, setup, table, 1, "replstats")
-	ackLSN := rt.streamOneFrame(20 * time.Second)
 
-	// Ack so Postgres records reply_time/replay_lag for this walsender — both
-	// stay NULL (and mg.pooler.replication.replay_lag/last_ack_age go unset)
-	// until at least one Standby Status Update arrives.
-	rt.sendCopyData(buildStandbyStatus(ackLSN))
+	// Logical walsenders track lag at transaction ends. Consume through Commit
+	// and ACK its end LSN, not the first keepalive/Begin frame's WAL position.
+	var commit *pglogrepl.CommitMessage
+	deadline := time.Now().Add(20 * time.Second)
+	for commit == nil && time.Now().Before(deadline) {
+		typ, body, err := rt.readMessage()
+		require.NoError(t, err)
+		if typ != protocol.MsgCopyData || len(body) == 0 || body[0] != 'w' {
+			continue
+		}
+		parseXLogData(t, body) // Validate the header before slicing the payload.
+		msg, err := pglogrepl.Parse(body[xlogDataHeaderLen:])
+		require.NoError(t, err)
+		commit, _ = msg.(*pglogrepl.CommitMessage)
+	}
+	require.NotNil(t, commit, "must receive the inserted transaction's Commit")
+	rt.sendCopyData(buildStandbyStatus(uint64(commit.TransactionEndLSN)))
 
 	require.Eventually(t, func() bool {
 		lag, ok := scrapeAndFind(t, poolerPort, "mg_pooler_replication_replay_lag_seconds", nil)

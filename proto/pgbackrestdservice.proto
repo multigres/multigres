@@ -1,0 +1,146 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package pgbackrestdservice;
+
+option go_package = "github.com/multigres/multigres/go/pb/pgbackrestdservice";
+
+service PgBackRestd {
+  // Configure sets the repository generation list. Rejected when revision is lower than the one held.
+  rpc Configure(ConfigureRequest) returns (ConfigureResponse);
+  // Run executes one allowlisted pgBackRest command, streaming output; the last message carries the exit code.
+  rpc Run(RunRequest) returns (stream RunOutput);
+  rpc Status(StatusRequest) returns (StatusResponse);
+  // Unix control only; shuts down this exact serving instance gracefully.
+  rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
+}
+
+message RepoGeneration {
+  uint32 generation = 1;
+  uint32 repo_number = 2;
+}
+
+message ConfigureRequest {
+  int64 revision = 1;
+  repeated RepoGeneration repos = 2;
+  uint32 wal_segment_size_bytes = 3;
+}
+
+message ConfigureResponse {
+  bool accepted = 1;
+  int64 held_revision = 2;
+}
+
+enum Command {
+  COMMAND_UNSPECIFIED = 0;
+  COMMAND_BACKUP = 1;
+  COMMAND_VERIFY = 2;
+  COMMAND_INFO = 3;
+  COMMAND_CHECK = 4;
+  COMMAND_EXPIRE = 5;
+  COMMAND_STANZA_CREATE = 6;
+  COMMAND_RESTORE = 7;
+}
+
+message RunRequest {
+  Command command = 1;
+  repeated string args = 2;
+  RestoreOperation restore = 3;
+}
+
+message RunOutput {
+  oneof chunk {
+    bytes stdout = 1;
+    bytes stderr = 2;
+    int32 exit_code = 3;
+  }
+  // Set on the final message when output was dropped. Restore uses a bounded
+  // queue; any command may truncate output after foreground exit if a worker
+  // retains stdio. Consumers that parse output must reject truncation.
+  bool output_truncated = 4;
+}
+
+message ShutdownRequest {
+  string instance_id = 1;
+}
+message ShutdownResponse {
+  bool accepted = 1;
+}
+
+message StatusRequest {
+}
+
+message StatusResponse {
+  bool configured = 1;
+  int64 revision = 2;
+  repeated RepoGeneration repos = 3;
+  repeated uint32 generations_with_keys = 4;
+  bool server_up = 5;
+  uint32 server_port = 6;
+  string pgbackrest_version = 7;
+  string location_fingerprint = 8;
+  // Why a persisted configuration was set aside at startup; empty when none was.
+  string state_error = 9;
+  // True while a start that clears the stop file after a restore is still being retried.
+  bool restore_start_pending = 10;
+  // Fingerprint of the cipher key for each generation that has one, computed
+  // like pgbackrest_repos.key_fingerprint so a caller can record it without
+  // ever holding the key.
+  map<uint32, string> generation_fingerprints = 11;
+  // True from the moment a restore starts quiescing until its gate reopens
+  // (the background start retry is reported by restore_start_pending instead).
+  // Diagnostic only: false does not fence a decoded but unadmitted request.
+  // Callers must never authorize PGDATA cleanup from this field.
+  bool restore_in_progress = 12;
+  // Legacy diagnostic only. Never use for settlement: restore_result binds
+  // a terminal result to the admitted operation and exact arguments.
+  bool last_restore_succeeded = 13;
+  // Commands of the Command enum that are running or are still being killed
+  // and reaped, one entry per run (a command running twice appears twice). An
+  // entry covers foreground execution and bounded cancellation settlement.
+  // Detached lifetime ownership is independent: this is NOT a cleanup permit.
+  // Restore appears here too.
+  repeated Command active_commands = 14;
+  string restore_incarnation = 15;
+  RestoreResult restore_result = 16;
+  string instance_id = 17;
+  // Version 1: supervised lifetime, matched shutdown and atomic credentials bundle.
+  uint32 lifecycle_protocol_version = 18;
+}
+
+// Restore admission is a compare-and-swap on predecessor within one incarnation.
+// Replaying an identical admitted operation never executes it twice. The most
+// recent result is retained durably, including across restart. Superseded
+// requests fail their predecessor CAS; unknown requests from an old incarnation
+// cannot enter. The manager persists this identity in its restore sentinel
+// before Run. cleanup is only for a marked interrupted restore after pgctld
+// reports postgres stopped and a complete backup has been selected.
+message RestoreOperation {
+  string id = 1;
+  string predecessor = 2;
+  string incarnation = 3;
+  bool cleanup = 4;
+  // Strictly increasing admission sequence (current + 1); prevents ABA even
+  // if a client mistakenly reuses an older UUID with a newer predecessor.
+  uint64 sequence = 5;
+}
+message RestoreResult {
+  RestoreOperation operation = 1;
+  repeated string args = 2;
+  bool terminal = 3;
+  bool succeeded = 4;
+  int32 exit_code = 5;
+}
