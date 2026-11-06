@@ -281,9 +281,10 @@ func (pm *MultipoolerManager) GetPrimaryAsPg2Args(
 		}
 	}
 
-	// Apply any additional overrides
-	args = backup.ApplyPgBackRestOverrides(args, overrides)
-
+	args, err := backup.ApplyPgBackRestOverrides(args, overrides)
+	if err != nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, err.Error())
+	}
 	return args, nil
 }
 
