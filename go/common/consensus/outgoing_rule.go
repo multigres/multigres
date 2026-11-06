@@ -78,7 +78,7 @@ func discoverOutgoingRule(
 }
 
 // revokedOutgoingRule is an observedOutgoingRule that is known to be revoked:
-// no write can become durable under it that the recruits cannot see. It can only
+// no write can become quorum-held under it that the recruits cannot see. It can only
 // be built by proveRevoked, so anything derived from it rests on that proof.
 type revokedOutgoingRule struct {
 	observedOutgoingRule
@@ -107,7 +107,7 @@ func (o observedOutgoingRule) proveRevoked() (revokedOutgoingRule, error) {
 // leaders. A majority of the incoming cohort forces any two such attempts to
 // overlap, so they cannot both succeed. This relies on retries proposing the same
 // cohort, which nothing enforces. The unrecruited-cannot-commit half also rejects
-// a stale cert: if an earlier attempt's rule became durable on this cohort, the
+// a stale cert: if an earlier attempt's rule became quorum-held on this cohort, the
 // recruits must overlap its quorum, and holders of that rule refuse the new
 // revocation.
 func (o observedOutgoingRule) proveRevokedByCert() error {
@@ -126,7 +126,7 @@ func (o observedOutgoingRule) proveRevokedByCert() error {
 // That is the cohort every competing coordinator recruits for this term,
 // whichever rule it believes is outgoing, so a recruited majority forces
 // overlap with all of them. Its leftovers also cannot commit, so no write that
-// is durable under the outgoing rule is invisible to the recruits: while a
+// is quorum-held under the outgoing rule is invisible to the recruits: while a
 // proposal is undecided, a write needs the "Both" policy of the decision and the
 // proposal, and the cohort of that policy lies within the decision's.
 func (o observedOutgoingRule) proveRevokedByRecruitment() error {

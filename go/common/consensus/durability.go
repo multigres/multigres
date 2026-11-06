@@ -42,6 +42,8 @@ func ParseUserSpecifiedDurabilityPolicy(name string) (*clustermetadatapb.Durabil
 }
 
 // DurabilityPolicy captures the quorum semantics of a single durability rule.
+// It defines when an entry is quorum-held; whether it is decided is a separate
+// question (see the package doc).
 //
 // It exposes the feasibility check a coordinator needs to safely appoint a
 // new leader under the generalized-consensus model: whether a given set of

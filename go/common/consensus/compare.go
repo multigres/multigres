@@ -13,6 +13,18 @@
 // limitations under the License.
 
 // Package consensus provides utilities for working with consensus types.
+//
+// A WAL entry is in one of these states, weakest to strongest:
+//   - held: some node's WAL has it.
+//   - quorum-held: held by the write quorums of the rules it names. A
+//     precondition for deciding, not a promise: it can still be dropped across
+//     a series of failovers.
+//   - decided/committed: a client may have seen it. This is what must never be lost.
+//
+// Postgres has no durable, replicated commit index, so we can't always distinguish
+// between quorum-held and decided today. Because of that, we have scenarios
+// where a transaction may be visible without being durable. Fixing that will require
+// changes to Postgres.
 package consensus
 
 import (

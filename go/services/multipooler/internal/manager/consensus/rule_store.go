@@ -710,7 +710,7 @@ func resolveNewRuleValues(
 //   - requireOutgoingQuorum: the "Both" policy of the previous decision and
 //     the stuck proposal. That commit's synchronous ack is the quorum
 //     proof — it can't succeed unless the position it finalizes was already
-//     durable.
+//     quorum-held.
 //   - skipOutgoingQuorum: the incoming (new) policy directly, the same one
 //     the ordinary (non-propagated) skipOutgoingQuorum write also uses.
 //     There's no quorum to prove here — the cert is a separate, independent
@@ -765,7 +765,7 @@ func (rs *ruleStore) maybeFinalizeStuckProposal(
 
 	// Confirm the stuck proposal's own quorum before trusting it: a no-op
 	// write under the policy above only succeeds if that proposal's WAL is
-	// already durable across the required standbys. Under skipOutgoingQuorum
+	// already quorum-held across the required standbys. Under skipOutgoingQuorum
 	// this isn't proving anything about the old proposal specifically — the
 	// cert already establishes safety — it's just an ordinary commit needed
 	// to make progress.
@@ -864,7 +864,7 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 
 	// A write with no independent safety backing (no cert, not a promotion)
 	// has no way to know whether an existing undecided proposal reflects
-	// durable, quorum-verified work — silently overwriting it could discard
+	// quorum-verified work — silently overwriting it could discard
 	// something a later coordinator needed to discover and recover from, so
 	// it fails closed here. Past this guard, at least one of skipOutgoingQuorum
 	// (externally-certified) or isPromotion (ordinary automatic failover) is
@@ -1049,7 +1049,7 @@ func (rs *ruleStore) UpdateRule(ctx context.Context, update *RuleUpdateBuilder) 
 	// Finalize: promote the just-written proposal to decision.
 	//
 	// TODO: apply transition.Incoming before this finalize, not after. Once the proposal is
-	// durable under the combined policy, the decision only needs the incoming cohort's acks;
+	// quorum-held under the combined policy, the decision only needs the incoming cohort's acks;
 	// an outgoing member that holds just the proposal makes multiorch push it forward and find
 	// the decided rule on the incoming side. That would also let freshenQuorumProof's no-op
 	// write wait on the incoming cohort alone. Needs a safety review of how recruit and
@@ -1418,7 +1418,7 @@ func (rs *ruleStore) writeRuleProposal(ctx context.Context, p ruleProposalWriteP
 		return nil, mterrors.Wrap(err, "failed to parse proposal row into memory")
 	}
 
-	// Cache immediately: it's now durable (this write blocked on the
+	// Cache immediately: it's now quorum-held (this write blocked on the
 	// sync-standby ack), so a reader must be able to observe it even if this
 	// process dies before the finalize step runs.
 	rs.cacheRuleObservation(pos)
