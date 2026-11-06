@@ -112,15 +112,13 @@ func (pm *MultipoolerManager) markPoolerActive(ctx context.Context) {
 // restarts PostgreSQL as a standby, then publishes REQUESTING_DEMOTION so
 // multiorch's LeaderResignedAnalyzer drives the election.
 //
-// By restarting postgres here, before Recruit runs on any node, we prevent the
-// "proposed leader not eligible" error: the Recruit fan-out disconnects the
-// standby's WAL receiver before the shutdown checkpoint WAL arrives. When this
-// node is already in standby mode at Recruit time, Recruit runs
-// pauseReplication instead (no new checkpoint), so all nodes end up at the same
-// post-shutdown LSN and the most-advanced standby is eligible.
-//
-// Multiorch's LeaderIsDeadAnalyzer is suppressed for the brief restart window
-// because postgres was ready very recently (within LeaderPostgresResponseThreshold).
+// Publishing resignation only after the restart attempt avoids inviting Recruit
+// to disconnect standby receivers before the shutdown-checkpoint WAL can reach
+// them. Once this node is a standby, Recruit pauses replication without producing
+// another shutdown checkpoint. A failed attempt still publishes resignation so
+// normal consensus recovery can proceed, without claiming demotion succeeded.
+// Other failure detectors may start an election during a long restart; the
+// existing WAL-position and quorum checks remain authoritative.
 func (pm *MultipoolerManager) ResignLeadership(ctx context.Context, req *multipoolermanagerdatapb.ResignLeadershipRequest) (*multipoolermanagerdatapb.ResignLeadershipResponse, error) {
 	ctx, span := telemetry.Tracer().Start(ctx, "consensus/resign_leadership")
 	defer span.End()
@@ -165,28 +163,39 @@ func (pm *MultipoolerManager) ResignLeadership(ctx context.Context, req *multipo
 		pm.logger.WarnContext(ctx, "resign_leadership: failed to terminate write connections (non-fatal)", "error", err)
 	}
 
-	// Step 4: publish REQUESTING_DEMOTION so multiorch's LeaderResignedAnalyzer
-	// drives the election. Best-effort: if this fails the caller can still poll
-	// for a new leader, and multiorch's LeaderIsDeadAnalyzer will eventually act.
-	//
-	// TODO: publish after the restart in step 5, even if it fails, as the doc
-	// comment says. Publishing first lets Recruit disconnect standbys before
-	// the shutdown checkpoint WAL reaches them, risking a pg_rewind on rejoin.
+	// Step 4: capture the outgoing leader position under the action lock. The
+	// restart may refresh the cached consensus state; publication must still
+	// refer to the leader and term that began this resignation.
+	var resignedPosition *clustermetadatapb.RulePosition
 	if cs := pm.consensusMgr.CachedConsensusStatus(); commonconsensus.SelfConsensusRole(cs) == commonconsensus.ConsensusRoleLeader {
-		if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, cs.GetCurrentPosition().GetPosition()); err != nil {
+		resignedPosition = proto.Clone(cs.GetCurrentPosition().GetPosition()).(*clustermetadatapb.RulePosition)
+	}
+
+	// Step 5: clear archive recovery, then restart PostgreSQL as standby using
+	// fast shutdown (the restart helper requests Mode: "fast"). Do not advertise
+	// resignation before this attempt: Recruit could otherwise pause standby
+	// receivers before they receive the shutdown-checkpoint WAL.
+	resetErr := pm.resetRestoreCommand(ctx)
+	var restartErr error
+	if resetErr == nil {
+		restartErr = pm.restartPostgresAsStandby(ctx, state)
+	}
+
+	// Publish even if reset or restart failed: serving is already drained and
+	// normal consensus recovery still needs the replacement request. This local,
+	// best-effort signal runs with the action lock held, including on timeout;
+	// it is not evidence that postgres became a standby. Preserve the operation
+	// errors and skip all success-only bookkeeping below on either failure.
+	if resignedPosition != nil {
+		if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, resignedPosition); err != nil {
 			pm.logger.WarnContext(ctx, "resign_leadership: failed to publish REQUESTING_DEMOTION (non-fatal)", "error", err)
 		}
 	}
-
-	// Step 5: restart PostgreSQL as standby. This triggers a graceful shutdown
-	// (SIGTERM → smart shutdown → checkpoint → WAL sent to standbys → exit),
-	// so connected standbys receive the shutdown checkpoint WAL before postgres
-	// exits.
-	if err := pm.resetRestoreCommand(ctx); err != nil {
-		return nil, mterrors.Wrap(err, "failed to clear restore_command before resign restart")
+	if resetErr != nil {
+		return nil, mterrors.Wrap(resetErr, "failed to clear restore_command before resign restart")
 	}
-	if err := pm.restartPostgresAsStandby(ctx, state); err != nil {
-		return nil, mterrors.Wrap(err, "failed to restart postgres as standby during resign")
+	if restartErr != nil {
+		return nil, mterrors.Wrap(restartErr, "failed to restart postgres as standby during resign")
 	}
 
 	// Step 6: mark rewind as not needed — this is a planned failover so there is
