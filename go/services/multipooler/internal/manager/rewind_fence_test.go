@@ -29,6 +29,13 @@ import (
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
+func attemptRunID(t *testing.T, pm *MultipoolerManager) string {
+	t.Helper()
+	id, err := pm.rewindAttemptRunID()
+	require.NoError(t, err)
+	return id
+}
+
 // The pooler fences the run id through pgctld before it judges the data
 // directory, because a request pgctld has not handled yet leaves no running record
 // to wait for.
@@ -48,7 +55,8 @@ func TestRewindRunFence(t *testing.T) {
 		var markedID string
 		client.pgRewindOnCall = func(req *pgctldpb.PgRewindRequest) {
 			if !req.GetDryRun() {
-				mutating, markedID = req, pm.rewindAttemptRunID()
+				mutating = req
+				markedID, _ = pm.rewindAttemptRunID()
 			}
 		}
 		pm.pgctldClient = client
@@ -96,7 +104,7 @@ func TestRewindRunFence(t *testing.T) {
 		require.ErrorContains(t, err, "connection reset", "the original failure is kept")
 		requirePresent(t, pm.rewindTainted(), false, "no verdict without an answer")
 		requirePresent(t, pm.rewindAttempt(), true, "kept so the next settle can ask again")
-		assert.NotEmpty(t, pm.rewindAttemptRunID())
+		assert.NotEmpty(t, attemptRunID(t, pm))
 
 		// pgctld is back: the next settle fences the same run and judges it.
 		client.pgRewindAbortError = nil
@@ -126,7 +134,7 @@ func TestRewindRunFence(t *testing.T) {
 		pm.pgctldClient = client
 		require.NoError(t, pm.rewindAttempt().write())
 		require.NoError(t, os.WriteFile(filepath.Join(dir, "base/1/16384"), []byte("x"), 0o600))
-		assert.Empty(t, pm.rewindAttemptRunID())
+		assert.Empty(t, attemptRunID(t, pm))
 
 		tainted, err := pm.settleRewindAttempt(t.Context())
 		require.NoError(t, err)
@@ -148,10 +156,30 @@ func TestRewindRunFence(t *testing.T) {
 	t.Run("the run id is read back from the marker", func(t *testing.T) {
 		newAgedDataDir(t)
 		pm := newSentinelTestManager(t)
-		assert.Empty(t, pm.rewindAttemptRunID(), "no marker")
+		assert.Empty(t, attemptRunID(t, pm), "no marker")
 
 		require.NoError(t, pm.rewindAttemptFor("run-1").write())
-		assert.Equal(t, "run-1", pm.rewindAttemptRunID())
+		assert.Equal(t, "run-1", attemptRunID(t, pm))
+	})
+
+	t.Run("a marker that cannot be read is not read as having no run id", func(t *testing.T) {
+		dir := newAgedDataDir(t)
+		pm := newSentinelTestManager(t)
+		client := &mockPgctldClient{}
+		pm.pgctldClient = client
+		// A directory where the marker goes: present, but not readable as a file.
+		blockSentinel(t, pm.rewindAttempt())
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "base/1/16384"), []byte("x"), 0o600))
+
+		_, err := pm.rewindAttemptRunID()
+		require.Error(t, err)
+
+		tainted, err := pm.settleRewindAttempt(t.Context())
+		require.ErrorContains(t, err, "cannot read the run id from the rewind attempt marker")
+		assert.False(t, tainted, "nothing is judged on a marker that cannot be read")
+		assert.Empty(t, client.pgRewindAbortReqs)
+		requirePresent(t, pm.rewindTainted(), false, "")
+		requirePresent(t, pm.rewindAttempt(), true, "kept so the next settle can retry")
 	})
 
 	t.Run("the monitor fences an interrupted run before it judges it", func(t *testing.T) {

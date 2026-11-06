@@ -112,12 +112,32 @@ func TestRewindRuns(t *testing.T) {
 		finish()
 	})
 
-	t.Run("a run without an id cannot be fenced", func(t *testing.T) {
+	t.Run("a run without an id is tracked like any other but cannot be fenced", func(t *testing.T) {
 		var r rewindRuns
-		ctx, finish, err := r.begin(t.Context(), "")
+		_, finish, err := r.begin(t.Context(), "")
 		require.NoError(t, err)
-		assert.Equal(t, t.Context(), ctx)
+
+		_, _, err = r.begin(t.Context(), "run-1")
+		require.Error(t, err, "a tracked run cannot overlap it")
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+		_, _, err = r.begin(t.Context(), "")
+		require.Error(t, err, "nor can another one without an id")
+
 		finish()
+		_, finish, err = r.begin(t.Context(), "run-1")
+		require.NoError(t, err, "allowed once it has finished")
+		finish()
+	})
+
+	t.Run("a tracked run cannot be overlapped by a run without an id", func(t *testing.T) {
+		var r rewindRuns
+		_, finish, err := r.begin(t.Context(), "run-1")
+		require.NoError(t, err)
+		defer finish()
+
+		_, _, err = r.begin(t.Context(), "")
+		require.Error(t, err)
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 	})
 
 	t.Run("abort gives up when the run does not finish in time", func(t *testing.T) {

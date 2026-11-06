@@ -143,19 +143,24 @@ func (pm *MultipoolerManager) rewindAttemptFor(runID string) sentinel {
 
 const rewindRunIDKey = "run_id="
 
-// rewindAttemptRunID returns the run id recorded in the attempt marker, or "" if
-// it has none or cannot be read.
-func (pm *MultipoolerManager) rewindAttemptRunID() string {
+// rewindAttemptRunID returns the run id recorded in the attempt marker. It is ""
+// with no error when the marker is missing or has no id, which is the marker an
+// older pooler wrote. A marker that cannot be read is an error and not "no id":
+// the run is then unknown, and skipping the fence would judge it on a guess.
+func (pm *MultipoolerManager) rewindAttemptRunID() (string, error) {
 	data, err := os.ReadFile(pm.rewindAttempt().path)
 	if err != nil {
-		return ""
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
 	}
 	for line := range strings.SplitSeq(string(data), "\n") {
 		if id, ok := strings.CutPrefix(line, rewindRunIDKey); ok {
-			return strings.TrimSpace(id)
+			return strings.TrimSpace(id), nil
 		}
 	}
-	return ""
+	return "", nil
 }
 
 // rewindTainted returns the verdict marker for a data directory modified by a
@@ -322,7 +327,11 @@ func (pm *MultipoolerManager) settleRewindAttempt(ctx context.Context) (tainted 
 	// Fence the run first, so a request pgctld has not handled yet cannot start
 	// after the directory is judged. If pgctld cannot say, keep the marker and try
 	// again later rather than judge on a guess.
-	if err := pm.fenceRewindRun(ctx, pm.rewindAttemptRunID()); err != nil {
+	runID, err := pm.rewindAttemptRunID()
+	if err != nil {
+		return false, mterrors.Wrap(err, "cannot read the run id from the rewind attempt marker")
+	}
+	if err := pm.fenceRewindRun(ctx, runID); err != nil {
 		return false, mterrors.Wrap(err, "cannot confirm what happened to the pg_rewind run")
 	}
 
