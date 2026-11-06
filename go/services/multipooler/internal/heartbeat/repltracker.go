@@ -91,7 +91,9 @@ func (rt *ReplTracker) OnStateChange(ctx context.Context, state servingstate.Sta
 // switcher.RoleSwitcher.Close.
 func (rt *ReplTracker) Close() {
 	rt.sw.Close()
-	rt.unregisterMetrics()
+	if rt.unregisterMetrics != nil {
+		rt.unregisterMetrics()
+	}
 }
 
 // isWritingHeartbeats reports whether this tracker is running the heartbeat

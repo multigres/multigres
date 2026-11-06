@@ -173,7 +173,7 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 	readCtx, cancel := context.WithTimeout(ctx, r.interval)
 	defer cancel()
 
-	tsNano, receiveLSN, haveReceiveLSN, quorumCommitLSN, haveQuorumCommitLSN, quorumCommitTs, haveQuorumCommitTs, err := r.fetchMostRecentHeartbeat(readCtx)
+	tsNano, receiveLSN, haveReceiveLSN, quorumCommitLSN, haveQuorumCommitLSN, quorumCommitTs, haveQuorumCommitTs, quorumColumns, err := r.fetchMostRecentHeartbeat(readCtx)
 	if err != nil {
 		r.recordError(err)
 		return
@@ -198,6 +198,14 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 	// quorum_commit_lsn/quorum_commit_ts are just the latest observed values,
 	// not advance-tracked like receive_lsn above -- quorum_commit_ts is
 	// already a leader-stamped instant, not something we'd time ourselves.
+	//
+	// A read that could not select the columns at all (the lag-only fallback) forgets
+	// them: the table no longer carries a quorum-commit signal, and a value kept from
+	// before would only age until multiorch read it as a stalled quorum.
+	if !quorumColumns {
+		r.haveQuorumCommitLSN = false
+		r.haveQuorumCommitTs = false
+	}
 	if haveQuorumCommitLSN {
 		r.lastQuorumCommitLSN = quorumCommitLSN
 		r.haveQuorumCommitLSN = true
@@ -226,19 +234,19 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 // are written by the primary itself and ride that same replication, so their
 // advancement is a distinct "the primary is durably committing with quorum"
 // signal.
-func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, receiveLSN pgutil.LSN, haveReceiveLSN bool, quorumCommitLSN pgutil.LSN, haveQuorumCommitLSN bool, quorumCommitTs time.Time, haveQuorumCommitTs bool, err error) {
+func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, receiveLSN pgutil.LSN, haveReceiveLSN bool, quorumCommitLSN pgutil.LSN, haveQuorumCommitLSN bool, quorumCommitTs time.Time, haveQuorumCommitTs bool, quorumColumns bool, err error) {
 	result, withQuorum, err := r.queryHeartbeat(ctx)
 	if err != nil {
-		return 0, 0, false, 0, false, time.Time{}, false, mterrors.Wrap(err, "failed to read most recent heartbeat")
+		return 0, 0, false, 0, false, time.Time{}, false, false, mterrors.Wrap(err, "failed to read most recent heartbeat")
 	}
 	if result == nil || len(result.StructuredRows()) == 0 {
-		return 0, 0, false, 0, false, time.Time{}, false, mterrors.Wrap(errors.New("no heartbeat found"), "failed to read most recent heartbeat")
+		return 0, 0, false, 0, false, time.Time{}, false, false, mterrors.Wrap(errors.New("no heartbeat found"), "failed to read most recent heartbeat")
 	}
 	row := result.StructuredRows()[0]
 
 	tsNano, err = executor.GetInt64(row, 0)
 	if err != nil {
-		return 0, 0, false, 0, false, time.Time{}, false, mterrors.Wrap(err, "failed to parse heartbeat timestamp")
+		return 0, 0, false, 0, false, time.Time{}, false, false, mterrors.Wrap(err, "failed to parse heartbeat timestamp")
 	}
 
 	// receive_lsn is best-effort: a NULL/unparsable value just leaves advance
@@ -251,7 +259,7 @@ func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, re
 		}
 	}
 	if !withQuorum {
-		return tsNano, receiveLSN, haveReceiveLSN, 0, false, time.Time{}, false, nil
+		return tsNano, receiveLSN, haveReceiveLSN, 0, false, time.Time{}, false, false, nil
 	}
 	// Same best-effort treatment for quorum_commit_lsn.
 	if raw, rawErr := executor.GetString(row, 2); rawErr == nil && raw != "" {
@@ -269,7 +277,7 @@ func (r *Reader) fetchMostRecentHeartbeat(ctx context.Context) (tsNano int64, re
 	} else if !ts.IsZero() {
 		quorumCommitTs, haveQuorumCommitTs = ts, true
 	}
-	return tsNano, receiveLSN, haveReceiveLSN, quorumCommitLSN, haveQuorumCommitLSN, quorumCommitTs, haveQuorumCommitTs, nil
+	return tsNano, receiveLSN, haveReceiveLSN, quorumCommitLSN, haveQuorumCommitLSN, quorumCommitTs, haveQuorumCommitTs, true, nil
 }
 
 // queryHeartbeat runs the heartbeat read, falling back to the lag-only query when the

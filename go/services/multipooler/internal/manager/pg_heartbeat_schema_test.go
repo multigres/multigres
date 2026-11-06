@@ -15,6 +15,13 @@
 package manager
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"log/slog"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,7 +29,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/heartbeat"
@@ -192,4 +201,269 @@ func TestMaybeRefreshHeartbeatSchema(t *testing.T) {
 	assert.True(t, pm.heartbeatSchema.Load().Compatible(), "the re-check found the table repaired")
 	pm.maybeRefreshHeartbeatSchema(ctx)
 	assert.Equal(t, 2, checks)
+}
+
+const (
+	hbColumnsPattern = "pg_attribute a\\s+WHERE"
+	hbKeyPattern     = "SELECT EXISTS"
+	hbAlterPattern   = "ALTER TABLE IF EXISTS multigres\\.heartbeat"
+	hbRecoveryQuery  = "SELECT pg_is_in_recovery"
+)
+
+var hbColumnsCols = []string{"attname", "format_type", "required"}
+
+func hbCurrentColumns() [][]any {
+	return [][]any{
+		{"shard_id", "bytea", "t"},
+		{"leader_id", "text", "t"},
+		{"ts", "bigint", "t"},
+		{"quorum_commit_lsn", "pg_lsn", "f"},
+		{"quorum_commit_ts", "timestamp with time zone", "f"},
+	}
+}
+
+func hbLegacyColumns() [][]any { return hbCurrentColumns()[:3] }
+
+func hbInRecovery(inRecovery string) *sqltypes.Result {
+	return mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{inRecovery}})
+}
+
+// lockedBuffer is a log sink safe to write from the health loop and read from the test.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// newHeartbeatSchemaManager returns a manager whose internal query service is the returned
+// mock, logging to the returned buffer.
+func newHeartbeatSchemaManager(t *testing.T) (*MultipoolerManager, *mock.QueryService, *lockedBuffer) {
+	t.Helper()
+	queryService := mock.NewQueryService()
+	pm := newHeartbeatProofManager(t, queryService)
+	pm.qsc = &mockPoolerController{queryService: queryService}
+	logs := &lockedBuffer{}
+	pm.logger = slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	return pm, queryService, logs
+}
+
+func TestEnsureHeartbeatSchemaFailurePaths(t *testing.T) {
+	t.Run("no query service is a no-op", func(t *testing.T) {
+		pm, _, _ := newHeartbeatSchemaManager(t)
+		pm.qsc = nil
+		assert.NotPanics(t, func() {
+			pm.ensureHeartbeatSchema(t.Context())
+			pm.checkHeartbeatSchema(t.Context())
+		})
+		assert.Nil(t, pm.heartbeatSchema.Load())
+	})
+
+	t.Run("a check that cannot run keeps the previous verdict", func(t *testing.T) {
+		pm, queryService, logs := newHeartbeatSchemaManager(t)
+		pm.heartbeatSchema.Store(compatibleHeartbeatSchema)
+		queryService.AddQueryPatternWithError(hbColumnsPattern, errors.New("connection reset"))
+
+		pm.ensureHeartbeatSchema(t.Context())
+		pm.checkHeartbeatSchema(t.Context())
+
+		assert.Same(t, compatibleHeartbeatSchema, pm.heartbeatSchema.Load(), "an error is not a verdict")
+		assert.Contains(t, logs.String(), "failed to ensure the heartbeat table schema")
+		assert.Contains(t, logs.String(), "failed to check the heartbeat table schema")
+	})
+
+	t.Run("a failing ALTER records the incompatible table and does not panic", func(t *testing.T) {
+		pm, queryService, logs := newHeartbeatSchemaManager(t)
+		queryService.AddQueryPattern(hbColumnsPattern, mock.MakeQueryResult(hbColumnsCols, hbLegacyColumns()))
+		queryService.AddQueryPattern(hbKeyPattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{"t"}}))
+		queryService.AddQueryPatternWithError(hbAlterPattern, errors.New("cannot execute ALTER TABLE in a read-only transaction"))
+
+		pm.ensureHeartbeatSchema(t.Context())
+
+		report := pm.heartbeatSchema.Load()
+		require.NotNil(t, report)
+		assert.False(t, report.Compatible())
+		assert.True(t, pm.heartbeatSchemaBroken())
+		assert.Contains(t, logs.String(), "failed to ensure the heartbeat table schema")
+	})
+
+	t.Run("an upgrade is recorded as compatible", func(t *testing.T) {
+		pm, queryService, _ := newHeartbeatSchemaManager(t)
+		queryService.AddQueryPatternOnce(hbColumnsPattern, mock.MakeQueryResult(hbColumnsCols, hbLegacyColumns()))
+		queryService.AddQueryPatternOnce(hbKeyPattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{"t"}}))
+		queryService.AddQueryPattern(hbAlterPattern, mock.MakeQueryResult(nil, nil))
+		queryService.AddQueryPattern(hbColumnsPattern, mock.MakeQueryResult(hbColumnsCols, hbCurrentColumns()))
+		queryService.AddQueryPattern(hbKeyPattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{"t"}}))
+
+		pm.ensureHeartbeatSchema(t.Context())
+
+		assert.True(t, pm.heartbeatSchema.Load().Compatible())
+		assert.False(t, pm.heartbeatSchemaBroken())
+	})
+}
+
+// TestRefreshHeartbeatSchemaByRole: only a primary may alter the table; a standby only
+// checks it, since the change reaches it by replication.
+func TestRefreshHeartbeatSchemaByRole(t *testing.T) {
+	setup := func(t *testing.T, recovery *sqltypes.Result, recoveryErr error) (*MultipoolerManager, *atomic.Int32, *atomic.Int32) {
+		pm, queryService, _ := newHeartbeatSchemaManager(t)
+		var altered, checked atomic.Int32
+		if recoveryErr != nil {
+			queryService.AddQueryPatternWithError(hbRecoveryQuery, recoveryErr)
+		} else {
+			queryService.AddQueryPattern(hbRecoveryQuery, recovery)
+		}
+		queryService.AddQueryPatternWithCallback(hbColumnsPattern, mock.MakeQueryResult(hbColumnsCols, hbLegacyColumns()),
+			func(string) { checked.Add(1) })
+		queryService.AddQueryPattern(hbKeyPattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{"t"}}))
+		queryService.AddQueryPatternWithCallback(hbAlterPattern, mock.MakeQueryResult(nil, nil), func(string) { altered.Add(1) })
+		return pm, &altered, &checked
+	}
+
+	t.Run("a primary upgrades the table", func(t *testing.T) {
+		pm, altered, _ := setup(t, hbInRecovery("f"), nil)
+		pm.refreshHeartbeatSchema(t.Context())
+		assert.EqualValues(t, 1, altered.Load())
+		assert.NotNil(t, pm.heartbeatSchema.Load())
+	})
+
+	t.Run("a standby only checks, even for an upgradable table", func(t *testing.T) {
+		pm, altered, checked := setup(t, hbInRecovery("t"), nil)
+		pm.refreshHeartbeatSchema(t.Context())
+		assert.EqualValues(t, 0, altered.Load(), "a standby must not run DDL")
+		assert.EqualValues(t, 1, checked.Load())
+		report := pm.heartbeatSchema.Load()
+		require.NotNil(t, report)
+		assert.False(t, report.Compatible())
+		assert.True(t, report.Upgradable())
+	})
+
+	t.Run("an unknown role does nothing", func(t *testing.T) {
+		pm, altered, checked := setup(t, nil, errors.New("connection refused"))
+		pm.heartbeatSchema.Store(compatibleHeartbeatSchema)
+		assert.NotPanics(t, func() { pm.refreshHeartbeatSchema(t.Context()) })
+		assert.EqualValues(t, 0, altered.Load())
+		assert.EqualValues(t, 0, checked.Load(), "no check without knowing whether the DDL is allowed")
+		assert.Same(t, compatibleHeartbeatSchema, pm.heartbeatSchema.Load())
+	})
+}
+
+// TestRecordHeartbeatSchemaLogsOnTransitions: the ERROR is logged when the verdict is new
+// or changes, not on every re-check of an unchanged incompatible table.
+func TestRecordHeartbeatSchemaLogsOnTransitions(t *testing.T) {
+	pm, _, logs := newHeartbeatSchemaManager(t)
+	ctx := t.Context()
+	other := &heartbeat.SchemaReport{Problems: []heartbeat.SchemaProblem{{Kind: heartbeat.ProblemWrongType, Column: "ts", Detail: "x"}}}
+	errorLogs := func() int { return strings.Count(logs.String(), "level=ERROR") }
+
+	pm.recordHeartbeatSchema(ctx, compatibleHeartbeatSchema)
+	assert.Equal(t, 0, errorLogs(), "compatible from the start is silent")
+
+	pm.recordHeartbeatSchema(ctx, incompatibleHeartbeatSchema)
+	assert.Equal(t, 1, errorLogs())
+	pm.recordHeartbeatSchema(ctx, &heartbeat.SchemaReport{Problems: incompatibleHeartbeatSchema.Problems})
+	assert.Equal(t, 1, errorLogs(), "the same problems again are not logged again")
+
+	pm.recordHeartbeatSchema(ctx, other)
+	assert.Equal(t, 2, errorLogs(), "a different problem is logged")
+
+	assert.NotContains(t, logs.String(), "compatible again")
+	pm.recordHeartbeatSchema(ctx, compatibleHeartbeatSchema)
+	assert.Contains(t, logs.String(), "compatible again")
+	assert.Equal(t, 2, errorLogs())
+}
+
+// TestCreateSidecarSchemaNeverFailsOnHeartbeatSchema: an incompatible heartbeat table is
+// reported, not fatal, so it cannot fail the bootstrap that runs it (nor, by the same call,
+// an open). This is the policy documented in pg_heartbeat_schema.go.
+func TestCreateSidecarSchemaNeverFailsOnHeartbeatSchema(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		columns    [][]any
+		checkError error
+		wantOK     bool
+		wantNil    bool
+	}{
+		{name: "compatible", columns: hbCurrentColumns(), wantOK: true},
+		{name: "incompatible beyond repair", columns: hbCurrentColumns()[1:]},
+		{name: "check cannot run", checkError: errors.New("connection reset"), wantNil: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pm, queryService := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+			queryService.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
+			queryService.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
+			queryService.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+			queryService.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
+			queryService.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
+			queryService.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
+			queryService.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
+			addFreshCatalogEnsure(queryService)
+			addShardRefEnsure(queryService, nil)
+			addMigrationTableCreate(queryService)
+			addCatalogMigrationEnsure(queryService, nil)
+			if tt.checkError != nil {
+				queryService.AddQueryPatternWithError(hbColumnsPattern, tt.checkError)
+			} else {
+				queryService.AddQueryPattern(hbColumnsPattern, mock.MakeQueryResult(hbColumnsCols, tt.columns))
+				queryService.AddQueryPattern(hbKeyPattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{"t"}}))
+			}
+
+			require.NoError(t, pm.createSidecarSchema(t.Context(), testBootstrapPolicy()))
+
+			report := pm.heartbeatSchema.Load()
+			if tt.wantNil {
+				assert.Nil(t, report)
+				return
+			}
+			require.NotNil(t, report)
+			assert.Equal(t, tt.wantOK, report.Compatible())
+		})
+	}
+}
+
+// TestHealthLoopRefreshesHeartbeatSchema: the periodic health loop is what notices that an
+// incompatible table was repaired, so it must call the refresh.
+func TestHealthLoopRefreshesHeartbeatSchema(t *testing.T) {
+	pm, queryService, _ := newHeartbeatSchemaManager(t)
+	queryService.AddQueryPattern(hbRecoveryQuery, hbInRecovery("t"))
+	queryService.AddQueryPattern(hbColumnsPattern, mock.MakeQueryResult(hbColumnsCols, hbCurrentColumns()))
+	queryService.AddQueryPattern(hbKeyPattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{"t"}}))
+	pm.heartbeatSchema.Store(incompatibleHeartbeatSchema)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		pm.runHealthHeartbeat(ctx, 10*time.Millisecond)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	require.Eventually(t, func() bool { return pm.heartbeatSchema.Load().Compatible() },
+		5*time.Second, 10*time.Millisecond, "the loop re-checked the standing incompatible verdict")
+}
+
+// TestMaybeRefreshHeartbeatSchemaWithoutTracker: no heartbeat tracker yet means no errors
+// to account for; an unchecked or compatible verdict costs nothing.
+func TestMaybeRefreshHeartbeatSchemaWithoutTracker(t *testing.T) {
+	pm, queryService, _ := newHeartbeatSchemaManager(t)
+	pm.replTracker = nil
+	checked := false
+	queryService.AddQueryPatternWithCallback(hbColumnsPattern, mock.MakeQueryResult(hbColumnsCols, hbCurrentColumns()), func(string) { checked = true })
+
+	assert.NotPanics(t, func() { pm.maybeRefreshHeartbeatSchema(t.Context()) })
+	assert.False(t, checked, "never checked and no errors: nothing triggers a check")
+	assert.False(t, pm.heartbeatSchemaBroken())
 }
