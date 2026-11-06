@@ -123,7 +123,6 @@ func (w *Writer) writeHeartbeat(ctx context.Context) {
 	err := w.write(writeCtx, true)
 	if err != nil {
 		w.logger.ErrorContext(ctx, "failed to write heartbeat", "error", err)
-		w.writeErrors.Add(1)
 	} else {
 		w.writes.Add(1)
 		w.logger.DebugContext(ctx, "heartbeat written",
@@ -174,6 +173,10 @@ func (w *Writer) write(ctx context.Context, waitForQuorum bool) error {
 		RETURNING pg_current_wal_lsn()::text
 	`, w.shardID, w.poolerID, now.UnixNano(), lsnArg, provenTsArg)
 	if err != nil {
+		// Every failed write is counted here, so WriteProven's are too. writeErrors goes
+		// first: a reader that loads writeSchemaErrors and then writeErrors (see
+		// registerMetrics) then never sees more schema errors than errors.
+		w.writeErrors.Add(1)
 		if IsSchemaError(err) {
 			w.writeSchemaErrors.Add(1)
 			w.schemaBroken.Store(true)
@@ -244,7 +247,8 @@ func (w *Writer) Writes() int64 {
 	return w.writes.Load()
 }
 
-// WriteErrors returns the number of heartbeat write errors.
+// WriteErrors returns the number of failed heartbeat writes, including those made by
+// WriteProven.
 func (w *Writer) WriteErrors() int64 {
 	return w.writeErrors.Load()
 }

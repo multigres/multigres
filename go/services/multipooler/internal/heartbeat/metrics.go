@@ -16,6 +16,7 @@ package heartbeat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"go.opentelemetry.io/otel"
@@ -51,7 +52,7 @@ const (
 // log line and an in-process count nothing read. The returned function unregisters the
 // callback. Best-effort: an instrument that fails to initialise is skipped and the joined
 // error is returned for logging.
-func registerMetrics(hw *Writer, hr *Reader) (unregister func(), err error) {
+func registerMetrics(hw *Writer, hr *Reader) (unregister func(), _ error) {
 	meter := otel.Meter(meterName)
 
 	operations, opsErr := meter.Int64ObservableCounter(
@@ -66,18 +67,19 @@ func registerMetrics(hw *Writer, hr *Reader) (unregister func(), err error) {
 		metric.WithUnit("{error}"),
 	)
 	var instruments []metric.Observable
+	var errs []error
 	if opsErr == nil {
 		instruments = append(instruments, operations)
 	} else {
-		err = fmt.Errorf("mg.pooler.heartbeat.operations: %w", opsErr)
+		errs = append(errs, fmt.Errorf("mg.pooler.heartbeat.operations: %w", opsErr))
 	}
 	if errsErr == nil {
 		instruments = append(instruments, errorsCounter)
 	} else {
-		err = fmt.Errorf("%w; mg.pooler.heartbeat.errors: %w", err, errsErr)
+		errs = append(errs, fmt.Errorf("mg.pooler.heartbeat.errors: %w", errsErr))
 	}
 	if len(instruments) == 0 {
-		return func() {}, err
+		return func() {}, errors.Join(errs...)
 	}
 
 	op := func(name string) metric.MeasurementOption {
@@ -92,16 +94,19 @@ func registerMetrics(hw *Writer, hr *Reader) (unregister func(), err error) {
 			o.ObserveInt64(operations, hr.Reads(), op(operationRead))
 		}
 		if errsErr == nil {
-			ws, rs := hw.WriteSchemaErrors(), hr.ReadSchemaErrors()
+			// The schema count is loaded before the total: both only grow and the total is
+			// incremented first, so total-schema is never negative.
+			ws := hw.WriteSchemaErrors()
 			o.ObserveInt64(errorsCounter, ws, failed(operationWrite, reasonSchema))
 			o.ObserveInt64(errorsCounter, hw.WriteErrors()-ws, failed(operationWrite, reasonOther))
+			rs := hr.ReadSchemaErrors()
 			o.ObserveInt64(errorsCounter, rs, failed(operationRead, reasonSchema))
 			o.ObserveInt64(errorsCounter, hr.ReadErrors()-rs, failed(operationRead, reasonOther))
 		}
 		return nil
 	}, instruments...)
 	if regErr != nil {
-		return func() {}, fmt.Errorf("%w; heartbeat metrics callback: %w", err, regErr)
+		return func() {}, errors.Join(append(errs, fmt.Errorf("heartbeat metrics callback: %w", regErr))...)
 	}
-	return func() { _ = reg.Unregister() }, err
+	return func() { _ = reg.Unregister() }, errors.Join(errs...)
 }
