@@ -514,7 +514,7 @@ func dumpSchemaArgs(tables []string) []string {
 // password unstripped. Returns dsn unchanged and an empty password when there
 // is none to strip.
 func stripConnInfoPassword(dsn string) (sanitized string, password string) {
-	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+	if pgutil.IsConnURI(dsn) {
 		return stripURIPassword(dsn)
 	}
 	kv := pgutil.ParseConnInfo(dsn)

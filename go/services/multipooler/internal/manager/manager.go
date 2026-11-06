@@ -258,6 +258,10 @@ type MultipoolerManager struct {
 	migrationCoord         *migration.Coordinator
 	migrationSchemaEnsured bool
 
+	// connectionDir replaces the sharding catalog as the directory of backing connections
+	// the default primary serves. Nil outside tests.
+	connectionDir connectionDirectory
+
 	// migrationImportHold is the migration serving gate, stored as a
 	// migrationHoldState: held when an active migration on this shard is in
 	// the IMPORT direction, so this pooler must not serve client queries

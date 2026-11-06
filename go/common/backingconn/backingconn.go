@@ -25,6 +25,9 @@ import (
 	"unicode"
 )
 
+// ErrMultipleHosts is the refusal of a connection that names a list of hosts.
+var ErrMultipleHosts = errors.New("host names more than one server; a single server is required")
+
 // Validate reports why a connection cannot be used as a backing connection, or nil.
 //
 // The connection names one server: the pooler's admin connection must reach the same server as
@@ -36,7 +39,7 @@ func Validate(host string, port int, database, user string) error {
 	case strings.TrimSpace(host) == "":
 		return errors.New("host is required")
 	case strings.Contains(host, ","):
-		return errors.New("host names more than one server; a single server is required")
+		return ErrMultipleHosts
 	case strings.HasPrefix(host, "/"):
 		return errors.New("host is a socket directory; a network host is required")
 	case strings.ContainsFunc(host, unicode.IsSpace) || strings.ContainsAny(host, "/@"):

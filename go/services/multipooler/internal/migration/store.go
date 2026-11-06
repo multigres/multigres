@@ -440,6 +440,14 @@ var ErrConnectionNotFound = errors.New("connection not found")
 // "not the catalog shard" elsewhere and "catalog ensure not complete yet" there.
 var ErrNoConnectionsTable = errors.New("multigres.connections does not exist")
 
+// NoConnectionsTableMessage is what a caller sees when a connection query finds no
+// multigres.connections. It is true on both kinds of shard: connections live on the catalog
+// shard only, and there the table is created when the pooler opens, so on the catalog shard the
+// error means that has not completed yet.
+const NoConnectionsTableMessage = "multigres.connections is not available on this shard: " +
+	"connections live on the catalog shard (tablegroup default, shard 0-inf), " +
+	"and on the catalog shard the table is created when the pooler opens"
+
 // ErrConnectionInUse is returned by DeleteConnection when a migration still
 // references the connection.
 var ErrConnectionInUse = errors.New("connection is referenced by a migration")
