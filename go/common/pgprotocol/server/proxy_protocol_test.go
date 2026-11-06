@@ -35,11 +35,24 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
-var proxyV2Signature = []byte("\r\n\r\n\x00\r\nQUIT\n")
+const (
+	// Version 3 with the PROXY command. Only version 2 is valid here.
+	proxyTestInvalidVersion proxyproto.ProtocolVersionAndCommand = 0x31
+	// Version 2 with unassigned command 2.
+	proxyTestInvalidCommand proxyproto.ProtocolVersionAndCommand = 0x22
+	// Unassigned address family and transport protocol.
+	proxyTestUndefinedFamily proxyproto.AddressFamilyAndProtocol = 0xff
+)
 
-func proxyTestHeader(command, family byte, payload []byte) []byte {
-	header := append([]byte(nil), proxyV2Signature...)
-	header = append(header, command, family, byte(len(payload)>>8), byte(len(payload)))
+// proxyTestHeader builds wire fixtures without formatter validation so tests can
+// send malformed headers. Pires provides the signature and valid field constants.
+// The command byte combines version and command: PROXY (0x21) or LOCAL (0x20).
+// The family byte combines address family and transport: TCPv4 (0x11),
+// TCPv6 (0x21), UDPv4 (0x12), UnixStream (0x31), or UNSPEC (0x00).
+func proxyTestHeader(command proxyproto.ProtocolVersionAndCommand, family proxyproto.AddressFamilyAndProtocol, payload []byte) []byte {
+	header := bytes.Clone(proxyproto.SIGV2)
+	header = append(header, byte(command), byte(family))
+	header = binary.BigEndian.AppendUint16(header, uint16(len(payload)))
 	return append(header, payload...)
 }
 
@@ -56,7 +69,7 @@ func proxyTestAddress(ipv6 bool) []byte {
 }
 
 func proxyTestTLV(length int) []byte {
-	data := binary.BigEndian.AppendUint16([]byte{4}, uint16(length))
+	data := binary.BigEndian.AppendUint16([]byte{byte(proxyproto.PP2_TYPE_NOOP)}, uint16(length))
 	return append(data, make([]byte, length)...)
 }
 
@@ -71,8 +84,8 @@ func proxyTestTLV(length int) []byte {
 // Optional headers, proxy trust, TCP-only addresses, ALPN eligibility, and
 // preservation of the following TLS bytes are Multigateway-specific assertions.
 func TestProxyProtocolParsing(t *testing.T) {
-	v4 := proxyTestHeader(0x21, 0x11, proxyTestAddress(false))
-	v6 := proxyTestHeader(0x21, 0x21, proxyTestAddress(true))
+	v4 := proxyTestHeader(proxyproto.PROXY, proxyproto.TCPv4, proxyTestAddress(false /* ipv6 */))
+	v6 := proxyTestHeader(proxyproto.PROXY, proxyproto.TCPv6, proxyTestAddress(true /* ipv6 */))
 	for _, tt := range []struct {
 		name      string
 		header    []byte
@@ -80,33 +93,33 @@ func TestProxyProtocolParsing(t *testing.T) {
 		remote    string
 		wantError bool
 	}{
-		{"IPv4", v4, "127.0.0.1/32", "192.0.2.10:45678", false},
-		{"IPv6", v6, "127.0.0.1/32", "[2001:db8::1]:45678", false},
-		{"unrestricted IPv4", v4, "", "192.0.2.10:45678", false},
-		{"unrestricted IPv6", v6, "", "[2001:db8::1]:45678", false},
-		{"TLV", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), 4, 0, 2, 1, 2)), "127.0.0.1/32", "192.0.2.10:45678", false},
-		{"empty TLV", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), proxyTestTLV(0)...)), "", "192.0.2.10:45678", false},
-		{"multiple TLVs", proxyTestHeader(0x21, 0x11, append(append(proxyTestAddress(false), proxyTestTLV(2)...), proxyTestTLV(3)...)), "", "192.0.2.10:45678", false},
-		{"maximum payload", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), proxyTestTLV(4096-12-3)...)), "", "192.0.2.10:45678", false},
-		{"oversized payload", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), proxyTestTLV(4097-12-3)...)), "", "", true},
-		{"headerless", nil, "127.0.0.1/32", "127.0.0.1:1234", false},
-		{"unrestricted headerless", nil, "", "127.0.0.1:1234", false},
-		{"headerless outside CIDRs", nil, "192.0.2.0/24", "127.0.0.1:1234", false},
-		{"untrusted", v4, "192.0.2.0/24", "", true},
-		{"LOCAL", proxyTestHeader(0x20, 0, nil), "127.0.0.1/32", "127.0.0.1:1234", false},
-		{"LOCAL payload", proxyTestHeader(0x20, 0, []byte{1, 2, 3}), "", "127.0.0.1:1234", false},
-		{"LOCAL address", proxyTestHeader(0x20, 0x11, proxyTestAddress(false)), "", "127.0.0.1:1234", false},
-		{"LOCAL empty address", proxyTestHeader(0x20, 0x11, nil), "", "127.0.0.1:1234", false},
-		{"LOCAL undefined family", proxyTestHeader(0x20, 0xff, []byte{1, 2, 3}), "", "", true},
-		{"UNSPEC", proxyTestHeader(0x21, 0, nil), "127.0.0.1/32", "", true},
-		{"version", proxyTestHeader(0x31, 0x11, proxyTestAddress(false)), "", "", true},
-		{"command", proxyTestHeader(0x22, 0x11, proxyTestAddress(false)), "", "", true},
-		{"UDP", proxyTestHeader(0x21, 0x12, proxyTestAddress(false)), "", "", true},
-		{"UNIX", proxyTestHeader(0x21, 0x31, make([]byte, 216)), "", "", true},
-		{"short address", proxyTestHeader(0x21, 0x11, []byte{1}), "", "", true},
-		{"short TLV", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), 1)), "", "", true},
-		{"long TLV", proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), 1, 0, 8)), "", "", true},
-		{"signature", []byte("\rxxxxxxxxxxxxxxx"), "", "", true},
+		{"IPv4", v4, "127.0.0.1/32", "192.0.2.10:45678", false /* wantError */},
+		{"IPv6", v6, "127.0.0.1/32", "[2001:db8::1]:45678", false /* wantError */},
+		{"unrestricted IPv4", v4, "", "192.0.2.10:45678", false /* wantError */},
+		{"unrestricted IPv6", v6, "", "[2001:db8::1]:45678", false /* wantError */},
+		{"TLV", proxyTestHeader(proxyproto.PROXY, proxyproto.TCPv4, append(proxyTestAddress(false /* ipv6 */), byte(proxyproto.PP2_TYPE_NOOP), 0, 2, 1, 2)), "127.0.0.1/32", "192.0.2.10:45678", false /* wantError */},
+		{"empty TLV", proxyTestHeader(proxyproto.PROXY, proxyproto.TCPv4, append(proxyTestAddress(false /* ipv6 */), proxyTestTLV(0)...)), "", "192.0.2.10:45678", false /* wantError */},
+		{"multiple TLVs", proxyTestHeader(proxyproto.PROXY, proxyproto.TCPv4, append(append(proxyTestAddress(false /* ipv6 */), proxyTestTLV(2)...), proxyTestTLV(3)...)), "", "192.0.2.10:45678", false /* wantError */},
+		{"maximum payload", proxyTestHeader(proxyproto.PROXY, proxyproto.TCPv4, append(proxyTestAddress(false /* ipv6 */), proxyTestTLV(4096-12-3)...)), "", "192.0.2.10:45678", false /* wantError */},
+		{"oversized payload", proxyTestHeader(proxyproto.PROXY, proxyproto.TCPv4, append(proxyTestAddress(false /* ipv6 */), proxyTestTLV(4097-12-3)...)), "", "", true /* wantError */},
+		{"headerless", nil, "127.0.0.1/32", "127.0.0.1:1234", false /* wantError */},
+		{"unrestricted headerless", nil, "", "127.0.0.1:1234", false /* wantError */},
+		{"headerless outside CIDRs", nil, "192.0.2.0/24", "127.0.0.1:1234", false /* wantError */},
+		{"untrusted", v4, "192.0.2.0/24", "", true /* wantError */},
+		{"LOCAL", proxyTestHeader(proxyproto.LOCAL, proxyproto.UNSPEC, nil), "127.0.0.1/32", "127.0.0.1:1234", false /* wantError */},
+		{"LOCAL payload", proxyTestHeader(proxyproto.LOCAL, proxyproto.UNSPEC, []byte{1, 2, 3}), "", "127.0.0.1:1234", false /* wantError */},
+		{"LOCAL address", proxyTestHeader(proxyproto.LOCAL, proxyproto.TCPv4, proxyTestAddress(false /* ipv6 */)), "", "127.0.0.1:1234", false /* wantError */},
+		{"LOCAL empty address", proxyTestHeader(proxyproto.LOCAL, proxyproto.TCPv4, nil), "", "127.0.0.1:1234", false /* wantError */},
+		{"LOCAL undefined family", proxyTestHeader(proxyproto.LOCAL, proxyTestUndefinedFamily, []byte{1, 2, 3}), "", "", true /* wantError */},
+		{"UNSPEC", proxyTestHeader(proxyproto.PROXY, proxyproto.UNSPEC, nil), "127.0.0.1/32", "", true /* wantError */},
+		{"version", proxyTestHeader(proxyTestInvalidVersion, proxyproto.TCPv4, proxyTestAddress(false /* ipv6 */)), "", "", true /* wantError */},
+		{"command", proxyTestHeader(proxyTestInvalidCommand, proxyproto.TCPv4, proxyTestAddress(false /* ipv6 */)), "", "", true /* wantError */},
+		{"UDP", proxyTestHeader(proxyproto.PROXY, proxyproto.UDPv4, proxyTestAddress(false /* ipv6 */)), "", "", true /* wantError */},
+		{"UNIX", proxyTestHeader(proxyproto.PROXY, proxyproto.UnixStream, make([]byte, 216)), "", "", true /* wantError */},
+		{"short address", proxyTestHeader(proxyproto.PROXY, proxyproto.TCPv4, []byte{1}), "", "", true /* wantError */},
+		{"short TLV", proxyTestHeader(proxyproto.PROXY, proxyproto.TCPv4, append(proxyTestAddress(false /* ipv6 */), byte(proxyproto.PP2_TYPE_ALPN))), "", "", true /* wantError */},
+		{"long TLV", proxyTestHeader(proxyproto.PROXY, proxyproto.TCPv4, append(proxyTestAddress(false /* ipv6 */), byte(proxyproto.PP2_TYPE_ALPN), 0, 8)), "", "", true /* wantError */},
+		{"signature", []byte("\rxxxxxxxxxxxxxxx"), "", "", true /* wantError */},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			for _, fragmented := range []bool{false, true} {
@@ -167,19 +180,19 @@ func TestProxyProtocolStartupErrors(t *testing.T) {
 		wantCause error
 	}{
 		{
-			name: "untrusted peer", reader: bytes.NewReader(proxyTestHeader(0x21, 0x11, proxyTestAddress(false))),
+			name: "untrusted peer", reader: bytes.NewReader(proxyTestHeader(proxyproto.PROXY, proxyproto.TCPv4, proxyTestAddress(false /* ipv6 */))),
 			proxyCIDR: "192.0.2.0/24", wantCode: mtrpcpb.Code_PERMISSION_DENIED,
 		},
 		{
-			name: "unsupported transport", reader: bytes.NewReader(proxyTestHeader(0x21, 0x12, proxyTestAddress(false))),
+			name: "unsupported transport", reader: bytes.NewReader(proxyTestHeader(proxyproto.PROXY, proxyproto.UDPv4, proxyTestAddress(false /* ipv6 */))),
 			wantCode: mtrpcpb.Code_INVALID_ARGUMENT,
 		},
 		{
-			name: "library header error", reader: bytes.NewReader(proxyTestHeader(0x31, 0x11, proxyTestAddress(false))),
+			name: "library header error", reader: bytes.NewReader(proxyTestHeader(proxyTestInvalidVersion, proxyproto.TCPv4, proxyTestAddress(false /* ipv6 */))),
 			wantCode: mtrpcpb.Code_UNKNOWN, wantCause: proxyproto.ErrUnsupportedProtocolVersionAndCommand,
 		},
 		{
-			name: "library TLV error", reader: bytes.NewReader(proxyTestHeader(0x21, 0x11, append(proxyTestAddress(false), 1))),
+			name: "library TLV error", reader: bytes.NewReader(proxyTestHeader(proxyproto.PROXY, proxyproto.TCPv4, append(proxyTestAddress(false /* ipv6 */), byte(proxyproto.PP2_TYPE_ALPN)))),
 			wantCode: mtrpcpb.Code_UNKNOWN, wantCause: proxyproto.ErrTruncatedTLV,
 		},
 		{
@@ -211,8 +224,8 @@ func TestProxyProtocolStartupErrors(t *testing.T) {
 }
 
 func TestProxyProtocolTLSOffload(t *testing.T) {
-	v4 := proxyTestHeader(0x21, 0x11, proxyTestAddress(false))
-	v6 := proxyTestHeader(0x21, 0x21, proxyTestAddress(true))
+	v4 := proxyTestHeader(proxyproto.PROXY, proxyproto.TCPv4, proxyTestAddress(false /* ipv6 */))
+	v6 := proxyTestHeader(proxyproto.PROXY, proxyproto.TCPv6, proxyTestAddress(true /* ipv6 */))
 	for _, tt := range []struct {
 		name                            string
 		offload, classic, restrictProxy bool
@@ -220,19 +233,19 @@ func TestProxyProtocolTLSOffload(t *testing.T) {
 		alpn                            []string
 		success                         bool
 	}{
-		{"offloaded with CIDRs", true, false, true, v4, nil, true},
-		{"offloaded without CIDRs", true, false, false, v4, nil, true},
-		{"offloaded IPv6", true, false, false, v6, nil, true},
-		{"offloaded ALPN", true, false, false, v4, []string{protocol.ALPNProtocol}, true},
-		{"offload disabled", false, false, false, v4, nil, false},
-		{"direct no header", true, false, false, nil, nil, false},
-		{"direct ALPN", true, false, false, nil, []string{protocol.ALPNProtocol}, true},
-		{"classic direct", true, true, false, nil, nil, true},
-		{"classic proxied", true, true, false, v4, nil, true},
-		{"wrong negotiated ALPN", true, false, false, v4, []string{"h2"}, false},
-		{"LOCAL requires ALPN", true, false, false, proxyTestHeader(0x20, 0, nil), nil, false},
-		{"LOCAL address requires ALPN", true, false, false, proxyTestHeader(0x20, 0x11, proxyTestAddress(false)), nil, false},
-		{"LOCAL ALPN", true, false, false, proxyTestHeader(0x20, 0x11, proxyTestAddress(false)), []string{protocol.ALPNProtocol}, true},
+		{"offloaded with CIDRs", true /* offload */, false /* classic */, true /* restrictProxy */, v4, nil, true /* success */},
+		{"offloaded without CIDRs", true /* offload */, false /* classic */, false /* restrictProxy */, v4, nil, true /* success */},
+		{"offloaded IPv6", true /* offload */, false /* classic */, false /* restrictProxy */, v6, nil, true /* success */},
+		{"offloaded ALPN", true /* offload */, false /* classic */, false /* restrictProxy */, v4, []string{protocol.ALPNProtocol}, true /* success */},
+		{"offload disabled", false /* offload */, false /* classic */, false /* restrictProxy */, v4, nil, false /* success */},
+		{"direct no header", true /* offload */, false /* classic */, false /* restrictProxy */, nil, nil, false /* success */},
+		{"direct ALPN", true /* offload */, false /* classic */, false /* restrictProxy */, nil, []string{protocol.ALPNProtocol}, true /* success */},
+		{"classic direct", true /* offload */, true /* classic */, false /* restrictProxy */, nil, nil, true /* success */},
+		{"classic proxied", true /* offload */, true /* classic */, false /* restrictProxy */, v4, nil, true /* success */},
+		{"wrong negotiated ALPN", true /* offload */, false /* classic */, false /* restrictProxy */, v4, []string{"h2"}, false /* success */},
+		{"LOCAL requires ALPN", true /* offload */, false /* classic */, false /* restrictProxy */, proxyTestHeader(proxyproto.LOCAL, proxyproto.UNSPEC, nil), nil, false /* success */},
+		{"LOCAL address requires ALPN", true /* offload */, false /* classic */, false /* restrictProxy */, proxyTestHeader(proxyproto.LOCAL, proxyproto.TCPv4, proxyTestAddress(false /* ipv6 */)), nil, false /* success */},
+		{"LOCAL ALPN", true /* offload */, false /* classic */, false /* restrictProxy */, proxyTestHeader(proxyproto.LOCAL, proxyproto.TCPv4, proxyTestAddress(false /* ipv6 */)), []string{protocol.ALPNProtocol}, true /* success */},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tlsConfig, ca := generateTestTLSConfig(t)
@@ -319,8 +332,8 @@ func TestProxyProtocolStartupDeadline(t *testing.T) {
 		header         []byte
 		wantErrorReply bool
 	}{
-		{"incomplete header", []byte("\r\n"), false},
-		{"complete header then stalled startup", proxyTestHeader(0x21, 0x11, proxyTestAddress(false)), true},
+		{"incomplete header", []byte("\r\n"), false /* wantErrorReply */},
+		{"complete header then stalled startup", proxyTestHeader(proxyproto.PROXY, proxyproto.TCPv4, proxyTestAddress(false /* ipv6 */)), true /* wantErrorReply */},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			raw, err := net.Dial("tcp", l.Addr().String())
