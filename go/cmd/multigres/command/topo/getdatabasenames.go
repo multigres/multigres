@@ -57,7 +57,7 @@ func AddGetDatabaseNamesCommand() *cobra.Command {
 		RunE:  runGetDatabaseNames,
 	}
 
-	cmd.Flags().String("admin-server", "", "Address of the multiadmin server (overrides config)")
+	cmd.Flags().String("admin-server", "", "Address of the multiadmin server (overrides config; env: MULTIGRES_ADMIN_SERVER)")
 
 	return cmd
 }
