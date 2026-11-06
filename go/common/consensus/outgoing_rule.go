@@ -194,16 +194,19 @@ func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal() (finalizableOutg
 	return finalizableOutgoingRule{r}, nil
 }
 
-// minimumDurablePosition is the lowest position a leader may have: one at or above
-// it holds every write the outgoing rule could have made durable. It is the most
+// minimumLeaderPosition is the lowest position a leader may have: one at or above
+// it holds every write a quorum under the outgoing rule could hold. Such a write
+// may never have been decided, so this is not a commit point. It is the most
 // advanced recruit's position (always at the outgoing rule, the highest any recruit
 // records), raised to the cert's frozen LSN under a cert.
 //
-// TODO: take it from recruited members of the outgoing decision's cohort (the
-// incoming cohort under a cert), so a further-ahead non-member does not raise it.
-// TODO: relax it to the highest position the policy could have made durable, or
-// to exactly the frozen LSN under a cert.
-func (r revokedOutgoingRule) minimumDurablePosition() (*clustermetadatapb.PoolerPosition, error) {
+// TODO: take it from recruited members only, so a further-ahead non-member does not
+// raise it. When revoking by recruitment, those are the outgoing decision's cohort
+// plus, if an undecided proposal may be decided, the proposal's cohort. Under a
+// cert, it is the incoming cohort.
+// TODO: relax it to the highest position the policy could have made quorum-held,
+// or to exactly the frozen LSN under a cert.
+func (r revokedOutgoingRule) minimumLeaderPosition() (*clustermetadatapb.PoolerPosition, error) {
 	var minimum *clustermetadatapb.PoolerPosition
 	for _, cs := range r.recruited {
 		if position := cs.GetCurrentPosition(); minimum == nil || ComparePoolerPosition(position, minimum) > 0 {
@@ -222,12 +225,12 @@ func (r revokedOutgoingRule) minimumDurablePosition() (*clustermetadatapb.Pooler
 	return minimum, nil
 }
 
-// recruitsWithAllDurableWrites returns the recruits at or above the minimum
-// durable position. Only recruits can lead: Promote needs a recruit still in
+// eligibleLeaders returns the recruits at or above the minimum
+// leader position. Only recruits can lead: Promote needs a recruit still in
 // force, which proves the pooler is reachable and fenced and which later events,
 // such as a restore, invalidate.
-func (r revokedOutgoingRule) recruitsWithAllDurableWrites() ([]*clustermetadatapb.ConsensusStatus, error) {
-	minimum, err := r.minimumDurablePosition()
+func (r revokedOutgoingRule) eligibleLeaders() ([]*clustermetadatapb.ConsensusStatus, error) {
+	minimum, err := r.minimumLeaderPosition()
 	if err != nil {
 		return nil, err
 	}

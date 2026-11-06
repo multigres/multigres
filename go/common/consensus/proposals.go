@@ -39,7 +39,7 @@ type RecruitmentResult struct {
 	TermRevocation *clustermetadatapb.TermRevocation
 
 	// OutgoingRule is the ShardRule at the outgoing rule number, shared by every
-	// entry in RecruitsWithAllDurableWrites. It may be an undecided proposal rather
+	// entry in EligibleLeaders. It may be an undecided proposal rather
 	// than a decision — see OutgoingRuleDecided. In practice this is never
 	// nil: every node always carries at least the initial {0,1} row written
 	// during initdb, so the public constructors (NewTermRevocation, cert
@@ -58,13 +58,13 @@ type RecruitmentResult struct {
 	// new proposal changes cohort or policy.
 	OutgoingRuleDecided bool
 
-	// RecruitsWithAllDurableWrites are the recruits at or above the minimum durable
-	// position (see revokedOutgoingRule.minimumDurablePosition). The buildProposal
+	// EligibleLeaders are the recruits at or above the minimum leader
+	// position (see revokedOutgoingRule.minimumLeaderPosition). The buildProposal
 	// callback must choose its leader from this set.
-	RecruitsWithAllDurableWrites []*clustermetadatapb.ConsensusStatus
+	EligibleLeaders []*clustermetadatapb.ConsensusStatus
 
 	// outgoing is the typed outgoing rule that OutgoingRule exposes to builders:
-	// revoked, and finalizable by the recruits. RecruitsWithAllDurableWrites rest on
+	// revoked, and finalizable by the recruits. EligibleLeaders rest on
 	// it, and validateProposal reads the revocation basis from it.
 	outgoing finalizableOutgoingRule
 }
@@ -76,16 +76,16 @@ func newRecruitmentResult(
 	revocation *clustermetadatapb.TermRevocation,
 	outgoing finalizableOutgoingRule,
 ) (RecruitmentResult, error) {
-	eligible, err := outgoing.recruitsWithAllDurableWrites()
+	eligible, err := outgoing.eligibleLeaders()
 	if err != nil {
 		return RecruitmentResult{}, err
 	}
 	return RecruitmentResult{
-		TermRevocation:               revocation,
-		OutgoingRule:                 outgoing.transition.PossiblyUndecidedRule(),
-		OutgoingRuleDecided:          outgoing.transition.IsDecided(),
-		RecruitsWithAllDurableWrites: eligible,
-		outgoing:                     outgoing,
+		TermRevocation:      revocation,
+		OutgoingRule:        outgoing.transition.PossiblyUndecidedRule(),
+		OutgoingRuleDecided: outgoing.transition.IsDecided(),
+		EligibleLeaders:     eligible,
+		outgoing:            outgoing,
 	}, nil
 }
 
@@ -441,15 +441,15 @@ func validateProposal(
 	}
 	leaderKey := topoclient.ClusterIDString(leaderID)
 	foundLeader := false
-	for _, cs := range result.RecruitsWithAllDurableWrites {
+	for _, cs := range result.EligibleLeaders {
 		if topoclient.ClusterIDString(cs.GetId()) == leaderKey {
 			foundLeader = true
 			break
 		}
 	}
 	if !foundLeader {
-		eligibleKeys := make([]string, len(result.RecruitsWithAllDurableWrites))
-		for i, cs := range result.RecruitsWithAllDurableWrites {
+		eligibleKeys := make([]string, len(result.EligibleLeaders))
+		for i, cs := range result.EligibleLeaders {
 			eligibleKeys[i] = topoclient.ClusterIDString(cs.GetId())
 		}
 		return fmt.Errorf("proposed leader %s is not among eligible leaders %v", leaderKey, eligibleKeys)

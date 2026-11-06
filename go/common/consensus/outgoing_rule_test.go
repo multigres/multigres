@@ -236,9 +236,9 @@ func mustProveRevoked(t *testing.T, recruits []*clustermetadatapb.ConsensusStatu
 	return revoked
 }
 
-// The recruits that can lead are those at or above the minimum durable position.
+// The recruits that can lead are those at or above the minimum leader position.
 // Positions compare by rule first, then by LSN.
-func TestRevokedOutgoingRule_MinimumDurablePositionAndRecruitsWithAllDurableWrites(t *testing.T) {
+func TestRevokedOutgoingRule_MinimumLeaderPositionAndEligibleLeaders(t *testing.T) {
 	zone1 := poolerIDs.zone1
 	cohort := []*clustermetadatapb.ID{zone1.a, zone1.b, zone1.c}
 	decision := makeRule(ruleNum(3, 0), atLeast(2), cohort...)
@@ -348,12 +348,12 @@ func TestRevokedOutgoingRule_MinimumDurablePositionAndRecruitsWithAllDurableWrit
 		t.Run(tt.name, func(t *testing.T) {
 			revoked := mustProveRevoked(t, tt.recruits, tt.outgoing, tt.basis)
 
-			minimum, err := revoked.minimumDurablePosition()
+			minimum, err := revoked.minimumLeaderPosition()
 			require.NoError(t, err)
 			assert.True(t, proto.Equal(tt.wantPosition, minimum.GetPosition()), "minimum rule position: got %s", FormatRulePosition(minimum.GetPosition()))
 			assert.Equal(t, tt.wantLSN, minimum.GetLsn())
 
-			eligible, err := revoked.recruitsWithAllDurableWrites()
+			eligible, err := revoked.eligibleLeaders()
 			if tt.wantErr != "" {
 				require.EqualError(t, err, tt.wantErr)
 				return
@@ -387,7 +387,7 @@ func TestObservedOutgoingRule_Revoke_CertAcceptsWhatRecruitmentRejects(t *testin
 		revoked, err := observed.proveRevoked()
 		require.NoError(t, err)
 
-		leaders, err := revoked.recruitsWithAllDurableWrites()
+		leaders, err := revoked.eligibleLeaders()
 
 		require.NoError(t, err)
 		require.Len(t, leaders, 1)
@@ -400,7 +400,7 @@ func TestObservedOutgoingRule_Revoke_CertAcceptsWhatRecruitmentRejects(t *testin
 		revoked, err := observed.proveRevoked()
 		require.NoError(t, err)
 
-		_, err = revoked.recruitsWithAllDurableWrites()
+		_, err = revoked.eligibleLeaders()
 
 		require.EqualError(t, err, "no recruited nodes at or above the required LSN 0/3000000")
 	})
@@ -552,10 +552,10 @@ func TestDiscoverOutgoingRulePosition_NoRecruits(t *testing.T) {
 	assert.Nil(t, position)
 }
 
-func TestRevokedOutgoingRule_MinimumDurablePosition_NoRecruitRecordsRule(t *testing.T) {
+func TestRevokedOutgoingRule_MinimumLeaderPosition_NoRecruitRecordsRule(t *testing.T) {
 	revoked := revokedOutgoingRule{observedOutgoingRule{transition: NewRuleTransition(&clustermetadatapb.RulePosition{})}}
 
-	_, err := revoked.minimumDurablePosition()
+	_, err := revoked.minimumLeaderPosition()
 
 	require.EqualError(t, err, "no recruit records the outgoing rule")
 }
