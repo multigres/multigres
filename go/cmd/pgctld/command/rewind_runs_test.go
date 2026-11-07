@@ -256,7 +256,9 @@ func TestPgCtldService_PgRewindAbort(t *testing.T) {
 	t.Run("abort reports an error when the run does not exit in time", func(t *testing.T) {
 		service, baseDir := newRewindTestService(t, "")
 		started := filepath.Join(baseDir, "pg-rewind-started")
-		testutil.MockBinary(t, filepath.Join(baseDir, "bin"), "pg_rewind", fmt.Sprintf("touch %q\ntrap '' TERM\nexec sleep 60", started))
+		// Ignore TERM before announcing the start: the test aborts as soon as it
+		// sees the marker, and a TERM landing before the trap would end the run.
+		testutil.MockBinary(t, filepath.Join(baseDir, "bin"), "pg_rewind", fmt.Sprintf("trap '' TERM\ntouch %q\nexec sleep 60", started))
 
 		go func() {
 			_, _ = service.PgRewind(context.Background(), &pb.PgRewindRequest{
