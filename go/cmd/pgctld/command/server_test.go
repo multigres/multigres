@@ -995,6 +995,47 @@ func TestPgCtldServiceStopRestoreCommand(t *testing.T) {
 		assert.False(t, resp.Killed)
 	})
 
+	for name, content := range map[string]string{"empty": "", "garbage": "not-a-pid"} {
+		t.Run(name+" pidfile is treated as stale", func(t *testing.T) {
+			baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_restore_bad_pidfile")
+			defer cleanup()
+			t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
+			require.NoError(t, os.WriteFile(pgctld.RestoreCommandPIDFile(baseDir), []byte(content), 0o644))
+
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+			require.NoError(t, err)
+
+			resp, err := service.StopRestoreCommand(context.Background(), &pb.StopRestoreCommandRequest{})
+			require.NoError(t, err)
+			assert.False(t, resp.Found)
+			assert.False(t, resp.Killed)
+		})
+	}
+
+	t.Run("live process named by an unlocked pidfile is left alone", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_restore_reused_pid")
+		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
+
+		// The wrapper that wrote this pidfile died without removing it and its
+		// PID now belongs to an unrelated process. No lock is held, so the PID
+		// must not be signalled.
+		cmd := exec.Command("sleep", "30")
+		require.NoError(t, cmd.Start())
+		t.Cleanup(func() { _, _ = executil.KillProcess(context.Background(), cmd.Process) })
+		go func() { _ = cmd.Wait() }()
+		require.NoError(t, os.WriteFile(pgctld.RestoreCommandPIDFile(baseDir), []byte(strconv.Itoa(cmd.Process.Pid)), 0o644))
+
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		require.NoError(t, err)
+
+		resp, err := service.StopRestoreCommand(context.Background(), &pb.StopRestoreCommandRequest{})
+		require.NoError(t, err)
+		assert.False(t, resp.Found)
+		assert.False(t, resp.Killed)
+		assert.NoError(t, cmd.Process.Signal(syscall.Signal(0)), "unrelated process must still be running")
+	})
+
 	t.Run("live process gets terminated", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_restore_live")
 		defer cleanup()
@@ -1011,7 +1052,10 @@ func TestPgCtldServiceStopRestoreCommand(t *testing.T) {
 		// loop below would never see it as gone.
 		go func() { _ = cmd.Wait() }()
 
-		require.NoError(t, os.WriteFile(pgctld.RestoreCommandPIDFile(baseDir), []byte(strconv.Itoa(cmd.Process.Pid)), 0o644))
+		// Publish the way a live wrapper does, so the pidfile stays locked.
+		lock, err := publishPidfile(pgctld.RestoreCommandPIDFile(baseDir), cmd.Process.Pid)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = lock.Close() })
 
 		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
 		require.NoError(t, err)
