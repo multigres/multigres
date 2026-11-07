@@ -111,7 +111,7 @@ func NewServer(port int, opts ...ServerOption) (*Server, error) {
 // loggingMiddleware wraps a handler with request logging
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("[S3] %s %s%s\n", r.Method, r.URL.Path, func() string {
+		log.Printf("[S3] %q %q\n", r.Method, r.URL.Path+func() string {
 			if r.URL.RawQuery != "" {
 				return "?" + r.URL.RawQuery
 			}
