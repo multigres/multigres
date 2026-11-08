@@ -1496,15 +1496,23 @@ func TestSetResignedLeaderAtTerm_BroadcastsOnChange(t *testing.T) {
 }
 
 // resignRecordingPgctldClient records the REQUESTING_DEMOTION term that was
-// published when pgctld was asked to restart postgres as a standby.
+// published when pgctld was asked to restart postgres as a standby. With
+// restartHangs set, Restart blocks until the caller's deadline expires, like a
+// pgctld that doesn't answer in time.
 type resignRecordingPgctldClient struct {
 	mockPgctldClient
 	pm                    *MultipoolerManager
+	restartHangs          bool
 	resignedTermAtRestart int64
 }
 
 func (c *resignRecordingPgctldClient) Restart(ctx context.Context, req *pgctldpb.RestartRequest, opts ...grpc.CallOption) (*pgctldpb.RestartResponse, error) {
 	c.resignedTermAtRestart = c.pm.consensusMgr.ResignedLeaderAtTerm()
+	if c.restartHangs {
+		c.restartCalled = true
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	return c.mockPgctldClient.Restart(ctx, req, opts...)
 }
 
@@ -1521,6 +1529,7 @@ func TestResignLeadership_PublishesDemotionAfterRestart(t *testing.T) {
 		leader      *clustermetadatapb.PoolerAddress // leader of the rule at term 5
 		resetErr    error
 		restartErr  error
+		restartHang bool // Restart blocks until the RPC deadline expires
 		wantErr     string
 		wantRestart bool
 		wantTerm    int64 // published REQUESTING_DEMOTION term
@@ -1536,6 +1545,16 @@ func TestResignLeadership_PublishesDemotionAfterRestart(t *testing.T) {
 			leader:      self,
 			restartErr:  errors.New("restart failed"),
 			wantErr:     "failed to restart postgres as standby during resign",
+			wantRestart: true,
+			wantTerm:    5,
+		},
+		{
+			// The ResignLeadership caller's deadline expires while pgctld is
+			// still restarting postgres.
+			name:        "deadline expires during restart",
+			leader:      self,
+			restartHang: true,
+			wantErr:     "context deadline exceeded",
 			wantRestart: true,
 			wantTerm:    5,
 		},
@@ -1588,9 +1607,16 @@ func TestResignLeadership_PublishesDemotionAfterRestart(t *testing.T) {
 			pm, _ := setupManagerWithMockDB(t, m, rules)
 			pgctld := &resignRecordingPgctldClient{pm: pm}
 			pgctld.restartError = tt.restartErr
+			pgctld.restartHangs = tt.restartHang
 			pm.pgctldClient = pgctld
 
-			resp, err := pm.ResignLeadership(t.Context(), &multipoolermanagerdatapb.ResignLeadershipRequest{})
+			ctx := t.Context()
+			if tt.restartHang {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, 2*time.Second)
+				defer cancel()
+			}
+			resp, err := pm.ResignLeadership(ctx, &multipoolermanagerdatapb.ResignLeadershipRequest{})
 			if tt.wantErr != "" {
 				require.ErrorContains(t, err, tt.wantErr)
 			} else {
