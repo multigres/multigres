@@ -1150,7 +1150,9 @@ func (c *Conn) handleQuery() error {
 		return fmt.Errorf("reading query message: %w", err)
 	}
 
-	c.logger.Debug("received query", "query", queryStr)
+	// SQL can contain credentials. Leave SQL-aware logging to the handler,
+	// which can redact statements after parsing them.
+	c.logger.Debug("received query")
 
 	// Create a cancelable query context so cancel requests can interrupt this query.
 	queryCtx := c.BeginQueryCancel()
@@ -1226,7 +1228,8 @@ func (c *Conn) handleQuery() error {
 	})
 	if err != nil {
 		err = queryContextError(queryCtx, err)
-		c.logger.Error("query execution failed", "query", queryStr, "error", err)
+		// Diagnostics can echo SQL literals too; log only their SQLSTATE here.
+		c.logger.Error("query execution failed", "sqlstate", mterrors.ExtractSQLSTATE(err))
 		if passthroughRowInProgress {
 			return fmt.Errorf("%w: %w", errIncompleteDataRow, err)
 		}
@@ -1349,7 +1352,7 @@ func (c *Conn) handleParse() error {
 		return c.writeExtendedProtocolViolation("invalid Parse message", err)
 	}
 
-	c.logger.Debug("parse", "name", stmtName, "query", queryStr, "param_count", paramCount)
+	c.logger.Debug("parse", "name", stmtName, "param_count", paramCount)
 
 	// Call the handler to validate and prepare the statement.
 	// The handler is responsible for storing any state it needs.
