@@ -271,10 +271,22 @@ type TxConn struct {
 	conn *Conn
 }
 
-// BeginTx sends BEGIN on c and returns a TxConn for running the rest of the
-// transaction. c must not be used directly again until the transaction ends.
+// beginReadCommitted starts every admin transaction at READ COMMITTED,
+// whatever default_transaction_isolation says. The default can be set by
+// whoever owns the database (ALTER DATABASE ... SET), and it reaches the admin
+// sessions too. The admin transactions are written for READ COMMITTED: a
+// conflicting INSERT ... ON CONFLICT DO NOTHING waits and then sees the
+// winner's row, and a statement run after waiting for an advisory lock sees
+// what the lock holder committed. Under REPEATABLE READ or SERIALIZABLE the
+// first fails with a serialization error, and the second reads a snapshot
+// taken before the wait.
+const beginReadCommitted = "BEGIN ISOLATION LEVEL READ COMMITTED"
+
+// BeginTx starts a READ COMMITTED transaction on c (see beginReadCommitted)
+// and returns a TxConn for running the rest of it. c must not be used directly
+// again until the transaction ends.
 func (c *Conn) BeginTx(ctx context.Context) (*TxConn, error) {
-	if _, err := c.queryNoReconnect(ctx, "BEGIN"); err != nil {
+	if _, err := c.queryNoReconnect(ctx, beginReadCommitted); err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	return &TxConn{conn: c}, nil

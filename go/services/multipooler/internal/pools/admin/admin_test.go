@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/fakepgserver"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
 )
 
@@ -67,6 +68,25 @@ func TestPool_GetConnection(t *testing.T) {
 	stats := pool.Stats()
 	assert.Equal(t, int64(1), stats.Active)
 	assert.Equal(t, int64(1), stats.Idle)
+}
+
+// TestConn_BeginTx_ReadCommitted pins the isolation level of every admin
+// transaction, which must not follow default_transaction_isolation.
+func TestConn_BeginTx_ReadCommitted(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.AddQuery("BEGIN ISOLATION LEVEL READ COMMITTED", &sqltypes.Result{})
+
+	pool := newTestPool(t, server)
+	defer pool.Close()
+
+	pooled, err := pool.Get(t.Context())
+	require.NoError(t, err)
+	defer pooled.Recycle()
+
+	_, err = pooled.Conn.BeginTx(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 1, server.GetQueryCalledNum("BEGIN ISOLATION LEVEL READ COMMITTED"))
 }
 
 func TestPool_TerminateBackend(t *testing.T) {
