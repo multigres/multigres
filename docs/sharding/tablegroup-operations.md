@@ -36,7 +36,10 @@ Each statement:
    and in the order PostgreSQL refuses `CREATE DATABASE`: a read-only session
    (`transaction_read_only`, always on for a session on the replica-reads
    port, whose queries run on a standby), a transaction block, and a
-   statement after another of the same extended-protocol pipeline. Then the
+   statement after another in the same extended-protocol pipeline, unless
+   that one committed on its own (a transaction statement, `DISCARD ALL`,
+   `VACUUM`, `CREATE DATABASE` and the other statements PostgreSQL commits as
+   soon as they complete, which start the next statement clean). Then the
    caller's current role must be a superuser.
 2. Records the intent through the catalog primary (below) and sends a
    `NOTICE` naming the operation id. If the call fails without an answer (a

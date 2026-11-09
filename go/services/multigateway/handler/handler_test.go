@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -955,11 +956,78 @@ func TestPipelining(t *testing.T) {
 	execute("COMMIT")
 	require.False(t, state.Pipelining(), "COMMIT ends it")
 	execute("SELECT 1")
+	execute("DISCARD ALL")
+	require.False(t, state.Pipelining(), "DISCARD ALL commits at once, so the next statement starts clean")
+	execute("SELECT 1")
+	execute("DISCARD PLANS")
+	require.True(t, state.Pipelining(), "DISCARD PLANS does not")
+	execute("VACUUM")
+	require.False(t, state.Pipelining(), "VACUUM commits at once")
+	execute("SELECT 1")
 	require.NoError(t, h.HandleSync(ctx, conn))
 	require.False(t, state.Pipelining(), "Sync ends it")
 	execute("SELECT 1")
 	require.NoError(t, h.HandleQuery(ctx, conn, "SELECT 1", noop))
 	require.False(t, state.Pipelining(), "a simple query commits it")
+}
+
+// TestCommitsAtExecute pins the statements PostgreSQL commits as soon as their
+// Execute completes, so a following CREATE TABLEGROUP in the same pipeline is
+// allowed, against the ones that leave the implicit transaction open. The
+// first list is every PreventInTransactionBlock caller in the PostgreSQL 17
+// backend (see commitsAtExecute), one statement per call site and option; the
+// second has, for each conditional caller, the form that does not reach the
+// call, plus the statements that look non-transactional but are not.
+func TestCommitsAtExecute(t *testing.T) {
+	commits := []string{
+		"BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT s", "PREPARE TRANSACTION 'x'", "COMMIT PREPARED 'x'", "ROLLBACK PREPARED 'x'",
+		"DISCARD ALL",
+		"ALTER SYSTEM SET work_mem = '1MB'", "ALTER SYSTEM RESET work_mem", "ALTER SYSTEM RESET ALL",
+		"VACUUM", "VACUUM t", "VACUUM (ANALYZE) t", "VACUUM FULL t",
+		"CREATE DATABASE d", "DROP DATABASE d", "DROP DATABASE IF EXISTS d",
+		"CREATE TABLESPACE ts LOCATION '/x'", "DROP TABLESPACE ts",
+		"CLUSTER",
+		"REINDEX DATABASE d", "REINDEX SYSTEM d", "REINDEX SCHEMA s",
+		"REINDEX INDEX CONCURRENTLY i", "REINDEX TABLE CONCURRENTLY t", "REINDEX (CONCURRENTLY) TABLE t",
+		"CREATE INDEX CONCURRENTLY i ON t (c)", "CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS i ON t (c)",
+		"DROP INDEX CONCURRENTLY i", "DROP INDEX CONCURRENTLY IF EXISTS i",
+		"ALTER DATABASE d SET TABLESPACE ts",
+		"ALTER TABLE p DETACH PARTITION c CONCURRENTLY",
+		"CREATE SUBSCRIPTION s CONNECTION 'host=x' PUBLICATION p",
+		"CREATE SUBSCRIPTION s CONNECTION 'host=x' PUBLICATION p WITH (enabled = false)",
+		"ALTER SUBSCRIPTION s REFRESH PUBLICATION",
+		"ALTER SUBSCRIPTION s REFRESH PUBLICATION WITH (copy_data = false)",
+		"ALTER SUBSCRIPTION s SET PUBLICATION p",
+		"ALTER SUBSCRIPTION s ADD PUBLICATION p WITH (refresh = true)",
+		"ALTER SUBSCRIPTION s DROP PUBLICATION p",
+		"ALTER SUBSCRIPTION s SET (failover = true)",
+	}
+	pipelines := []string{
+		"SELECT 1", "INSERT INTO t VALUES (1)", "CREATE TABLE t (c int)", "SET work_mem = '1MB'",
+		"DISCARD PLANS", "DISCARD SEQUENCES", "DISCARD TEMP",
+		"ANALYZE", "ANALYZE t", // IsInTransactionBlock, which does not force a commit
+		"CLUSTER t", "CLUSTER t USING i", // a partitioned table would commit; catalog state, declined
+		"REINDEX TABLE t", "REINDEX INDEX i", // likewise for a partitioned relation
+		"CREATE INDEX i ON t (c)", "DROP INDEX i", "DROP TABLE t",
+		"ALTER DATABASE d SET work_mem = '1MB'", "ALTER DATABASE d RENAME TO e", "ALTER DATABASE d OWNER TO o",
+		"ALTER TABLE p DETACH PARTITION c", "ALTER TABLE p ATTACH PARTITION c FOR VALUES IN (1)",
+		"CREATE SUBSCRIPTION s CONNECTION 'host=x' PUBLICATION p WITH (connect = false)",
+		"CREATE SUBSCRIPTION s CONNECTION 'host=x' PUBLICATION p WITH (create_slot = false)",
+		"ALTER SUBSCRIPTION s SET PUBLICATION p WITH (refresh = false)",
+		"ALTER SUBSCRIPTION s DISABLE", "ALTER SUBSCRIPTION s SET (slot_name = NONE)", "ALTER SUBSCRIPTION s CONNECTION 'host=y'",
+		"DROP SUBSCRIPTION s", // commits only when the subscription has a slot; catalog state, declined
+		"REFRESH MATERIALIZED VIEW CONCURRENTLY mv",
+	}
+	for _, sql := range commits {
+		stmts, err := parser.ParseSQL(sql)
+		require.NoError(t, err, sql)
+		assert.True(t, commitsAtExecute(stmts[0]), "%s commits at Execute", sql)
+	}
+	for _, sql := range pipelines {
+		stmts, err := parser.ParseSQL(sql)
+		require.NoError(t, err, sql)
+		assert.False(t, commitsAtExecute(stmts[0]), "%s leaves the pipeline's transaction open", sql)
+	}
 }
 
 func TestNotePipelinedExecute_TableGroupDDLLeavesTheFlag(t *testing.T) {
