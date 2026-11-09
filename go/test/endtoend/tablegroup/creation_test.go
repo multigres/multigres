@@ -166,7 +166,9 @@ func TestTableGroupCreation(t *testing.T) {
 		requireCode(t, err, codes.FailedPrecondition)
 	})
 
-	t.Run("provisioned shards count toward the creation", func(t *testing.T) {
+	t.Run("provisioned shards complete the creation", func(t *testing.T) {
+		// The poolers and multiorchs provisioned here are stopped when this
+		// subtest ends, so everything that needs them serving is asserted here.
 		require.NotNil(t, tg)
 		prov.provision(t, tg)
 		claim, err := setup.TopoServer.GetTableGroupProvisionClaim(t.Context(), "postgres", tg.GetTablegroupId())
@@ -175,6 +177,38 @@ func TestTableGroupCreation(t *testing.T) {
 		require.Eventually(t, func() bool {
 			return getOperation(t, manager, op).GetShardsServing() == 2
 		}, provisionTimeout, time.Second, "the provisioned shards never served")
+
+		// The completion loop sees every shard serving and activates the tablegroup.
+		require.Eventually(t, func() bool {
+			return getOperation(t, manager, op).GetState() == multipoolermanagerdatapb.OperationState_OPERATION_STATE_DONE
+		}, provisionTimeout, time.Second, "the creation never completed")
+		got := getOperation(t, manager, op)
+		assert.Equal(t, int32(2), got.GetShardsServing())
+		assert.Empty(t, got.GetLastError())
+		active := prov.find(t, "commerce")
+		require.NotNil(t, active)
+		assert.Equal(t, multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_ACTIVE, active.GetState())
+		assert.Equal(t, []string{"0-80", "80-inf"}, active.GetShards())
+
+		// Repeating the creation of an active tablegroup is a conflict, or a
+		// no-op with IF NOT EXISTS.
+		_, err = manager.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "commerce", Shards: []string{"0-80", "80-inf"}})
+		requireCode(t, err, codes.AlreadyExists)
+		resp, err := manager.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "commerce", IfNotExists: true})
+		require.NoError(t, err)
+		assert.True(t, resp.GetAlreadyExists())
+		assert.Equal(t, tg.GetTablegroupId(), resp.GetTablegroupId())
+
+		// The catalog shows the shards active and the routing version advanced.
+		rows, err := primary.Pooler.ExecuteQuery(t.Context(),
+			"SELECT count(*) FROM multigres.shard WHERE state = 'active' AND tablegroup_id = "+strconv.FormatInt(tg.GetTablegroupId(), 10), 1)
+		require.NoError(t, err)
+		require.Len(t, rows.Rows, 1)
+		assert.Equal(t, "2", string(rows.Rows[0].Values[0]))
+		rows, err = primary.Pooler.ExecuteQuery(t.Context(), "SELECT routing_version FROM multigres.catalog_state", 1)
+		require.NoError(t, err)
+		require.Len(t, rows.Rows, 1)
+		assert.NotEqual(t, "0", string(rows.Rows[0].Values[0]))
 	})
 }
 

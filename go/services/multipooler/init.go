@@ -685,6 +685,9 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	// Launch the background backup-health poller (service-level concern, kept
 	// out of manager.Start so RPC unit tests don't run background DB queries).
 	poolerManager.StartBackupHealth()
+	// Launch the tablegroup completion loop on the catalog shard, a
+	// service-level concern for the same reason.
+	poolerManager.StartTableGroupOperations()
 	grpcmanagerservice.RegisterPoolerManagerServices(mp.senv, mp.grpcServer)
 	// An unmanaged pooler registers no consensus RPCs: consensusEnabled is false for it, and
 	// the service answers Unimplemented.
