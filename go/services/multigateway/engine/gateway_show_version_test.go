@@ -85,20 +85,33 @@ func TestGatewayShowVersion_PortalStreamExecute(t *testing.T) {
 	})
 }
 
-// TestIsMultigresServerVersionShow covers the SHOW matcher.
-func TestIsMultigresServerVersionShow(t *testing.T) {
-	assert.True(t, IsMultigresServerVersionShow(&ast.VariableShowStmt{Name: "multigres.server_version"}))
-	assert.True(t, IsMultigresServerVersionShow(&ast.VariableShowStmt{Name: "Multigres.Server_Version"}))
-	assert.False(t, IsMultigresServerVersionShow(&ast.VariableShowStmt{Name: "statement_timeout"}))
-	assert.False(t, IsMultigresServerVersionShow(&ast.SelectStmt{}))
-	assert.False(t, IsMultigresServerVersionShow(nil))
+// TestIsServerVersionShow covers the SHOW matcher.
+func TestIsServerVersionShow(t *testing.T) {
+	assert.True(t, IsServerVersionShow(&ast.VariableShowStmt{Name: "multigres.server_version"}))
+	assert.True(t, IsServerVersionShow(&ast.VariableShowStmt{Name: "Multigres.Server_Version"}))
+	assert.False(t, IsServerVersionShow(&ast.VariableShowStmt{Name: "minigres.server_version"}))
+	assert.False(t, IsServerVersionShow(&ast.VariableShowStmt{Name: "statement_timeout"}))
+	assert.False(t, IsServerVersionShow(&ast.SelectStmt{}))
+	assert.False(t, IsServerVersionShow(nil))
 }
 
-// TestMultigresServerVersionShowDescription verifies the synthetic Describe response:
+// TestIsServerVersionShow_ProductSchema checks the matcher follows the
+// product's version schema: in Minigres only minigres.server_version is the
+// gateway's.
+func TestIsServerVersionShow_ProductSchema(t *testing.T) {
+	servenv.SetProductName("Minigres")
+	t.Cleanup(func() { servenv.SetProductName("Multigres") })
+
+	assert.True(t, IsServerVersionShow(&ast.VariableShowStmt{Name: "minigres.server_version"}))
+	assert.False(t, IsServerVersionShow(&ast.VariableShowStmt{Name: "multigres.server_version"}))
+	assert.Equal(t, "minigres.server_version", ServerVersionShowDescription().Fields[0].Name)
+}
+
+// TestServerVersionShowDescription verifies the synthetic Describe response:
 // no bind parameters and a single text column, so the extended-protocol Describe
 // can be answered without a backend round-trip.
-func TestMultigresServerVersionShowDescription(t *testing.T) {
-	desc := MultigresServerVersionShowDescription()
+func TestServerVersionShowDescription(t *testing.T) {
+	desc := ServerVersionShowDescription()
 	require.NotNil(t, desc.Parameters)
 	assert.Empty(t, desc.Parameters, "SHOW takes no bind parameters")
 	require.Len(t, desc.Fields, 1)

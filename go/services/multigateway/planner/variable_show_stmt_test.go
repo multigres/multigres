@@ -110,3 +110,27 @@ func TestPlanVariableShowStmt_MultigresServerVersion(t *testing.T) {
 		})
 	}
 }
+
+// TestPlanVariableShowStmt_ProductServerVersion checks SHOW follows the
+// product's version schema: in Minigres minigres.server_version is answered by
+// the gateway, and multigres.server_version is planned like any other variable.
+func TestPlanVariableShowStmt_ProductServerVersion(t *testing.T) {
+	servenv.SetProductName("Minigres")
+	t.Cleanup(func() { servenv.SetProductName("Multigres") })
+
+	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
+	p := NewPlanner("default", logger, nil)
+	testConn := server.NewTestConn(&bytes.Buffer{})
+
+	plan, err := p.planVariableShowStmt("SHOW minigres.server_version",
+		&ast.VariableShowStmt{Name: "minigres.server_version"}, testConn.Conn)
+	require.NoError(t, err)
+	_, ok := plan.Primitive.(*engine.GatewayShowVersion)
+	assert.True(t, ok, "expected GatewayShowVersion primitive, got %T", plan.Primitive)
+
+	plan, err = p.planVariableShowStmt("SHOW multigres.server_version",
+		&ast.VariableShowStmt{Name: "multigres.server_version"}, testConn.Conn)
+	require.NoError(t, err)
+	_, ok = plan.Primitive.(*engine.GatewayShowVersion)
+	assert.False(t, ok, "multigres.server_version must not be answered by the Minigres gateway")
+}

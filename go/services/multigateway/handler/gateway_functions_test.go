@@ -22,6 +22,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
+	"github.com/multigres/multigres/go/common/servenv"
 )
 
 // foldOne parses sql, folds multigres.version() with the given version, and
@@ -31,7 +32,7 @@ func foldOne(t *testing.T, sql, version string) string {
 	stmts, err := parser.ParseSQL(sql)
 	require.NoError(t, err)
 	require.Len(t, stmts, 1)
-	foldMultigresVersion(stmts[0], version)
+	foldVersion(stmts[0], "multigres", version)
 	return stmts[0].SqlString()
 }
 
@@ -232,7 +233,7 @@ func TestFoldMultigresVersion_NotFolded(t *testing.T) {
 		t.Run(sql, func(t *testing.T) {
 			stmts, err := parser.ParseSQL(sql)
 			require.NoError(t, err)
-			changed := foldMultigresVersion(stmts[0], v)
+			changed := foldVersion(stmts[0], "multigres", v)
 			assert.False(t, changed, "should not fold %q", sql)
 		})
 	}
@@ -358,4 +359,28 @@ func TestFoldGatewayFunctions(t *testing.T) {
 		assert.NotContains(t, got, "multigres.version")
 		assert.Contains(t, got, "AS version")
 	})
+}
+
+// TestFoldGatewayFunctions_ProductSchema checks the function follows the
+// product's version schema: in Minigres only minigres.version() is the gateway's,
+// and multigres.version() reaches PostgreSQL unchanged, like any unknown
+// function.
+func TestFoldGatewayFunctions_ProductSchema(t *testing.T) {
+	servenv.SetProductName("Minigres")
+	t.Cleanup(func() { servenv.SetProductName("Multigres") })
+
+	got, err := foldGatewayFunctions("SELECT minigres.version()")
+	require.NoError(t, err)
+	assert.NotContains(t, got, "minigres.version")
+	assert.Contains(t, got, "'Minigres ")
+
+	sql := "SELECT multigres.version()"
+	got, err = foldGatewayFunctions(sql)
+	require.NoError(t, err)
+	assert.Equal(t, sql, got)
+
+	_, err = foldGatewayFunctions("CREATE VIEW vv AS SELECT minigres.version()")
+	var rej *mterrors.GatewayRejection
+	require.ErrorAs(t, err, &rej)
+	assert.Contains(t, rej.Error(), "minigres.version() can only be used")
 }

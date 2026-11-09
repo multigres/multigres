@@ -32,9 +32,26 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
+
+// productName is the product the gateway under test reports itself as. Minigres
+// answers minigres.version() and SHOW minigres.server_version in place of the
+// multigres.* names (see servenv.SetProductName).
+func productName() string {
+	if clustersetup.IsMinigres() {
+		return "Minigres"
+	}
+	return "Multigres"
+}
+
+// productSQL rewrites the multigres.* version names in sql to the product's
+// schema, so each test runs the names its gateway answers.
+func productSQL(sql string) string {
+	return strings.ReplaceAll(sql, "multigres.", strings.ToLower(productName())+".")
+}
 
 // TestMultigateway_MultigresVersion verifies both version surfaces:
 //
@@ -83,7 +100,7 @@ func TestMultigateway_MultigresVersion(t *testing.T) {
 
 	t.Run("SHOW multigres.server_version returns the short version", func(t *testing.T) {
 		for _, run := range bothProtocols {
-			version := run(t, "SHOW multigres.server_version")
+			version := run(t, productSQL("SHOW multigres.server_version"))
 			assert.NotEmpty(t, version, "version should not be empty")
 			assert.NotContains(t, version, "built with", "SHOW should return the short version, got %q", version)
 		}
@@ -91,8 +108,8 @@ func TestMultigateway_MultigresVersion(t *testing.T) {
 
 	t.Run("SELECT multigres.version() returns the full build string", func(t *testing.T) {
 		for _, run := range bothProtocols {
-			version := run(t, "SELECT multigres.version()")
-			assert.Contains(t, version, "Multigres", "function should return the full build string, got %q", version)
+			version := run(t, productSQL("SELECT multigres.version()"))
+			assert.True(t, strings.HasPrefix(version, productName()+" "), "function should return the full build string starting with %q, got %q", productName(), version)
 		}
 	})
 
@@ -101,9 +118,25 @@ func TestMultigateway_MultigresVersion(t *testing.T) {
 	// not limited to a standalone target.
 	t.Run("multigres.version() works inside an expression", func(t *testing.T) {
 		for _, run := range bothProtocols {
-			out := run(t, "SELECT length(multigres.version()) > 0")
+			out := run(t, productSQL("SELECT length(multigres.version()) > 0"))
 			assert.Equal(t, "true", out, "expected the folded literal to be evaluated by PostgreSQL")
 		}
+	})
+
+	// Each product answers only its own names: the other's reach PostgreSQL,
+	// which has no such parameter or function.
+	t.Run("the other product's names are not answered", func(t *testing.T) {
+		other := "minigres"
+		if clustersetup.IsMinigres() {
+			other = "multigres"
+		}
+		for _, sql := range []string{"SHOW " + other + ".server_version", "SELECT " + other + ".version()"} {
+			var out string
+			err := db.QueryRowContext(ctx, sql).Scan(&out)
+			assert.Error(t, err, "%q should fail, got %q", sql, out)
+		}
+		// The connection stays usable.
+		assert.NotEmpty(t, simpleQuery(t, productSQL("SHOW multigres.server_version")))
 	})
 
 	// A bare version() must still route to PostgreSQL and report the backend
@@ -161,7 +194,7 @@ func maskVersion(vals []any) string {
 		if b, ok := v.([]byte); ok {
 			s = string(b)
 		}
-		if strings.HasPrefix(s, "PostgreSQL ") || strings.HasPrefix(s, "Multigres ") {
+		if strings.HasPrefix(s, "PostgreSQL ") || strings.HasPrefix(s, productName()+" ") {
 			s = "<version>"
 		}
 		parts[i] = s
@@ -311,7 +344,7 @@ func TestMultigateway_MultigresVersionMatchesPostgres(t *testing.T) {
 			onGateway := c.open(t, gwPort)
 			for _, shape := range versionShapes {
 				want := onPostgres(fmt.Sprintf(shape, "version()"))
-				got := onGateway(fmt.Sprintf(shape, "multigres.version()"))
+				got := onGateway(fmt.Sprintf(shape, productSQL("multigres.version()")))
 				assert.Equal(t, want, got, "shape %q", shape)
 				if !strings.Contains(shape, "x text") {
 					assert.Empty(t, want.Err, "shape %q should succeed on PostgreSQL", shape)
@@ -345,12 +378,12 @@ func TestMultigateway_MultigresVersionStatements(t *testing.T) {
 		t.Helper()
 		var v string
 		require.NoError(t, conn.QueryRow(ctx, query).Scan(&v), "query %q", query)
-		require.True(t, strings.HasPrefix(v, "Multigres "), "query %q returned %q", query, v)
+		require.True(t, strings.HasPrefix(v, productName()+" "), "query %q returned %q", query, v)
 		return v
 	}
 
 	t.Run("Describe reports one text column", func(t *testing.T) {
-		sd, err := conn.Prepare(ctx, "mv_describe", "SELECT * FROM multigres.version()")
+		sd, err := conn.Prepare(ctx, "mv_describe", productSQL("SELECT * FROM multigres.version()"))
 		require.NoError(t, err)
 		defer func() { _ = conn.Deallocate(ctx, "mv_describe") }()
 		require.Len(t, sd.Fields, 1)
@@ -359,10 +392,10 @@ func TestMultigateway_MultigresVersionStatements(t *testing.T) {
 	})
 
 	t.Run("CREATE TABLE AS and INSERT SELECT", func(t *testing.T) {
-		_, err := conn.Exec(ctx, "CREATE TABLE mv_ctas AS SELECT * FROM multigres.version()")
+		_, err := conn.Exec(ctx, productSQL("CREATE TABLE mv_ctas AS SELECT * FROM multigres.version()"))
 		require.NoError(t, err)
 		defer func() { _, _ = conn.Exec(context.Background(), "DROP TABLE IF EXISTS mv_ctas") }()
-		_, err = conn.Exec(ctx, "INSERT INTO mv_ctas SELECT * FROM multigres.version()")
+		_, err = conn.Exec(ctx, productSQL("INSERT INTO mv_ctas SELECT * FROM multigres.version()"))
 		require.NoError(t, err)
 		var n int
 		require.NoError(t, conn.QueryRow(ctx, "SELECT count(DISTINCT version) + count(*) FROM mv_ctas").Scan(&n))
@@ -381,11 +414,11 @@ func TestMultigateway_MultigresVersionStatements(t *testing.T) {
 		}
 		for _, mode := range []pgx.QueryExecMode{pgx.QueryExecModeSimpleProtocol, pgx.QueryExecModeDescribeExec} {
 			for _, sql := range []string{
-				"CREATE VIEW mv_view AS SELECT * FROM multigres.version()",
-				"CREATE MATERIALIZED VIEW mv_view AS SELECT multigres.version()",
-				"CREATE TABLE mv_view (v text DEFAULT multigres.version())",
-				"CREATE TABLE mv_view (v text GENERATED ALWAYS AS (multigres.version()) STORED)",
-				"CREATE FUNCTION mv_view() RETURNS text RETURN multigres.version()",
+				productSQL("CREATE VIEW mv_view AS SELECT * FROM multigres.version()"),
+				productSQL("CREATE MATERIALIZED VIEW mv_view AS SELECT multigres.version()"),
+				productSQL("CREATE TABLE mv_view (v text DEFAULT multigres.version())"),
+				productSQL("CREATE TABLE mv_view (v text GENERATED ALWAYS AS (multigres.version()) STORED)"),
+				productSQL("CREATE FUNCTION mv_view() RETURNS text RETURN multigres.version()"),
 			} {
 				t.Run(mode.String()+"/"+sql, func(t *testing.T) {
 					_, err := conn.Exec(ctx, sql, mode)
@@ -403,39 +436,39 @@ func TestMultigateway_MultigresVersionStatements(t *testing.T) {
 		tx, err := conn.Begin(ctx)
 		require.NoError(t, err)
 		defer func() { _ = tx.Rollback(context.Background()) }()
-		_, err = tx.Exec(ctx, "CREATE VIEW mv_view AS SELECT multigres.version()")
+		_, err = tx.Exec(ctx, productSQL("CREATE VIEW mv_view AS SELECT multigres.version()"))
 		requireRejected(t, err)
 		_, err = tx.Exec(ctx, "SELECT 1")
 		var pgErr *pgconn.PgError
 		require.True(t, errors.As(err, &pgErr), "expected a PostgreSQL error, got %v", err)
 		assert.Equal(t, "25P02", pgErr.Code)
 		require.NoError(t, tx.Rollback(ctx))
-		queryVersion(t, "SELECT multigres.version()")
+		queryVersion(t, productSQL("SELECT multigres.version()"))
 	})
 
 	t.Run("COPY TO STDOUT", func(t *testing.T) {
 		var buf bytes.Buffer
-		_, err := conn.PgConn().CopyTo(ctx, &buf, "COPY (SELECT * FROM multigres.version()) TO STDOUT")
+		_, err := conn.PgConn().CopyTo(ctx, &buf, productSQL("COPY (SELECT * FROM multigres.version()) TO STDOUT"))
 		require.NoError(t, err)
-		assert.True(t, strings.HasPrefix(buf.String(), "Multigres "), "COPY returned %q", buf.String())
+		assert.True(t, strings.HasPrefix(buf.String(), productName()+" "), "COPY returned %q", buf.String())
 	})
 
 	t.Run("SQL PREPARE and EXECUTE", func(t *testing.T) {
-		_, err := conn.Exec(ctx, "PREPARE mv_p AS SELECT * FROM multigres.version()", pgx.QueryExecModeSimpleProtocol)
+		_, err := conn.Exec(ctx, productSQL("PREPARE mv_p AS SELECT * FROM multigres.version()"), pgx.QueryExecModeSimpleProtocol)
 		require.NoError(t, err)
 		defer func() { _, _ = conn.Exec(context.Background(), "DEALLOCATE mv_p", pgx.QueryExecModeSimpleProtocol) }()
 		var v string
 		require.NoError(t, conn.QueryRow(ctx, "EXECUTE mv_p", pgx.QueryExecModeSimpleProtocol).Scan(&v))
-		assert.True(t, strings.HasPrefix(v, "Multigres "), "EXECUTE returned %q", v)
+		assert.True(t, strings.HasPrefix(v, productName()+" "), "EXECUTE returned %q", v)
 	})
 
 	// CALL names a procedure; the gateway leaves it for PostgreSQL to reject
 	// rather than folding it, and the connection stays usable.
 	t.Run("CALL is rejected by PostgreSQL", func(t *testing.T) {
-		_, err := conn.Exec(ctx, "CALL multigres.version()")
+		_, err := conn.Exec(ctx, productSQL("CALL multigres.version()"))
 		require.Error(t, err)
 		var pgErr *pgconn.PgError
 		require.True(t, errors.As(err, &pgErr), "expected a PostgreSQL error, got %v", err)
-		queryVersion(t, "SELECT multigres.version()")
+		queryVersion(t, productSQL("SELECT multigres.version()"))
 	})
 }

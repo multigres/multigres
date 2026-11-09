@@ -92,30 +92,51 @@ func applyBuildFallbacks(snap *buildSnapshot, revision, date string) {
 	}
 }
 
+// productName names the product in AppVersion and, lowercased, the SQL schema
+// of the gateway's version surfaces (see VersionSchema). It is "Multigres"
+// unless the binary sets another name with SetProductName.
+var productName = "Multigres"
+
+// SetProductName sets the product a binary reports itself as, for a binary that
+// packages Multigres as a product of its own: minigres sets "Minigres", so it
+// answers `SELECT minigres.version()` with "Minigres 0.1.0 ...". Call it once,
+// before the process serves anything.
+func SetProductName(name string) {
+	productName = name
+}
+
+// VersionSchema returns the SQL schema of the gateway's version surfaces,
+// `<schema>.version()` and `SHOW <schema>.server_version`: the product name in
+// lowercase, "multigres" unless SetProductName set another.
+func VersionSchema() string {
+	return strings.ToLower(productName)
+}
+
 // Version returns the short release version (versionName, e.g. "0.1.0-SNAPSHOT").
-// It is the value reported by `SHOW multigres.server_version`, mirroring PostgreSQL's
-// server_version. The full build string — release version plus VCS revision,
-// commit date, and Go toolchain — is AppVersion, reported by
-// `SELECT multigres.version()`.
+// It is the value reported by `SHOW multigres.server_version` (see
+// VersionSchema), mirroring PostgreSQL's server_version. The full build string
+// — release version plus VCS revision, commit date, and Go toolchain — is
+// AppVersion, reported by `SELECT multigres.version()`.
 func Version() string {
 	return versionName
 }
 
 // AppVersion returns a one-line, human-readable description of the running
-// binary's Multigres version, suitable for display to operators (e.g. via
-// `SHOW multigres.server_version` or a future --version flag) and for pasting into bug
-// reports. It is the release version plus the VCS identity embedded at build
-// time; VCS fields are omitted so it degrades gracefully on builds without VCS
-// metadata (e.g. inside a linked git worktree without injected build args).
+// binary's version, suitable for display to operators (e.g. via
+// `SELECT multigres.version()` or a future --version flag) and for pasting into
+// bug reports. It is the product name (see SetProductName) and release version
+// plus the VCS identity embedded at build time; VCS fields are omitted so it
+// degrades gracefully on builds without VCS metadata (e.g. inside a linked git
+// worktree without injected build args).
 func AppVersion() string {
-	return formatAppVersion(versionName, readBuildSnapshot())
+	return formatAppVersion(productName, versionName, readBuildSnapshot())
 }
 
 // formatAppVersion is the pure formatting core of AppVersion, split out so the
 // string layout can be unit-tested without depending on the ambient build info.
-func formatAppVersion(version string, snap buildSnapshot) string {
+func formatAppVersion(product, version string, snap buildSnapshot) string {
 	var b strings.Builder
-	b.WriteString("Multigres")
+	b.WriteString(product)
 	if version != "" {
 		fmt.Fprintf(&b, " %s", version)
 	}

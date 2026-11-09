@@ -15,11 +15,12 @@
 package constants
 
 const (
-	// MultigresServerVersionVariable is the pseudo-variable name that, via
-	// `SHOW multigres.server_version`, reports the running multigateway's short release
-	// version. It is not a real PostgreSQL GUC: the gateway answers it locally
-	// and never forwards it to a backend.
-	MultigresServerVersionVariable = "multigres.server_version"
+	// ServerVersionVariable is the pseudo-variable that, qualified by the
+	// product's version schema (servenv.VersionSchema), reports the running
+	// multigateway's short release version: `SHOW multigres.server_version`, or
+	// `SHOW minigres.server_version` in Minigres. It is not a real PostgreSQL
+	// GUC: the gateway answers it locally and never forwards it to a backend.
+	ServerVersionVariable = "server_version"
 
 	// UnsafeConnectionParam is the connect-time option / GUC name that requests an
 	// unsafe connection for a client connection (e.g. options=-c
@@ -34,14 +35,15 @@ const (
 	// multigres.direct_connection.
 	DirectConnectionParam = "multigres.direct_connection"
 
-	// MultigresSchema is the schema used to namespace gateway-provided functions
-	// (e.g. `multigres.version()`) so they do not shadow PostgreSQL's own
-	// built-ins of the same name.
+	// MultigresSchema is the schema used to namespace gateway-provided views
+	// (e.g. `multigres.multipoolers`) so they do not shadow PostgreSQL's own
+	// objects of the same name. The version surfaces use the product's schema
+	// instead (servenv.VersionSchema), which is also "multigres" in Multigres.
 	MultigresSchema = "multigres"
 
 	// MultigresVersionFunction is the name of the gateway function
-	// `multigres.version()`, which reports the running multigateway's full build
-	// string. It doubles as the default output column label, matching
+	// `multigres.version()` (`minigres.version()` in Minigres), which reports the
+	// running multigateway's full build string. It doubles as the default output column label, matching
 	// PostgreSQL's convention of labelling a bare function-call target with the
 	// function name.
 	MultigresVersionFunction = "version"

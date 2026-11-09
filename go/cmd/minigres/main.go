@@ -75,6 +75,9 @@ type minigres struct {
 }
 
 func newMinigres() *minigres {
+	// Minigres reports itself as a product of its own: SELECT minigres.version()
+	// and SHOW minigres.server_version, in place of the multigres.* names.
+	servenv.SetProductName("Minigres")
 	reg := viperutil.NewRegistry()
 	tel := telemetry.NewTelemetry()
 	m := &minigres{

@@ -403,13 +403,14 @@ func (e *Executor) Describe(
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
-	// SHOW multigres.server_version is a gateway-only pseudo-variable with no backing
-	// postgres GUC. Answer Describe locally rather than forwarding it, which the
-	// backend would reject as an unrecognized configuration parameter. Execute
-	// is already served locally via the planner (planVariableShowStmt).
+	// SHOW multigres.server_version (minigres.server_version in Minigres) is a
+	// gateway-only pseudo-variable with no backing postgres GUC. Answer Describe
+	// locally rather than forwarding it, which the backend would reject as an
+	// unrecognized configuration parameter. Execute is already served locally via
+	// the planner (planVariableShowStmt).
 	stmt := describeAST(portalInfo, preparedStatementInfo)
-	if stmt != nil && engine.IsMultigresServerVersionShow(stmt) {
-		return engine.MultigresServerVersionShowDescription(), nil
+	if stmt != nil && engine.IsServerVersionShow(stmt) {
+		return engine.ServerVersionShowDescription(), nil
 	}
 
 	// Tablegroup DDL is not PostgreSQL syntax, so the backend would answer

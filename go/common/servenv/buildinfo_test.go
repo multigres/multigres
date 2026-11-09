@@ -122,10 +122,33 @@ func TestFormatAppVersion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := formatAppVersion(tt.version, tt.snap); got != tt.want {
+			if got := formatAppVersion("Multigres", tt.version, tt.snap); got != tt.want {
 				t.Errorf("formatAppVersion(%q, %+v) = %q, want %q", tt.version, tt.snap, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestFormatAppVersionProduct checks the product name leads the string, so a
+// binary that sets its own name (minigres) reports it instead of Multigres.
+func TestFormatAppVersionProduct(t *testing.T) {
+	snap := buildSnapshot{revision: "a761b25", goVersion: "go1.23.4"}
+	want := "Minigres v0.1.0 (a761b25) built with go1.23.4"
+	if got := formatAppVersion("Minigres", "v0.1.0", snap); got != want {
+		t.Errorf("formatAppVersion(\"Minigres\", ...) = %q, want %q", got, want)
+	}
+}
+
+// TestVersionSchema checks the version surfaces' schema follows the product
+// name.
+func TestVersionSchema(t *testing.T) {
+	if got := VersionSchema(); got != "multigres" {
+		t.Errorf("VersionSchema() = %q, want %q", got, "multigres")
+	}
+	SetProductName("Minigres")
+	t.Cleanup(func() { SetProductName("Multigres") })
+	if got := VersionSchema(); got != "minigres" {
+		t.Errorf("VersionSchema() after SetProductName(\"Minigres\") = %q, want %q", got, "minigres")
 	}
 }
 
