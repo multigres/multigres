@@ -36,12 +36,20 @@ import (
 
 func newTableGroupsTestServer(t *testing.T) (*MultiadminServer, topoclient.Store, *rpcclient.FakeClient) {
 	t.Helper()
-	ts := memorytopo.NewServer(t.Context(), "cell1")
+	server, ts, _, fake := newTableGroupsTestServerWithFactory(t)
+	return server, ts, fake
+}
+
+// newTableGroupsTestServerWithFactory also returns the memory topology's
+// factory, whose SetError makes every topology read fail.
+func newTableGroupsTestServerWithFactory(t *testing.T) (*MultiadminServer, topoclient.Store, *memorytopo.Factory, *rpcclient.FakeClient) {
+	t.Helper()
+	ts, factory := memorytopo.NewServerAndFactory(t.Context(), "cell1")
 	server := NewMultiadminServer(ts, slog.New(slog.DiscardHandler), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	t.Cleanup(server.backupJobTracker.Stop)
 	fake := rpcclient.NewFakeClient()
 	server.SetRPCClient(fake)
-	return server, ts, fake
+	return server, ts, factory, fake
 }
 
 // addCatalogPooler registers a serving pooler of testdb's catalog shard. A
@@ -127,6 +135,15 @@ func TestListDesiredTableGroups(t *testing.T) {
 		_, err := server.ListDesiredTableGroups(t.Context(), &multiadminpb.ListDesiredTableGroupsRequest{Database: "testdb"})
 		require.Error(t, err)
 		assert.Equal(t, codes.NotFound, status.Code(err))
+	})
+
+	t.Run("unreadable topology is unavailable, not a missing primary", func(t *testing.T) {
+		server, ts, factory, _ := newTableGroupsTestServerWithFactory(t)
+		addCatalogPooler(t, ts, "catalog-primary", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, 1)
+		factory.SetError(errors.New("etcd unreachable"))
+		_, err := server.ListDesiredTableGroups(t.Context(), &multiadminpb.ListDesiredTableGroupsRequest{Database: "testdb"})
+		require.Error(t, err)
+		assert.Equal(t, codes.Unavailable, status.Code(err))
 	})
 
 	t.Run("unknown database", func(t *testing.T) {

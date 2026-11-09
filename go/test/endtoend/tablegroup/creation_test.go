@@ -31,6 +31,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/multigres/multigres/go/common/constants"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -167,6 +168,9 @@ func TestTableGroupCreation(t *testing.T) {
 	t.Run("provisioned shards count toward the creation", func(t *testing.T) {
 		require.NotNil(t, tg)
 		prov.provision(t, tg)
+		claim, err := setup.TopoServer.GetTableGroupProvisionClaim(t.Context(), "postgres", tg.GetTablegroupId())
+		require.NoError(t, err, "the provisioner claims the id before it provisions")
+		assert.Equal(t, "e2e-provisioner", claim.GetProvisioner())
 		require.Eventually(t, func() bool {
 			return getOperation(t, manager, op).GetShardsServing() == 2
 		}, provisionTimeout, time.Second, "the provisioned shards never served")
@@ -240,10 +244,14 @@ func (p *provisioner) find(t *testing.T, name string) *multipoolermanagerdatapb.
 	return nil
 }
 
-// provision starts each shard's poolers with the tablegroup's catalog id and
-// a multiorch to bootstrap the shard.
+// provision claims the tablegroup's id in topology, as the operator must before
+// it provisions anything, then starts each shard's poolers with the catalog id
+// and a multiorch to bootstrap the shard.
 func (p *provisioner) provision(t *testing.T, tg *multipoolermanagerdatapb.TableGroup) {
 	t.Helper()
+	require.NoError(t, p.setup.TopoServer.ClaimTableGroupProvisioning(t.Context(), "postgres", &clustermetadatapb.TableGroupProvisionClaim{
+		Provisioner: "e2e-provisioner", TablegroupId: tg.GetTablegroupId(), TablegroupName: tg.GetName(),
+	}))
 	for _, shard := range tg.GetShards() {
 		for i := range 2 {
 			name := fmt.Sprintf("%s-%d-%s-%d", tg.GetName(), tg.GetTablegroupId(), shard, i)

@@ -4112,23 +4112,28 @@ components:
           type: array
         state:
           $ref: '#/components/schemas/multipoolermanagerdata.TableGroupState'
-          description: state is CREATING or ACTIVE. Tablegroups being dropped are not listed.
           title: state
         tablegroupId:
           description: |-
             tablegroup_id is the catalog identity. Provisioners pass it to the
-             tablegroup's poolers (see Multipooler.tablegroup_id).
+             tablegroup's poolers (see Multipooler.tablegroup_id), claim it before
+             provisioning, and key everything they provision by it, so acting on one
+             incarnation of a name never touches another.
           pattern: ^-?[0-9]+$
           title: tablegroup_id
           type: string
       title: TableGroup
       type: object
     multipoolermanagerdata.TableGroupState:
-      description: TableGroupState is the lifecycle state of a listed tablegroup.
+      description: |-
+        TableGroupState is the lifecycle state of a listed tablegroup. A
+         provisioner neither provisions nor removes a tablegroup in a state it does
+         not know, including UNSPECIFIED.
       enum:
         - TABLE_GROUP_STATE_UNSPECIFIED
         - TABLE_GROUP_STATE_CREATING
         - TABLE_GROUP_STATE_ACTIVE
+        - TABLE_GROUP_STATE_DROPPING
       title: TableGroupState
       type: string
   securitySchemes:

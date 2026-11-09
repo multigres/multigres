@@ -444,7 +444,7 @@ func TestGetOperation(t *testing.T) {
 }
 
 func TestListTableGroups(t *testing.T) {
-	t.Run("groups shards under their tablegroup", func(t *testing.T) {
+	t.Run("groups shards under their tablegroup, dropping ones included", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectPrimary()
 		env.expect("FROM multigres.tablegroup t JOIN multigres.shard s", []string{"tablegroup_id", "name", "state", "shard_name"},
@@ -452,11 +452,15 @@ func TestListTableGroups(t *testing.T) {
 				{int64(7), "commerce", tableGroupStateActive, "0-80"},
 				{int64(7), "commerce", tableGroupStateActive, "80-inf"},
 				{int64(9), "analytics", tableGroupStateCreating, "0-inf"},
+				{int64(10), "old", tableGroupStateDropping, "0-inf"},
 			})
 
 		groups, err := env.pm.ListTableGroups(t.Context())
 		require.NoError(t, err)
-		require.Len(t, groups, 2)
+		require.Len(t, groups, 3)
+		assert.Equal(t, int64(10), groups[2].TablegroupId)
+		assert.Equal(t, multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_DROPPING, groups[2].State, "a dropping tablegroup is the removal signal")
+		assert.Equal(t, []string{"0-inf"}, groups[2].Shards)
 		assert.Equal(t, int64(7), groups[0].TablegroupId)
 		assert.Equal(t, "commerce", groups[0].Name)
 		assert.Equal(t, multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_ACTIVE, groups[0].State)
@@ -466,7 +470,10 @@ func TestListTableGroups(t *testing.T) {
 		assert.Equal(t, multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_CREATING, groups[1].State)
 		assert.Equal(t, []string{"0-inf"}, groups[1].Shards)
 		require.Len(t, env.queries, 2)
-		assert.Contains(t, env.queries[1], "t.name <> $1 AND t.state IN ($2, $3)")
+		assert.Contains(t, env.queries[1], "WHERE t.name <> $1 ORDER BY", "every state is listed")
+		for _, state := range []string{tableGroupStateCreating, tableGroupStateActive, tableGroupStateDropping} {
+			assert.NotEqual(t, multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_UNSPECIFIED, tableGroupStates[state], state)
+		}
 	})
 	t.Run("empty catalog is an empty list, not nil", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
@@ -477,7 +484,7 @@ func TestListTableGroups(t *testing.T) {
 		assert.NotNil(t, groups)
 		assert.Empty(t, groups)
 	})
-	t.Run("a replica refuses, since absence from the list means removal", func(t *testing.T) {
+	t.Run("a replica refuses", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expect("SELECT pg_is_in_recovery", []string{"pg_is_in_recovery"}, [][]any{{"t"}})
 		_, err := env.pm.ListTableGroups(t.Context())

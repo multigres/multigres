@@ -49,7 +49,11 @@ import (
 //   - GetOperation reports an operation's state, with progress read from
 //     topology while a creation is in flight.
 //   - ListTableGroups is what the provisioner reads to learn which tablegroups
-//     to provision.
+//     to provision (creating, active) and which to remove (dropping). A
+//     tablegroup missing from a list is not a removal signal: a provisioner
+//     claims a tablegroup's id in topology before provisioning it and
+//     releases the claim after removing everything, and a drop completes,
+//     deleting the rows, only once the id has no claim and no pooler record.
 //
 // Only the catalog primary writes these tables, through the admin pool, which
 // is the same single-writer arrangement ensureCatalogSchema relies on. A
@@ -91,6 +95,7 @@ var (
 	tableGroupStates = map[string]multipoolermanagerdatapb.TableGroupState{
 		tableGroupStateCreating: multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_CREATING,
 		tableGroupStateActive:   multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_ACTIVE,
+		tableGroupStateDropping: multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_DROPPING,
 	}
 )
 
@@ -460,11 +465,13 @@ func (op operationRow) toProto() *multipoolermanagerdatapb.Operation {
 	return out
 }
 
-// ListTableGroups returns every non-default tablegroup that is creating or
-// active, with its shard layout, for the provisioner. Dropping tablegroups
-// are omitted on purpose: absence from a successful list is the provisioner's
-// signal to remove one. That is why only the catalog primary answers: a
-// lagging replica would omit a tablegroup it has not replayed yet.
+// ListTableGroups returns every non-default tablegroup, with its shard layout,
+// for the provisioner: creating and active ones to provision, dropping ones to
+// remove. A tablegroup's rows are deleted only once its provision claim is
+// released (see topoclient.Store.ClaimTableGroupProvisioning), so a
+// provisioner that has started on an id sees it as dropping before it goes;
+// absence from a list therefore never calls for removal, which is what makes
+// a list from a node whose catalog lags (see checkCatalogPrimary) harmless.
 func (pm *MultipoolerManager) ListTableGroups(ctx context.Context) ([]*multipoolermanagerdatapb.TableGroup, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
@@ -482,13 +489,12 @@ func (pm *MultipoolerManager) ListTableGroups(ctx context.Context) ([]*multipool
 	execCtx, cancel := context.WithTimeout(ctx, tableGroupOpTimeout)
 	defer cancel()
 	// One statement, so the tablegroups and their shards come from the same
-	// snapshot: a creation that fails concurrently is either listed with its
-	// whole layout or not at all.
+	// snapshot: a tablegroup is listed with its whole layout or not at all.
 	res, err := qs.QueryAdminArgs(execCtx,
 		"SELECT t.tablegroup_id, t.name, t.state, s.shard_name FROM multigres.tablegroup t "+
-			"JOIN multigres.shard s ON s.tablegroup_id = t.tablegroup_id AND s.state <> $4 "+
-			"WHERE t.name <> $1 AND t.state IN ($2, $3) ORDER BY t.tablegroup_id, s.range_start NULLS FIRST",
-		constants.DefaultTableGroup, tableGroupStateCreating, tableGroupStateActive, shardStateRetired)
+			"JOIN multigres.shard s ON s.tablegroup_id = t.tablegroup_id AND s.state <> $2 "+
+			"WHERE t.name <> $1 ORDER BY t.tablegroup_id, s.range_start NULLS FIRST",
+		constants.DefaultTableGroup, shardStateRetired)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to list tablegroups")
 	}

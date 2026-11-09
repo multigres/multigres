@@ -658,6 +658,83 @@ export class ShardInitClaim extends Message<ShardInitClaim> {
 }
 
 /**
+ * TableGroupProvisionClaim records that a provisioner holds resources (pods,
+ * volumes, pooler records) for one incarnation of a tablegroup, identified by
+ * its sharding-catalog id. It is a create-if-not-exists node in the global
+ * topology at databases/<database>/TableGroupClaims/<tablegroup_id>.
+ *
+ * The provisioner writes it before it provisions anything for the id and
+ * deletes it only after everything it provisioned is gone, including the
+ * poolers' topology records. The catalog primary completes a drop, and deletes
+ * the tablegroup's catalog rows, only once no claim and no pooler record for
+ * the id remain, so a provisioner that has started work on an id always gets
+ * to see the id in state dropping before the id disappears.
+ *
+ * @generated from message clustermetadata.TableGroupProvisionClaim
+ */
+export class TableGroupProvisionClaim extends Message<TableGroupProvisionClaim> {
+  /**
+   * provisioner identifies who holds the claim, in the provisioner's own
+   * terms, for example the operator's cluster identity. A claim for an id is
+   * owned by one provisioner; a second provisioner cannot take it over.
+   *
+   * @generated from field: string provisioner = 1;
+   */
+  provisioner = "";
+
+  /**
+   * tablegroup_id is the catalog id the claim is for. It is also the node's
+   * name in the path.
+   *
+   * @generated from field: int64 tablegroup_id = 2;
+   */
+  tablegroupId = protoInt64.zero;
+
+  /**
+   * tablegroup_name is the name the id had when claimed, for operators
+   * reading the topology.
+   *
+   * @generated from field: string tablegroup_name = 3;
+   */
+  tablegroupName = "";
+
+  /**
+   * @generated from field: google.protobuf.Timestamp claimed_at = 4;
+   */
+  claimedAt?: Timestamp;
+
+  constructor(data?: PartialMessage<TableGroupProvisionClaim>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "clustermetadata.TableGroupProvisionClaim";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "provisioner", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "tablegroup_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 3, name: "tablegroup_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "claimed_at", kind: "message", T: Timestamp },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): TableGroupProvisionClaim {
+    return new TableGroupProvisionClaim().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): TableGroupProvisionClaim {
+    return new TableGroupProvisionClaim().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): TableGroupProvisionClaim {
+    return new TableGroupProvisionClaim().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: TableGroupProvisionClaim | PlainMessage<TableGroupProvisionClaim> | undefined, b: TableGroupProvisionClaim | PlainMessage<TableGroupProvisionClaim> | undefined): boolean {
+    return proto3.util.equals(TableGroupProvisionClaim, a, b);
+  }
+}
+
+/**
  * BackupLocation specifies where backups are stored
  *
  * @generated from message clustermetadata.BackupLocation

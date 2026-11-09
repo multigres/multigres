@@ -563,7 +563,9 @@ func (OperationState) EnumDescriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{8}
 }
 
-// TableGroupState is the lifecycle state of a listed tablegroup.
+// TableGroupState is the lifecycle state of a listed tablegroup. A
+// provisioner neither provisions nor removes a tablegroup in a state it does
+// not know, including UNSPECIFIED.
 type TableGroupState int32
 
 const (
@@ -572,6 +574,12 @@ const (
 	TableGroupState_TABLE_GROUP_STATE_CREATING TableGroupState = 1
 	// ACTIVE is a tablegroup whose creation completed.
 	TableGroupState_TABLE_GROUP_STATE_ACTIVE TableGroupState = 2
+	// DROPPING is a tablegroup being dropped, or whose creation failed: the
+	// provisioner removes everything it provisioned for the id, deletes those
+	// poolers' topology records, and releases its claim. The catalog then
+	// deletes the tablegroup, and the name is free for a new tablegroup with a
+	// new id.
+	TableGroupState_TABLE_GROUP_STATE_DROPPING TableGroupState = 3
 )
 
 // Enum value maps for TableGroupState.
@@ -580,11 +588,13 @@ var (
 		0: "TABLE_GROUP_STATE_UNSPECIFIED",
 		1: "TABLE_GROUP_STATE_CREATING",
 		2: "TABLE_GROUP_STATE_ACTIVE",
+		3: "TABLE_GROUP_STATE_DROPPING",
 	}
 	TableGroupState_value = map[string]int32{
 		"TABLE_GROUP_STATE_UNSPECIFIED": 0,
 		"TABLE_GROUP_STATE_CREATING":    1,
 		"TABLE_GROUP_STATE_ACTIVE":      2,
+		"TABLE_GROUP_STATE_DROPPING":    3,
 	}
 )
 
@@ -3630,7 +3640,8 @@ type Operation struct {
 	UpdatedAt       *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	// poolers_registered is, for a drop that is not done, how many pooler
 	// records carrying the tablegroup's id are still registered in topology,
-	// read at call time. The drop completes when it reaches zero. Zero for a
+	// read at call time. The drop completes when it reaches zero and the
+	// provisioner has released its claim (TableGroupProvisionClaim). Zero for a
 	// creation.
 	PoolersRegistered int32 `protobuf:"varint,12,opt,name=poolers_registered,json=poolersRegistered,proto3" json:"poolers_registered,omitempty"`
 	unknownFields     protoimpl.UnknownFields
@@ -3887,7 +3898,8 @@ func (x *DropTableGroupResponse) GetCancelledCreation() bool {
 	return false
 }
 
-// ListTableGroupsRequest lists the tablegroups the provisioner should have.
+// ListTableGroupsRequest lists the tablegroups the provisioner should have
+// and the ones it should remove.
 type ListTableGroupsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -3924,7 +3936,14 @@ func (*ListTableGroupsRequest) Descriptor() ([]byte, []int) {
 	return file_multipoolermanagerdata_proto_rawDescGZIP(), []int{48}
 }
 
-// ListTableGroupsResponse lists tablegroups with their shard layouts.
+// ListTableGroupsResponse lists every non-default tablegroup in the catalog
+// with its shard layout. A provisioner provisions the CREATING and ACTIVE ones
+// and removes the DROPPING ones. A tablegroup missing from the list is never a
+// reason to remove anything: a provisioner claims a tablegroup's id in
+// topology (TableGroupProvisionClaim) before it provisions anything and
+// releases the claim after it has removed everything, and the catalog deletes
+// the tablegroup only once no claim and no pooler record for the id remain, so
+// a provisioner that has started on an id always sees it DROPPING first.
 type ListTableGroupsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TableGroups   []*TableGroup          `protobuf:"bytes,1,rep,name=table_groups,json=tableGroups,proto3" json:"table_groups,omitempty"`
@@ -3973,11 +3992,12 @@ func (x *ListTableGroupsResponse) GetTableGroups() []*TableGroup {
 type TableGroup struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// tablegroup_id is the catalog identity. Provisioners pass it to the
-	// tablegroup's poolers (see Multipooler.tablegroup_id).
-	TablegroupId int64  `protobuf:"varint,1,opt,name=tablegroup_id,json=tablegroupId,proto3" json:"tablegroup_id,omitempty"`
-	Name         string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	// state is CREATING or ACTIVE. Tablegroups being dropped are not listed.
-	State TableGroupState `protobuf:"varint,3,opt,name=state,proto3,enum=multipoolermanagerdata.TableGroupState" json:"state,omitempty"`
+	// tablegroup's poolers (see Multipooler.tablegroup_id), claim it before
+	// provisioning, and key everything they provision by it, so acting on one
+	// incarnation of a name never touches another.
+	TablegroupId int64           `protobuf:"varint,1,opt,name=tablegroup_id,json=tablegroupId,proto3" json:"tablegroup_id,omitempty"`
+	Name         string          `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	State        TableGroupState `protobuf:"varint,3,opt,name=state,proto3,enum=multipoolermanagerdata.TableGroupState" json:"state,omitempty"`
 	// shards is the shard layout in canonical order.
 	Shards        []string `protobuf:"bytes,4,rep,name=shards,proto3" json:"shards,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -4318,11 +4338,12 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x18OPERATION_STATE_CREATING\x10\x01\x12\x1c\n" +
 	"\x18OPERATION_STATE_DROPPING\x10\x02\x12\x18\n" +
 	"\x14OPERATION_STATE_DONE\x10\x03\x12\x1a\n" +
-	"\x16OPERATION_STATE_FAILED\x10\x04*r\n" +
+	"\x16OPERATION_STATE_FAILED\x10\x04*\x92\x01\n" +
 	"\x0fTableGroupState\x12!\n" +
 	"\x1dTABLE_GROUP_STATE_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aTABLE_GROUP_STATE_CREATING\x10\x01\x12\x1c\n" +
-	"\x18TABLE_GROUP_STATE_ACTIVE\x10\x02B=Z;github.com/multigres/multigres/go/pb/multipoolermanagerdatab\x06proto3"
+	"\x18TABLE_GROUP_STATE_ACTIVE\x10\x02\x12\x1e\n" +
+	"\x1aTABLE_GROUP_STATE_DROPPING\x10\x03B=Z;github.com/multigres/multigres/go/pb/multipoolermanagerdatab\x06proto3"
 
 var (
 	file_multipoolermanagerdata_proto_rawDescOnce sync.Once

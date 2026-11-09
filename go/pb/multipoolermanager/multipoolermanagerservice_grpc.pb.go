@@ -124,17 +124,18 @@ type MultipoolerManagerClient interface {
 	GetOperation(ctx context.Context, in *multipoolermanagerdata.GetOperationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetOperationResponse, error)
 	// DropTableGroup records the intent to drop a tablegroup. An active
 	// tablegroup moves to dropping with a drop_tablegroup operation, in one
-	// catalog transaction; ListTableGroups then omits it so the provisioner
-	// tears it down, and the completion loop deletes the catalog rows once no
-	// pooler record carrying its id remains in topology. A tablegroup still
+	// catalog transaction; ListTableGroups then reports it DROPPING so the
+	// provisioner tears it down and releases its provision claim, and the
+	// completion loop deletes the catalog rows once no pooler record carrying
+	// its id and no claim for it remain in topology. A tablegroup still
 	// being created has that creation cancelled instead. The default tablegroup
 	// and tablegroups that contain tables cannot be dropped. Idempotent: a
 	// repeat while dropping returns the existing operation.
 	DropTableGroup(ctx context.Context, in *multipoolermanagerdata.DropTableGroupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DropTableGroupResponse, error)
-	// ListTableGroups returns the tablegroups the provisioner should have
-	// provisioned: every non-default tablegroup that is creating or active, with
-	// its shard layout. Tablegroups being dropped are omitted, which is how the
-	// provisioner learns to remove them.
+	// ListTableGroups returns every non-default tablegroup with its shard
+	// layout: creating and active ones for the provisioner to provision,
+	// dropping ones for it to remove. See ListTableGroupsResponse for why a
+	// missing tablegroup is never a removal signal.
 	ListTableGroups(ctx context.Context, in *multipoolermanagerdata.ListTableGroupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ListTableGroupsResponse, error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
@@ -414,17 +415,18 @@ type MultipoolerManagerServer interface {
 	GetOperation(context.Context, *multipoolermanagerdata.GetOperationRequest) (*multipoolermanagerdata.GetOperationResponse, error)
 	// DropTableGroup records the intent to drop a tablegroup. An active
 	// tablegroup moves to dropping with a drop_tablegroup operation, in one
-	// catalog transaction; ListTableGroups then omits it so the provisioner
-	// tears it down, and the completion loop deletes the catalog rows once no
-	// pooler record carrying its id remains in topology. A tablegroup still
+	// catalog transaction; ListTableGroups then reports it DROPPING so the
+	// provisioner tears it down and releases its provision claim, and the
+	// completion loop deletes the catalog rows once no pooler record carrying
+	// its id and no claim for it remain in topology. A tablegroup still
 	// being created has that creation cancelled instead. The default tablegroup
 	// and tablegroups that contain tables cannot be dropped. Idempotent: a
 	// repeat while dropping returns the existing operation.
 	DropTableGroup(context.Context, *multipoolermanagerdata.DropTableGroupRequest) (*multipoolermanagerdata.DropTableGroupResponse, error)
-	// ListTableGroups returns the tablegroups the provisioner should have
-	// provisioned: every non-default tablegroup that is creating or active, with
-	// its shard layout. Tablegroups being dropped are omitted, which is how the
-	// provisioner learns to remove them.
+	// ListTableGroups returns every non-default tablegroup with its shard
+	// layout: creating and active ones for the provisioner to provision,
+	// dropping ones for it to remove. See ListTableGroupsResponse for why a
+	// missing tablegroup is never a removal signal.
 	ListTableGroups(context.Context, *multipoolermanagerdata.ListTableGroupsRequest) (*multipoolermanagerdata.ListTableGroupsResponse, error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.

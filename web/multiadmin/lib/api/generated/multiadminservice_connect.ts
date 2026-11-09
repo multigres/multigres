@@ -62,12 +62,12 @@ export const MultiadminService = {
       kind: MethodKind.Unary,
     },
     /**
-     * ListDesiredTableGroups returns the tablegroups a provisioner should have
-     * provisioned for a database: every non-default tablegroup recorded in the
-     * sharding catalog that is creating or active, with its shard layout. A
-     * tablegroup being dropped is omitted, which is how a provisioner learns to
-     * remove it. The list is read from the catalog primary, so it reflects
-     * committed CREATE TABLEGROUP intent, not what is currently provisioned.
+     * ListDesiredTableGroups returns a database's tablegroups for a provisioner:
+     * every non-default tablegroup recorded in the sharding catalog, with its
+     * shard layout. It provisions the CREATING and ACTIVE ones and removes the
+     * DROPPING ones; a tablegroup missing from the list is never removed (see
+     * ListTableGroupsResponse). The list is read from the catalog primary, so it
+     * reflects committed intent, not what is currently provisioned.
      *
      * Errors and recovery:
      * InvalidArgument (3) means the database name is missing. NotFound (5) means topology has no

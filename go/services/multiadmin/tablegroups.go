@@ -16,6 +16,7 @@ package multiadmin
 
 import (
 	"context"
+	"errors"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -39,7 +40,14 @@ func (s *MultiadminServer) ListDesiredTableGroups(ctx context.Context, req *mult
 	// the one with the older rule is a stale leader whose catalog may lag.
 	primary, err := s.findPooler(ctx, req.GetDatabase(), constants.DefaultTableGroup, constants.DefaultShard, true, true)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "no serving primary for the catalog shard of database %s: %v", req.GetDatabase(), err)
+		// NotFound only when topology was read and has no serving primary;
+		// a topology that could not be read is Unavailable, like every other
+		// failure, so a provisioner never mistakes an outage for "nothing
+		// there".
+		if errors.As(err, &poolerNotFoundError{}) {
+			return nil, status.Errorf(codes.NotFound, "no serving primary for the catalog shard of database %s: %v", req.GetDatabase(), err)
+		}
+		return nil, status.Errorf(codes.Unavailable, "cannot find the catalog primary of database %s: %v", req.GetDatabase(), err)
 	}
 	resp, err := s.rpcClient.ListTableGroups(ctx, primary, &multipoolermanagerdatapb.ListTableGroupsRequest{})
 	if err != nil {

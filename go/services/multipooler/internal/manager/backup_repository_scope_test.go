@@ -15,6 +15,7 @@
 package manager
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -27,7 +28,7 @@ import (
 
 func TestCheckBackupRepositoryScope(t *testing.T) {
 	newManager := func(poolerDir string) *MultipoolerManager {
-		return &MultipoolerManager{record: newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir})}
+		return &MultipoolerManager{logger: slog.New(slog.DiscardHandler), record: newRecordFromProto(&clustermetadatapb.Multipooler{PoolerDir: poolerDir})}
 	}
 	scopeFile := func(poolerDir string) string { return filepath.Join(poolerDir, "pgbackrest", backupScopeFile) }
 
@@ -64,6 +65,16 @@ func TestCheckBackupRepositoryScope(t *testing.T) {
 		err := pm.checkBackupRepositoryScope("tablegroups/default/1/0-inf")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "base path")
+	})
+	t.Run("an existing directory without a scope is adopted", func(t *testing.T) {
+		dir := t.TempDir()
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "pgbackrest"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "pgbackrest", "pgbackrest.conf"), []byte("[global]\n"), 0o600))
+		pm := newManager(dir)
+		require.NoError(t, pm.checkBackupRepositoryScope("tablegroups/commerce/7/0-80"))
+		data, err := os.ReadFile(scopeFile(dir))
+		require.NoError(t, err)
+		assert.Equal(t, "tablegroups/commerce/7/0-80", string(data))
 	})
 	t.Run("removing the file accepts the new scope", func(t *testing.T) {
 		dir := t.TempDir()

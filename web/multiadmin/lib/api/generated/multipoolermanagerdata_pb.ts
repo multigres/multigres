@@ -412,7 +412,9 @@ proto3.util.setEnumType(OperationState, "multipoolermanagerdata.OperationState",
 ]);
 
 /**
- * TableGroupState is the lifecycle state of a listed tablegroup.
+ * TableGroupState is the lifecycle state of a listed tablegroup. A
+ * provisioner neither provisions nor removes a tablegroup in a state it does
+ * not know, including UNSPECIFIED.
  *
  * @generated from enum multipoolermanagerdata.TableGroupState
  */
@@ -435,12 +437,24 @@ export enum TableGroupState {
    * @generated from enum value: TABLE_GROUP_STATE_ACTIVE = 2;
    */
   ACTIVE = 2,
+
+  /**
+   * DROPPING is a tablegroup being dropped, or whose creation failed: the
+   * provisioner removes everything it provisioned for the id, deletes those
+   * poolers' topology records, and releases its claim. The catalog then
+   * deletes the tablegroup, and the name is free for a new tablegroup with a
+   * new id.
+   *
+   * @generated from enum value: TABLE_GROUP_STATE_DROPPING = 3;
+   */
+  DROPPING = 3,
 }
 // Retrieve enum metadata with: proto3.getEnumType(TableGroupState)
 proto3.util.setEnumType(TableGroupState, "multipoolermanagerdata.TableGroupState", [
   { no: 0, name: "TABLE_GROUP_STATE_UNSPECIFIED" },
   { no: 1, name: "TABLE_GROUP_STATE_CREATING" },
   { no: 2, name: "TABLE_GROUP_STATE_ACTIVE" },
+  { no: 3, name: "TABLE_GROUP_STATE_DROPPING" },
 ]);
 
 /**
@@ -3136,7 +3150,8 @@ export class Operation extends Message<Operation> {
   /**
    * poolers_registered is, for a drop that is not done, how many pooler
    * records carrying the tablegroup's id are still registered in topology,
-   * read at call time. The drop completes when it reaches zero. Zero for a
+   * read at call time. The drop completes when it reaches zero and the
+   * provisioner has released its claim (TableGroupProvisionClaim). Zero for a
    * creation.
    *
    * @generated from field: int32 poolers_registered = 12;
@@ -3305,7 +3320,8 @@ export class DropTableGroupResponse extends Message<DropTableGroupResponse> {
 }
 
 /**
- * ListTableGroupsRequest lists the tablegroups the provisioner should have.
+ * ListTableGroupsRequest lists the tablegroups the provisioner should have
+ * and the ones it should remove.
  *
  * @generated from message multipoolermanagerdata.ListTableGroupsRequest
  */
@@ -3338,7 +3354,14 @@ export class ListTableGroupsRequest extends Message<ListTableGroupsRequest> {
 }
 
 /**
- * ListTableGroupsResponse lists tablegroups with their shard layouts.
+ * ListTableGroupsResponse lists every non-default tablegroup in the catalog
+ * with its shard layout. A provisioner provisions the CREATING and ACTIVE ones
+ * and removes the DROPPING ones. A tablegroup missing from the list is never a
+ * reason to remove anything: a provisioner claims a tablegroup's id in
+ * topology (TableGroupProvisionClaim) before it provisions anything and
+ * releases the claim after it has removed everything, and the catalog deletes
+ * the tablegroup only once no claim and no pooler record for the id remain, so
+ * a provisioner that has started on an id always sees it DROPPING first.
  *
  * @generated from message multipoolermanagerdata.ListTableGroupsResponse
  */
@@ -3384,7 +3407,9 @@ export class ListTableGroupsResponse extends Message<ListTableGroupsResponse> {
 export class TableGroup extends Message<TableGroup> {
   /**
    * tablegroup_id is the catalog identity. Provisioners pass it to the
-   * tablegroup's poolers (see Multipooler.tablegroup_id).
+   * tablegroup's poolers (see Multipooler.tablegroup_id), claim it before
+   * provisioning, and key everything they provision by it, so acting on one
+   * incarnation of a name never touches another.
    *
    * @generated from field: int64 tablegroup_id = 1;
    */
@@ -3396,8 +3421,6 @@ export class TableGroup extends Message<TableGroup> {
   name = "";
 
   /**
-   * state is CREATING or ACTIVE. Tablegroups being dropped are not listed.
-   *
    * @generated from field: multipoolermanagerdata.TableGroupState state = 3;
    */
   state = TableGroupState.UNSPECIFIED;

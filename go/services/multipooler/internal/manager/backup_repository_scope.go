@@ -40,6 +40,13 @@ func (pm *MultipoolerManager) checkBackupRepositoryScope(scope string) error {
 	path := filepath.Join(dir, backupScopeFile)
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
+		// A directory that already has a pgbackrest.conf was in use before the
+		// scope was recorded. Its repository is adopted as is; say so, since
+		// this is the one start the check cannot vouch for.
+		if _, statErr := os.Stat(filepath.Join(dir, "pgbackrest.conf")); statErr == nil {
+			pm.logger.Warn("recording the backup repository scope for an existing pooler directory",
+				"scope", describeRepositoryScope(scope))
+		}
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("recording the backup repository scope: %w", err)
 		}
