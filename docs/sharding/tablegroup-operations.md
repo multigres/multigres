@@ -42,7 +42,11 @@ It serves four RPCs on the pooler manager service:
 - `ListTableGroups()` returns every non-default tablegroup that is `creating`
   or `active`, with its shard layout and catalog id.
 
-All four need the primary. A replica's catalog can lag: `GetOperation` would
+All four need the elected primary of the catalog shard: postgres out of
+recovery and the pooler the active consensus leader, which is its routing
+role `PRIMARY`. Out of recovery is not enough on its own: a standby promoted
+before its rule is committed and a former primary not yet demoted are both out
+of recovery, and either may lag the real primary, so `GetOperation` would
 miss a write the caller just made, and a `ListTableGroups` that omits a
 tablegroup it has not replayed yet would tell the provisioner to remove it.
 

@@ -147,6 +147,26 @@ func (pm *MultipoolerManager) checkCatalogShard() error {
 	return nil
 }
 
+// checkCatalogPrimary rejects callers unless this pooler is the elected
+// primary of the catalog shard: postgres is out of recovery
+// (checkPrimaryGuardrails, read live) and the routing role is PRIMARY, which
+// also needs this pooler to be the active consensus leader. Out of recovery
+// alone is not enough: a promoted standby is out of recovery before its rule
+// is committed, and a former primary stays out of recovery until it is
+// demoted. A former primary that has not yet learned of the newer rule still
+// passes, so a caller must never read an authoritative absence from an answer.
+func (pm *MultipoolerManager) checkCatalogPrimary(ctx context.Context) error {
+	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+		return err
+	}
+	if role := pm.stateManager.RoutingRole(); role != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"operation not allowed: this pooler is not the elected primary of the catalog shard (routing role %s, service_id: %s)",
+			role, pm.serviceID.String())
+	}
+	return nil
+}
+
 // catalogQueryService returns the admin query service, or an error when the
 // manager is not open yet.
 func (pm *MultipoolerManager) catalogQueryService() (executor.InternalQueryService, error) {
@@ -166,7 +186,7 @@ func (pm *MultipoolerManager) CreateTableGroup(ctx context.Context, req *multipo
 	if err := pm.checkCatalogShard(); err != nil {
 		return nil, err
 	}
-	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+	if err := pm.checkCatalogPrimary(ctx); err != nil {
 		return nil, err
 	}
 	if err := validateTableGroupName(req.GetName()); err != nil {
@@ -386,7 +406,7 @@ func (pm *MultipoolerManager) GetOperation(ctx context.Context, operationID stri
 	// Bind the canonical form: uuid.Parse also accepts forms such as
 	// urn:uuid:... that PostgreSQL's uuid input rejects.
 	operationID = parsed.String()
-	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+	if err := pm.checkCatalogPrimary(ctx); err != nil {
 		return nil, err
 	}
 	qs, err := pm.catalogQueryService()
@@ -452,7 +472,7 @@ func (pm *MultipoolerManager) ListTableGroups(ctx context.Context) ([]*multipool
 	if err := pm.checkCatalogShard(); err != nil {
 		return nil, err
 	}
-	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+	if err := pm.checkCatalogPrimary(ctx); err != nil {
 		return nil, err
 	}
 	qs, err := pm.catalogQueryService()

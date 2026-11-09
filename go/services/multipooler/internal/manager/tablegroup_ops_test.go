@@ -32,6 +32,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 )
 
 const (
@@ -51,21 +52,27 @@ type tableGroupTestEnv struct {
 }
 
 // newTableGroupTestEnv builds a ready manager serving the given shard of the
-// given tablegroup in testdb.
+// given tablegroup in testdb, as its elected primary: the state manager sees
+// postgres out of recovery and this pooler as the active consensus leader.
 func newTableGroupTestEnv(t *testing.T, tableGroup, shard string) *tableGroupTestEnv {
 	t.Helper()
 	ctx := t.Context()
 	env := &tableGroupTestEnv{qs: mock.NewQueryService(), ts: memorytopo.NewServer(ctx, "cell1", "cell2")}
+	logger := slog.New(slog.DiscardHandler)
+	record := newRecordFromProto(&clustermetadatapb.Multipooler{
+		ShardRef: &clustermetadatapb.ShardRef{Database: testTableGroupDB, TableGroup: tableGroup, Shard: shard},
+	})
 	env.pm = &MultipoolerManager{
-		logger:     slog.New(slog.DiscardHandler),
-		qsc:        &mockPoolerController{queryService: env.qs},
-		topoClient: env.ts,
-		config:     &Config{},
-		state:      ManagerStateReady,
-		record: newRecordFromProto(&clustermetadatapb.Multipooler{
-			ShardRef: &clustermetadatapb.ShardRef{Database: testTableGroupDB, TableGroup: tableGroup, Shard: shard},
-		}),
+		logger:       logger,
+		serviceID:    testPoolerID,
+		qsc:          &mockPoolerController{queryService: env.qs},
+		topoClient:   env.ts,
+		config:       &Config{},
+		state:        ManagerStateReady,
+		record:       record,
+		stateManager: NewStateManager(logger, record, selfLeaderConsensusStatus),
 	}
+	env.pm.stateManager.pgMode = pgmode.Primary
 	return env
 }
 
@@ -327,6 +334,40 @@ func TestCreateTableGroup_Rejects(t *testing.T) {
 		_, err := env.pm.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "commerce"})
 		require.Error(t, err)
 	})
+}
+
+// TestTableGroupOps_RequireTheElectedPrimary covers a pooler whose postgres is
+// out of recovery but which is not the active consensus leader: a standby
+// promoted before its rule is committed, or a former primary not yet demoted.
+// Every catalog RPC refuses it, ListTableGroups included.
+func TestTableGroupOps_RequireTheElectedPrimary(t *testing.T) {
+	calls := map[string]func(pm *MultipoolerManager) error{
+		"CreateTableGroup": func(pm *MultipoolerManager) error {
+			_, err := pm.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "commerce"})
+			return err
+		},
+		"GetOperation": func(pm *MultipoolerManager) error {
+			_, err := pm.GetOperation(t.Context(), testOpID)
+			return err
+		},
+		"ListTableGroups": func(pm *MultipoolerManager) error {
+			_, err := pm.ListTableGroups(t.Context())
+			return err
+		},
+	}
+	for name, call := range calls {
+		t.Run(name, func(t *testing.T) {
+			env := newCatalogTestEnv(t)
+			env.pm.stateManager = NewStateManager(env.pm.logger, env.pm.record, nilConsensusStatus)
+			env.pm.stateManager.pgMode = pgmode.Primary
+			env.expectPrimary()
+			err := call(env.pm)
+			require.Error(t, err)
+			assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+			assert.Contains(t, err.Error(), "not the elected primary of the catalog shard")
+			assert.Equal(t, []string{"SELECT pg_is_in_recovery()"}, env.queries, "nothing reads the catalog")
+		})
+	}
 }
 
 func TestGetOperation(t *testing.T) {
