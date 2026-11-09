@@ -39,29 +39,72 @@ It serves four RPCs on the pooler manager service:
 - `GetOperation(id)` returns the operation's state. Progress is read from
   topology at call time: `shards_serving` for a creation,
   `poolers_registered` for a drop.
-- `ListTableGroups()` returns every non-default tablegroup that is `creating`
-  or `active`, with its shard layout and catalog id.
+- `ListTableGroups()` returns every non-default tablegroup, in any state, with
+  its shard layout and catalog id: `creating` and `active` ones for the
+  provisioner to provision, `dropping` ones for it to remove.
 
-`GetOperation` and `ListTableGroups` can be answered by any pooler of the
-catalog shard, since replicas hold the replicated catalog. `CreateTableGroup`
-and `DropTableGroup` need the primary.
+All four need the elected primary of the catalog shard: postgres out of
+recovery and the pooler the active consensus leader, which is its routing
+role `PRIMARY`. Out of recovery is not enough on its own: a standby promoted
+before its rule is committed and a former primary not yet demoted are both out
+of recovery, and either may lag the real primary, so `GetOperation` would
+miss a write the caller just made and `ListTableGroups` would describe an
+older desired state.
 
 **Multiadmin** serves `ListDesiredTableGroups(database)` for provisioners. It
-finds the catalog shard's primary in topology and forwards to its
+finds the catalog shard's serving primary in topology, taking the highest rule
+if two poolers claim the role during a failover, and forwards to its
 `ListTableGroups`. Multiadmin owns no state and no workflow.
 
-**The provisioner** (the Kubernetes operator) reads desired tablegroups
-through multiadmin and, for each, provisions every shard: its poolers, with
-`--tablegroup-id` set to the catalog id it read, and a multiorch watching the
-shard. For a tablegroup that leaves the list, or whose catalog id changed, it
-removes what it provisioned, then deletes those poolers' records from
-topology and each shard's initialization claim, so a later tablegroup of the
-same name bootstraps afresh. It acts only on a successful read: a failed read
-is never an empty list.
+**The provisioner** (the Kubernetes operator) reads tablegroups through
+multiadmin. For a `creating` or `active` tablegroup it has nothing for yet, it
+first writes a **provision claim** for the tablegroup's catalog id in the
+global topology (`TableGroupProvisionClaim`, at
+`databases/<database>/TableGroupClaims/<id>`,
+`topoclient.ClaimTableGroupProvisioning`), then provisions every shard: its
+poolers, with `--tablegroup-id` set to the id, and a multiorch watching the
+shard. It keys everything it provisions by the id, so acting on one
+incarnation of a name never touches another.
+
+For a `dropping` tablegroup it removes what it provisioned, deletes those
+poolers' records from topology and each shard's initialization claim, so a
+later tablegroup of the same name bootstraps afresh, and **last** releases its
+claim (`ReleaseTableGroupProvisioning`). The claim is the provisioner's word
+that it still holds something for the id, and the catalog does not delete the
+tablegroup while it stands (below).
+
+A tablegroup missing from a list is never a reason to remove anything, and
+neither is a failed read, which is never an empty list. A list from a node
+whose catalog lags can therefore delay a change, but never removes what should
+exist. The rule is that the one that owns the processes writes the record
+first and deletes it last.
 
 **Poolers and multiorch** are unchanged. A new pooler registers in topology
 with its database, tablegroup, shard, and tablegroup id. Multiorch bootstraps
 each shard and appoints a primary.
+
+**Backups.** Every shard has its own pgBackRest repository under the
+database's backup location, since all shards use the same stanza name and
+cannot share one. The catalog shard's repository is the location's base path,
+where it has always been. Any other shard's is
+`tablegroups/<tablegroup>/<tablegroup id>/<shard>` below it:
+`<path>/tablegroups/commerce/7/0-80` on a filesystem,
+`/<prefix>/tablegroups/commerce/7/0-80/multigres` on S3. The fixed
+`tablegroups` directory keeps any tablegroup name out of the catalog shard's
+own repository layout. The catalog id keeps a tablegroup recreated under a
+dropped one's name from reusing its repository, whose backups are kept. A
+provisioner needs no per-shard backup configuration, only write access to
+everything under the location.
+
+Because the path includes the catalog id, the id of a running shard must
+never change. A shard's repository is created once, at its first backup, so
+a pooler pointed at another path finds no stanza there: archiving fails and
+WAL builds up, and a new replica has nothing to restore. Each pooler therefore
+records its repository's path below the location in
+`<pooler-dir>/pgbackrest/repository_scope` on its first start, and refuses to
+serve when a later start, with a different `--table-group`, `--tablegroup-id`
+or `--shard`, would use another. Removing that file accepts the new
+repository.
 
 ## Validation
 
@@ -78,12 +121,12 @@ each shard and appoints a primary.
 
 Idempotency on the name:
 
-| Existing row | `CreateTableGroup`                                                       | `DropTableGroup`                             |
-| ------------ | ------------------------------------------------------------------------ | -------------------------------------------- |
-| none         | new tablegroup, shards, and operation                                    | `NOT_FOUND`, or `not_found` with `if_exists` |
-| `creating`   | the existing operation if the layout matches, else `FAILED_PRECONDITION` | cancels the creation and returns it          |
-| `active`     | `ALREADY_EXISTS`, or `already_exists` with `if_not_exists`               | new drop operation                           |
-| `dropping`   | `FAILED_PRECONDITION`                                                    | the existing drop operation                  |
+| Existing row | `CreateTableGroup`                                                                               | `DropTableGroup`                             |
+| ------------ | ------------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| none         | new tablegroup, shards, and operation                                                            | `NOT_FOUND`, or `not_found` with `if_exists` |
+| `creating`   | the existing operation if the layout matches or with `if_not_exists`, else `FAILED_PRECONDITION` | cancels the creation and returns it          |
+| `active`     | `ALREADY_EXISTS`, or `already_exists` with `if_not_exists`                                       | new drop operation                           |
+| `dropping`   | `FAILED_PRECONDITION`                                                                            | the existing drop operation                  |
 
 `DropTableGroup` also refuses the default tablegroup, and any tablegroup that
 contains tables, with `FAILED_PRECONDITION`.
@@ -103,9 +146,15 @@ pooler registered in topology that:
   older pooler.
 
 A **drop** is complete when no pooler record carrying the tablegroup's
-catalog id remains in topology. A pooler that stops gracefully leaves its
-record behind marked shut down, and one that crashes leaves it as it was, so
-the provisioner deleting the records is what completes a drop.
+catalog id remains in topology **and** no provision claim for the id is held.
+A pooler that stops gracefully leaves its record behind marked shut down, and
+one that crashes leaves it as it was, so the provisioner deleting the records
+is part of what completes a drop. The claim covers the case the records
+cannot: a provisioner that has created resources whose poolers have not
+registered yet. Without it, a drop issued in that window would complete at
+once, the tablegroup would vanish from the list before the provisioner ever
+saw it `dropping`, and the resources would be orphaned. A tablegroup that was
+never claimed completes as soon as its drop is recorded.
 
 The tablegroup id is what keeps poolers of one incarnation of a name from
 counting toward another, in both directions.
@@ -128,12 +177,12 @@ postgres is read-only, which is the writer fence.
 
 ## Failure and cancellation
 
-A creation fails when `cancel_requested` is set on its row. Failing deletes
-the tablegroup and shard rows and marks the operation `failed` with the
-reason. Deleting the rows is what frees the name for a retry and, because
-`ListTableGroups` then omits the tablegroup, what tells the provisioner to
-remove whatever it provisioned. The operation keeps its request, so it stays
-inspectable.
+A creation fails when `cancel_requested` is set on its row. Failing marks the
+operation `failed` with the reason and moves the tablegroup to `dropping`,
+which tells the provisioner to remove whatever it provisioned. The rows are
+deleted under the drop rule above, once no pooler record and no claim remain,
+and that is what frees the name for a retry. The operation keeps its request,
+so it stays inspectable.
 
 A drop never fails: its teardown cannot be undone, so it stays `dropping`
 until the provisioner finishes. Backups of the dropped shards are left in
@@ -153,5 +202,7 @@ What this looks like from each side:
 | Provisioner restarts                                         | It reconciles from the list; nothing in Multigres changes                                                                    |
 | Multiadmin or the catalog unreachable from the provisioner   | The provisioner must add nothing and remove nothing until a read succeeds                                                    |
 | Teardown never deletes the pooler records                    | The drop stays `dropping`, with `poolers_registered` showing what is left                                                    |
+| The provisioner never releases its claim                     | The drop stays `dropping` until the claim is released or an operator removes it, like a leaked Kubernetes finalizer          |
+| The list comes from a former primary that lags               | A change is delayed; nothing is removed, since absence is not a signal                                                       |
 | Duplicate `CreateTableGroup` or `DropTableGroup`             | The second caller gets the same operation                                                                                    |
 | Drop then recreate with the same name                        | The new id excludes the old poolers                                                                                          |

@@ -77,6 +77,7 @@ type FakeClient struct {
 	ReconcileFollowersResponses         map[topoclient.ComponentID]*multipoolermanagerdatapb.ReconcileFollowersResponse
 	SetPostgresRestartsEnabledResponses map[topoclient.ComponentID]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse
 	ReloadConfigResponses               map[topoclient.ComponentID]*multipoolermanagerdatapb.ReloadConfigResponse
+	ListTableGroupsResponses            map[topoclient.ComponentID]*multipoolermanagerdatapb.ListTableGroupsResponse
 
 	// Errors to return - keyed by pooler ID
 	Errors map[topoclient.ComponentID]error
@@ -122,6 +123,7 @@ func NewFakeClient() *FakeClient {
 		ReconcileFollowersResponses:         make(map[topoclient.ComponentID]*multipoolermanagerdatapb.ReconcileFollowersResponse),
 		SetPostgresRestartsEnabledResponses: make(map[topoclient.ComponentID]*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse),
 		ReloadConfigResponses:               make(map[topoclient.ComponentID]*multipoolermanagerdatapb.ReloadConfigResponse),
+		ListTableGroupsResponses:            make(map[topoclient.ComponentID]*multipoolermanagerdatapb.ListTableGroupsResponse),
 		Errors:                              make(map[topoclient.ComponentID]error),
 		RecruitDelays:                       make(map[topoclient.ComponentID]time.Duration),
 		RecruitGates:                        make(map[topoclient.ComponentID]chan struct{}),
@@ -632,4 +634,24 @@ func (f *FakeClient) Close() {
 func (f *FakeClient) CloseTablet(pooler *clustermetadatapb.Multipooler) {
 	poolerID := f.getPoolerID(pooler)
 	f.logCall("CloseTablet", poolerID)
+}
+
+//
+// Manager Service Methods - Tablegroup operations
+//
+
+func (f *FakeClient) ListTableGroups(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ListTableGroupsRequest) (*multipoolermanagerdatapb.ListTableGroupsResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("ListTableGroups", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.ListTableGroupsResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.ListTableGroupsResponse{}, nil
 }
