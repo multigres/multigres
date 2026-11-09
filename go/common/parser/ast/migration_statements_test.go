@@ -101,6 +101,35 @@ func TestRedactIfCredentialBearing(t *testing.T) {
 	assert.Empty(t, redacted)
 }
 
+// TestLogSafeQuery covers LogSafeQuery's two branches: a credential-bearing
+// statement is redacted, and every other statement is returned unchanged.
+func TestLogSafeQuery(t *testing.T) {
+	cc := NewCreateConnectionStmt("src", nil, false)
+	assert.Equal(t, "CREATE CONNECTION src <redacted>", LogSafeQuery("CREATE CONNECTION src OPTIONS (password 'secret')", cc))
+
+	dm := NewDropMigrationStmt(NewNodeList(NewString("m")), false, &MigrationDropBehavior{})
+	assert.Equal(t, "DROP MIGRATION m", LogSafeQuery("DROP MIGRATION m", dm))
+
+	// A nil stmt (e.g. an empty/comment-only prepared statement) is not
+	// redacted — it isn't a *CreateConnectionStmt, so it falls to
+	// RedactIfCredentialBearing's default case like any other statement.
+	assert.Equal(t, "", LogSafeQuery("", nil))
+}
+
+// TestLogSafeQueryMulti covers the batch form: if any statement in the batch
+// needs redaction, the whole raw query string is redacted, since a single
+// query string may carry several semicolon-separated statements and the
+// credential could be anywhere in it.
+func TestLogSafeQueryMulti(t *testing.T) {
+	cc := NewCreateConnectionStmt("src", nil, false)
+	dm := NewDropMigrationStmt(NewNodeList(NewString("m")), false, &MigrationDropBehavior{})
+
+	assert.Equal(t, "CREATE CONNECTION src <redacted>",
+		LogSafeQueryMulti("DROP MIGRATION m; CREATE CONNECTION src OPTIONS (password 'secret')", []Stmt{dm, cc}))
+	assert.Equal(t, "DROP MIGRATION m",
+		LogSafeQueryMulti("DROP MIGRATION m", []Stmt{dm}))
+}
+
 // TestDropMigrationStmtSqlString covers the DROP MIGRATION deparse path across
 // its IfExists/Force/When/Options combinations; the parser grammar tests only
 // assert the parsed fields, never SqlString's rendered output.
