@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -255,6 +256,16 @@ func (pc *poolerConnection) PoolerInfo() *topoclient.MultipoolerInfo {
 // notifications for this connection.
 func (pc *poolerConnection) Pooler() queryservice.Pooler {
 	return pc.pooler
+}
+
+// ManagerClient returns a pooler manager client over this connection's gRPC
+// channel, which serves the manager service alongside the query service. The
+// local pooler is called in process, with no channel, and has none.
+func (pc *poolerConnection) ManagerClient() (multipoolermanagerpb.MultipoolerManagerClient, error) {
+	if pc.conn == nil {
+		return nil, fmt.Errorf("pooler %s has no gRPC connection for its manager service", pc.ID())
+	}
+	return multipoolermanagerpb.NewMultipoolerManagerClient(pc.conn), nil
 }
 
 // QueryService returns the query execution service for this connection.

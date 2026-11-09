@@ -311,6 +311,9 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 	queryStart := time.Now()
 	h.logger.DebugContext(ctx, "handling query", "query", queryStr, "user", conn.User(), "database", conn.Database())
 	st := h.getConnectionState(conn)
+	// A simple query ends any extended-protocol pipeline before it: it commits
+	// the implicit transaction it ran in, as Sync would.
+	defer st.SetPipelining(false)
 	ctx = h.callerContext(ctx, conn, st)
 
 	parseStart := time.Now()
@@ -660,13 +663,13 @@ func (h *MultigatewayHandler) HandleExecute(ctx context.Context, conn *server.Co
 
 	execStart := time.Now()
 	result, err := h.executor.PortalStreamExecute(ctx, conn, state, portalInfo, maxRows, includeDescribe, countingCallback)
-	if err != nil {
-		// A gateway policy rejection never reached the backend, so with
-		// keep-transaction-on-gateway-rejection enabled we leave the session
-		// in-block instead of aborting.
-		if conn.TxnStatus() == protocol.TxnStatusInBlock && h.abortsTransactionOnError(err) {
-			conn.SetTxnStatus(protocol.TxnStatusFailed)
-		}
+	// A gateway policy rejection never reached the backend, so with
+	// keep-transaction-on-gateway-rejection enabled we leave the session
+	// in-block instead of aborting.
+	if err == nil {
+		notePipelinedExecute(state, astStmt)
+	} else if conn.TxnStatus() == protocol.TxnStatusInBlock && h.abortsTransactionOnError(err) {
+		conn.SetTxnStatus(protocol.TxnStatusFailed)
 	}
 
 	execDuration := time.Since(execStart)
@@ -798,7 +801,30 @@ func (h *MultigatewayHandler) HandleClose(ctx context.Context, conn *server.Conn
 // HandleSync processes a Sync message ('S').
 func (h *MultigatewayHandler) HandleSync(ctx context.Context, conn *server.Conn) error {
 	h.logger.DebugContext(ctx, "sync")
+	h.getConnectionState(conn).SetPipelining(false)
 	return nil
+}
+
+// notePipelinedExecute records a completed Execute in the connection's
+// pipeline, as PostgreSQL sets XACT_FLAGS_PIPELINING: the statements after it,
+// until Sync, run in the same implicit transaction. A statement PostgreSQL
+// commits at once (commitsAtExecute: a transaction statement, DISCARD ALL,
+// VACUUM, CREATE DATABASE and the rest) ends that transaction instead, and the
+// next statement starts clean. Tablegroup DDL is in that set too, but the
+// gateway runs it itself: on success the flag was clear already, and on a
+// refusal PostgreSQL leaves its flags alone, so the flag is left as it was.
+//
+// PostgreSQL sets the flag only when the portal completed, not when an Execute
+// with a row limit left it suspended. The gateway does not distinguish the two
+// here and counts a suspended Execute as well, which only ever refuses a
+// tablegroup DDL that PostgreSQL would have allowed, never the reverse.
+func notePipelinedExecute(state *MultigatewayConnectionState, stmt ast.Stmt) {
+	switch {
+	case stmt == nil:
+	case ast.IsTableGroupDDL(stmt):
+	default:
+		state.SetPipelining(!commitsAtExecute(stmt))
+	}
 }
 
 // ConnectionClosed is called when a client connection is closed.

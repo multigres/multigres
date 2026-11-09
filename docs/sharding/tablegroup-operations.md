@@ -21,6 +21,42 @@ Desired state flows one way: catalog, then API, then provisioner, then pods.
 The provisioner reports nothing back. Multigres detects completion from its
 own topology.
 
+## The statements
+
+`CREATE TABLEGROUP` and `DROP TABLEGROUP` run in the gateway, which never
+sends them to postgres. They are off unless the gateway runs with
+`--enable-tablegroup-ddl`: only a cluster whose provisioner acts on the
+catalog can complete them. Without the flag the gateway rejects them with
+`feature_not_supported`. Minigres has no such flag: a database served by one
+pooler cannot add shards.
+
+Each statement:
+
+1. Checks the caller's own session on the catalog shard and refuses, where
+   and in the order PostgreSQL refuses `CREATE DATABASE`: a read-only session
+   (`transaction_read_only`, always on for a session on the replica-reads
+   port, whose queries run on a standby), a transaction block, and a
+   statement after another in the same extended-protocol pipeline, unless
+   that one committed on its own (a transaction statement, `DISCARD ALL`,
+   `VACUUM`, `CREATE DATABASE` and the other statements PostgreSQL commits as
+   soon as they complete, which start the next statement clean). Then the
+   caller's current role must be a superuser.
+2. Records the intent through the catalog primary (below) and sends a
+   `NOTICE` naming the operation id. If the call fails without an answer (a
+   timeout, an unreachable or failing-over primary, or the statement
+   cancelled), the intent may have been recorded anyway, and the error says
+   so: running the statement again with `IF NOT EXISTS` or `IF EXISTS` joins
+   the operation.
+3. Waits, polling the operation every second, until it is `DONE` or
+   `FAILED`.
+
+Cancelling the statement, a statement timeout, or closing the connection only
+stops the wait. The operation is durable in the catalog and continues; the
+notice says so and names where to follow it. `statement_timeout` applies as
+it does to `CREATE DATABASE`, and the gateway's default is 30 seconds, so a
+session that wants the statement to wait out provisioning sets
+`statement_timeout = 0` first.
+
 ## Components
 
 **Catalog primary pooler.** The multipooler that is primary for the catalog
