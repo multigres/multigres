@@ -218,42 +218,88 @@ func (t *TableGroupDDL) runCreate(ctx context.Context, database string, callback
 }
 
 func (t *TableGroupDDL) runDrop(ctx context.Context, database string, callback func(context.Context, *sqltypes.Result) error) error {
-	// A drop issued while the tablegroup is still being created cancels the
-	// creation. If the creation completes before the cancel takes effect, the
-	// tablegroup is now active and the drop is issued again; that can happen
-	// at most once, since an active tablegroup is never creating again.
-	for range 2 {
-		resp, err := t.admin.DropTableGroup(ctx, database, &multipoolermanagerdatapb.DropTableGroupRequest{Name: t.name, IfExists: t.ifExists})
+	resp, err := t.admin.DropTableGroup(ctx, database, &multipoolermanagerdatapb.DropTableGroupRequest{Name: t.name, IfExists: t.ifExists})
+	if err != nil {
+		return t.recordError(ctx, err, callback)
+	}
+	if resp.GetNotFound() {
+		return callback(ctx, &sqltypes.Result{
+			Notices:    []*mterrors.PgDiagnostic{doesNotExistNotice(t.name)},
+			CommandTag: t.statementName(),
+		})
+	}
+	if err := callback(ctx, &sqltypes.Result{Notices: []*mterrors.PgDiagnostic{droppingNotice(t.name, resp.GetOperationId(), resp.GetCancelledCreation())}}); err != nil {
+		return err
+	}
+	op, err := t.wait(ctx, database, resp.GetOperationId())
+	if err != nil {
+		return err
+	}
+	if resp.GetCancelledCreation() {
+		// The drop cancelled a creation still in flight; the second drop is
+		// what makes success mean the name is free. It is pinned to the
+		// incarnation the first one acted on, so a tablegroup another session
+		// created under the name in between reads as not found rather than
+		// being dropped. A cancelled creation ends failed and leaves the
+		// tablegroup dropping, or already gone, and a drop of that cannot be
+		// refused, so a transient error there is retried: the first drop
+		// already took effect. A creation that completed first leaves the
+		// tablegroup active, and that drop is a plain one, refusable like any
+		// other.
+		again := &multipoolermanagerdatapb.DropTableGroupRequest{Name: t.name, TablegroupId: resp.GetTablegroupId()}
+		cancelled := op.GetState() == multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED
+		if cancelled {
+			// The rows may already be gone; that is the drop having happened.
+			again.IfExists = true
+			resp, err = t.dropAgain(ctx, database, again)
+		} else {
+			// The creation completed first and the tablegroup is active, so
+			// this is the user's drop of it, IF EXISTS as they wrote it.
+			again.IfExists = t.ifExists
+			resp, err = t.admin.DropTableGroup(ctx, database, again)
+		}
 		if err != nil {
 			return t.recordError(ctx, err, callback)
 		}
 		if resp.GetNotFound() {
+			if cancelled {
+				return callback(ctx, &sqltypes.Result{CommandTag: t.statementName()})
+			}
 			return callback(ctx, &sqltypes.Result{
 				Notices:    []*mterrors.PgDiagnostic{doesNotExistNotice(t.name)},
 				CommandTag: t.statementName(),
 			})
 		}
-		opID := resp.GetOperationId()
-		if err := callback(ctx, &sqltypes.Result{Notices: []*mterrors.PgDiagnostic{droppingNotice(t.name, opID, resp.GetCancelledCreation())}}); err != nil {
+		if resp.GetCancelledCreation() {
+			return changedStateError(t.name)
+		}
+		if err := callback(ctx, &sqltypes.Result{Notices: []*mterrors.PgDiagnostic{droppingNotice(t.name, resp.GetOperationId(), false)}}); err != nil {
 			return err
 		}
-		op, err := t.wait(ctx, database, opID)
-		if err != nil {
+		if op, err = t.wait(ctx, database, resp.GetOperationId()); err != nil {
 			return err
 		}
-		// A cancelled creation ends failed, which is the drop succeeding. One
-		// that ended done finished first; drop the now-active tablegroup.
-		if resp.GetCancelledCreation() && op.GetState() == multipoolermanagerdatapb.OperationState_OPERATION_STATE_DONE {
-			continue
-		}
-		// A drop never fails, but a failed one must not report success: its
-		// shards and their data would still be there.
-		if !resp.GetCancelledCreation() && op.GetState() == multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED {
-			return operationFailedError(fmt.Sprintf("tablegroup %q was not dropped", t.name), op)
-		}
-		return callback(ctx, &sqltypes.Result{CommandTag: t.statementName()})
 	}
-	return changedStateError(t.name)
+	// A drop never fails, but a failed one must not report success: its
+	// shards and their data would still be there.
+	if op.GetState() == multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED {
+		return operationFailedError(fmt.Sprintf("tablegroup %q was not dropped", t.name), op)
+	}
+	return callback(ctx, &sqltypes.Result{CommandTag: t.statementName()})
+}
+
+// dropAgain drops a tablegroup whose creation this statement cancelled,
+// retrying transient errors as wait does. See runDrop for why that is safe
+// here and not for a drop in general. The error is the admin's own, for
+// recordError.
+func (t *TableGroupDDL) dropAgain(ctx context.Context, database string, req *multipoolermanagerdatapb.DropTableGroupRequest) (*multipoolermanagerdatapb.DropTableGroupResponse, error) {
+	var resp *multipoolermanagerdatapb.DropTableGroupResponse
+	err := t.pollUntil(ctx, func() (bool, error) {
+		var err error
+		resp, err = t.admin.DropTableGroup(ctx, database, req)
+		return err == nil, err
+	})
+	return resp, err
 }
 
 // wait polls the operation until it is done or failed. Transient errors
@@ -261,26 +307,44 @@ func (t *TableGroupDDL) runDrop(ctx context.Context, database string, callback f
 // ctx ends; ctx ending returns its error, which the server reports as a
 // cancel or a statement timeout. Either way the operation itself continues.
 func (t *TableGroupDDL) wait(ctx context.Context, database, opID string) (*multipoolermanagerdatapb.Operation, error) {
+	var op *multipoolermanagerdatapb.Operation
+	err := t.pollUntil(ctx, func() (bool, error) {
+		var err error
+		if op, err = t.admin.GetOperation(ctx, database, opID); err != nil {
+			return false, err
+		}
+		if op == nil {
+			return false, missingOperationStateError(opID)
+		}
+		s := op.GetState()
+		return s == multipoolermanagerdatapb.OperationState_OPERATION_STATE_DONE || s == multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED, nil
+	})
+	if err != nil {
+		return nil, tableGroupAdminError(err)
+	}
+	return op, nil
+}
+
+// pollUntil calls fn every pollInterval until it reports done, ctx ends, or
+// it returns an error that is not transient (isTransientAdminError). The
+// error is fn's own, or ctx's when ctx ended.
+func (t *TableGroupDDL) pollUntil(ctx context.Context, fn func() (done bool, err error)) error {
 	ticker := time.NewTicker(t.pollInterval)
 	defer ticker.Stop()
 	for {
-		op, err := t.admin.GetOperation(ctx, database, opID)
+		done, err := fn()
 		switch {
+		case err == nil && done:
+			return nil
 		case err == nil:
-			if op == nil {
-				return nil, missingOperationStateError(opID)
-			}
-			if s := op.GetState(); s == multipoolermanagerdatapb.OperationState_OPERATION_STATE_DONE || s == multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED {
-				return op, nil
-			}
 		case ctx.Err() != nil:
-			return nil, ctx.Err()
+			return ctx.Err()
 		case !isTransientAdminError(err):
-			return nil, tableGroupAdminError(err)
+			return err
 		}
 		select {
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return ctx.Err()
 		case <-ticker.C:
 		}
 	}
@@ -337,8 +401,10 @@ func droppingNotice(name, opID string, cancelledCreation bool) *mterrors.PgDiagn
 	return operationNotice(msg, opID, false)
 }
 
-// changedStateError reports a drop whose both attempts cancelled a creation
-// that completed before the cancel took effect.
+// changedStateError reports a drop that cancelled a creation and cannot finish
+// the job: the second drop answered with a cancelled creation, which the
+// pooler never does (a cancelled creation ends dropping or gone, a completed
+// one active, and neither is creating again).
 func changedStateError(name string) *mterrors.PgDiagnostic {
 	return mterrors.NewPgError("ERROR", mterrors.PgSSObjectNotInPrerequisiteState,
 		fmt.Sprintf("tablegroup %q changed state while being dropped", name), "")

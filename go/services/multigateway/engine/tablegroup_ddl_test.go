@@ -47,7 +47,9 @@ type fakeTableGroupAdmin struct {
 	createRes *multipoolermanagerdatapb.CreateTableGroupResponse
 	createErr error
 	dropRes   []*multipoolermanagerdatapb.DropTableGroupResponse
+	dropReqs  []*multipoolermanagerdatapb.DropTableGroupRequest
 	dropErr   error
+	dropErrs  []error // per call, nil meaning success; dropErr applies to every call
 	dropCalls int
 	ops       []fakeOpAnswer
 	getCalls  int
@@ -67,12 +69,17 @@ func (f *fakeTableGroupAdmin) CreateTableGroup(_ context.Context, database strin
 	return f.createRes, f.createErr
 }
 
-func (f *fakeTableGroupAdmin) DropTableGroup(_ context.Context, database string, _ *multipoolermanagerdatapb.DropTableGroupRequest) (*multipoolermanagerdatapb.DropTableGroupResponse, error) {
+func (f *fakeTableGroupAdmin) DropTableGroup(_ context.Context, database string, req *multipoolermanagerdatapb.DropTableGroupRequest) (*multipoolermanagerdatapb.DropTableGroupResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.databases = append(f.databases, database)
+	f.dropReqs = append(f.dropReqs, req)
 	if f.dropErr != nil {
 		return nil, f.dropErr
+	}
+	if f.dropCalls < len(f.dropErrs) && f.dropErrs[f.dropCalls] != nil {
+		f.dropCalls++
+		return nil, f.dropErrs[f.dropCalls-1]
 	}
 	res := f.dropRes[min(f.dropCalls, len(f.dropRes)-1)]
 	f.dropCalls++
@@ -440,21 +447,123 @@ func TestTableGroupDDL_Drop(t *testing.T) {
 		assert.Equal(t, "DROP TABLEGROUP", results[0].CommandTag)
 		assert.Zero(t, admin.getCalls)
 	})
-	t.Run("a creation it cancels ending failed is success", func(t *testing.T) {
+	t.Run("a creation it cancels is dropped again once it has failed", func(t *testing.T) {
 		admin := &fakeTableGroupAdmin{
-			dropRes: []*multipoolermanagerdatapb.DropTableGroupResponse{{OperationId: testTableGroupOpID, CancelledCreation: true}},
-			ops:     []fakeOpAnswer{opIn(multipoolermanagerdatapb.OperationState_OPERATION_STATE_CREATING, ""), opIn(multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED, "cancelled")},
+			dropRes: []*multipoolermanagerdatapb.DropTableGroupResponse{
+				{OperationId: testTableGroupOpID, TablegroupId: 7, CancelledCreation: true},
+				{OperationId: testTableGroupOpID, TablegroupId: 7},
+			},
+			ops: []fakeOpAnswer{
+				opIn(multipoolermanagerdatapb.OperationState_OPERATION_STATE_CREATING, ""),
+				opIn(multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED, "cancelled"),
+				opIn(multipoolermanagerdatapb.OperationState_OPERATION_STATE_DONE, ""),
+			},
 		}
 		results, err := runTableGroupDDL(t, t.Context(), newTestDrop(admin, false), privilegeExec("t"))
 		require.NoError(t, err)
+		assert.Equal(t, 2, admin.dropCalls, "the second drop waits for the rows to go, so success means the name is free")
+		assert.True(t, admin.dropReqs[1].GetIfExists(), "the failed creation may already be gone")
+		assert.EqualValues(t, 7, admin.dropReqs[1].GetTablegroupId(), "pinned to the incarnation the first drop acted on")
+		require.Len(t, results, 3, "two announcing notices and the command tag")
 		assert.Contains(t, results[0].Notices[0].Message, `cancelling the creation of tablegroup "commerce"`)
+		assert.Contains(t, results[1].Notices[0].Message, `dropping tablegroup "commerce"`)
+		assert.Equal(t, "DROP TABLEGROUP", results[2].CommandTag)
+	})
+	t.Run("a cancelled creation already gone is success without a notice", func(t *testing.T) {
+		admin := &fakeTableGroupAdmin{
+			dropRes: []*multipoolermanagerdatapb.DropTableGroupResponse{
+				{OperationId: testTableGroupOpID, TablegroupId: 7, CancelledCreation: true},
+				{NotFound: true},
+			},
+			ops: []fakeOpAnswer{opIn(multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED, "cancelled")},
+		}
+		results, err := runTableGroupDDL(t, t.Context(), newTestDrop(admin, false), privilegeExec("t"))
+		require.NoError(t, err)
+		assert.Equal(t, 2, admin.dropCalls)
+		require.Len(t, results, 2)
+		assert.Empty(t, results[1].Notices, "it was dropped, it is not missing")
+		assert.Equal(t, "DROP TABLEGROUP", results[1].CommandTag)
+	})
+	t.Run("a transient error on the second drop is retried", func(t *testing.T) {
+		admin := &fakeTableGroupAdmin{
+			dropRes: []*multipoolermanagerdatapb.DropTableGroupResponse{
+				{OperationId: testTableGroupOpID, TablegroupId: 7, CancelledCreation: true},
+				{OperationId: testTableGroupOpID, TablegroupId: 7, CancelledCreation: true},
+				{OperationId: testTableGroupOpID, TablegroupId: 7},
+			},
+			dropErrs: []error{nil, status.Error(codes.Unavailable, "catalog primary failing over")},
+			ops: []fakeOpAnswer{
+				opIn(multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED, "cancelled"),
+				opIn(multipoolermanagerdatapb.OperationState_OPERATION_STATE_DONE, ""),
+			},
+		}
+		results, err := runTableGroupDDL(t, t.Context(), newTestDrop(admin, false), privilegeExec("t"))
+		require.NoError(t, err)
+		assert.Equal(t, 3, admin.dropCalls, "cancel, a failed second drop, its retry")
 		assert.Equal(t, "DROP TABLEGROUP", results[len(results)-1].CommandTag)
-		assert.Equal(t, 1, admin.dropCalls)
+	})
+	t.Run("a refusal on the second drop is reported", func(t *testing.T) {
+		admin := &fakeTableGroupAdmin{
+			dropRes:  []*multipoolermanagerdatapb.DropTableGroupResponse{{OperationId: testTableGroupOpID, TablegroupId: 7, CancelledCreation: true}},
+			dropErrs: []error{nil, status.Error(codes.Internal, "tablegroup \"commerce\" is dropping with 2 pending operations, want 1")},
+			ops:      []fakeOpAnswer{opIn(multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED, "cancelled")},
+		}
+		_, err := runTableGroupDDL(t, t.Context(), newTestDrop(admin, false), privilegeExec("t"))
+		d := requirePgError(t, err, mterrors.PgSSInternalError)
+		assert.Contains(t, d.Message, "2 pending operations")
+		assert.Empty(t, d.Hint, "a definite refusal, not an unknown outcome")
+		assert.Equal(t, 2, admin.dropCalls)
+	})
+	t.Run("a creation that completed first is dropped once, refusals included", func(t *testing.T) {
+		// The tablegroup is active, so the second drop is a plain one: a
+		// FAILED_PRECONDITION from it is a refusal to report, not a failover
+		// to retry.
+		admin := &fakeTableGroupAdmin{
+			dropRes:  []*multipoolermanagerdatapb.DropTableGroupResponse{{OperationId: testTableGroupOpID, TablegroupId: 7, CancelledCreation: true}},
+			dropErrs: []error{nil, status.Error(codes.FailedPrecondition, `tablegroup "commerce" contains 1 table(s)`)},
+			ops:      []fakeOpAnswer{opIn(multipoolermanagerdatapb.OperationState_OPERATION_STATE_DONE, "")},
+		}
+		_, err := runTableGroupDDL(t, t.Context(), newTestDrop(admin, false), privilegeExec("t"))
+		d := requirePgError(t, err, mterrors.PgSSObjectNotInPrerequisiteState)
+		assert.Contains(t, d.Message, "contains 1 table(s)")
+		assert.Equal(t, 2, admin.dropCalls, "not retried")
+	})
+	t.Run("a creation that completed first honours IF EXISTS on the second drop", func(t *testing.T) {
+		admin := &fakeTableGroupAdmin{
+			dropRes: []*multipoolermanagerdatapb.DropTableGroupResponse{
+				{OperationId: testTableGroupOpID, TablegroupId: 7, CancelledCreation: true},
+				{NotFound: true},
+			},
+			ops: []fakeOpAnswer{opIn(multipoolermanagerdatapb.OperationState_OPERATION_STATE_DONE, "")},
+		}
+		results, err := runTableGroupDDL(t, t.Context(), newTestDrop(admin, true), privilegeExec("t"))
+		require.NoError(t, err)
+		assert.True(t, admin.dropReqs[1].GetIfExists(), "as the user wrote it")
+		assert.Contains(t, results[len(results)-1].Notices[0].Message, "does not exist", "someone else dropped it; this drop did not")
+
+		admin = &fakeTableGroupAdmin{
+			dropRes:  []*multipoolermanagerdatapb.DropTableGroupResponse{{OperationId: testTableGroupOpID, TablegroupId: 7, CancelledCreation: true}},
+			dropErrs: []error{nil, status.Error(codes.NotFound, `tablegroup "commerce" does not exist`)},
+			ops:      []fakeOpAnswer{opIn(multipoolermanagerdatapb.OperationState_OPERATION_STATE_DONE, "")},
+		}
+		_, err = runTableGroupDDL(t, t.Context(), newTestDrop(admin, false), privilegeExec("t"))
+		_ = requirePgError(t, err, mterrors.PgSSUndefinedObject)
+		assert.False(t, admin.dropReqs[1].GetIfExists())
+	})
+	t.Run("a pooler that keeps answering with a cancelled creation is an error", func(t *testing.T) {
+		admin := &fakeTableGroupAdmin{
+			dropRes: []*multipoolermanagerdatapb.DropTableGroupResponse{{OperationId: testTableGroupOpID, TablegroupId: 7, CancelledCreation: true}},
+			ops:     []fakeOpAnswer{opIn(multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED, "cancelled")},
+		}
+		_, err := runTableGroupDDL(t, t.Context(), newTestDrop(admin, false), privilegeExec("t"))
+		d := requirePgError(t, err, mterrors.PgSSObjectNotInPrerequisiteState)
+		assert.Contains(t, d.Message, "changed state while being dropped")
+		assert.Equal(t, 2, admin.dropCalls)
 	})
 	t.Run("a creation that completes first is dropped again", func(t *testing.T) {
 		admin := &fakeTableGroupAdmin{
 			dropRes: []*multipoolermanagerdatapb.DropTableGroupResponse{
-				{OperationId: testTableGroupOpID, CancelledCreation: true},
+				{OperationId: testTableGroupOpID, TablegroupId: 7, CancelledCreation: true},
 				{OperationId: testTableGroupOpID},
 			},
 			ops: []fakeOpAnswer{opIn(multipoolermanagerdatapb.OperationState_OPERATION_STATE_DONE, "")},

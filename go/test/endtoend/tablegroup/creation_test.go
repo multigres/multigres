@@ -243,10 +243,20 @@ func replicaName(t *testing.T, setup *shardsetup.ShardSetup) string {
 type provisioner struct {
 	setup    *shardsetup.ShardSetup
 	contract validator.Validator
+	// provisioned is what provision started, by tablegroup id, for remove.
+	provisioned map[int64]*provisionedTableGroup
+}
+
+// provisionedTableGroup is the processes and topology entries a provisioned
+// tablegroup consists of, in the provisioner's own bookkeeping.
+type provisionedTableGroup struct {
+	tg      *multipoolermanagerdatapb.TableGroup
+	poolers []*shardsetup.MultipoolerInstance
+	orchs   []*shardsetup.ProcessInstance
 }
 
 func newProvisioner(t *testing.T, setup *shardsetup.ShardSetup) *provisioner {
-	return &provisioner{setup: setup, contract: openapitest.Validator(t)}
+	return &provisioner{setup: setup, contract: openapitest.Validator(t), provisioned: map[int64]*provisionedTableGroup{}}
 }
 
 // desired reads ListDesiredTableGroups over REST, validating the response
@@ -287,6 +297,8 @@ func (p *provisioner) provision(t *testing.T, tg *multipoolermanagerdatapb.Table
 	require.NoError(t, p.setup.TopoServer.ClaimTableGroupProvisioning(t.Context(), "postgres", &clustermetadatapb.TableGroupProvisionClaim{
 		Provisioner: "e2e-provisioner", TablegroupId: tg.GetTablegroupId(), TablegroupName: tg.GetName(),
 	}))
+	done := &provisionedTableGroup{tg: tg}
+	p.provisioned[tg.GetTablegroupId()] = done
 	for _, shard := range tg.GetShards() {
 		for i := range 2 {
 			name := fmt.Sprintf("%s-%d-%s-%d", tg.GetName(), tg.GetTablegroupId(), shard, i)
@@ -299,10 +311,36 @@ func (p *provisioner) provision(t *testing.T, tg *multipoolermanagerdatapb.Table
 			require.NoError(t, inst.Pgctld.Start(t.Context(), t), "start pgctld %s", name)
 			require.NoError(t, inst.Multipooler.Start(t.Context(), t), "start multipooler %s", name)
 			shardsetup.WaitForManagerReady(t, inst.Multipooler)
+			done.poolers = append(done.poolers, inst)
 		}
 		orch, _ := p.setup.CreateMultiorchInstance(t, fmt.Sprintf("orch-%s-%d-%s", tg.GetName(), tg.GetTablegroupId(), shard),
 			[]string{fmt.Sprintf("postgres/%s/%s", tg.GetName(), shard)},
 			&shardsetup.SetupConfig{CellName: p.setup.CellName})
 		require.NoError(t, orch.Start(t.Context(), t), "start multiorch for %s/%s", tg.GetName(), shard)
+		done.orchs = append(done.orchs, orch)
 	}
+}
+
+// remove tears a provisioned tablegroup down the way the operator does for a
+// DROPPING one: stop its multiorchs and poolers, delete the poolers' records
+// from topology (a multiorch deregisters itself on a graceful stop; a pooler
+// record stays until the provisioner deletes it, which is what the drop waits
+// on), and release the claim last.
+func (p *provisioner) remove(t *testing.T, tableGroupID int64) {
+	t.Helper()
+	done := p.provisioned[tableGroupID]
+	require.NotNil(t, done, "tablegroup %d was not provisioned here", tableGroupID)
+	for _, orch := range done.orchs {
+		orch.TerminateGracefully(t.Logf, 5*time.Second)
+	}
+	for _, inst := range done.poolers {
+		inst.Multipooler.TerminateGracefully(t.Logf, 5*time.Second)
+		inst.Pgctld.TerminateGracefully(t.Logf, 5*time.Second)
+	}
+	for _, inst := range done.poolers {
+		id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: p.setup.CellName, Name: inst.Name}
+		require.NoError(t, p.setup.TopoServer.UnregisterMultipooler(t.Context(), id), "delete the record of %s", inst.Name)
+	}
+	require.NoError(t, p.setup.TopoServer.ReleaseTableGroupProvisioning(t.Context(), "postgres", tableGroupID))
+	delete(p.provisioned, tableGroupID)
 }

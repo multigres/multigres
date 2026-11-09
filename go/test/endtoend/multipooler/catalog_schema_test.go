@@ -56,7 +56,8 @@ var catalogFormat1Columns = map[string][]string{
 // legacyCatalogSQL replaces the format 1 catalog with the pre-versioning
 // layout and rows that older binaries bootstrapped.
 const legacyCatalogSQL = `BEGIN;
-DROP VIEW IF EXISTS multigres.stat_migration;
+DROP VIEW IF EXISTS multigres.stat_migration, multigres.operations;
+DROP FUNCTION IF EXISTS multigres.cancel_operation(uuid);
 ALTER TABLE multigres.migration DROP CONSTRAINT IF EXISTS migration_connections_fkey;
 DROP TABLE multigres.routing_rule, multigres.shard_key_column, multigres.shard_key, multigres.shard_index,
 	multigres.tablegroup_table, multigres.shard, multigres.tablegroup, multigres.operation,
