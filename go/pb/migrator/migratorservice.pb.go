@@ -1250,13 +1250,18 @@ type SetMigrationDirectionRequest struct {
 	WaitTimeoutSeconds *int64 `protobuf:"varint,4,opt,name=wait_timeout_seconds,json=waitTimeoutSeconds,proto3,oneof" json:"wait_timeout_seconds,omitempty"`
 	// caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
 	// client is connected as. Set only on the gateway SQL path (ALTER MIGRATION
-	// ... PHASE): it gates the destructive DropTables step a not-yet-started
-	// IMPORT runs, so a caller who merely has database CREATE +
-	// pg_create_subscription (enough to pass the gateway's migration-DDL
-	// authorization gate) cannot name an existing target table it does not own
-	// and have it dropped via the admin pool. Left empty on the CLI/multiadmin
-	// path, which has no SQL-authenticated identity to set it from; the check
-	// is skipped in that case, unchanged from before this field existed.
+	// ... PHASE): it gates two checks. First, an ownership check against the
+	// migration's connection (the same model CreateMigrationRequest.caller_role
+	// uses), re-verified here because a migration can be addressed by id/name
+	// alone — without this, a caller who merely has database CREATE +
+	// pg_create_subscription could flip another operator's migration to EXPORT
+	// (or trigger its not-yet-started IMPORT setup), reusing that connection's
+	// stored credentials for replication it was never authorized to drive.
+	// Second, the destructive DropTables step a not-yet-started IMPORT runs, so
+	// that same caller cannot name an existing target table it does not own and
+	// have it dropped via the admin pool. Left empty on the CLI/multiadmin
+	// path, which has no SQL-authenticated identity to set it from; both checks
+	// are skipped in that case, unchanged from before this field existed.
 	CallerRole    string `protobuf:"bytes,5,opt,name=caller_role,json=callerRole,proto3" json:"caller_role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1572,13 +1577,14 @@ type DropMigrationRequest struct {
 	Force bool `protobuf:"varint,4,opt,name=force,proto3" json:"force,omitempty"`
 	// caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
 	// client is connected as. Set only on the gateway SQL path (DROP
-	// MIGRATION): it gates an ownership check against the migration's stored
-	// Migration.owner_role, so a caller who merely has database CREATE +
-	// pg_create_subscription (enough to pass the gateway's CanCreateMigration
-	// gate) cannot name another operator's migration and abort it. Left empty
-	// on the CLI/multiadmin path, which has no SQL-authenticated identity to
-	// set it from; the check is skipped in that case, unchanged from before
-	// this field existed.
+	// MIGRATION): it gates an ownership check against the migration's
+	// connection's stored Connection.owner_role (migrations have no owner of
+	// their own — see CreateMigrationRequest.caller_role), so a caller who
+	// merely has database CREATE + pg_create_subscription (enough to pass the
+	// gateway's CanCreateMigration gate) cannot name another operator's
+	// migration and abort it. Left empty on the CLI/multiadmin path, which has
+	// no SQL-authenticated identity to set it from; the check is skipped in
+	// that case, unchanged from before this field existed.
 	CallerRole    string `protobuf:"bytes,5,opt,name=caller_role,json=callerRole,proto3" json:"caller_role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2080,7 +2086,17 @@ func (x *GetConnectionResponse) GetConnection() *Connection {
 // ListMigrationsRequest, which returns ids only) — there is no "fetch one at a
 // time" need here, and SHOW CONNECTIONS wants the whole table in one call.
 type ListConnectionsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+	// client is connected as. Set only on the gateway SQL path (SHOW
+	// CONNECTION[S]): it filters the result to connections callerRole owns (or
+	// whose OwnerRole predates ownership tracking), so a caller who merely has
+	// database CREATE + pg_create_subscription (enough to pass the gateway's
+	// CanCreateMigration gate) cannot enumerate every operator's configured
+	// source host/dbname/user. Left empty on the CLI/multiadmin path, which has
+	// no SQL-authenticated identity to set it from; every connection is then
+	// returned unfiltered, unchanged from before this field existed.
+	CallerRole    string `protobuf:"bytes,1,opt,name=caller_role,json=callerRole,proto3" json:"caller_role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2113,6 +2129,13 @@ func (x *ListConnectionsRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ListConnectionsRequest.ProtoReflect.Descriptor instead.
 func (*ListConnectionsRequest) Descriptor() ([]byte, []int) {
 	return file_migratorservice_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *ListConnectionsRequest) GetCallerRole() string {
+	if x != nil {
+		return x.CallerRole
+	}
+	return ""
 }
 
 type ListConnectionsResponse struct {
@@ -2163,9 +2186,19 @@ func (x *ListConnectionsResponse) GetConnections() []*Connection {
 // connection still referenced by a migration (migration.connection_id) fails
 // with a foreign-key-violation error; point those migrations elsewhere first.
 type DropConnectionRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Ref           *ConnectionRef         `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
-	IfExists      bool                   `protobuf:"varint,2,opt,name=if_exists,json=ifExists,proto3" json:"if_exists,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Ref      *ConnectionRef         `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	IfExists bool                   `protobuf:"varint,2,opt,name=if_exists,json=ifExists,proto3" json:"if_exists,omitempty"`
+	// caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+	// client is connected as. Set only on the gateway SQL path (DROP
+	// CONNECTION): it gates an ownership check against the connection's stored
+	// owner_role, so a caller who merely has database CREATE +
+	// pg_create_subscription (enough to pass the gateway's CanCreateMigration
+	// gate) cannot drop a connection it does not own. Left empty on the
+	// CLI/multiadmin path, which has no SQL-authenticated identity to set it
+	// from; the check is skipped in that case, unchanged from before this field
+	// existed.
+	CallerRole    string `protobuf:"bytes,3,opt,name=caller_role,json=callerRole,proto3" json:"caller_role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2212,6 +2245,13 @@ func (x *DropConnectionRequest) GetIfExists() bool {
 		return x.IfExists
 	}
 	return false
+}
+
+func (x *DropConnectionRequest) GetCallerRole() string {
+	if x != nil {
+		return x.CallerRole
+	}
+	return ""
 }
 
 type DropConnectionResponse struct {
@@ -2386,13 +2426,17 @@ const file_migratorservice_proto_rawDesc = "" +
 	"\x15GetConnectionResponse\x124\n" +
 	"\n" +
 	"connection\x18\x01 \x01(\v2\x14.migrator.ConnectionR\n" +
-	"connection\"\x18\n" +
-	"\x16ListConnectionsRequest\"Q\n" +
+	"connection\"9\n" +
+	"\x16ListConnectionsRequest\x12\x1f\n" +
+	"\vcaller_role\x18\x01 \x01(\tR\n" +
+	"callerRole\"Q\n" +
 	"\x17ListConnectionsResponse\x126\n" +
-	"\vconnections\x18\x01 \x03(\v2\x14.migrator.ConnectionR\vconnections\"_\n" +
+	"\vconnections\x18\x01 \x03(\v2\x14.migrator.ConnectionR\vconnections\"\x80\x01\n" +
 	"\x15DropConnectionRequest\x12)\n" +
 	"\x03ref\x18\x01 \x01(\v2\x17.migrator.ConnectionRefR\x03ref\x12\x1b\n" +
-	"\tif_exists\x18\x02 \x01(\bR\bifExists\"\x18\n" +
+	"\tif_exists\x18\x02 \x01(\bR\bifExists\x12\x1f\n" +
+	"\vcaller_role\x18\x03 \x01(\tR\n" +
+	"callerRole\"\x18\n" +
 	"\x16DropConnectionResponse*\xbd\x03\n" +
 	"\x0eMigrationPhase\x12\x1f\n" +
 	"\x1bMIGRATION_PHASE_UNSPECIFIED\x10\x00\x12\x1b\n" +

@@ -141,10 +141,21 @@ func (c *Coordinator) CreateConnection(ctx context.Context, conn *Connection) er
 // DropConnection removes a connection. Fails with ErrConnectionInUse if a
 // migration still references it. Takes c.mu, the same lock every other
 // coordinator method that mutates migration/connection state holds.
-func (c *Coordinator) DropConnection(ctx context.Context, id int64) error {
+//
+// callerRole gates an ownership check against the connection's stored
+// OwnerRole, the same model CreateMigration's doc comment on CallerRole
+// describes: without it, any role that merely passes the gateway's
+// CanCreateMigration gate could drop a connection it does not own. Left
+// empty on the CLI/multiadmin path, which has no SQL-authenticated identity
+// to check; the check is skipped in that case, unchanged from before this
+// parameter existed.
+func (c *Coordinator) DropConnection(ctx context.Context, id int64, callerRole string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if err := c.checkConnectionOwnershipByID(ctx, id, callerRole); err != nil {
+		return err
+	}
 	return c.store.DeleteConnection(ctx, id)
 }
 
@@ -153,9 +164,52 @@ func (c *Coordinator) GetConnection(ctx context.Context, ref Ref) (*Connection, 
 	return c.store.GetConnectionByRef(ctx, ref)
 }
 
-// ListConnections returns every stored connection.
-func (c *Coordinator) ListConnections(ctx context.Context) ([]*Connection, error) {
-	return c.store.ListConnections(ctx)
+// ListConnections returns every stored connection callerRole may use.
+//
+// A named connection carries no ACL of its own (see CheckConnectionOwnership),
+// so without this filter any role that merely passes the gateway's
+// CanCreateMigration gate could enumerate every operator's configured source
+// host/dbname/user — metadata about credentials it does not hold. callerRole
+// empty (CLI/multiadmin path, no SQL-authenticated identity) returns every
+// connection unfiltered, unchanged from before this parameter existed, as
+// does a connection with an empty OwnerRole (predates ownership tracking).
+func (c *Coordinator) ListConnections(ctx context.Context, callerRole string) ([]*Connection, error) {
+	conns, err := c.store.ListConnections(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if callerRole == "" {
+		return conns, nil
+	}
+	out := make([]*Connection, 0, len(conns))
+	for _, conn := range conns {
+		if conn.OwnerRole == "" || c.target.CheckConnectionOwnership(ctx, callerRole, conn.OwnerRole) == nil {
+			out = append(out, conn)
+		}
+	}
+	return out, nil
+}
+
+// checkConnectionOwnershipByID verifies that callerRole could use the
+// connection identified by connID, resolving it first — the same
+// resolve-then-check pattern CreateMigration's inline check uses, factored
+// out so DropConnection, DropMigration, and SetMigrationDirection share one
+// implementation. Skipped when callerRole is empty (no SQL-authenticated
+// identity) or the resolved connection predates ownership tracking (OwnerRole
+// empty) — see CheckConnectionOwnership's doc comment for why both are safe
+// no-ops rather than a denial.
+func (c *Coordinator) checkConnectionOwnershipByID(ctx context.Context, connID int64, callerRole string) error {
+	if callerRole == "" {
+		return nil
+	}
+	conn, err := c.store.GetConnectionByRef(ctx, Ref{ID: connID})
+	if err != nil {
+		return err
+	}
+	if conn.OwnerRole == "" {
+		return nil
+	}
+	return c.target.CheckConnectionOwnership(ctx, callerRole, conn.OwnerRole)
 }
 
 // CreateParams is the input to CreateMigration.
@@ -510,6 +564,16 @@ type DropOptions struct {
 	Wait        bool
 	WaitTimeout time.Duration
 	Force       bool
+
+	// CallerRole is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+	// client is connected as. Set only on the gateway SQL path (DROP
+	// MIGRATION): it gates an ownership check against the migration's
+	// connection, so a caller who merely has database CREATE +
+	// pg_create_subscription (enough to pass the gateway's CanCreateMigration
+	// gate) cannot name another operator's migration and abort it. Left empty
+	// on the CLI/multiadmin path, which has no SQL-authenticated identity to
+	// set it from; the check is skipped in that case.
+	CallerRole string
 }
 
 // DropMigration tears down a migration's replication link and removes the row.
@@ -522,6 +586,14 @@ func (c *Coordinator) DropMigration(ctx context.Context, ref Ref, opts DropOptio
 
 	m, err := c.store.GetByRef(ctx, ref)
 	if err != nil {
+		return nil, err
+	}
+
+	// See SetMigrationDirection's identical check for why this must be
+	// re-verified against the migration's connection here, not just at create
+	// time: a migration is addressed by id/name alone, without naming (and so
+	// without having to own) its connection.
+	if err := c.checkConnectionOwnershipByID(ctx, m.ConnectionID, opts.CallerRole); err != nil {
 		return nil, err
 	}
 
@@ -900,6 +972,19 @@ func (c *Coordinator) SetMigrationDirection(ctx context.Context, ref Ref, target
 	c.mu.Lock()
 	m, err := c.store.GetByRef(ctx, ref)
 	if err != nil {
+		c.mu.Unlock()
+		return nil, err
+	}
+
+	// A role that merely passes the gateway's CanCreateMigration gate (database
+	// CREATE + pg_create_subscription) does not necessarily own this migration's
+	// connection — without this, it could flip another operator's migration to
+	// EXPORT (or trigger its not-yet-started IMPORT setup), reusing that
+	// connection's stored credentials for replication it was never authorized to
+	// drive. Mirrors CreateMigration's ownership check against the same
+	// connection, re-verified here because a migration can be addressed by id/name
+	// alone, without naming (and so without having to own) its connection.
+	if err := c.checkConnectionOwnershipByID(ctx, m.ConnectionID, opts.CallerRole); err != nil {
 		c.mu.Unlock()
 		return nil, err
 	}
