@@ -21,27 +21,25 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/common/constants"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // ListDesiredTableGroups returns the tablegroups a provisioner should have
 // provisioned for a database. Multiadmin owns nothing here: it finds the
-// primary pooler of the database's catalog shard, which is the sole writer
+// serving primary of the database's catalog shard, which is the sole writer
 // and reader of the sharding catalog, and forwards the request to it.
 func (s *MultiadminServer) ListDesiredTableGroups(ctx context.Context, req *multiadminpb.ListDesiredTableGroupsRequest) (*multiadminpb.ListDesiredTableGroupsResponse, error) {
 	if req.GetDatabase() == "" {
 		return nil, status.Error(codes.InvalidArgument, "database cannot be empty")
 	}
-	catalogShard := &clustermetadatapb.ShardRef{
-		Database:   req.GetDatabase(),
-		TableGroup: constants.DefaultTableGroup,
-		Shard:      constants.DefaultShard,
-	}
-	primary, _, err := s.findShardPrimary(ctx, catalogShard)
+	// The catalog primary is chosen the way backups choose a leader: among
+	// the serving poolers that advertise routing role PRIMARY, the one with the
+	// highest rule. During a failover two poolers can both claim PRIMARY, and
+	// the one with the older rule is a stale leader whose catalog may lag.
+	primary, err := s.findPooler(ctx, req.GetDatabase(), constants.DefaultTableGroup, constants.DefaultShard, true, true)
 	if err != nil {
-		return nil, err
+		return nil, status.Errorf(codes.NotFound, "no serving primary for the catalog shard of database %s: %v", req.GetDatabase(), err)
 	}
 	resp, err := s.rpcClient.ListTableGroups(ctx, primary, &multipoolermanagerdatapb.ListTableGroupsRequest{})
 	if err != nil {
