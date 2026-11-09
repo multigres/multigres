@@ -16,6 +16,7 @@ package migration
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 	"time"
@@ -199,12 +200,18 @@ type fakeTarget struct {
 	checkDropPrivilegeErr       error
 	lastCallerRole              string
 	checkConnectionOwnershipErr error
-	lastOwnerRole               string
-	dropTablesErr               error
-	createPubErr                error
-	dropPubErr                  error
-	createSubErr                error
-	dropSubErr                  error
+	// checkConnectionOwnershipAllow, when non-nil, overrides
+	// checkConnectionOwnershipErr's single blanket toggle: returns nil only
+	// for an ownerRole the map marks true, else a stock insufficient-privilege
+	// error — letting a test (e.g. ListConnections filtering) distinguish
+	// several differently-owned connections within one call.
+	checkConnectionOwnershipAllow map[string]bool
+	lastOwnerRole                 string
+	dropTablesErr                 error
+	createPubErr                  error
+	dropPubErr                    error
+	createSubErr                  error
+	dropSubErr                    error
 
 	status    *SubscriptionStatus
 	statusErr error
@@ -288,7 +295,13 @@ func (t *fakeTarget) CheckConnectionOwnership(_ context.Context, callerRole, own
 	t.record("CheckConnectionOwnership")
 	t.lastCallerRole = callerRole
 	t.lastOwnerRole = ownerRole
-	return t.checkConnectionOwnershipErr
+	if t.checkConnectionOwnershipErr != nil {
+		return t.checkConnectionOwnershipErr
+	}
+	if t.checkConnectionOwnershipAllow != nil && !t.checkConnectionOwnershipAllow[ownerRole] {
+		return errors.New("role lacks privilege to use this connection")
+	}
+	return nil
 }
 
 func (t *fakeTarget) DropTables(context.Context, []string) error {

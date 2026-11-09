@@ -290,6 +290,22 @@ paths:
     get:
       description: ListConnections returns every stored connection in full.
       operationId: multiadmin.MultiadminService.ListConnections
+      parameters:
+        - description: |-
+            caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+             client is connected as. Set only on the gateway SQL path (SHOW
+             CONNECTION[S]): it filters the result to connections callerRole owns (or
+             whose OwnerRole predates ownership tracking), so a caller who merely has
+             database CREATE + pg_create_subscription (enough to pass the gateway's
+             CanCreateMigration gate) cannot enumerate every operator's configured
+             source host/dbname/user. Left empty on the CLI/multiadmin path, which has
+             no SQL-authenticated identity to set it from; every connection is then
+             returned unfiltered, unchanged from before this field existed.
+          in: query
+          name: callerRole
+          schema:
+            title: caller_role
+            type: string
       responses:
         "200":
           content:
@@ -357,6 +373,21 @@ paths:
           schema:
             title: if_exists
             type: boolean
+        - description: |-
+            caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+             client is connected as. Set only on the gateway SQL path (DROP
+             CONNECTION): it gates an ownership check against the connection's stored
+             owner_role, so a caller who merely has database CREATE +
+             pg_create_subscription (enough to pass the gateway's CanCreateMigration
+             gate) cannot drop a connection it does not own. Left empty on the
+             CLI/multiadmin path, which has no SQL-authenticated identity to set it
+             from; the check is skipped in that case, unchanged from before this field
+             existed.
+          in: query
+          name: callerRole
+          schema:
+            title: caller_role
+            type: string
       responses:
         "200":
           content:
@@ -847,13 +878,14 @@ paths:
         - description: |-
             caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
              client is connected as. Set only on the gateway SQL path (DROP
-             MIGRATION): it gates an ownership check against the migration's stored
-             Migration.owner_role, so a caller who merely has database CREATE +
-             pg_create_subscription (enough to pass the gateway's CanCreateMigration
-             gate) cannot name another operator's migration and abort it. Left empty
-             on the CLI/multiadmin path, which has no SQL-authenticated identity to
-             set it from; the check is skipped in that case, unchanged from before
-             this field existed.
+             MIGRATION): it gates an ownership check against the migration's
+             connection's stored Connection.owner_role (migrations have no owner of
+             their own — see CreateMigrationRequest.caller_role), so a caller who
+             merely has database CREATE + pg_create_subscription (enough to pass the
+             gateway's CanCreateMigration gate) cannot name another operator's
+             migration and abort it. Left empty on the CLI/multiadmin path, which has
+             no SQL-authenticated identity to set it from; the check is skipped in
+             that case, unchanged from before this field existed.
           in: query
           name: callerRole
           schema:
@@ -945,13 +977,18 @@ paths:
                   description: |-
                     caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
                      client is connected as. Set only on the gateway SQL path (ALTER MIGRATION
-                     ... PHASE): it gates the destructive DropTables step a not-yet-started
-                     IMPORT runs, so a caller who merely has database CREATE +
-                     pg_create_subscription (enough to pass the gateway's migration-DDL
-                     authorization gate) cannot name an existing target table it does not own
-                     and have it dropped via the admin pool. Left empty on the CLI/multiadmin
-                     path, which has no SQL-authenticated identity to set it from; the check
-                     is skipped in that case, unchanged from before this field existed.
+                     ... PHASE): it gates two checks. First, an ownership check against the
+                     migration's connection (the same model CreateMigrationRequest.caller_role
+                     uses), re-verified here because a migration can be addressed by id/name
+                     alone — without this, a caller who merely has database CREATE +
+                     pg_create_subscription could flip another operator's migration to EXPORT
+                     (or trigger its not-yet-started IMPORT setup), reusing that connection's
+                     stored credentials for replication it was never authorized to drive.
+                     Second, the destructive DropTables step a not-yet-started IMPORT runs, so
+                     that same caller cannot name an existing target table it does not own and
+                     have it dropped via the admin pool. Left empty on the CLI/multiadmin
+                     path, which has no SQL-authenticated identity to set it from; both checks
+                     are skipped in that case, unchanged from before this field existed.
                   title: caller_role
                   type: string
                 direction:

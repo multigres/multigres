@@ -1058,13 +1058,18 @@ export class SetMigrationDirectionRequest extends Message<SetMigrationDirectionR
   /**
    * caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
    * client is connected as. Set only on the gateway SQL path (ALTER MIGRATION
-   * ... PHASE): it gates the destructive DropTables step a not-yet-started
-   * IMPORT runs, so a caller who merely has database CREATE +
-   * pg_create_subscription (enough to pass the gateway's migration-DDL
-   * authorization gate) cannot name an existing target table it does not own
-   * and have it dropped via the admin pool. Left empty on the CLI/multiadmin
-   * path, which has no SQL-authenticated identity to set it from; the check
-   * is skipped in that case, unchanged from before this field existed.
+   * ... PHASE): it gates two checks. First, an ownership check against the
+   * migration's connection (the same model CreateMigrationRequest.caller_role
+   * uses), re-verified here because a migration can be addressed by id/name
+   * alone — without this, a caller who merely has database CREATE +
+   * pg_create_subscription could flip another operator's migration to EXPORT
+   * (or trigger its not-yet-started IMPORT setup), reusing that connection's
+   * stored credentials for replication it was never authorized to drive.
+   * Second, the destructive DropTables step a not-yet-started IMPORT runs, so
+   * that same caller cannot name an existing target table it does not own and
+   * have it dropped via the admin pool. Left empty on the CLI/multiadmin
+   * path, which has no SQL-authenticated identity to set it from; both checks
+   * are skipped in that case, unchanged from before this field existed.
    *
    * @generated from field: string caller_role = 5;
    */
@@ -1335,13 +1340,14 @@ export class DropMigrationRequest extends Message<DropMigrationRequest> {
   /**
    * caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
    * client is connected as. Set only on the gateway SQL path (DROP
-   * MIGRATION): it gates an ownership check against the migration's stored
-   * Migration.owner_role, so a caller who merely has database CREATE +
-   * pg_create_subscription (enough to pass the gateway's CanCreateMigration
-   * gate) cannot name another operator's migration and abort it. Left empty
-   * on the CLI/multiadmin path, which has no SQL-authenticated identity to
-   * set it from; the check is skipped in that case, unchanged from before
-   * this field existed.
+   * MIGRATION): it gates an ownership check against the migration's
+   * connection's stored Connection.owner_role (migrations have no owner of
+   * their own — see CreateMigrationRequest.caller_role), so a caller who
+   * merely has database CREATE + pg_create_subscription (enough to pass the
+   * gateway's CanCreateMigration gate) cannot name another operator's
+   * migration and abort it. Left empty on the CLI/multiadmin path, which has
+   * no SQL-authenticated identity to set it from; the check is skipped in
+   * that case, unchanged from before this field existed.
    *
    * @generated from field: string caller_role = 5;
    */
@@ -1735,6 +1741,21 @@ export class GetConnectionResponse extends Message<GetConnectionResponse> {
  * @generated from message migrator.ListConnectionsRequest
  */
 export class ListConnectionsRequest extends Message<ListConnectionsRequest> {
+  /**
+   * caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+   * client is connected as. Set only on the gateway SQL path (SHOW
+   * CONNECTION[S]): it filters the result to connections callerRole owns (or
+   * whose OwnerRole predates ownership tracking), so a caller who merely has
+   * database CREATE + pg_create_subscription (enough to pass the gateway's
+   * CanCreateMigration gate) cannot enumerate every operator's configured
+   * source host/dbname/user. Left empty on the CLI/multiadmin path, which has
+   * no SQL-authenticated identity to set it from; every connection is then
+   * returned unfiltered, unchanged from before this field existed.
+   *
+   * @generated from field: string caller_role = 1;
+   */
+  callerRole = "";
+
   constructor(data?: PartialMessage<ListConnectionsRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1743,6 +1764,7 @@ export class ListConnectionsRequest extends Message<ListConnectionsRequest> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "migrator.ListConnectionsRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "caller_role", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListConnectionsRequest {
@@ -1817,6 +1839,21 @@ export class DropConnectionRequest extends Message<DropConnectionRequest> {
    */
   ifExists = false;
 
+  /**
+   * caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+   * client is connected as. Set only on the gateway SQL path (DROP
+   * CONNECTION): it gates an ownership check against the connection's stored
+   * owner_role, so a caller who merely has database CREATE +
+   * pg_create_subscription (enough to pass the gateway's CanCreateMigration
+   * gate) cannot drop a connection it does not own. Left empty on the
+   * CLI/multiadmin path, which has no SQL-authenticated identity to set it
+   * from; the check is skipped in that case, unchanged from before this field
+   * existed.
+   *
+   * @generated from field: string caller_role = 3;
+   */
+  callerRole = "";
+
   constructor(data?: PartialMessage<DropConnectionRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1827,6 +1864,7 @@ export class DropConnectionRequest extends Message<DropConnectionRequest> {
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "ref", kind: "message", T: ConnectionRef },
     { no: 2, name: "if_exists", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 3, name: "caller_role", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DropConnectionRequest {

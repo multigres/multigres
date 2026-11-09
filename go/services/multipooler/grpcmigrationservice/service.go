@@ -188,6 +188,7 @@ func (s *migrationService) DropMigration(ctx context.Context, req *migratorpb.Dr
 		Wait:        req.Wait,
 		WaitTimeout: time.Duration(req.WaitTimeoutSeconds) * time.Second,
 		Force:       req.Force,
+		CallerRole:  req.GetCallerRole(),
 	})
 	if err != nil {
 		return nil, toGRPC(err)
@@ -243,12 +244,12 @@ func (s *migrationService) GetConnection(ctx context.Context, req *migratorpb.Ge
 	return &migratorpb.GetConnectionResponse{Connection: connToProto(conn)}, nil
 }
 
-func (s *migrationService) ListConnections(ctx context.Context, _ *migratorpb.ListConnectionsRequest) (*migratorpb.ListConnectionsResponse, error) {
+func (s *migrationService) ListConnections(ctx context.Context, req *migratorpb.ListConnectionsRequest) (*migratorpb.ListConnectionsResponse, error) {
 	coord, err := s.manager.MigrationCoordinatorIfPrimary(ctx)
 	if err != nil {
 		return nil, toGRPC(err)
 	}
-	conns, err := coord.ListConnections(ctx)
+	conns, err := coord.ListConnections(ctx, req.GetCallerRole())
 	if err != nil {
 		return nil, toGRPC(err)
 	}
@@ -271,7 +272,7 @@ func (s *migrationService) DropConnection(ctx context.Context, req *migratorpb.D
 		}
 		return nil, toGRPC(err)
 	}
-	if err := coord.DropConnection(ctx, conn.ID); err != nil {
+	if err := coord.DropConnection(ctx, conn.ID, req.GetCallerRole()); err != nil {
 		return nil, toGRPC(err)
 	}
 	return &migratorpb.DropConnectionResponse{}, nil
