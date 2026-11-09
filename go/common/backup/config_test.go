@@ -617,6 +617,24 @@ func TestRepoRetentionConfig(t *testing.T) {
 
 // Every shard but the catalog shard gets its own repository below the base
 // path; the catalog shard's repository stays where it has always been.
+func TestConfig_RepositoryScope(t *testing.T) {
+	fs, err := NewConfig(utils.FilesystemBackupLocation("/var/backups"))
+	require.NoError(t, err)
+	for _, tt := range []struct {
+		tableGroup, shard string
+		tableGroupID      int64
+		want              string
+	}{
+		{"default", "0-inf", 1, ""},
+		{"commerce", "0-80", 7, "tablegroups/commerce/7/0-80"},
+		{"commerce", "0-80", 0, "tablegroups/commerce/0-80"},
+	} {
+		scoped, err := fs.ForShard(tt.tableGroup, tt.tableGroupID, tt.shard)
+		require.NoError(t, err)
+		assert.Equal(t, tt.want, scoped.RepositoryScope(), "%s/%d/%s", tt.tableGroup, tt.tableGroupID, tt.shard)
+	}
+}
+
 func TestConfig_ForShard_RepositoryPaths(t *testing.T) {
 	fs, err := NewConfig(utils.FilesystemBackupLocation("/var/backups"))
 	require.NoError(t, err)

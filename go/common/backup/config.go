@@ -84,6 +84,13 @@ func (c *Config) ForShard(tableGroup string, tableGroupID int64, shard string) (
 	return &Config{proto: c.proto, tableGroup: tableGroup, tableGroupID: tableGroupID, shard: shard}, nil
 }
 
+// RepositoryScope returns the path ForShard adds below the base path, such as
+// "tablegroups/commerce/7/0-80", or "" for the catalog shard, whose
+// repository is the base path itself.
+func (c *Config) RepositoryScope() string {
+	return strings.Join(c.shardPathComponents(), "/")
+}
+
 // tableGroupsPathComponent is the directory below the base path that holds the
 // repositories of every shard but the catalog shard.
 const tableGroupsPathComponent = "tablegroups"

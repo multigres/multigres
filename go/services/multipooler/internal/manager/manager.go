@@ -1247,6 +1247,12 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 			pm.setStateError(fmt.Errorf("failed to scope backup repository: %w", err))
 			return
 		}
+		// Refuse to serve if this pooler directory used to back up to a
+		// different shard repository (see checkBackupRepositoryScope).
+		if err := pm.checkBackupRepositoryScope(backupConfig.RepositoryScope()); err != nil {
+			pm.setStateError(err)
+			return
+		}
 
 		// Validate the initial repo's cipher before the conf is written: the
 		// cipher is fixed at stanza-create time, so it must be in the very

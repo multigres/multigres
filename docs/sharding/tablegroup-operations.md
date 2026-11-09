@@ -75,10 +75,20 @@ where it has always been. Any other shard's is
 `<path>/tablegroups/commerce/7/0-80` on a filesystem,
 `/<prefix>/tablegroups/commerce/7/0-80/multigres` on S3. The fixed
 `tablegroups` directory keeps any tablegroup name out of the catalog shard's
-own repository layout. The catalog id keeps
-a tablegroup recreated under a dropped one's name from reusing its repository,
-whose backups are kept. A provisioner needs no per-shard backup
-configuration, only write access to everything under the location.
+own repository layout. The catalog id keeps a tablegroup recreated under a
+dropped one's name from reusing its repository, whose backups are kept. A
+provisioner needs no per-shard backup configuration, only write access to
+everything under the location.
+
+Because the path includes the catalog id, the id of a running shard must
+never change. A shard's repository is created once, at its first backup, so
+a pooler pointed at another path finds no stanza there: archiving fails and
+WAL builds up, and a new replica has nothing to restore. Each pooler therefore
+records its repository's path below the location in
+`<pooler-dir>/pgbackrest/repository_scope` on its first start, and refuses to
+serve when a later start, with a different `--table-group`, `--tablegroup-id`
+or `--shard`, would use another. Removing that file accepts the new
+repository.
 
 ## Validation
 
