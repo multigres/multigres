@@ -137,6 +137,28 @@ func RedactIfCredentialBearing(stmt Stmt) (redacted string, ok bool) {
 	}
 }
 
+// LogSafeQuery returns a version of queryStr safe to write to logs, redacting
+// it through RedactIfCredentialBearing if stmt carries a credential.
+func LogSafeQuery(queryStr string, stmt Stmt) string {
+	if redacted, ok := RedactIfCredentialBearing(stmt); ok {
+		return redacted
+	}
+	return queryStr
+}
+
+// LogSafeQueryMulti is LogSafeQuery for a batch of statements that share one
+// raw query string (e.g. a simple-protocol query carrying several
+// semicolon-separated statements): if any statement in stmts needs redaction,
+// the whole batch is redacted rather than logged verbatim.
+func LogSafeQueryMulti(queryStr string, stmts []Stmt) string {
+	for _, stmt := range stmts {
+		if redacted, ok := RedactIfCredentialBearing(stmt); ok {
+			return redacted
+		}
+	}
+	return queryStr
+}
+
 // ==============================================================================
 // MIGRATIONS
 // ==============================================================================
