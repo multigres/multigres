@@ -1197,6 +1197,37 @@ func TestDropConnection_Ownership(t *testing.T) {
 		require.NoError(t, tc.c.DropConnection(context.Background(), Ref{ID: defaultConnID}, "mallory", false))
 		require.NotContains(t, tc.log, "target.CheckConnectionOwnership")
 	})
+
+	t.Run("IfExists on a connection that exists but isn't owned is a silent no-op", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipErr = errors.New("role \"mallory\" lacks privilege to use this connection")
+
+		require.NoError(t, tc.c.DropConnection(context.Background(), Ref{ID: defaultConnID}, "mallory", true),
+			"the masked ownership denial must be treated the same as IfExists finding nothing")
+		_, err := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID}, "")
+		require.NoError(t, err, "IfExists must not delete a connection it merely couldn't prove ownership of")
+	})
+}
+
+// TestCheckConnectionOwnershipByID_ResolveErrors covers the two ways
+// resolving connID itself can fail, independent of the ownership check that
+// follows a successful resolve.
+func TestCheckConnectionOwnershipByID_ResolveErrors(t *testing.T) {
+	t.Run("a connection that doesn't resolve at all is masked the same as a denial", func(t *testing.T) {
+		tc := newTestCoord(t)
+		err := tc.c.checkConnectionOwnershipByID(context.Background(), 999, "mallory", ErrNotFound)
+		require.ErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("a genuine resolve failure propagates instead of being masked", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.store.connErr = errors.New("admin pool exhausted")
+
+		err := tc.c.checkConnectionOwnershipByID(context.Background(), defaultConnID, "mallory", ErrNotFound)
+		require.ErrorContains(t, err, "admin pool exhausted")
+		require.NotErrorIs(t, err, ErrNotFound)
+	})
 }
 
 func TestListMigrations(t *testing.T) {
@@ -1344,6 +1375,14 @@ func TestGetMigrationJournal_Ownership(t *testing.T) {
 		entries, err := tc.c.GetMigrationJournal(context.Background(), Ref{ID: 999}, "")
 		require.NoError(t, err)
 		require.Len(t, entries, 1)
+	})
+
+	t.Run("a genuine GetByRef failure propagates instead of being treated as dropped", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.store.getErr = errors.New("admin pool exhausted")
+
+		_, err := tc.c.GetMigrationJournal(context.Background(), Ref{ID: testMigID}, "mallory")
+		require.ErrorContains(t, err, "admin pool exhausted")
 	})
 }
 
