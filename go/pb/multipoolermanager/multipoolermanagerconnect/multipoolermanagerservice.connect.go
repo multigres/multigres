@@ -99,6 +99,9 @@ const (
 	// MultipoolerManagerListTableGroupsProcedure is the fully-qualified name of the
 	// MultipoolerManager's ListTableGroups RPC.
 	MultipoolerManagerListTableGroupsProcedure = "/multipoolermanager.MultipoolerManager/ListTableGroups"
+	// MultipoolerManagerGetRoutingSnapshotProcedure is the fully-qualified name of the
+	// MultipoolerManager's GetRoutingSnapshot RPC.
+	MultipoolerManagerGetRoutingSnapshotProcedure = "/multipoolermanager.MultipoolerManager/GetRoutingSnapshot"
 	// MultipoolerManagerManagerHealthStreamProcedure is the fully-qualified name of the
 	// MultipoolerManager's ManagerHealthStream RPC.
 	MultipoolerManagerManagerHealthStreamProcedure = "/multipoolermanager.MultipoolerManager/ManagerHealthStream"
@@ -183,6 +186,11 @@ type MultipoolerManagerClient interface {
 	// dropping ones for it to remove. See ListTableGroupsResponse for why a
 	// missing tablegroup is never a removal signal.
 	ListTableGroups(context.Context, *connect.Request[multipoolermanagerdata.ListTableGroupsRequest]) (*connect.Response[multipoolermanagerdata.ListTableGroupsResponse], error)
+	// GetRoutingSnapshot returns the whole sharding catalog, every tablegroup
+	// state included, read in one transaction, or a note that the caller's copy
+	// at since_version is still current. Gateways keep the result cached and
+	// call it again when the health stream reports a newer routing_version.
+	GetRoutingSnapshot(context.Context, *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
 	//
@@ -313,6 +321,12 @@ func NewMultipoolerManagerClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(multipoolerManagerMethods.ByName("ListTableGroups")),
 			connect.WithClientOptions(opts...),
 		),
+		getRoutingSnapshot: connect.NewClient[multipoolermanagerdata.GetRoutingSnapshotRequest, multipoolermanagerdata.GetRoutingSnapshotResponse](
+			httpClient,
+			baseURL+MultipoolerManagerGetRoutingSnapshotProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("GetRoutingSnapshot")),
+			connect.WithClientOptions(opts...),
+		),
 		managerHealthStream: connect.NewClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse](
 			httpClient,
 			baseURL+MultipoolerManagerManagerHealthStreamProcedure,
@@ -341,6 +355,7 @@ type multipoolerManagerClient struct {
 	getOperation               *connect.Client[multipoolermanagerdata.GetOperationRequest, multipoolermanagerdata.GetOperationResponse]
 	dropTableGroup             *connect.Client[multipoolermanagerdata.DropTableGroupRequest, multipoolermanagerdata.DropTableGroupResponse]
 	listTableGroups            *connect.Client[multipoolermanagerdata.ListTableGroupsRequest, multipoolermanagerdata.ListTableGroupsResponse]
+	getRoutingSnapshot         *connect.Client[multipoolermanagerdata.GetRoutingSnapshotRequest, multipoolermanagerdata.GetRoutingSnapshotResponse]
 	managerHealthStream        *connect.Client[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]
 }
 
@@ -430,6 +445,11 @@ func (c *multipoolerManagerClient) ListTableGroups(ctx context.Context, req *con
 	return c.listTableGroups.CallUnary(ctx, req)
 }
 
+// GetRoutingSnapshot calls multipoolermanager.MultipoolerManager.GetRoutingSnapshot.
+func (c *multipoolerManagerClient) GetRoutingSnapshot(ctx context.Context, req *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error) {
+	return c.getRoutingSnapshot.CallUnary(ctx, req)
+}
+
 // ManagerHealthStream calls multipoolermanager.MultipoolerManager.ManagerHealthStream.
 func (c *multipoolerManagerClient) ManagerHealthStream(ctx context.Context) *connect.BidiStreamForClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse] {
 	return c.managerHealthStream.CallBidiStream(ctx)
@@ -515,6 +535,11 @@ type MultipoolerManagerHandler interface {
 	// dropping ones for it to remove. See ListTableGroupsResponse for why a
 	// missing tablegroup is never a removal signal.
 	ListTableGroups(context.Context, *connect.Request[multipoolermanagerdata.ListTableGroupsRequest]) (*connect.Response[multipoolermanagerdata.ListTableGroupsResponse], error)
+	// GetRoutingSnapshot returns the whole sharding catalog, every tablegroup
+	// state included, read in one transaction, or a note that the caller's copy
+	// at since_version is still current. Gateways keep the result cached and
+	// call it again when the health stream reports a newer routing_version.
+	GetRoutingSnapshot(context.Context, *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
 	//
@@ -641,6 +666,12 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 		connect.WithSchema(multipoolerManagerMethods.ByName("ListTableGroups")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multipoolerManagerGetRoutingSnapshotHandler := connect.NewUnaryHandler(
+		MultipoolerManagerGetRoutingSnapshotProcedure,
+		svc.GetRoutingSnapshot,
+		connect.WithSchema(multipoolerManagerMethods.ByName("GetRoutingSnapshot")),
+		connect.WithHandlerOptions(opts...),
+	)
 	multipoolerManagerManagerHealthStreamHandler := connect.NewBidiStreamHandler(
 		MultipoolerManagerManagerHealthStreamProcedure,
 		svc.ManagerHealthStream,
@@ -683,6 +714,8 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 			multipoolerManagerDropTableGroupHandler.ServeHTTP(w, r)
 		case MultipoolerManagerListTableGroupsProcedure:
 			multipoolerManagerListTableGroupsHandler.ServeHTTP(w, r)
+		case MultipoolerManagerGetRoutingSnapshotProcedure:
+			multipoolerManagerGetRoutingSnapshotHandler.ServeHTTP(w, r)
 		case MultipoolerManagerManagerHealthStreamProcedure:
 			multipoolerManagerManagerHealthStreamHandler.ServeHTTP(w, r)
 		default:
@@ -760,6 +793,10 @@ func (UnimplementedMultipoolerManagerHandler) DropTableGroup(context.Context, *c
 
 func (UnimplementedMultipoolerManagerHandler) ListTableGroups(context.Context, *connect.Request[multipoolermanagerdata.ListTableGroupsRequest]) (*connect.Response[multipoolermanagerdata.ListTableGroupsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.ListTableGroups is not implemented"))
+}
+
+func (UnimplementedMultipoolerManagerHandler) GetRoutingSnapshot(context.Context, *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.GetRoutingSnapshot is not implemented"))
 }
 
 func (UnimplementedMultipoolerManagerHandler) ManagerHealthStream(context.Context, *connect.BidiStream[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]) error {

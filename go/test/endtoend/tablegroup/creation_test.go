@@ -35,6 +35,7 @@ import (
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	shardingcatalogpb "github.com/multigres/multigres/go/pb/shardingcatalog"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/test/utils/openapitest"
@@ -84,7 +85,7 @@ func TestTableGroupCreation(t *testing.T) {
 		tg = prov.find(t, "commerce")
 		require.NotNil(t, tg, "commerce is not desired")
 		assert.Equal(t, resp.GetTablegroupId(), tg.GetTablegroupId())
-		assert.Equal(t, multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_CREATING, tg.GetState())
+		assert.Equal(t, shardingcatalogpb.TableGroupState_TABLE_GROUP_STATE_CREATING, tg.GetState())
 		assert.Equal(t, []string{"0-80", "80-inf"}, tg.GetShards(), "shards are listed in canonical order")
 	})
 

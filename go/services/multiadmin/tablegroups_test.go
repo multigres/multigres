@@ -32,6 +32,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	shardingcatalogpb "github.com/multigres/multigres/go/pb/shardingcatalog"
 )
 
 func newTableGroupsTestServer(t *testing.T) (*MultiadminServer, topoclient.Store, *rpcclient.FakeClient) {
@@ -79,7 +80,7 @@ func TestListDesiredTableGroups(t *testing.T) {
 		addCatalogPooler(t, ts, "catalog-replica", clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA, 1)
 		addCatalogPooler(t, ts, "catalog-primary", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, 1)
 		want := []*multipoolermanagerdatapb.TableGroup{
-			{TablegroupId: 7, Name: "commerce", State: multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_CREATING, Shards: []string{"0-80", "80-inf"}},
+			{TablegroupId: 7, Name: "commerce", State: shardingcatalogpb.TableGroupState_TABLE_GROUP_STATE_CREATING, Shards: []string{"0-80", "80-inf"}},
 		}
 		fake.ListTableGroupsResponses[topoclient.ComponentID("multipooler-cell1-catalog-primary")] = &multipoolermanagerdatapb.ListTableGroupsResponse{TableGroups: want}
 		// The replica would answer with nothing, which must not be what we get.
