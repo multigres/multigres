@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/keyrange"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 )
@@ -61,7 +63,7 @@ func (f *fakeRoutingTx) writes() []fakeRoutingCall {
 	var out []fakeRoutingCall
 	for _, c := range f.calls {
 		switch c.sql {
-		case lockRoutingStateSQL, selectTablegroupsSQL, selectShardsSQL, selectRoutingRulesSQL,
+		case selectTablegroupsSQL, selectShardsSQL, selectRoutingRulesSQL,
 			countDefaultTablesSQL, selectOperationSQL, selectOtherOperationsSQL:
 			continue
 		}
@@ -70,12 +72,21 @@ func (f *fakeRoutingTx) writes() []fakeRoutingCall {
 	return out
 }
 
-// newFakeRoutingTx returns a catalog at routing version 5 with the default
+// testRoutingCurrent is the catalog versions the routing store tests write
+// at, as writeCatalog would pass them.
+var testRoutingCurrent = catalogVersions{routingVersion: 5, planEpoch: 2}
+
+// newFakeRoutingTx returns the catalog reads of a catalog with the default
 // tablegroup, an import target srctg and a two-shard commerce, the import
 // operation, and the given rule rows.
 func newFakeRoutingTx(rules ...[]any) *fakeRoutingTx {
-	return &fakeRoutingTx{results: map[string]*sqltypes.Result{
-		lockRoutingStateSQL: mock.MakeQueryResult([]string{"routing_version", "plan_epoch"}, [][]any{{5, 2}}),
+	return &fakeRoutingTx{results: routingCatalogResults(rules...)}
+}
+
+// routingCatalogResults returns newFakeRoutingTx's canned results, keyed by
+// the query that reads them.
+func routingCatalogResults(rules ...[]any) map[string]*sqltypes.Result {
+	return map[string]*sqltypes.Result{
 		selectTablegroupsSQL: mock.MakeQueryResult([]string{"tablegroup_id", "name", "state"}, [][]any{
 			{1, "default", "active"}, {2, "srctg", "active"}, {3, "commerce", "active"},
 		}),
@@ -91,15 +102,17 @@ func newFakeRoutingTx(rules ...[]any) *fakeRoutingTx {
 		}, rules),
 		countDefaultTablesSQL: mock.MakeQueryResult([]string{"count"}, [][]any{{0}}),
 		selectOperationSQL:    mock.MakeQueryResult([]string{"kind", "state"}, [][]any{{importOperationKind, "preparing"}}),
-	}}
+	}
 }
 
 func TestLoadRoutingCatalog(t *testing.T) {
 	tx := newFakeRoutingTx([]any{7, importOp, routingScopeTablegroup, 1, nil, 2, 2, nil, 5})
-	cat, err := loadRoutingCatalog(context.Background(), tx, importOp)
+	cat, err := loadRoutingCatalog(context.Background(), tx, testRoutingCurrent, importOp)
 	require.NoError(t, err)
 
-	assert.Equal(t, lockRoutingStateSQL, tx.calls[0].sql, "the catalog_state lock comes first")
+	for _, c := range tx.calls {
+		assert.NotContains(t, c.sql, "catalog_state", "writeCatalog owns the catalog_state lock and versions")
+	}
 	assert.Equal(t, int64(5), cat.routingVersion)
 	assert.Equal(t, int64(2), cat.planEpoch)
 	assert.Equal(t, "srctg", cat.tablegroups[2].name)
@@ -130,7 +143,7 @@ func TestLoadRoutingCatalog_OtherOperations(t *testing.T) {
 	tx.results[selectOtherOperationsSQL] = mock.MakeQueryResult([]string{"operation_id", "tablegroup_id"}, [][]any{
 		{otherOp, 2}, {"33333333-3333-3333-3333-333333333333", 2}, {"44444444-4444-4444-4444-444444444444", 3},
 	})
-	cat, err := loadRoutingCatalog(context.Background(), tx, importOp)
+	cat, err := loadRoutingCatalog(context.Background(), tx, testRoutingCurrent, importOp)
 	require.NoError(t, err)
 	assert.Equal(t, map[int64]string{2: otherOp, 3: "44444444-4444-4444-4444-444444444444"}, cat.otherOperations,
 		"each tablegroup keeps the first operation the ordered read returns")
@@ -141,54 +154,64 @@ func TestLoadRoutingCatalog_RejectsANonCanonicalShardName(t *testing.T) {
 	tx.results[selectShardsSQL] = mock.MakeQueryResult([]string{"shard_id", "tablegroup_id", "shard_name", "state"}, [][]any{
 		{11, 3, "00-80", "active"},
 	})
-	_, err := loadRoutingCatalog(context.Background(), tx, importOp)
+	_, err := loadRoutingCatalog(context.Background(), tx, testRoutingCurrent, importOp)
 	require.ErrorContains(t, err, "shard 11 has an invalid name")
 }
 
-func TestApplyRoutingRuleChange_WritesRulesAndBumpsVersion(t *testing.T) {
+func TestApplyRoutingRuleChange_WritesRules(t *testing.T) {
 	tx := newFakeRoutingTx()
-	version, err := applyRoutingRuleChange(context.Background(), tx, routingRuleChange{
+	change, err := applyRoutingRuleChange(context.Background(), tx, testRoutingCurrent, routingRuleChange{
 		operationID:            importOp,
 		rules:                  []shardRuleSpec{{fromTablegroup: "default", toTablegroup: "srctg", toShard: "0-inf"}},
 		expectedRoutingVersion: 5,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, int64(6), version)
+	assert.Equal(t, catalogRoutingChange, change)
 
 	var nilID *int64
 	shardID := int64(2)
 	assert.Equal(t, []fakeRoutingCall{
 		{sql: deleteOperationRulesSQL, args: []any{importOp}},
 		{sql: insertRoutingRuleSQL, args: []any{importOp, routingScopeTablegroup, int64(1), nilID, int64(2), &shardID, nilID, int64(6)}},
-		{sql: bumpRoutingVersionSQL, args: []any{int64(6), int64(0)}},
-	}, tx.writes())
+	}, tx.writes(), "rules are stamped with the version writeCatalog commits them at")
 }
 
-func TestApplyRoutingRuleChange_DeleteBumpsVersion(t *testing.T) {
-	tx := newFakeRoutingTx([]any{7, importOp, routingScopeTablegroup, 1, nil, 2, 2, nil, 5})
-	version, err := applyRoutingRuleChange(context.Background(), tx, routingRuleChange{operationID: importOp, expectedRoutingVersion: 5})
+func TestApplyRoutingRuleChange_InvalidatesPlans(t *testing.T) {
+	// default has one shard; spreading it over commerce's two changes how a
+	// query on it may be planned.
+	tx := newFakeRoutingTx()
+	change, err := applyRoutingRuleChange(context.Background(), tx, testRoutingCurrent, routingRuleChange{
+		operationID:            importOp,
+		rules:                  []shardRuleSpec{{"default", "commerce", "0-80"}, {"default", "commerce", "80-inf"}},
+		expectedRoutingVersion: 5,
+	})
 	require.NoError(t, err)
-	assert.Equal(t, int64(6), version)
+	assert.Equal(t, catalogInvalidatesPlans, change)
+	assert.Len(t, tx.writes(), 3)
+}
+
+func TestApplyRoutingRuleChange_Delete(t *testing.T) {
+	tx := newFakeRoutingTx([]any{7, importOp, routingScopeTablegroup, 1, nil, 2, 2, nil, 5})
+	change, err := applyRoutingRuleChange(context.Background(), tx, testRoutingCurrent, routingRuleChange{operationID: importOp, expectedRoutingVersion: 5})
+	require.NoError(t, err)
+	assert.Equal(t, catalogRoutingChange, change)
 	assert.Equal(t, []fakeRoutingCall{
 		{sql: deleteOperationRulesSQL, args: []any{importOp}},
-		{sql: bumpRoutingVersionSQL, args: []any{int64(6), int64(0)}},
 	}, tx.writes())
 }
 
 func TestApplyRoutingRuleChange_WritesNothing(t *testing.T) {
 	existing := []any{7, importOp, routingScopeTablegroup, 1, nil, 2, 2, nil, 5}
 	for _, tt := range []struct {
-		name    string
-		rules   [][]any
-		change  routingRuleChange
-		version int64
-		code    mtrpcpb.Code
+		name   string
+		rules  [][]any
+		change routingRuleChange
+		code   mtrpcpb.Code
 	}{
 		{
-			name:    "already in effect",
-			rules:   [][]any{existing},
-			change:  routingRuleChange{operationID: importOp, rules: []shardRuleSpec{{"default", "srctg", "0-inf"}}, expectedRoutingVersion: 4},
-			version: 5,
+			name:   "already in effect",
+			rules:  [][]any{existing},
+			change: routingRuleChange{operationID: importOp, rules: []shardRuleSpec{{"default", "srctg", "0-inf"}}, expectedRoutingVersion: 4},
 		},
 		{
 			name:   "stale version",
@@ -208,13 +231,13 @@ func TestApplyRoutingRuleChange_WritesNothing(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tx := newFakeRoutingTx(tt.rules...)
-			version, err := applyRoutingRuleChange(context.Background(), tx, tt.change)
+			change, err := applyRoutingRuleChange(context.Background(), tx, testRoutingCurrent, tt.change)
 			if tt.code != mtrpcpb.Code_OK {
 				require.Error(t, err)
 				assert.Equal(t, tt.code, mterrors.Code(err), "error: %v", err)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, tt.version, version)
+				assert.Equal(t, catalogUnchanged, change)
 			}
 			assert.Empty(t, tx.writes(), tt.name+" must not write")
 			if tt.change.operationID == "nope" {
@@ -224,4 +247,79 @@ func TestApplyRoutingRuleChange_WritesNothing(t *testing.T) {
 			}
 		})
 	}
+}
+
+// expectRoutingCatalog registers the catalog_state lock at
+// testRoutingCurrent, the routing store's catalog reads with the given rule
+// rows, its rule writes, and COMMIT, all recorded in env.queries.
+func (env *tableGroupTestEnv) expectRoutingCatalog(rules ...[]any) {
+	env.expect("FROM multigres.catalog_state FOR UPDATE", []string{"routing_version", "plan_epoch"},
+		[][]any{{testRoutingCurrent.routingVersion, testRoutingCurrent.planEpoch}})
+	for sql, res := range routingCatalogResults(rules...) {
+		env.qs.AddQueryPatternWithCallback("^"+regexp.QuoteMeta(sql)+"$", res, func(q string) {
+			env.queries = append(env.queries, q)
+		})
+	}
+	env.expect("^"+regexp.QuoteMeta(selectOtherOperationsSQL)+"$", []string{"operation_id", "tablegroup_id"}, nil)
+	env.expect("^"+regexp.QuoteMeta(deleteOperationRulesSQL)+"$", nil, nil)
+	env.expect("^"+regexp.QuoteMeta(insertRoutingRuleSQL)+"$", nil, nil)
+	env.expectCommit()
+}
+
+func TestChangeRoutingRules(t *testing.T) {
+	importRule := []shardRuleSpec{{"default", "srctg", "0-inf"}}
+
+	t.Run("a rule change advances routing_version by one", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		hs := env.withHealthStreamer(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+		env.expectRoutingCatalog()
+		env.expect("SET routing_version = routing_version \\+ 1 RETURNING", []string{"routing_version", "plan_epoch"}, [][]any{{int64(6), int64(2)}})
+
+		v, err := env.pm.changeRoutingRules(t.Context(), routingRuleChange{operationID: importOp, rules: importRule, expectedRoutingVersion: 5})
+		require.NoError(t, err)
+		assert.Equal(t, catalogVersions{routingVersion: 6, planEpoch: 2}, v)
+		assert.Len(t, env.queriesMatching("INSERT INTO multigres.routing_rule"), 1)
+		assert.Len(t, env.queriesMatching("UPDATE multigres.catalog_state"), 1, "advanced once, by writeCatalog")
+		assert.Equal(t, "COMMIT", env.queries[len(env.queries)-1])
+		assert.Equal(t, int64(6), hs.getState().RoutingVersion)
+	})
+	t.Run("a change that invalidates plans advances plan_epoch too", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		env.expectRoutingCatalog()
+		env.expect("SET routing_version = routing_version \\+ 1, plan_epoch = plan_epoch \\+ 1",
+			[]string{"routing_version", "plan_epoch"}, [][]any{{int64(6), int64(3)}})
+
+		v, err := env.pm.changeRoutingRules(t.Context(), routingRuleChange{
+			operationID:            importOp,
+			rules:                  []shardRuleSpec{{"default", "commerce", "0-80"}, {"default", "commerce", "80-inf"}},
+			expectedRoutingVersion: 5,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, catalogVersions{routingVersion: 6, planEpoch: 3}, v)
+		assert.Len(t, env.queriesMatching("plan_epoch = plan_epoch + 1"), 1)
+	})
+	t.Run("a no-op commits nothing and returns the current versions", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		env.expectRoutingCatalog([]any{7, importOp, routingScopeTablegroup, 1, nil, 2, 2, nil, 5})
+
+		// A retry carries the version it expected before its first attempt.
+		v, err := env.pm.changeRoutingRules(t.Context(), routingRuleChange{operationID: importOp, rules: importRule, expectedRoutingVersion: 4})
+		require.NoError(t, err)
+		assert.Equal(t, testRoutingCurrent, v)
+		assert.Empty(t, env.queriesMatching("routing_rule WHERE"), "no rule deleted")
+		assert.Empty(t, env.queriesMatching("INSERT INTO"))
+		assert.Empty(t, env.queriesMatching("UPDATE multigres.catalog_state"))
+		assert.Empty(t, env.queriesMatching("COMMIT"))
+	})
+	t.Run("a stale expected version rolls back", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		env.expectRoutingCatalog()
+
+		_, err := env.pm.changeRoutingRules(t.Context(), routingRuleChange{operationID: importOp, rules: importRule, expectedRoutingVersion: 4})
+		require.Error(t, err)
+		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err), "error: %v", err)
+		assert.Empty(t, env.queriesMatching("INSERT INTO"))
+		assert.Empty(t, env.queriesMatching("UPDATE multigres.catalog_state"))
+		assert.Empty(t, env.queriesMatching("COMMIT"))
+	})
 }

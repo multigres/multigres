@@ -23,15 +23,14 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 )
 
-// The routing store reads and writes routing rules inside a caller's
-// transaction on the catalog shard's primary. Every rule write locks the
-// catalog_state row first (lockRoutingState), so rule writers are serialized
-// and the validation in routing_rules.go sees a catalog no other writer is
-// changing.
+// The routing store reads and writes routing rules on the catalog shard's
+// primary. Every rule write is a writeCatalog writer (routing_snapshot.go), so
+// it runs with the catalog_state row already locked: rule writers are
+// serialized with every other catalog writer, the validation in
+// routing_rules.go sees a catalog no other writer is changing, and
+// writeCatalog advances routing_version when the rules change.
 
 const (
-	lockRoutingStateSQL = `SELECT routing_version, plan_epoch FROM multigres.catalog_state FOR UPDATE`
-
 	selectTablegroupsSQL = `SELECT tablegroup_id, name, state FROM multigres.tablegroup`
 
 	// A shard's key range is read from its name, which the catalog keeps
@@ -61,67 +60,65 @@ ORDER BY operation_id`
 	insertRoutingRuleSQL = `INSERT INTO multigres.routing_rule
 	(operation_id, scope, from_tablegroup_id, from_table_id, to_tablegroup_id, to_shard_id, to_shard_key_id, created_version)
 VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)`
-
-	bumpRoutingVersionSQL = `UPDATE multigres.catalog_state SET routing_version = $1, plan_epoch = plan_epoch + $2`
 )
 
-// applyRoutingRuleChange validates change and writes it in tx: it replaces
-// the operation's rules and increments routing_version (and plan_epoch when
-// the plan requires it). It returns the routing version after the change; a
-// change that is already in effect writes nothing and returns the current
-// version. The caller commits tx.
-func applyRoutingRuleChange(ctx context.Context, tx executor.InternalTx, change routingRuleChange) (int64, error) {
-	cat, err := loadRoutingCatalog(ctx, tx, change.operationID)
+// changeRoutingRules validates change and, when it alters the operation's
+// rules, writes it through writeCatalog. It returns the versions after the
+// change; a change that is already in effect writes nothing and returns the
+// current versions. It is the only entry point for rule writes, and its
+// callers have checked that this pooler is the catalog primary.
+func (pm *MultipoolerManager) changeRoutingRules(ctx context.Context, change routingRuleChange) (catalogVersions, error) {
+	return pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, current catalogVersions) (catalogChange, error) {
+		return applyRoutingRuleChange(ctx, tx, current, change)
+	})
+}
+
+// applyRoutingRuleChange is the catalogWriter body of a rule write: it
+// validates change against the catalog at current and replaces the
+// operation's rules in tx, stamped with the version writeCatalog commits them
+// at. A change that is already in effect writes nothing and reports
+// catalogUnchanged; one whose plan requires it invalidates cached plans.
+func applyRoutingRuleChange(ctx context.Context, tx executor.InternalTx, current catalogVersions, change routingRuleChange) (catalogChange, error) {
+	cat, err := loadRoutingCatalog(ctx, tx, current, change.operationID)
 	if err != nil {
-		return 0, err
+		return catalogUnchanged, err
 	}
 	plan, err := planRoutingRuleChange(cat, change)
 	if err != nil {
-		return 0, err
+		return catalogUnchanged, err
 	}
 	if plan.noop {
-		return cat.routingVersion, nil
+		return catalogUnchanged, nil
 	}
 
-	version := cat.routingVersion + 1
+	version := current.routingVersion + 1
 	if _, err := tx.QueryArgs(ctx, deleteOperationRulesSQL, change.operationID); err != nil {
-		return 0, mterrors.Wrap(err, "failed to delete routing rules")
+		return catalogUnchanged, mterrors.Wrap(err, "failed to delete routing rules")
 	}
 	for _, r := range plan.insert {
 		if _, err := tx.QueryArgs(ctx, insertRoutingRuleSQL,
 			r.operationID, r.scope, r.fromTablegroupID, nullableID(r.fromTableID),
 			r.toTablegroupID, nullableID(r.toShardID), nullableID(r.toShardKeyID), version); err != nil {
-			return 0, mterrors.Wrap(err, "failed to insert routing rule")
+			return catalogUnchanged, mterrors.Wrap(err, "failed to insert routing rule")
 		}
 	}
-	var planEpochDelta int64
 	if plan.bumpPlanEpoch {
-		planEpochDelta = 1
+		return catalogInvalidatesPlans, nil
 	}
-	if _, err := tx.QueryArgs(ctx, bumpRoutingVersionSQL, version, planEpochDelta); err != nil {
-		return 0, mterrors.Wrap(err, "failed to bump routing version")
-	}
-	return version, nil
+	return catalogRoutingChange, nil
 }
 
-// loadRoutingCatalog locks catalog_state and reads what rule validation needs.
-// It must be the first thing a rule write does in its transaction, so the
-// version it compares against is the one it then increments.
-func loadRoutingCatalog(ctx context.Context, tx executor.InternalTx, operationID string) (*routingCatalog, error) {
+// loadRoutingCatalog reads what rule validation needs, in a transaction that
+// holds the catalog_state lock at current.
+func loadRoutingCatalog(ctx context.Context, tx executor.InternalTx, current catalogVersions, operationID string) (*routingCatalog, error) {
 	cat := &routingCatalog{
-		tablegroups: map[int64]*catalogTablegroup{},
-		shards:      map[int64]*catalogShard{},
+		routingVersion: current.routingVersion,
+		planEpoch:      current.planEpoch,
+		tablegroups:    map[int64]*catalogTablegroup{},
+		shards:         map[int64]*catalogShard{},
 	}
 
-	result, err := tx.Query(ctx, lockRoutingStateSQL)
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to lock catalog state")
-	}
-	if err := executor.ScanSingleRow(result, &cat.routingVersion, &cat.planEpoch); err != nil {
-		return nil, mterrors.Wrap(err, "failed to read routing version")
-	}
-
-	result, err = tx.Query(ctx, selectTablegroupsSQL)
+	result, err := tx.Query(ctx, selectTablegroupsSQL)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read tablegroups")
 	}

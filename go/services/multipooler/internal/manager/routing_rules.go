@@ -303,15 +303,16 @@ func (cat *routingCatalog) checkNewRules(insert []routingRule) error {
 		// objects yet. It is allowed only while no table is registered in the
 		// default tablegroup, so no table's placement is overridden by it.
 		//
-		// Two obligations on other catalog writers keep this sound:
+		// Two things keep this sound:
 		//   - Everything this validation reads (tablegroup and shard states,
-		//     operation states, tablegroup_table rows) must be written under
-		//     the catalog_state row lock (lockRoutingStateSQL), as rule
-		//     writes are, or a concurrent write can slip past a check.
-		//   - The reverse of this guard: while a rule from the default
-		//     tablegroup exists, registering a table in the default
-		//     tablegroup must be refused, or the rule silently overrides the
-		//     new table's placement.
+		//     operation states, tablegroup_table rows) is written through
+		//     writeCatalog, which holds the catalog_state row lock, so no
+		//     concurrent write can slip past a check.
+		//   - The reverse of this guard, an obligation on other catalog
+		//     writers: while a rule from the default tablegroup exists,
+		//     registering a table in the default tablegroup must be refused,
+		//     or the rule silently overrides the new table's placement.
+		//     Nothing enforces this yet.
 		if from.name == constants.DefaultTableGroup {
 			if op.kind != importOperationKind {
 				return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
