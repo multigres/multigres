@@ -31,35 +31,46 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 )
 
-// connectionRow is the row of multigres.connections that the migrator's store reads, for the
-// connection a libpq string names (completed, as CREATE CONNECTION stores it).
-func connectionRow(name, dsn string) *sqltypes.Result {
-	conn, err := backingconn.ParseDSN(dsn)
-	if err != nil {
-		panic(err)
+// bindingRow is the row the catalog gives for a tablegroup: its state and the name and conninfo of
+// the connection it is bound to (empty for a managed tablegroup). The connection is the one a libpq string
+// names, completed as CREATE CONNECTION stores it.
+func bindingRow(state, name, dsn string) *sqltypes.Result {
+	var conninfo string
+	if dsn != "" {
+		conn, err := backingconn.ParseDSN(dsn)
+		if err != nil {
+			panic(err)
+		}
+		conn.Complete()
+		data, err := json.Marshal(conn)
+		if err != nil {
+			panic(err)
+		}
+		conninfo = string(data)
 	}
-	conn.Complete()
-	data, err := json.Marshal(conn)
-	if err != nil {
-		panic(err)
-	}
-	return connectionRowWithConnInfo(name, dsn, string(data))
+	return bindingRowWithConnInfo(state, name, conninfo)
 }
 
-// connectionRowWithConnInfo is a row whose conninfo column holds the given JSON.
-func connectionRowWithConnInfo(name, dsn, conninfo string) *sqltypes.Result {
+// bindingRowWithConnInfo is a row whose connection's conninfo column holds the given JSON.
+func bindingRowWithConnInfo(state, name, conninfo string) *sqltypes.Result {
 	return mock.MakeQueryResult(
-		[]string{"connection_id", "name", "dsn", "owner_role", "created_at", "conninfo"},
-		[][]any{{int64(1), name, dsn, "", "2026-01-01T00:00:00Z", conninfo}})
+		[]string{"state", "name", "conninfo"},
+		[][]any{{state, name, conninfo}})
 }
 
-// TestBackingConnectionIsReadFromTheCatalog: the connection is a row of multigres.connections,
-// read with one query, and its conninfo is the connection.
-func TestBackingConnectionIsReadFromTheCatalog(t *testing.T) {
-	t.Run("found", func(t *testing.T) {
+const bindingQuery = "FROM multigres.tablegroup t LEFT JOIN multigres.connections c"
+
+// TestTableGroupBindingIsReadFromTheCatalog: how a tablegroup is served is its row and the
+// connection the row names, read with one query, and its conninfo is the connection.
+func TestTableGroupBindingIsReadFromTheCatalog(t *testing.T) {
+	binding := func(t *testing.T, row *sqltypes.Result) (*mock.QueryService, *connectionStore) {
 		pm, qs := newTestManagerWithMock(t, constants.DefaultTableGroup, "0-inf")
-		qs.AddQueryPattern("FROM multigres.connections WHERE name", connectionRow("src", "postgres://u:p@h:5432/db"))
-		conn, found, err := newConnectionStore(pm).BackingConnection(t.Context(), "src")
+		qs.AddQueryPattern(bindingQuery, row)
+		return qs, newConnectionStore(pm)
+	}
+	t.Run("a bound tablegroup", func(t *testing.T) {
+		qs, store := binding(t, bindingRow(tableGroupStateActive, "src", "postgres://u:p@h:5432/db"))
+		conn, found, err := store.TableGroupBinding(t.Context(), 7)
 		require.NoError(t, err)
 		require.True(t, found)
 		require.Equal(t, "src", conn.GetName())
@@ -68,71 +79,67 @@ func TestBackingConnectionIsReadFromTheCatalog(t *testing.T) {
 		require.Equal(t, "u", conn.GetUser())
 		require.EqualValues(t, 1, qs.AdminQueryCount(), "one query, nothing created")
 	})
-	t.Run("not found", func(t *testing.T) {
-		pm, qs := newTestManagerWithMock(t, constants.DefaultTableGroup, "0-inf")
-		qs.AddQueryPattern("FROM multigres.connections", mock.MakeQueryResult(nil, nil))
-		_, found, err := newConnectionStore(pm).BackingConnection(t.Context(), "src")
+	t.Run("a managed tablegroup has no connection", func(t *testing.T) {
+		_, store := binding(t, bindingRow(tableGroupStateCreating, "", ""))
+		conn, found, err := store.TableGroupBinding(t.Context(), 7)
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Nil(t, conn)
+	})
+	t.Run("no such tablegroup", func(t *testing.T) {
+		_, store := binding(t, mock.MakeQueryResult(nil, nil))
+		conn, found, err := store.TableGroupBinding(t.Context(), 7)
 		require.NoError(t, err)
 		require.False(t, found)
+		require.Nil(t, conn)
 	})
-	t.Run("a catalog without the connections table is a precondition failure naming the catalog shard", func(t *testing.T) {
-		pm, qs := newTestManagerWithMock(t, constants.DefaultTableGroup, "0-inf")
-		qs.AddQueryPatternWithError("FROM multigres.connections",
-			&mterrors.PgDiagnostic{Code: mterrors.PgSSUndefinedTable, Message: `relation "multigres.connections" does not exist`})
-		_, found, err := newConnectionStore(pm).BackingConnection(t.Context(), "src")
+	t.Run("a tablegroup being dropped is served to no one", func(t *testing.T) {
+		_, store := binding(t, bindingRow(tableGroupStateDropping, "src", "postgres://u:p@h:5432/db"))
+		_, found, err := store.TableGroupBinding(t.Context(), 7)
 		require.False(t, found)
 		require.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err), "%v", err)
-		require.ErrorContains(t, err, "connections live on the catalog shard")
 	})
-	t.Run("another failure of the read is passed on as it is", func(t *testing.T) {
+	t.Run("a failure of the read is passed on as it is", func(t *testing.T) {
 		pm, qs := newTestManagerWithMock(t, constants.DefaultTableGroup, "0-inf")
-		qs.AddQueryPatternWithError("FROM multigres.connections", errors.New("some other failure"))
-		_, found, err := newConnectionStore(pm).BackingConnection(t.Context(), "src")
+		qs.AddQueryPatternWithError(bindingQuery, errors.New("some other failure"))
+		_, found, err := newConnectionStore(pm).TableGroupBinding(t.Context(), 7)
 		require.False(t, found)
 		require.ErrorContains(t, err, "some other failure")
 	})
 	t.Run("a lost connection to the database is UNAVAILABLE, which the caller retries", func(t *testing.T) {
 		pm, qs := newTestManagerWithMock(t, constants.DefaultTableGroup, "0-inf")
-		qs.AddQueryPatternWithError("FROM multigres.connections",
+		qs.AddQueryPatternWithError(bindingQuery,
 			&mterrors.PgDiagnostic{Code: "08006", Message: "connection failure"})
-		_, found, err := newConnectionStore(pm).BackingConnection(t.Context(), "src")
+		_, found, err := newConnectionStore(pm).TableGroupBinding(t.Context(), 7)
 		require.False(t, found)
 		require.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "%v", err)
-		require.ErrorContains(t, err, `read connection "src"`)
+		require.ErrorContains(t, err, "read tablegroup 7")
 	})
 	t.Run("no query service is UNAVAILABLE, not an unknown error", func(t *testing.T) {
 		store := &connectionStore{queryService: func() executor.InternalQueryService { return nil }}
-		_, found, err := store.BackingConnection(t.Context(), "src")
+		_, found, err := store.TableGroupBinding(t.Context(), 7)
 		require.False(t, found)
 		require.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "%v", err)
 	})
-	t.Run("a connection that does not name one server is refused with its code, naming the connection", func(t *testing.T) {
-		pm, qs := newTestManagerWithMock(t, constants.DefaultTableGroup, "0-inf")
-		qs.AddQueryPattern("FROM multigres.connections", connectionRow("src", "host=h1,h2 port=5432 dbname=app user=u password=p"))
-		_, _, err := newConnectionStore(pm).BackingConnection(t.Context(), "src")
-		require.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err), "%v", err)
-		require.ErrorContains(t, err, `connection "src"`)
-	})
 }
 
-// A connection is served from its stored conninfo, and only the conninfo: the dsn column is not read.
-func TestBackingConnectionIsServedFromTheStoredConnInfo(t *testing.T) {
+// A connection is served from its stored conninfo, and only the conninfo.
+func TestTableGroupBindingIsServedFromTheStoredConnInfo(t *testing.T) {
 	read := func(t *testing.T, row *sqltypes.Result) (*multipoolerservicepb.BackingConnection, error) {
 		pm, qs := newTestManagerWithMock(t, constants.DefaultTableGroup, "0-inf")
-		qs.AddQueryPattern("FROM multigres.connections", row)
-		conn, found, err := newConnectionStore(pm).BackingConnection(t.Context(), "src")
+		qs.AddQueryPattern(bindingQuery, row)
+		conn, found, err := newConnectionStore(pm).TableGroupBinding(t.Context(), 7)
 		if err == nil {
 			require.True(t, found)
 		}
 		return conn, err
 	}
-	bound := func(dsn, conninfo string) *sqltypes.Result {
-		return connectionRowWithConnInfo("src", dsn, conninfo)
+	bound := func(conninfo string) *sqltypes.Result {
+		return bindingRowWithConnInfo(tableGroupStateActive, "src", conninfo)
 	}
 
 	t.Run("a conninfo", func(t *testing.T) {
-		// The dsn column is not even a connection string: only the conninfo is read.
-		conn, err := read(t, bound("not a dsn",
+		conn, err := read(t, bound(
 			`{"host":["db.example.com"],"port":[6543],"dbname":"app","user":"alice","password":"pw","sslmode":"verify-full","sslrootcert":"/ca.pem"}`))
 		require.NoError(t, err)
 		require.Equal(t, "src", conn.GetName())
@@ -144,23 +151,16 @@ func TestBackingConnectionIsServedFromTheStoredConnInfo(t *testing.T) {
 		require.Equal(t, "/ca.pem", conn.GetSslRootCert())
 	})
 	t.Run("a connection that is not valid is refused", func(t *testing.T) {
-		_, err := read(t, bound("host=h", `{"host":["h"],"port":[5432],"dbname":"app","user":"u","sslmode":"prefer"}`))
+		_, err := read(t, bound(`{"host":["h"],"port":[5432],"dbname":"app","user":"u","sslmode":"prefer"}`))
 		require.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err), "%v", err)
 	})
 	t.Run("a connection a pooler cannot front is refused by the rules of the pooler", func(t *testing.T) {
-		for name, conninfo := range map[string]string{
-			"a parameter it does not carry": `{"host":["h"],"port":[5432],"dbname":"app","user":"u","password":"p","sslmode":"prefer","params":{"application_name":"x"}}`,
-			"more than one server":          `{"host":["a","b"],"port":[5432],"dbname":"app","user":"u","password":"p","sslmode":"prefer"}`,
-		} {
-			t.Run(name, func(t *testing.T) {
-				_, err := read(t, bound("host=h", conninfo))
-				require.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err), "%v", err)
-				require.ErrorContains(t, err, `connection "src"`)
-			})
-		}
+		_, err := read(t, bound(`{"host":["h"],"port":[5432],"dbname":"app","user":"u","password":"p","sslmode":"prefer","params":{"application_name":"x"}}`))
+		require.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err), "%v", err)
+		require.ErrorContains(t, err, `connection "src"`)
 	})
 	t.Run("a conninfo this version cannot read is refused, never read as less", func(t *testing.T) {
-		_, err := read(t, bound("host=h port=5432 dbname=app user=u", `{"host":["h"],"password":"s3cr3t","future":true}`))
+		_, err := read(t, bound(`{"host":["h"],"password":"s3cr3t","future":true}`))
 		require.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err), "%v", err)
 		require.NotContains(t, err.Error(), "s3cr3t")
 	})

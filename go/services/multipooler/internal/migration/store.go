@@ -627,7 +627,7 @@ func scanConnection(row *sqltypes.Row) (*Connection, error) {
 	if err := executor.ScanRow(row, &c.ID, &c.Name, &c.DSN, &c.OwnerRole, &c.CreatedAt, &conninfo); err != nil {
 		return nil, fmt.Errorf("scan connection: %w", err)
 	}
-	c.ConnInfo, c.connInfoErr = decodeConnInfo(c.Name, conninfo)
+	c.ConnInfo, c.connInfoErr = DecodeConnInfo(c.Name, conninfo)
 	return &c, nil
 }
 

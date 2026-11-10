@@ -38,11 +38,11 @@ type fakeDirectory struct {
 	conn  *multipoolerservicepb.BackingConnection
 	found bool
 	err   error
-	asked string
+	asked int64
 }
 
-func (d *fakeDirectory) BackingConnection(_ context.Context, name string) (*multipoolerservicepb.BackingConnection, bool, error) {
-	d.asked = name
+func (d *fakeDirectory) TableGroupBinding(_ context.Context, tablegroupID int64) (*multipoolerservicepb.BackingConnection, bool, error) {
+	d.asked = tablegroupID
 	return d.conn, d.found, d.err
 }
 
@@ -65,45 +65,55 @@ func newMetadataManager(t *testing.T, poolerType clustermetadatapb.PoolerType, t
 	return pm
 }
 
-// TestBackingConnectionComesFromTheDirectory: what the default primary answers comes from the
-// directory of connections.
-func TestBackingConnectionComesFromTheDirectory(t *testing.T) {
+// TestTableGroupBindingComesFromTheDirectory: what the default primary answers comes from the
+// directory, by tablegroup id: the connection of an external tablegroup, or that it is managed.
+func TestTableGroupBindingComesFromTheDirectory(t *testing.T) {
 	pm := newMetadataManager(t, clustermetadatapb.PoolerType_REPLICA, constants.DefaultTableGroup)
 
-	dir := &fakeDirectory{conn: &multipoolerservicepb.BackingConnection{Hosts: []string{"h"}, Ports: []int32{5432}, Database: "db", User: "u"}, found: true}
+	dir := &fakeDirectory{conn: &multipoolerservicepb.BackingConnection{Name: "src", Hosts: []string{"h"}, Ports: []int32{5432}, Database: "db", User: "u"}, found: true}
 	pm.connectionDir = dir
-	resp, err := pm.backingConnection(t.Context(), "src")
+	resp, err := pm.tableGroupBinding(t.Context(), 7)
 	require.NoError(t, err)
-	require.Equal(t, "src", dir.asked)
+	require.EqualValues(t, 7, dir.asked)
 	require.Equal(t, "src", resp.GetConnection().GetName())
 	require.Equal(t, []string{"h"}, resp.GetConnection().GetHosts())
+	require.False(t, resp.GetManaged())
+
+	// A managed tablegroup is said to be managed, with no connection.
+	dir.conn = nil
+	resp, err = pm.tableGroupBinding(t.Context(), 7)
+	require.NoError(t, err)
+	require.True(t, resp.GetManaged())
+	require.Nil(t, resp.GetConnection())
 
 	dir.found = false
-	_, err = pm.backingConnection(t.Context(), "src")
+	_, err = pm.tableGroupBinding(t.Context(), 7)
 	requireMetadataCode(t, mtrpcpb.Code_NOT_FOUND, err)
 
 	dir.err = errors.New("directory down")
-	_, err = pm.backingConnection(t.Context(), "src")
+	_, err = pm.tableGroupBinding(t.Context(), 7)
 	require.ErrorContains(t, err, "directory down")
 
 	// A refusal by the directory keeps its code through the manager.
 	dir.err = errUnusableConnection("it names more than one server")
-	_, err = pm.backingConnection(t.Context(), "src")
+	_, err = pm.tableGroupBinding(t.Context(), 7)
 	requireMetadataCode(t, mtrpcpb.Code_FAILED_PRECONDITION, err)
 
-	_, err = pm.backingConnection(t.Context(), "")
-	requireMetadataCode(t, mtrpcpb.Code_INVALID_ARGUMENT, err)
+	for _, id := range []int64{0, -1} {
+		_, err = pm.tableGroupBinding(t.Context(), id)
+		requireMetadataCode(t, mtrpcpb.Code_INVALID_ARGUMENT, err)
+	}
 }
 
 // TestMetadataIsServedOnlyByTheDefaultPrimary: a replica, and a pooler of another tablegroup,
 // answer UNAVAILABLE, which a caller retries after rediscovering the default primary; a
 // request for another database is INVALID_ARGUMENT.
 func TestMetadataIsServedOnlyByTheDefaultPrimary(t *testing.T) {
-	req := &multipoolerservicepb.GetBackingConnectionRequest{Database: "db", ConnectionName: "src"}
+	req := &multipoolerservicepb.GetBackingConnectionRequest{Database: "db", TablegroupId: 7}
 	_, err := newMetadataManager(t, clustermetadatapb.PoolerType_REPLICA, constants.DefaultTableGroup).GetBackingConnection(t.Context(), req)
 	requireMetadataCode(t, mtrpcpb.Code_UNAVAILABLE, err)
 	_, err = newMetadataManager(t, clustermetadatapb.PoolerType_REPLICA, "migrateTG").GetBackingConnection(t.Context(), req)
 	requireMetadataCode(t, mtrpcpb.Code_UNAVAILABLE, err)
-	_, err = newMetadataManager(t, clustermetadatapb.PoolerType_REPLICA, constants.DefaultTableGroup).GetBackingConnection(t.Context(), &multipoolerservicepb.GetBackingConnectionRequest{Database: "other", ConnectionName: "src"})
+	_, err = newMetadataManager(t, clustermetadatapb.PoolerType_REPLICA, constants.DefaultTableGroup).GetBackingConnection(t.Context(), &multipoolerservicepb.GetBackingConnectionRequest{Database: "other", TablegroupId: 7})
 	requireMetadataCode(t, mtrpcpb.Code_INVALID_ARGUMENT, err)
 }

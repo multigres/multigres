@@ -3954,6 +3954,8 @@ type TableGroup struct {
 	Shards []string `protobuf:"bytes,4,rep,name=shards,proto3" json:"shards,omitempty"`
 	// backing_connection is the name of the connection of the external
 	// PostgreSQL that the tablegroup is bound to. Empty for a managed tablegroup.
+	// Provisioners start one unmanaged pooler for a tablegroup that has one,
+	// and no pgctld, multiorch or backups.
 	BackingConnection string `protobuf:"bytes,5,opt,name=backing_connection,json=backingConnection,proto3" json:"backing_connection,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache

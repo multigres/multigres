@@ -29,16 +29,18 @@ import (
 
 	"github.com/multigres/multigres/go/common/backingconn"
 	migratorpb "github.com/multigres/multigres/go/pb/migrator"
+	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	multipoolerservicepb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
-// TestBackingConnectionsAreServedFromTheCatalog verifies, against a real
-// catalog shard, that the default primary serves a backing connection from
-// multigres.connections, the table the migrator shares: GetBackingConnection
-// returns a connection, structured, whether it was written in SQL as an
-// operator does or created through the migrator.
+// TestBackingConnectionsAreServedFromTheCatalog verifies, against a real catalog shard, that the
+// default primary says how a tablegroup is served from the catalog: GetBackingConnection returns
+// the connection a tablegroup is bound to in multigres.connections, the table the migrator shares,
+// structured, whether it was written in SQL as an operator does or created through the migrator,
+// and says that a tablegroup with no binding is managed.
 func TestBackingConnectionsAreServedFromTheCatalog(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
@@ -47,32 +49,29 @@ func TestBackingConnectionsAreServedFromTheCatalog(t *testing.T) {
 		t.Skip("skipping: PostgreSQL binaries not found")
 	}
 
-	setup := getSharedTestSetup(t)
-	setupPoolerTest(t, setup)
+	// The test creates tablegroups, which advance the catalog's versions, so it does not share
+	// the catalog of the package's shared setup, whose versions other tests read as untouched.
+	setup, cleanup := shardsetup.NewIsolated(t, shardsetup.WithMultipoolerCount(2))
+	defer cleanup()
+	primary := setup.GetPrimary(t)
 
 	primaryDB := connectToPostgresViaSocket(t,
-		getPostgresSocketPath(setup.PrimaryPgctld.PoolerDir), setup.PrimaryPgctld.PgPort)
+		getPostgresSocketPath(primary.Pgctld.PoolerDir), primary.Pgctld.PgPort)
 	defer primaryDB.Close()
 	var database string
 	require.NoError(t, primaryDB.QueryRow(`SELECT current_database()`).Scan(&database))
 
-	conn, err := grpc.NewClient(fmt.Sprintf("localhost:%d", setup.PrimaryMultipooler.GrpcPort),
+	conn, err := grpc.NewClient(fmt.Sprintf("localhost:%d", primary.Multipooler.GrpcPort),
 		grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	defer conn.Close()
 	pooler := multipoolerservicepb.NewMultipoolerServiceClient(conn)
 	migrator := migratorpb.NewMigratorClient(conn)
-
-	// The shared setup is used by other tests: remove what this one added. This
-	// runs before primaryDB is closed (defers run last in, first out).
-	defer func() {
-		if _, err := primaryDB.Exec(`DELETE FROM multigres.connections WHERE name IN ('backing-src', 'migrator-src', 'migrator-cert', 'migrator-system', 'invalid-src')`); err != nil {
-			t.Errorf("cleanup: %v", err)
-		}
-	}()
+	manager := multipoolermanagerpb.NewMultipoolerManagerClient(conn)
 
 	// A connection for an unmanaged pooler, written in SQL as the operator does, and one the
-	// migrator creates.
+	// migrator creates. Both name the database the cluster serves, which a tablegroup bound to them
+	// must.
 	_, err = primaryDB.Exec(fmt.Sprintf(`INSERT INTO multigres.connections (name, dsn, conninfo)
 		VALUES ('backing-src', 'not read', '{"host":["db.example.com"],"port":[6543],"dbname":"%s","user":"alice","password":"s3cret","sslmode":"verify-full","sslrootcert":"/ca.pem"}')`, database))
 	require.NoError(t, err)
@@ -81,10 +80,26 @@ func TestBackingConnectionsAreServedFromTheCatalog(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	t.Run("GetBackingConnection", func(t *testing.T) {
-		resp, err := pooler.GetBackingConnection(utils.WithShortDeadline(t),
-			&multipoolerservicepb.GetBackingConnectionRequest{Database: database, ConnectionName: "backing-src"})
+	create := func(name, connection string) int64 {
+		t.Helper()
+		resp, err := manager.CreateTableGroup(utils.WithShortDeadline(t),
+			&multipoolermanagerdatapb.CreateTableGroupRequest{Name: name, BackingConnection: connection})
 		require.NoError(t, err)
+		return resp.GetTablegroupId()
+	}
+	backingID := create("backingtg", "backing-src")
+	migratorID := create("migratortg", "migrator-src")
+	managedID := create("managedtg", "")
+
+	get := func(id int64) (*multipoolerservicepb.GetBackingConnectionResponse, error) {
+		return pooler.GetBackingConnection(utils.WithShortDeadline(t),
+			&multipoolerservicepb.GetBackingConnectionRequest{Database: database, TablegroupId: id})
+	}
+
+	t.Run("GetBackingConnection", func(t *testing.T) {
+		resp, err := get(backingID)
+		require.NoError(t, err)
+		assert.False(t, resp.GetManaged())
 		got := resp.GetConnection()
 		assert.Equal(t, "backing-src", got.GetName())
 		assert.Equal(t, []string{"db.example.com"}, got.GetHosts())
@@ -94,10 +109,20 @@ func TestBackingConnectionsAreServedFromTheCatalog(t *testing.T) {
 		assert.Equal(t, "s3cret", got.GetPassword())
 		assert.Equal(t, "verify-full", got.GetSslMode())
 		assert.Equal(t, "/ca.pem", got.GetSslRootCert())
+	})
 
-		_, err = pooler.GetBackingConnection(utils.WithShortDeadline(t),
-			&multipoolerservicepb.GetBackingConnectionRequest{Database: database, ConnectionName: "no-such-connection"})
+	t.Run("a tablegroup with no binding is managed", func(t *testing.T) {
+		resp, err := get(managedID)
+		require.NoError(t, err)
+		assert.True(t, resp.GetManaged())
+		assert.Nil(t, resp.GetConnection())
+	})
+
+	t.Run("a tablegroup that does not exist is not found, and an id is required", func(t *testing.T) {
+		_, err := get(migratorID + 1000)
 		assert.Equal(t, codes.NotFound, status.Code(err))
+		_, err = get(0)
+		assert.Equal(t, codes.InvalidArgument, status.Code(err))
 	})
 
 	t.Run("the table is shared with the migrator", func(t *testing.T) {
@@ -112,21 +137,15 @@ func TestBackingConnectionsAreServedFromTheCatalog(t *testing.T) {
 	})
 
 	t.Run("a connection the migrator created is servable as it is", func(t *testing.T) {
-		resp, err := pooler.GetBackingConnection(utils.WithShortDeadline(t),
-			&multipoolerservicepb.GetBackingConnectionRequest{Database: database, ConnectionName: "migrator-src"})
+		resp, err := get(migratorID)
 		require.NoError(t, err)
+		assert.Equal(t, "migrator-src", resp.GetConnection().GetName())
 		assert.Equal(t, []string{"source.example.com"}, resp.GetConnection().GetHosts())
 		assert.Equal(t, []int32{5433}, resp.GetConnection().GetPorts())
 		assert.Equal(t, database, resp.GetConnection().GetDatabase())
 		assert.Equal(t, "repl", resp.GetConnection().GetUser())
 		assert.Equal(t, "p w", resp.GetConnection().GetPassword())
 	})
-
-	// get serves the named connection through the default primary.
-	get := func(name string) (*multipoolerservicepb.GetBackingConnectionResponse, error) {
-		return pooler.GetBackingConnection(utils.WithShortDeadline(t),
-			&multipoolerservicepb.GetBackingConnectionRequest{Database: database, ConnectionName: name})
-	}
 
 	t.Run("a connection created through the migrator is stored structured and served without parsing", func(t *testing.T) {
 		var dsn, conninfo string
@@ -138,7 +157,7 @@ func TestBackingConnectionsAreServedFromTheCatalog(t *testing.T) {
 		// Only the conninfo is read: with the dsn made garbage the connection is served all the same.
 		_, err := primaryDB.Exec(`UPDATE multigres.connections SET dsn = 'not a dsn' WHERE name = 'migrator-src'`)
 		require.NoError(t, err)
-		resp, err := get("migrator-src")
+		resp, err := get(migratorID)
 		require.NoError(t, err)
 		assert.Equal(t, []string{"source.example.com"}, resp.GetConnection().GetHosts())
 		assert.Equal(t, "p w", resp.GetConnection().GetPassword())
@@ -156,12 +175,13 @@ func TestBackingConnectionsAreServedFromTheCatalog(t *testing.T) {
 		assert.Zero(t, n, "nothing was stored")
 	})
 
-	t.Run("a connection for the migrator that a pooler cannot front is created, and refused when it is served", func(t *testing.T) {
+	t.Run("a connection for the migrator that a pooler cannot front is created, and refused when a tablegroup is bound to it", func(t *testing.T) {
 		_, err := migrator.CreateConnection(utils.WithShortDeadline(t), &migratorpb.CreateConnectionRequest{
 			Connection: &migratorpb.Connection{Name: "migrator-cert", Dsn: fmt.Sprintf("host=source.example.com port=5433 dbname=%s user=repl password=pw sslmode=require connect_timeout=5", database)},
 		})
 		require.NoError(t, err)
-		_, err = get("migrator-cert")
+		_, err = manager.CreateTableGroup(utils.WithShortDeadline(t),
+			&multipoolermanagerdatapb.CreateTableGroupRequest{Name: "certtg", BackingConnection: "migrator-cert"})
 		assert.Equal(t, codes.FailedPrecondition, status.Code(err), "%v", err)
 		assert.Contains(t, fmt.Sprint(err), "connect_timeout")
 	})
@@ -171,7 +191,7 @@ func TestBackingConnectionsAreServedFromTheCatalog(t *testing.T) {
 			Connection: &migratorpb.Connection{Name: "migrator-system", Dsn: fmt.Sprintf("host=source.example.com port=5433 dbname=%s user=repl password=pw sslrootcert=system", database)},
 		})
 		require.NoError(t, err)
-		resp, err := get("migrator-system")
+		resp, err := get(create("systemtg", "migrator-system"))
 		require.NoError(t, err)
 		assert.Equal(t, "system", resp.GetConnection().GetSslRootCert())
 	})
@@ -216,6 +236,14 @@ func TestBackingConnectionsAreServedFromTheCatalog(t *testing.T) {
 			require.Error(t, err, name)
 			assert.Contains(t, err.Error(), "connections_conninfo_servers", name)
 		}
+	})
+
+	t.Run("a connection a tablegroup is bound to cannot be dropped through the migrator", func(t *testing.T) {
+		_, err := migrator.DropConnection(utils.WithShortDeadline(t), &migratorpb.DropConnectionRequest{
+			Ref: &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Name{Name: "migrator-src"}},
+		})
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err), "%v", err)
+		assert.Contains(t, err.Error(), "referenced by a migration or a tablegroup")
 	})
 }
 
@@ -315,21 +343,24 @@ func TestConnectionsStoredBeforeTheConnInfoColumnAreConvertedWhenTheCatalogIsSet
 	require.NoError(t, err)
 	defer conn.Close()
 	migrator := migratorpb.NewMigratorClient(conn)
+	manager := multipoolermanagerpb.NewMultipoolerManagerClient(conn)
 	byName := func(name string) *migratorpb.ConnectionRef {
 		return &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Name{Name: name}}
 	}
 
-	pooler := multipoolerservicepb.NewMultipoolerServiceClient(conn)
-
 	t.Run("a converted connection is served", func(t *testing.T) {
-		// The restarted pooler is the default primary again once it has taken its role back.
-		var resp *multipoolerservicepb.GetBackingConnectionResponse
+		// The restarted pooler is the catalog's primary again once it has taken its role back.
+		var created *multipoolermanagerdatapb.CreateTableGroupResponse
 		require.Eventually(t, func() bool {
 			var err error
-			resp, err = pooler.GetBackingConnection(utils.WithShortDeadline(t),
-				&multipoolerservicepb.GetBackingConnectionRequest{Database: database, ConnectionName: "legacy-ok"})
+			created, err = manager.CreateTableGroup(utils.WithShortDeadline(t),
+				&multipoolermanagerdatapb.CreateTableGroupRequest{Name: "legacytg", BackingConnection: "legacy-ok"})
 			return err == nil
-		}, 60*time.Second, 500*time.Millisecond, "the converted connection is served")
+		}, 60*time.Second, 500*time.Millisecond, "a tablegroup can be bound to the converted connection")
+		pooler := multipoolerservicepb.NewMultipoolerServiceClient(conn)
+		resp, err := pooler.GetBackingConnection(utils.WithShortDeadline(t),
+			&multipoolerservicepb.GetBackingConnectionRequest{Database: database, TablegroupId: created.GetTablegroupId()})
+		require.NoError(t, err)
 		assert.Equal(t, []string{"legacy.example.com"}, resp.GetConnection().GetHosts())
 		assert.Equal(t, []int32{6543}, resp.GetConnection().GetPorts())
 		assert.Equal(t, "s3 cret", resp.GetConnection().GetPassword())
@@ -341,12 +372,11 @@ func TestConnectionsStoredBeforeTheConnInfoColumnAreConvertedWhenTheCatalogIsSet
 			assert.Equal(t, codes.FailedPrecondition, status.Code(err), "%s: %v", name, err)
 			assert.Contains(t, fmt.Sprint(err), "drop it and create it again", name)
 			assert.NotContains(t, fmt.Sprint(err), "pw", name)
-
-			_, err = pooler.GetBackingConnection(utils.WithShortDeadline(t),
-				&multipoolerservicepb.GetBackingConnectionRequest{Database: database, ConnectionName: name})
-			assert.Equal(t, codes.FailedPrecondition, status.Code(err), "%s: %v", name, err)
-			assert.Contains(t, fmt.Sprint(err), "drop it and create it again", name)
 		}
+		_, err := manager.CreateTableGroup(utils.WithShortDeadline(t),
+			&multipoolermanagerdatapb.CreateTableGroupRequest{Name: "nulltg", BackingConnection: "legacy-no-password"})
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err), "%v", err)
+		assert.Contains(t, fmt.Sprint(err), "drop it and create it again", "a tablegroup cannot be bound to it")
 	})
 
 	t.Run("a connection that cannot be read is listed with an empty dsn", func(t *testing.T) {

@@ -3402,6 +3402,8 @@ export class TableGroup extends Message<TableGroup> {
   /**
    * backing_connection is the name of the connection of the external
    * PostgreSQL that the tablegroup is bound to. Empty for a managed tablegroup.
+   * Provisioners start one unmanaged pooler for a tablegroup that has one,
+   * and no pgctld, multiorch or backups.
    *
    * @generated from field: string backing_connection = 5;
    */

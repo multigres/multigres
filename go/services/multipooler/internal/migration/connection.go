@@ -97,12 +97,12 @@ func (c *Connection) Rendering() string {
 	return conn.DSN()
 }
 
-// decodeConnInfo reads the text of the conninfo column, which is empty for a NULL. It does not
+// DecodeConnInfo reads the text of the conninfo column, which is empty for a NULL. It does not
 // validate the connection: a caller does that with the rules it applies (Conn.Validate,
 // Conn.ForPooler). One this version cannot read (a field of a later version, say) is refused with
 // ErrConnectionUnreadable, not read as less than it says; so is a connection with no conninfo,
 // which setup could not fill from its dsn (the catalog's fillConnInfo).
-func decodeConnInfo(name, conninfo string) (*backingconn.Conn, error) {
+func DecodeConnInfo(name, conninfo string) (*backingconn.Conn, error) {
 	if conninfo == "" {
 		return nil, fmt.Errorf("connection %q: %w: it has no conninfo; drop it and create it again", name, ErrConnectionUnreadable)
 	}
@@ -111,16 +111,4 @@ func decodeConnInfo(name, conninfo string) (*backingconn.Conn, error) {
 		return nil, fmt.Errorf("connection %q: %w: %w", name, ErrConnectionUnreadable, err)
 	}
 	return conn, nil
-}
-
-// ConnFromColumns returns the connection of a row of multigres.connections that is read by its
-// columns, as Connection.Conn returns it: valid and self-contained, with the name of the connection
-// set. conninfo is the text of the conninfo column; one this version cannot read is refused with
-// ErrConnectionUnreadable, and one that is not a valid connection with ErrInvalidConnection.
-func ConnFromColumns(name, conninfo string) (*backingconn.Conn, error) {
-	decoded, err := decodeConnInfo(name, conninfo)
-	if err != nil {
-		return nil, err
-	}
-	return validConn(name, decoded)
 }
