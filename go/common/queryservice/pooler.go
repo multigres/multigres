@@ -17,6 +17,7 @@ package queryservice
 import (
 	"context"
 
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
 
@@ -32,6 +33,10 @@ type Pooler interface {
 	// GetAuthCredentials returns the SCRAM hash and replication attribute of a
 	// role, for client authentication.
 	GetAuthCredentials(ctx context.Context, req *multipoolerpb.GetAuthCredentialsRequest) (*multipoolerpb.GetAuthCredentialsResponse, error)
+
+	// GetRoutingSnapshot returns a database's routing rules and routing
+	// version. Only the database's catalog primary serves it.
+	GetRoutingSnapshot(ctx context.Context, req *multipoolermanagerdatapb.GetRoutingSnapshotRequest) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error)
 
 	// SubscribeHealth subscribes to the pooler's health until ctx ends. Each
 	// call to recv returns the next health message, starting with the current

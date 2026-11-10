@@ -22,6 +22,7 @@ import (
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	querypb "github.com/multigres/multigres/go/pb/query"
 )
@@ -137,6 +138,11 @@ func (d *directQueryService) StreamReplication(ctx context.Context, init *multip
 
 func (d *directQueryService) GetAuthCredentials(ctx context.Context, req *multipoolerservice.GetAuthCredentialsRequest) (*multipoolerservice.GetAuthCredentialsResponse, error) {
 	resp, err := d.local.GetAuthCredentials(ctx, req)
+	return resp, mterrors.FromContext(ctx, err)
+}
+
+func (d *directQueryService) GetRoutingSnapshot(ctx context.Context, req *multipoolermanagerdatapb.GetRoutingSnapshotRequest) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+	resp, err := d.local.GetRoutingSnapshot(ctx, req)
 	return resp, mterrors.FromContext(ctx, err)
 }
 
