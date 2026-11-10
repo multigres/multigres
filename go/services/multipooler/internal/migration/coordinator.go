@@ -145,23 +145,44 @@ func (c *Coordinator) CreateConnection(ctx context.Context, conn *Connection) er
 // callerRole gates an ownership check against the connection's stored
 // OwnerRole, the same model CreateMigration's doc comment on CallerRole
 // describes: without it, any role that merely passes the gateway's
-// CanCreateMigration gate could drop a connection it does not own. Left
-// empty on the CLI/multiadmin path, which has no SQL-authenticated identity
-// to check; the check is skipped in that case, unchanged from before this
-// parameter existed.
+// CanCreateMigration gate could drop a connection it does not own. A
+// rejected caller sees ErrConnectionNotFound, the same error a nonexistent
+// connection produces, so it cannot tell "doesn't exist" from "exists but
+// not mine" — with if_exists set at the RPC layer, that makes the drop a
+// silent no-op rather than an error, same as for a connection that is
+// genuinely absent. Left empty on the CLI/multiadmin path, which has no
+// SQL-authenticated identity to check; the check is skipped in that case,
+// unchanged from before this parameter existed.
 func (c *Coordinator) DropConnection(ctx context.Context, id int64, callerRole string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if err := c.checkConnectionOwnershipByID(ctx, id, callerRole); err != nil {
+	if err := c.checkConnectionOwnershipByID(ctx, id, callerRole, ErrConnectionNotFound); err != nil {
 		return err
 	}
 	return c.store.DeleteConnection(ctx, id)
 }
 
 // GetConnection returns one connection, addressed by ref (id or name).
-func (c *Coordinator) GetConnection(ctx context.Context, ref Ref) (*Connection, error) {
-	return c.store.GetConnectionByRef(ctx, ref)
+//
+// callerRole gates the same ownership check CreateMigration's doc comment on
+// CallerRole describes: without it, any role that merely passes the
+// gateway's CanCreateMigration gate could read another operator's
+// connection — including its DSN, a full libpq conninfo that may carry a
+// password. A rejected caller sees ErrConnectionNotFound, the same error a
+// nonexistent connection produces, so it cannot tell "doesn't exist" from
+// "exists but not mine." Left empty on the CLI/multiadmin path, which has no
+// SQL-authenticated identity to check; the check is skipped in that case,
+// unchanged from before this parameter existed.
+func (c *Coordinator) GetConnection(ctx context.Context, ref Ref, callerRole string) (*Connection, error) {
+	conn, err := c.store.GetConnectionByRef(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.checkConnectionOwnership(ctx, conn, callerRole, ErrConnectionNotFound); err != nil {
+		return nil, err
+	}
+	return conn, nil
 }
 
 // ListConnections returns every stored connection callerRole may use.
@@ -190,26 +211,44 @@ func (c *Coordinator) ListConnections(ctx context.Context, callerRole string) ([
 	return out, nil
 }
 
-// checkConnectionOwnershipByID verifies that callerRole could use the
-// connection identified by connID, resolving it first — the same
-// resolve-then-check pattern CreateMigration's inline check uses, factored
-// out so DropConnection, DropMigration, and SetMigrationDirection share one
-// implementation. Skipped when callerRole is empty (no SQL-authenticated
-// identity) or the resolved connection predates ownership tracking (OwnerRole
-// empty) — see CheckConnectionOwnership's doc comment for why both are safe
-// no-ops rather than a denial.
-func (c *Coordinator) checkConnectionOwnershipByID(ctx context.Context, connID int64, callerRole string) error {
+// checkConnectionOwnership verifies that callerRole could use conn, under
+// PostgreSQL's own privilege model (CheckConnectionOwnership). A denial
+// returns errMasked — never the real privilege-denied error — so a caller
+// cannot distinguish "not owned" from whatever errMasked itself signals
+// (typically "does not exist"), mirroring CreateMigration's anti-enumeration
+// model. Skipped (nil) when callerRole is empty (no SQL-authenticated
+// identity) or conn.OwnerRole is empty (predates ownership tracking).
+func (c *Coordinator) checkConnectionOwnership(ctx context.Context, conn *Connection, callerRole string, errMasked error) error {
+	if callerRole == "" || conn.OwnerRole == "" {
+		return nil
+	}
+	if err := c.target.CheckConnectionOwnership(ctx, callerRole, conn.OwnerRole); err != nil {
+		return errMasked
+	}
+	return nil
+}
+
+// checkConnectionOwnershipByID resolves the connection identified by connID
+// and applies checkConnectionOwnership — the pattern DropConnection,
+// DropMigration, and SetMigrationDirection need, since unlike CreateMigration
+// and GetConnection none of them already hold a resolved *Connection. A
+// connection that fails to resolve at all is masked as errMasked too, the
+// same as a resolved-but-unowned one, so the two stay indistinguishable all
+// the way through the RPC response. Masking is skipped (the real resolve
+// error is returned) when callerRole is empty, matching
+// checkConnectionOwnership's own skip condition.
+func (c *Coordinator) checkConnectionOwnershipByID(ctx context.Context, connID int64, callerRole string, errMasked error) error {
 	if callerRole == "" {
 		return nil
 	}
 	conn, err := c.store.GetConnectionByRef(ctx, Ref{ID: connID})
 	if err != nil {
+		if errors.Is(err, ErrConnectionNotFound) {
+			return errMasked
+		}
 		return err
 	}
-	if conn.OwnerRole == "" {
-		return nil
-	}
-	return c.target.CheckConnectionOwnership(ctx, callerRole, conn.OwnerRole)
+	return c.checkConnectionOwnership(ctx, conn, callerRole, errMasked)
 }
 
 // CreateParams is the input to CreateMigration.
@@ -279,14 +318,11 @@ func (c *Coordinator) CreateMigration(ctx context.Context, p CreateParams) (*Pro
 	// gateway's CanCreateMigration gate could otherwise name any connection on
 	// the shard and ride its stored credentials into a target table the
 	// caller does own, reading another operator's source data without ever
-	// holding that source's credentials. Checked via pg_has_role against the
-	// connection's creator, mirroring CheckDropPrivilege's ownership model.
-	// The error does not distinguish "does not exist" from "not owned" so a
-	// probing caller cannot learn whether a given connection name exists.
-	if p.CallerRole != "" && conn.OwnerRole != "" {
-		if err := c.target.CheckConnectionOwnership(ctx, p.CallerRole, conn.OwnerRole); err != nil {
-			return nil, fmt.Errorf("connection %q does not exist", p.ConnectionName)
-		}
+	// holding that source's credentials. checkConnectionOwnership masks a
+	// denial as the same "does not exist" error below, so a probing caller
+	// cannot learn whether a given connection name exists.
+	if err := c.checkConnectionOwnership(ctx, conn, p.CallerRole, fmt.Errorf("connection %q does not exist", p.ConnectionName)); err != nil {
+		return nil, err
 	}
 
 	// Validate the source read-only before recording anything (no DB changes).
@@ -592,8 +628,10 @@ func (c *Coordinator) DropMigration(ctx context.Context, ref Ref, opts DropOptio
 	// See SetMigrationDirection's identical check for why this must be
 	// re-verified against the migration's connection here, not just at create
 	// time: a migration is addressed by id/name alone, without naming (and so
-	// without having to own) its connection.
-	if err := c.checkConnectionOwnershipByID(ctx, m.ConnectionID, opts.CallerRole); err != nil {
+	// without having to own) its connection. Masked as ErrNotFound, the same
+	// error an unknown ref produces, so a caller cannot distinguish "no such
+	// migration" from "exists but not mine."
+	if err := c.checkConnectionOwnershipByID(ctx, m.ConnectionID, opts.CallerRole, ErrNotFound); err != nil {
 		return nil, err
 	}
 
@@ -983,8 +1021,10 @@ func (c *Coordinator) SetMigrationDirection(ctx context.Context, ref Ref, target
 	// connection's stored credentials for replication it was never authorized to
 	// drive. Mirrors CreateMigration's ownership check against the same
 	// connection, re-verified here because a migration can be addressed by id/name
-	// alone, without naming (and so without having to own) its connection.
-	if err := c.checkConnectionOwnershipByID(ctx, m.ConnectionID, opts.CallerRole); err != nil {
+	// alone, without naming (and so without having to own) its connection. Masked
+	// as ErrNotFound, the same error an unknown ref produces, so a caller cannot
+	// distinguish "no such migration" from "exists but not mine."
+	if err := c.checkConnectionOwnershipByID(ctx, m.ConnectionID, opts.CallerRole, ErrNotFound); err != nil {
 		c.mu.Unlock()
 		return nil, err
 	}

@@ -352,7 +352,7 @@ func TestSetMigrationDirection_ConnectionOwnership(t *testing.T) {
 
 		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionExport,
 			ActivateOptions{CallerRole: "mallory", MaxLagBytes: 1024, WaitTimeout: time.Second})
-		require.ErrorContains(t, err, "lacks privilege")
+		require.ErrorIs(t, err, ErrNotFound, "must not leak that the migration exists but is merely unauthorized")
 		require.NotContains(t, tc.log, "target.CreatePublication", "a rejected ownership check must never reach the switch")
 		require.Equal(t, PhaseImporting, tc.store.migs[testMigID].Phase, "a rejected switch must not change phase")
 	})
@@ -379,7 +379,7 @@ func TestSetMigrationDirection_ConnectionOwnership(t *testing.T) {
 
 		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: testMigID}, DirectionImport,
 			ActivateOptions{CallerRole: "mallory"})
-		require.ErrorContains(t, err, "lacks privilege")
+		require.ErrorIs(t, err, ErrNotFound, "must not leak that the migration exists but is merely unauthorized")
 		require.NotContains(t, tc.log, "target.CreateSubscription", "a rejected ownership check must never reach setup")
 		require.Equal(t, PhaseCreated, tc.store.migs[testMigID].Phase, "a rejected start must not advance or fail the phase")
 	})
@@ -508,7 +508,7 @@ func TestDropMigration_ConnectionOwnership(t *testing.T) {
 		tc.tgt.checkConnectionOwnershipErr = errors.New("role \"mallory\" lacks privilege to use this connection")
 
 		_, err := tc.c.DropMigration(context.Background(), Ref{ID: testMigID}, DropOptions{CallerRole: "mallory"})
-		require.ErrorContains(t, err, "lacks privilege")
+		require.ErrorIs(t, err, ErrNotFound, "must not leak that the migration exists but is merely unauthorized")
 		require.Empty(t, tc.store.deletes, "a rejected ownership check must not delete the migration")
 	})
 
@@ -1007,15 +1007,59 @@ func TestCreateConnection_ValidatesAndAssignsID(t *testing.T) {
 	require.NoError(t, tc.c.CreateConnection(context.Background(), conn))
 	require.NotZero(t, conn.ID, "CreateConnection must assign an id, not accept one from the caller")
 
-	stored, err := tc.c.GetConnection(context.Background(), Ref{ID: conn.ID})
+	stored, err := tc.c.GetConnection(context.Background(), Ref{ID: conn.ID}, "")
 	require.NoError(t, err)
 	require.Equal(t, conn.DSN, stored.DSN)
 }
 
 func TestGetConnection_NotFound(t *testing.T) {
 	tc := newTestCoord(t)
-	_, err := tc.c.GetConnection(context.Background(), Ref{ID: 999})
+	_, err := tc.c.GetConnection(context.Background(), Ref{ID: 999}, "")
 	require.ErrorIs(t, err, ErrConnectionNotFound)
+}
+
+// TestGetConnection_Ownership is the regression test for the HIGH finding
+// this check guards against: GetConnection returned a connection's full DSN
+// (host/dbname/user/password) with no ownership check at all, so any caller
+// that merely passed the gateway's CanCreateMigration gate could read
+// another operator's connection, including its password.
+func TestGetConnection_Ownership(t *testing.T) {
+	t.Run("a non-owning caller is rejected, without revealing whether the connection exists", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipErr = errors.New("role \"mallory\" lacks privilege to use this connection")
+
+		_, err := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID}, "mallory")
+		require.ErrorIs(t, err, ErrConnectionNotFound, "must not leak that the connection exists but is merely unauthorized")
+	})
+
+	t.Run("the connection's own owner may read it", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+
+		conn, err := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID}, "alice")
+		require.NoError(t, err)
+		require.Equal(t, "src", conn.Name)
+	})
+
+	t.Run("an empty CallerRole (CLI/multiadmin path) skips the check entirely", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipErr = errors.New("would reject if called")
+
+		_, err := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID}, "")
+		require.NoError(t, err)
+		require.NotContains(t, tc.log, "target.CheckConnectionOwnership")
+	})
+
+	t.Run("an empty OwnerRole (a connection predating this check) skips it too", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.tgt.checkConnectionOwnershipErr = errors.New("would reject if called")
+
+		_, err := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID}, "mallory")
+		require.NoError(t, err)
+		require.NotContains(t, tc.log, "target.CheckConnectionOwnership")
+	})
 }
 
 func TestListConnections(t *testing.T) {
@@ -1070,7 +1114,7 @@ func TestListConnections_EmptyCallerRoleSkipsFilter(t *testing.T) {
 func TestDropConnection(t *testing.T) {
 	tc := newTestCoord(t)
 	require.NoError(t, tc.c.DropConnection(context.Background(), defaultConnID, ""))
-	_, err := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID})
+	_, err := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID}, "")
 	require.ErrorIs(t, err, ErrConnectionNotFound)
 }
 
@@ -1086,8 +1130,8 @@ func TestDropConnection_Ownership(t *testing.T) {
 		tc.tgt.checkConnectionOwnershipErr = errors.New("role \"mallory\" lacks privilege to use this connection")
 
 		err := tc.c.DropConnection(context.Background(), defaultConnID, "mallory")
-		require.ErrorContains(t, err, "lacks privilege")
-		_, getErr := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID})
+		require.ErrorIs(t, err, ErrConnectionNotFound, "must not leak that the connection exists but is merely unauthorized")
+		_, getErr := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID}, "")
 		require.NoError(t, getErr, "a rejected ownership check must not delete the connection")
 	})
 
@@ -1096,7 +1140,7 @@ func TestDropConnection_Ownership(t *testing.T) {
 		tc.store.conns[defaultConnID].OwnerRole = "alice"
 
 		require.NoError(t, tc.c.DropConnection(context.Background(), defaultConnID, "alice"))
-		_, err := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID})
+		_, err := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID}, "")
 		require.ErrorIs(t, err, ErrConnectionNotFound)
 	})
 
