@@ -366,6 +366,96 @@ func TestReconcileTableGroups_AStatementFailureRollsBackAndRetries(t *testing.T)
 	})
 }
 
+func TestReconcileTableGroups_BestEffortWritesFailSoftly(t *testing.T) {
+	// Recording or clearing a transient error on an operation is best effort:
+	// a failure there is logged, the item stays pending, and the pass goes on.
+	t.Run("recording a topology error", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		env.topo.SetError(errors.New("etcd unreachable"))
+		env.expectCreations(creatingOperationRow(time.Now().UnixMicro(), false))
+		env.expectDroppings([]any{testTableGroupID + 1, "old"})
+		env.qs.AddQueryPatternWithError("UPDATE multigres.operation SET last_error", errors.New("catalog read-only"))
+
+		pending, err := env.pm.reconcileTableGroups(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, 2, pending)
+	})
+	t.Run("clearing a recorded error", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		row := creatingOperationRow(time.Now().UnixMicro(), false)
+		row[5] = "list cells: etcd unreachable"
+		env.expectCreations(row)
+		env.expectDroppings()
+		env.qs.AddQueryPatternWithError("UPDATE multigres.operation SET last_error = NULL", errors.New("catalog read-only"))
+
+		pending, err := env.pm.reconcileTableGroups(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, 1, pending)
+	})
+}
+
+func TestReconcileTableGroups_EveryStatementOfATransactionIsChecked(t *testing.T) {
+	// Each write in the three transactions can fail; each failure rolls back
+	// and leaves the item pending for the next pass.
+	creation := func(t *testing.T, failing string) {
+		env := newCatalogTestEnv(t)
+		env.expectCreations(creatingOperationRow(time.Now().UnixMicro(), false))
+		env.addServingPrimary(t, "cell1", "commerce", "0-80", testTableGroupID)
+		env.addServingPrimary(t, "cell2", "commerce", "80-inf", testTableGroupID)
+		env.qs.AddQueryPatternWithError(failing, errors.New("lock timeout"))
+		env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
+		env.expect("UPDATE multigres.shard SET state", nil, nil)
+		env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
+		env.expect("UPDATE multigres.catalog_state SET routing_version", nil, nil)
+		env.expect("ROLLBACK", nil, nil)
+		env.expectDroppings()
+		pending, err := env.pm.reconcileTableGroups(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, 1, pending, failing)
+	}
+	for _, failing := range []string{
+		"UPDATE multigres.operation SET state",
+		"UPDATE multigres.tablegroup SET state",
+		"UPDATE multigres.catalog_state SET routing_version",
+	} {
+		t.Run("completion: "+failing, func(t *testing.T) { creation(t, failing) })
+	}
+
+	t.Run("failure: marking the tablegroup dropping", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		env.expectCreations(creatingOperationRow(time.Now().UnixMicro(), true))
+		env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
+		env.qs.AddQueryPatternWithError("UPDATE multigres.tablegroup SET state", errors.New("lock timeout"))
+		env.expect("ROLLBACK", nil, nil)
+		env.expectDroppings()
+		pending, err := env.pm.reconcileTableGroups(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, 1, pending)
+	})
+
+	drop := func(t *testing.T, failing string) {
+		env := newCatalogTestEnv(t)
+		env.expectCreations()
+		env.expectDroppings([]any{testTableGroupID, "commerce"})
+		env.qs.AddQueryPatternWithError(failing, errors.New("lock timeout"))
+		env.expect("DELETE FROM multigres.shard", nil, nil)
+		env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
+		env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
+		env.expect("UPDATE multigres.catalog_state SET routing_version", nil, nil)
+		env.expect("ROLLBACK", nil, nil)
+		pending, err := env.pm.reconcileTableGroups(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, 1, pending, failing)
+	}
+	for _, failing := range []string{
+		"DELETE FROM multigres.tablegroup",
+		"UPDATE multigres.operation SET state = \\$3",
+		"UPDATE multigres.catalog_state SET routing_version",
+	} {
+		t.Run("deletion: "+failing, func(t *testing.T) { drop(t, failing) })
+	}
+}
+
 func TestRunTableGroupOperations_PassesUntilCancelled(t *testing.T) {
 	env := newCatalogTestEnv(t)
 	env.expectCreations()
