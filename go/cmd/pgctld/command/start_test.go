@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -906,7 +907,7 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		require.NoError(t, err)
 
 		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-		err = waitForPostgreSQLWithConfig(logger, config)
+		err = waitForPostgreSQLWithConfig(t.Context(), logger, config)
 		assert.NoError(t, err)
 	})
 
@@ -942,9 +943,47 @@ func TestWaitForPostgreSQL(t *testing.T) {
 		require.NoError(t, err)
 
 		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-		err = waitForPostgreSQLWithConfig(logger, config)
+		err = waitForPostgreSQLWithConfig(t.Context(), logger, config)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "did not become ready")
+	})
+}
+
+// Readiness is noticed within about a poll interval of postgres becoming ready, not at
+// the next whole second.
+func TestWaitForPostgreSQLNoticesReadinessPromptly(t *testing.T) {
+	const wholeSecond = time.Second
+	wait := func(t *testing.T, pgIsReadyScript string) time.Duration {
+		t.Helper()
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_ready_prompt_test")
+		defer cleanup()
+		testutil.CreateDataDir(t, baseDir, true)
+
+		binDir := filepath.Join(baseDir, "bin")
+		require.NoError(t, os.MkdirAll(binDir, 0o755))
+		testutil.MockBinary(t, binDir, "pg_isready", strings.ReplaceAll(pgIsReadyScript, "COUNTER", filepath.Join(baseDir, "calls")))
+		t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+		config, err := pgctld.NewPostgresCtlConfig(5432, "postgres", "postgres", 30,
+			pgctld.PostgresDataDir(), pgctld.PostgresConfigFile(), baseDir, "localhost", pgctld.PostgresSocketDir(baseDir))
+		require.NoError(t, err)
+
+		start := time.Now()
+		err = waitForPostgreSQLWithConfig(t.Context(), slog.New(slog.NewTextHandler(os.Stderr, nil)), config)
+		elapsed := time.Since(start)
+		require.NoError(t, err)
+		return elapsed
+	}
+
+	t.Run("ready at the first check", func(t *testing.T) {
+		elapsed := wait(t, "exit 0")
+		assert.Less(t, elapsed, wholeSecond)
+	})
+
+	t.Run("ready at the third check", func(t *testing.T) {
+		// The first two checks fail, as they do while postgres is still starting.
+		elapsed := wait(t, `n=$(cat COUNTER 2>/dev/null || echo 0); n=$((n+1)); echo $n > COUNTER; [ "$n" -ge 3 ] && exit 0; exit 2`)
+		assert.Less(t, elapsed, wholeSecond)
 	})
 }
 
@@ -982,7 +1021,7 @@ func TestWaitForPostgreSQLCrashDetection(t *testing.T) {
 		require.NoError(t, err)
 
 		logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-		err = waitForPostgreSQLWithConfig(logger, config)
+		err = waitForPostgreSQLWithConfig(t.Context(), logger, config)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "crashed")
 	})
