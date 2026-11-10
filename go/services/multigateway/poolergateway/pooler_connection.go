@@ -62,6 +62,11 @@ type poolerHealth struct {
 	// Zero on the primary or when not yet measured.
 	ReplicationLagNs int64
 
+	// RoutingVersion and PlanEpoch are the sharding catalog's versions, which
+	// only the catalog shard's primary reports. Zero from any other pooler.
+	RoutingVersion int64
+	PlanEpoch      int64
+
 	// LastError is the most recent error from the health stream.
 	LastError error
 
@@ -91,6 +96,8 @@ func (h *poolerHealth) simpleCopy() *poolerHealth {
 		ServingStatus:    h.ServingStatus,
 		RoutingState:     h.RoutingState,
 		ReplicationLagNs: h.ReplicationLagNs,
+		RoutingVersion:   h.RoutingVersion,
+		PlanEpoch:        h.PlanEpoch,
 		LastError:        h.LastError,
 		LastResponse:     h.LastResponse,
 	}
@@ -430,6 +437,8 @@ func (pc *poolerConnection) processHealthResponse(response *multipoolerservice.S
 		ServingStatus:    response.ServingStatus,
 		RoutingState:     response.RoutingState,
 		ReplicationLagNs: response.ReplicationLagNs,
+		RoutingVersion:   response.RoutingVersion,
+		PlanEpoch:        response.PlanEpoch,
 		LastError:        nil,
 		LastResponse:     time.Now(),
 	}
