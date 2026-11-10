@@ -51,6 +51,7 @@ const (
 	MultipoolerManager_GetOperation_FullMethodName               = "/multipoolermanager.MultipoolerManager/GetOperation"
 	MultipoolerManager_DropTableGroup_FullMethodName             = "/multipoolermanager.MultipoolerManager/DropTableGroup"
 	MultipoolerManager_ListTableGroups_FullMethodName            = "/multipoolermanager.MultipoolerManager/ListTableGroups"
+	MultipoolerManager_GetRoutingSnapshot_FullMethodName         = "/multipoolermanager.MultipoolerManager/GetRoutingSnapshot"
 	MultipoolerManager_ManagerHealthStream_FullMethodName        = "/multipoolermanager.MultipoolerManager/ManagerHealthStream"
 )
 
@@ -137,6 +138,11 @@ type MultipoolerManagerClient interface {
 	// dropping ones for it to remove. See ListTableGroupsResponse for why a
 	// missing tablegroup is never a removal signal.
 	ListTableGroups(ctx context.Context, in *multipoolermanagerdata.ListTableGroupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ListTableGroupsResponse, error)
+	// GetRoutingSnapshot returns the whole sharding catalog, every tablegroup
+	// state included, read in one transaction, or a note that the caller's copy
+	// at since_version is still current. Gateways keep the result cached and
+	// call it again when the health stream reports a newer routing_version.
+	GetRoutingSnapshot(ctx context.Context, in *multipoolermanagerdata.GetRoutingSnapshotRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetRoutingSnapshotResponse, error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
 	//
@@ -332,6 +338,16 @@ func (c *multipoolerManagerClient) ListTableGroups(ctx context.Context, in *mult
 	return out, nil
 }
 
+func (c *multipoolerManagerClient) GetRoutingSnapshot(ctx context.Context, in *multipoolermanagerdata.GetRoutingSnapshotRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetRoutingSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.GetRoutingSnapshotResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_GetRoutingSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multipoolerManagerClient) ManagerHealthStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &MultipoolerManager_ServiceDesc.Streams[0], MultipoolerManager_ManagerHealthStream_FullMethodName, cOpts...)
@@ -428,6 +444,11 @@ type MultipoolerManagerServer interface {
 	// dropping ones for it to remove. See ListTableGroupsResponse for why a
 	// missing tablegroup is never a removal signal.
 	ListTableGroups(context.Context, *multipoolermanagerdata.ListTableGroupsRequest) (*multipoolermanagerdata.ListTableGroupsResponse, error)
+	// GetRoutingSnapshot returns the whole sharding catalog, every tablegroup
+	// state included, read in one transaction, or a note that the caller's copy
+	// at since_version is still current. Gateways keep the result cached and
+	// call it again when the health stream reports a newer routing_version.
+	GetRoutingSnapshot(context.Context, *multipoolermanagerdata.GetRoutingSnapshotRequest) (*multipoolermanagerdata.GetRoutingSnapshotResponse, error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
 	//
@@ -503,6 +524,9 @@ func (UnimplementedMultipoolerManagerServer) DropTableGroup(context.Context, *mu
 }
 func (UnimplementedMultipoolerManagerServer) ListTableGroups(context.Context, *multipoolermanagerdata.ListTableGroupsRequest) (*multipoolermanagerdata.ListTableGroupsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListTableGroups not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) GetRoutingSnapshot(context.Context, *multipoolermanagerdata.GetRoutingSnapshotRequest) (*multipoolermanagerdata.GetRoutingSnapshotResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRoutingSnapshot not implemented")
 }
 func (UnimplementedMultipoolerManagerServer) ManagerHealthStream(grpc.BidiStreamingServer[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method ManagerHealthStream not implemented")
@@ -834,6 +858,24 @@ func _MultipoolerManager_ListTableGroups_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultipoolerManager_GetRoutingSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.GetRoutingSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).GetRoutingSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_GetRoutingSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).GetRoutingSnapshot(ctx, req.(*multipoolermanagerdata.GetRoutingSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultipoolerManager_ManagerHealthStream_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(MultipoolerManagerServer).ManagerHealthStream(&grpc.GenericServerStream[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]{ServerStream: stream})
 }
@@ -915,6 +957,10 @@ var MultipoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListTableGroups",
 			Handler:    _MultipoolerManager_ListTableGroups_Handler,
+		},
+		{
+			MethodName: "GetRoutingSnapshot",
+			Handler:    _MultipoolerManager_GetRoutingSnapshot_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

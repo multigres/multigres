@@ -159,6 +159,13 @@ service MultipoolerManager {
   rpc ListTableGroups(multipoolermanagerdata.ListTableGroupsRequest)
       returns (multipoolermanagerdata.ListTableGroupsResponse);
 
+  // GetRoutingSnapshot returns the whole sharding catalog, every tablegroup
+  // state included, read in one transaction, or a note that the caller's copy
+  // at since_version is still current. Gateways keep the result cached and
+  // call it again when the health stream reports a newer routing_version.
+  rpc GetRoutingSnapshot(multipoolermanagerdata.GetRoutingSnapshotRequest)
+      returns (multipoolermanagerdata.GetRoutingSnapshotResponse);
+
   // ManagerHealthStream is a bidirectional health stream between orchestrator
   // and pooler.
   //

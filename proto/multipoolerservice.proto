@@ -687,6 +687,17 @@ message StreamPoolerHealthResponse {
   // replication_lag_ns is the current replication lag in nanoseconds,
   // measured via heartbeat timestamps. Zero on a leader or when unknown.
   int64 replication_lag_ns = 6;
+
+  // routing_version and plan_epoch are the sharding catalog's versions
+  // (multigres.catalog_state). Only the primary of the catalog shard reports
+  // them; every other pooler leaves them zero. They are read from committed
+  // state, which under synchronous replication is visible only once the
+  // shard's durability policy has acknowledged it, except for a commit whose
+  // wait for that acknowledgement was cancelled. A gateway that sees a
+  // routing_version above the snapshot it holds fetches a new one with
+  // GetRoutingSnapshot.
+  int64 routing_version = 7;
+  int64 plan_epoch = 8;
 }
 
 // NotificationStreamRequest updates the subscribed channels for one gateway
