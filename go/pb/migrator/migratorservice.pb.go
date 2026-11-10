@@ -1256,12 +1256,15 @@ type SetMigrationDirectionRequest struct {
 	// alone — without this, a caller who merely has database CREATE +
 	// pg_create_subscription could flip another operator's migration to EXPORT
 	// (or trigger its not-yet-started IMPORT setup), reusing that connection's
-	// stored credentials for replication it was never authorized to drive.
-	// Second, the destructive DropTables step a not-yet-started IMPORT runs, so
-	// that same caller cannot name an existing target table it does not own and
-	// have it dropped via the admin pool. Left empty on the CLI/multiadmin
-	// path, which has no SQL-authenticated identity to set it from; both checks
-	// are skipped in that case, unchanged from before this field existed.
+	// stored credentials for replication it was never authorized to drive. A
+	// caller that fails this first check sees the same not-found error a
+	// nonexistent migration would produce, so it cannot tell "doesn't exist"
+	// from "exists but not mine." Second, the destructive DropTables step a
+	// not-yet-started IMPORT runs, so that same caller cannot name an existing
+	// target table it does not own and have it dropped via the admin pool.
+	// Left empty on the CLI/multiadmin path, which has no SQL-authenticated
+	// identity to set it from; both checks are skipped in that case, unchanged
+	// from before this field existed.
 	CallerRole    string `protobuf:"bytes,5,opt,name=caller_role,json=callerRole,proto3" json:"caller_role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1582,9 +1585,12 @@ type DropMigrationRequest struct {
 	// their own — see CreateMigrationRequest.caller_role), so a caller who
 	// merely has database CREATE + pg_create_subscription (enough to pass the
 	// gateway's CanCreateMigration gate) cannot name another operator's
-	// migration and abort it. Left empty on the CLI/multiadmin path, which has
-	// no SQL-authenticated identity to set it from; the check is skipped in
-	// that case, unchanged from before this field existed.
+	// migration and abort it. A caller that fails this check sees the same
+	// not-found error a nonexistent migration would produce, so it cannot tell
+	// "doesn't exist" from "exists but not mine." Left empty on the
+	// CLI/multiadmin path, which has no SQL-authenticated identity to set it
+	// from; the check is skipped in that case, unchanged from before this
+	// field existed.
 	CallerRole    string `protobuf:"bytes,5,opt,name=caller_role,json=callerRole,proto3" json:"caller_role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1995,8 +2001,21 @@ func (x *CreateConnectionResponse) GetConnection() *Connection {
 
 // GetConnectionRequest addresses one connection by ref (id or name).
 type GetConnectionRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Ref           *ConnectionRef         `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Ref   *ConnectionRef         `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	// caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+	// client is connected as. Set only on the gateway SQL path: it gates an
+	// ownership check against the connection's stored owner_role, so a caller
+	// who merely has database CREATE + pg_create_subscription (enough to pass
+	// the gateway's CanCreateMigration gate) cannot read another operator's
+	// connection — including its DSN, a full libpq conninfo that may carry a
+	// password. A non-owner sees the same not-found response a nonexistent
+	// connection would produce (see DropConnectionRequest.caller_role), so a
+	// caller cannot tell "doesn't exist" from "exists but not mine." Left
+	// empty on the CLI/multiadmin path, which has no SQL-authenticated
+	// identity to set it from; the check is skipped in that case, unchanged
+	// from before this field existed.
+	CallerRole    string `protobuf:"bytes,2,opt,name=caller_role,json=callerRole,proto3" json:"caller_role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2036,6 +2055,13 @@ func (x *GetConnectionRequest) GetRef() *ConnectionRef {
 		return x.Ref
 	}
 	return nil
+}
+
+func (x *GetConnectionRequest) GetCallerRole() string {
+	if x != nil {
+		return x.CallerRole
+	}
+	return ""
 }
 
 type GetConnectionResponse struct {
@@ -2194,7 +2220,11 @@ type DropConnectionRequest struct {
 	// CONNECTION): it gates an ownership check against the connection's stored
 	// owner_role, so a caller who merely has database CREATE +
 	// pg_create_subscription (enough to pass the gateway's CanCreateMigration
-	// gate) cannot drop a connection it does not own. Left empty on the
+	// gate) cannot drop a connection it does not own. A non-owner sees the
+	// same not-found response a nonexistent connection would produce, so a
+	// caller cannot tell "doesn't exist" from "exists but not mine" — with
+	// if_exists set, that makes the drop a silent no-op rather than an error,
+	// same as for a connection that is genuinely absent. Left empty on the
 	// CLI/multiadmin path, which has no SQL-authenticated identity to set it
 	// from; the check is skipped in that case, unchanged from before this field
 	// existed.
@@ -2420,9 +2450,11 @@ const file_migratorservice_proto_rawDesc = "" +
 	"\x18CreateConnectionResponse\x124\n" +
 	"\n" +
 	"connection\x18\x01 \x01(\v2\x14.migrator.ConnectionR\n" +
-	"connection\"A\n" +
+	"connection\"b\n" +
 	"\x14GetConnectionRequest\x12)\n" +
-	"\x03ref\x18\x01 \x01(\v2\x17.migrator.ConnectionRefR\x03ref\"M\n" +
+	"\x03ref\x18\x01 \x01(\v2\x17.migrator.ConnectionRefR\x03ref\x12\x1f\n" +
+	"\vcaller_role\x18\x02 \x01(\tR\n" +
+	"callerRole\"M\n" +
 	"\x15GetConnectionResponse\x124\n" +
 	"\n" +
 	"connection\x18\x01 \x01(\v2\x14.migrator.ConnectionR\n" +

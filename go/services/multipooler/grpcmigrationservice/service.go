@@ -237,7 +237,7 @@ func (s *migrationService) GetConnection(ctx context.Context, req *migratorpb.Ge
 	if err != nil {
 		return nil, toGRPC(err)
 	}
-	conn, err := coord.GetConnection(ctx, toRef(req.GetRef().GetId(), req.GetRef().GetName()))
+	conn, err := coord.GetConnection(ctx, toRef(req.GetRef().GetId(), req.GetRef().GetName()), req.GetCallerRole())
 	if err != nil {
 		return nil, toGRPC(err)
 	}
@@ -265,7 +265,7 @@ func (s *migrationService) DropConnection(ctx context.Context, req *migratorpb.D
 	if err != nil {
 		return nil, toGRPC(err)
 	}
-	conn, err := coord.GetConnection(ctx, toRef(req.GetRef().GetId(), req.GetRef().GetName()))
+	conn, err := coord.GetConnection(ctx, toRef(req.GetRef().GetId(), req.GetRef().GetName()), req.GetCallerRole())
 	if err != nil {
 		if req.GetIfExists() && errors.Is(err, migration.ErrConnectionNotFound) {
 			return &migratorpb.DropConnectionResponse{}, nil
