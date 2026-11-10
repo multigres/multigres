@@ -767,6 +767,26 @@ export class GetMigrationJournalRequest extends Message<GetMigrationJournalReque
    */
   name = "";
 
+  /**
+   * caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+   * client is connected as. Set only on the gateway SQL path: it gates an
+   * ownership check against the migration's connection (migrations have no
+   * owner of their own — see CreateMigrationRequest.caller_role), so a
+   * caller who merely has database CREATE + pg_create_subscription (enough
+   * to pass the gateway's CanCreateMigration gate) cannot read another
+   * operator's journal (handoff LSNs, phase/event history). A caller that
+   * fails this check sees the same not-found error a nonexistent migration
+   * would produce. A dropped migration (addressable only by id, once its row
+   * is gone) has no connection left to check ownership against, so a
+   * non-empty caller_role is denied rather than trusted by default. Left
+   * empty on the CLI/multiadmin path, which has no SQL-authenticated
+   * identity to set it from; the check is skipped in that case, unchanged
+   * from before this field existed.
+   *
+   * @generated from field: string caller_role = 3;
+   */
+  callerRole = "";
+
   constructor(data?: PartialMessage<GetMigrationJournalRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -777,6 +797,7 @@ export class GetMigrationJournalRequest extends Message<GetMigrationJournalReque
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
     { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "caller_role", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetMigrationJournalRequest {
@@ -1164,6 +1185,23 @@ export class GetMigrationRequest extends Message<GetMigrationRequest> {
    */
   ref?: MigrationRef;
 
+  /**
+   * caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+   * client is connected as. Set only on the gateway SQL path: it gates an
+   * ownership check against the migration's connection (migrations have no
+   * owner of their own — see CreateMigrationRequest.caller_role), so a
+   * caller who merely has database CREATE + pg_create_subscription (enough
+   * to pass the gateway's CanCreateMigration gate) cannot read another
+   * operator's migration status. A caller that fails this check sees the
+   * same not-found error a nonexistent migration would produce. Left empty
+   * on the CLI/multiadmin path, which has no SQL-authenticated identity to
+   * set it from; the check is skipped in that case, unchanged from before
+   * this field existed.
+   *
+   * @generated from field: string caller_role = 2;
+   */
+  callerRole = "";
+
   constructor(data?: PartialMessage<GetMigrationRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1173,6 +1211,7 @@ export class GetMigrationRequest extends Message<GetMigrationRequest> {
   static readonly typeName = "migrator.GetMigrationRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "ref", kind: "message", T: MigrationRef },
+    { no: 2, name: "caller_role", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetMigrationRequest {
@@ -1243,6 +1282,22 @@ export class GetMigrationResponse extends Message<GetMigrationResponse> {
  * @generated from message migrator.ListMigrationsRequest
  */
 export class ListMigrationsRequest extends Message<ListMigrationsRequest> {
+  /**
+   * caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+   * client is connected as. Set only on the gateway SQL path: it filters the
+   * result to migrations whose connection callerRole owns (or whose
+   * OwnerRole predates ownership tracking), the same model
+   * GetMigrationRequest.caller_role uses, so a caller who merely has
+   * database CREATE + pg_create_subscription (enough to pass the gateway's
+   * CanCreateMigration gate) cannot enumerate every operator's migration
+   * ids. Left empty on the CLI/multiadmin path, which has no
+   * SQL-authenticated identity to set it from; every id is then returned
+   * unfiltered, unchanged from before this field existed.
+   *
+   * @generated from field: string caller_role = 1;
+   */
+  callerRole = "";
+
   constructor(data?: PartialMessage<ListMigrationsRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -1251,6 +1306,7 @@ export class ListMigrationsRequest extends Message<ListMigrationsRequest> {
   static readonly runtime: typeof proto3 = proto3;
   static readonly typeName = "migrator.ListMigrationsRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "caller_role", kind: "scalar", T: 9 /* ScalarType.STRING */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListMigrationsRequest {

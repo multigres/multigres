@@ -114,7 +114,7 @@ func TestJournal_LifecycleSequence(t *testing.T) {
 
 	// Retention: the migration row is gone, but its journal is still readable.
 	require.Empty(t, tc.store.migs, "the migration row is deleted by the drop")
-	retained, err := tc.c.GetMigrationJournal(ctx, Ref{ID: id})
+	retained, err := tc.c.GetMigrationJournal(ctx, Ref{ID: id}, "")
 	require.NoError(t, err)
 	require.Len(t, retained, len(entries), "journal survives the drop and is addressable by id")
 	require.Equal(t, JournalEventDrop, retained[len(retained)-1].Event)

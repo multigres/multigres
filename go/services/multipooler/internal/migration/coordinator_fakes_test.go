@@ -16,10 +16,12 @@ package migration
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"log/slog"
 	"testing"
 	"time"
+
+	"github.com/multigres/multigres/go/common/mterrors"
 )
 
 // These fakes back the coordinator orchestration unit tests. They let a test drive
@@ -190,15 +192,21 @@ func (f *fakeStore) put(m *Migration) { f.migs[m.ID] = m }
 type fakeTarget struct {
 	log *[]string
 
-	applySchemaErr              error
-	disableTriggersErr          error
-	dropCheckConstraintsErr     error
-	dropDomainChecksErr         error
-	disableRulesErr             error
-	dropExprIndexesErr          error
-	dropGeneratedColsErr        error
-	checkDropPrivilegeErr       error
-	lastCallerRole              string
+	applySchemaErr          error
+	disableTriggersErr      error
+	dropCheckConstraintsErr error
+	dropDomainChecksErr     error
+	disableRulesErr         error
+	dropExprIndexesErr      error
+	dropGeneratedColsErr    error
+	checkDropPrivilegeErr   error
+	lastCallerRole          string
+	// checkConnectionOwnershipErr, when set, is wrapped as a stock
+	// insufficient-privilege PgDiagnostic (the same shape the real target
+	// returns for an ordinary denial) — not returned verbatim — so the
+	// production maskable/propagate-as-is split (see
+	// Coordinator.checkConnectionOwnership) treats it as a denial, not a
+	// backend failure.
 	checkConnectionOwnershipErr error
 	// checkConnectionOwnershipAllow, when non-nil, overrides
 	// checkConnectionOwnershipErr's single blanket toggle: returns nil only
@@ -206,12 +214,25 @@ type fakeTarget struct {
 	// error — letting a test (e.g. ListConnections filtering) distinguish
 	// several differently-owned connections within one call.
 	checkConnectionOwnershipAllow map[string]bool
-	lastOwnerRole                 string
-	dropTablesErr                 error
-	createPubErr                  error
-	dropPubErr                    error
-	createSubErr                  error
-	dropSubErr                    error
+	// checkConnectionOwnershipGenericErr, when set, is what
+	// CheckConnectionOwnership returns verbatim — NOT wrapped as a privilege
+	// denial — simulating a genuine backend/infra failure distinct from an
+	// ordinary ownership denial, so a test can assert that callers propagate
+	// it instead of masking/swallowing it.
+	checkConnectionOwnershipGenericErr error
+	// deniedConnectionOwnersErr, when set, is what DeniedConnectionOwners
+	// returns instead of a result — simulating a genuine backend failure in
+	// the batched ownership check, distinct from an ordinary privilege
+	// denial (checkConnectionOwnershipAllow), so a test can assert that
+	// ListConnections propagates the error instead of silently omitting
+	// rows.
+	deniedConnectionOwnersErr error
+	lastOwnerRole             string
+	dropTablesErr             error
+	createPubErr              error
+	dropPubErr                error
+	createSubErr              error
+	dropSubErr                error
 
 	status    *SubscriptionStatus
 	statusErr error
@@ -295,13 +316,31 @@ func (t *fakeTarget) CheckConnectionOwnership(_ context.Context, callerRole, own
 	t.record("CheckConnectionOwnership")
 	t.lastCallerRole = callerRole
 	t.lastOwnerRole = ownerRole
+	if t.checkConnectionOwnershipGenericErr != nil {
+		return t.checkConnectionOwnershipGenericErr
+	}
 	if t.checkConnectionOwnershipErr != nil {
-		return t.checkConnectionOwnershipErr
+		return mterrors.NewPgError("ERROR", mterrors.PgSSInsufficientPrivilege, t.checkConnectionOwnershipErr.Error(), "")
 	}
 	if t.checkConnectionOwnershipAllow != nil && !t.checkConnectionOwnershipAllow[ownerRole] {
-		return errors.New("role lacks privilege to use this connection")
+		return mterrors.NewPgError("ERROR", mterrors.PgSSInsufficientPrivilege,
+			fmt.Sprintf("role %q lacks privilege to use this connection", callerRole), "")
 	}
 	return nil
+}
+
+func (t *fakeTarget) DeniedConnectionOwners(_ context.Context, _ string, ownerRoles []string) (map[string]bool, error) {
+	t.record("DeniedConnectionOwners")
+	if t.deniedConnectionOwnersErr != nil {
+		return nil, t.deniedConnectionOwnersErr
+	}
+	denied := make(map[string]bool)
+	for _, r := range ownerRoles {
+		if t.checkConnectionOwnershipAllow != nil && !t.checkConnectionOwnershipAllow[r] {
+			denied[r] = true
+		}
+	}
+	return denied, nil
 }
 
 func (t *fakeTarget) DropTables(context.Context, []string) error {

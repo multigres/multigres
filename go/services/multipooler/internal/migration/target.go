@@ -120,6 +120,47 @@ func (t *target) CheckConnectionOwnership(ctx context.Context, callerRole, owner
 	return nil
 }
 
+// DeniedConnectionOwners returns the subset of ownerRoles that callerRole
+// could NOT use, under the same privilege model CheckConnectionOwnership
+// checks — one batched query instead of one round trip per owner role, so
+// ListConnections can filter every stored connection in a single call
+// regardless of how many distinct owners exist. Duplicate roles in
+// ownerRoles collapse naturally since the result is a set. An empty
+// ownerRoles returns an empty set without issuing a query.
+func (t *target) DeniedConnectionOwners(ctx context.Context, callerRole string, ownerRoles []string) (map[string]bool, error) {
+	if len(ownerRoles) == 0 {
+		return nil, nil
+	}
+	sql := "SELECT t.owner FROM " + ownerRolesValuesClause(ownerRoles) + " WHERE NOT pg_has_role($1::name, t.owner, 'USAGE')"
+	res, err := t.qs.QueryAdminArgs(ctx, sql, callerRole)
+	if err != nil {
+		return nil, fmt.Errorf("check connection ownership: %w", err)
+	}
+	if res == nil || len(res.Rows) == 0 {
+		return nil, nil
+	}
+	denied := make(map[string]bool, len(res.Rows))
+	for _, row := range res.Rows {
+		var owner string
+		if err := executor.ScanRow(row, &owner); err != nil {
+			return nil, fmt.Errorf("scan denied-owner check result: %w", err)
+		}
+		denied[owner] = true
+	}
+	return denied, nil
+}
+
+// ownerRolesValuesClause builds a VALUES list of owner role names, the same
+// pattern tablesValuesClause uses, so DeniedConnectionOwners can check every
+// owner role in one query instead of one per connection.
+func ownerRolesValuesClause(ownerRoles []string) string {
+	values := make([]string, len(ownerRoles))
+	for i, r := range ownerRoles {
+		values[i] = "(" + ast.QuoteStringLiteral(r) + ")"
+	}
+	return "(VALUES " + strings.Join(values, ", ") + ") AS t(owner)"
+}
+
 // DropTables drops the migrated tables on the local Postgres before a schema
 // copy, so a pre-existing target table does not fail the copy with "relation
 // already exists". IF EXISTS makes it safe when they are absent; CASCADE

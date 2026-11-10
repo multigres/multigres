@@ -137,7 +137,7 @@ func (s *migrationService) GetMigration(ctx context.Context, req *migratorpb.Get
 	if err != nil {
 		return nil, toGRPC(err)
 	}
-	proj, err := coord.GetMigration(ctx, toRef(req.GetRef().GetId(), req.GetRef().GetName()))
+	proj, err := coord.GetMigration(ctx, toRef(req.GetRef().GetId(), req.GetRef().GetName()), req.GetCallerRole())
 	if err != nil {
 		return nil, toGRPC(err)
 	}
@@ -147,12 +147,12 @@ func (s *migrationService) GetMigration(ctx context.Context, req *migratorpb.Get
 // ListMigrations returns the ids of every migration. At most one migration
 // exists at a time today, so this returns 0 or 1 ids; callers fetch full
 // details for each via GetMigration.
-func (s *migrationService) ListMigrations(ctx context.Context, _ *migratorpb.ListMigrationsRequest) (*migratorpb.ListMigrationsResponse, error) {
+func (s *migrationService) ListMigrations(ctx context.Context, req *migratorpb.ListMigrationsRequest) (*migratorpb.ListMigrationsResponse, error) {
 	coord, err := s.manager.MigrationCoordinatorIfPrimary(ctx)
 	if err != nil {
 		return nil, toGRPC(err)
 	}
-	projs, err := coord.ListMigrations(ctx)
+	projs, err := coord.ListMigrations(ctx, req.GetCallerRole())
 	if err != nil {
 		return nil, toGRPC(err)
 	}
@@ -168,7 +168,7 @@ func (s *migrationService) GetMigrationJournal(ctx context.Context, req *migrato
 	if err != nil {
 		return nil, toGRPC(err)
 	}
-	entries, err := coord.GetMigrationJournal(ctx, toRef(req.Id, req.Name))
+	entries, err := coord.GetMigrationJournal(ctx, toRef(req.Id, req.Name), req.GetCallerRole())
 	if err != nil {
 		return nil, toGRPC(err)
 	}
@@ -265,14 +265,8 @@ func (s *migrationService) DropConnection(ctx context.Context, req *migratorpb.D
 	if err != nil {
 		return nil, toGRPC(err)
 	}
-	conn, err := coord.GetConnection(ctx, toRef(req.GetRef().GetId(), req.GetRef().GetName()), req.GetCallerRole())
-	if err != nil {
-		if req.GetIfExists() && errors.Is(err, migration.ErrConnectionNotFound) {
-			return &migratorpb.DropConnectionResponse{}, nil
-		}
-		return nil, toGRPC(err)
-	}
-	if err := coord.DropConnection(ctx, conn.ID, req.GetCallerRole()); err != nil {
+	ref := toRef(req.GetRef().GetId(), req.GetRef().GetName())
+	if err := coord.DropConnection(ctx, ref, req.GetCallerRole(), req.GetIfExists()); err != nil {
 		return nil, toGRPC(err)
 	}
 	return &migratorpb.DropConnectionResponse{}, nil

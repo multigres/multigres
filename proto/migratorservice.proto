@@ -196,6 +196,21 @@ message MigrationJournalEntry {
 message GetMigrationJournalRequest {
   int64 id = 1;
   string name = 2;
+  // caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+  // client is connected as. Set only on the gateway SQL path: it gates an
+  // ownership check against the migration's connection (migrations have no
+  // owner of their own — see CreateMigrationRequest.caller_role), so a
+  // caller who merely has database CREATE + pg_create_subscription (enough
+  // to pass the gateway's CanCreateMigration gate) cannot read another
+  // operator's journal (handoff LSNs, phase/event history). A caller that
+  // fails this check sees the same not-found error a nonexistent migration
+  // would produce. A dropped migration (addressable only by id, once its row
+  // is gone) has no connection left to check ownership against, so a
+  // non-empty caller_role is denied rather than trusted by default. Left
+  // empty on the CLI/multiadmin path, which has no SQL-authenticated
+  // identity to set it from; the check is skipped in that case, unchanged
+  // from before this field existed.
+  string caller_role = 3;
 }
 message GetMigrationJournalResponse {
   // entries are the migration's journal entries, oldest first.
@@ -295,6 +310,18 @@ message SetMigrationDirectionResponse {
 // GetMigrationRequest addresses one migration by ref (id or name).
 message GetMigrationRequest {
   MigrationRef ref = 1;
+  // caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+  // client is connected as. Set only on the gateway SQL path: it gates an
+  // ownership check against the migration's connection (migrations have no
+  // owner of their own — see CreateMigrationRequest.caller_role), so a
+  // caller who merely has database CREATE + pg_create_subscription (enough
+  // to pass the gateway's CanCreateMigration gate) cannot read another
+  // operator's migration status. A caller that fails this check sees the
+  // same not-found error a nonexistent migration would produce. Left empty
+  // on the CLI/multiadmin path, which has no SQL-authenticated identity to
+  // set it from; the check is skipped in that case, unchanged from before
+  // this field existed.
+  string caller_role = 2;
 }
 message GetMigrationResponse {
   MigrationRecord migration = 1;
@@ -305,6 +332,17 @@ message GetMigrationResponse {
 // migration exists at a time today, so this returns 0 or 1 ids; fetch full
 // details for each via GetMigration.
 message ListMigrationsRequest {
+  // caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+  // client is connected as. Set only on the gateway SQL path: it filters the
+  // result to migrations whose connection callerRole owns (or whose
+  // OwnerRole predates ownership tracking), the same model
+  // GetMigrationRequest.caller_role uses, so a caller who merely has
+  // database CREATE + pg_create_subscription (enough to pass the gateway's
+  // CanCreateMigration gate) cannot enumerate every operator's migration
+  // ids. Left empty on the CLI/multiadmin path, which has no
+  // SQL-authenticated identity to set it from; every id is then returned
+  // unfiltered, unchanged from before this field existed.
+  string caller_role = 1;
 }
 message ListMigrationsResponse {
   repeated int64 ids = 1;

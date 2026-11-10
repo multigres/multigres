@@ -777,6 +777,23 @@ paths:
     get:
       description: ListMigrations returns the ids of every migration.
       operationId: multiadmin.MultiadminService.ListMigrations
+      parameters:
+        - description: |-
+            caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+             client is connected as. Set only on the gateway SQL path: it filters the
+             result to migrations whose connection callerRole owns (or whose
+             OwnerRole predates ownership tracking), the same model
+             GetMigrationRequest.caller_role uses, so a caller who merely has
+             database CREATE + pg_create_subscription (enough to pass the gateway's
+             CanCreateMigration gate) cannot enumerate every operator's migration
+             ids. Left empty on the CLI/multiadmin path, which has no
+             SQL-authenticated identity to set it from; every id is then returned
+             unfiltered, unchanged from before this field existed.
+          in: query
+          name: callerRole
+          schema:
+            title: caller_role
+            type: string
       responses:
         "200":
           content:
@@ -840,6 +857,26 @@ paths:
           name: name
           schema:
             title: name
+            type: string
+        - description: |-
+            caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+             client is connected as. Set only on the gateway SQL path: it gates an
+             ownership check against the migration's connection (migrations have no
+             owner of their own — see CreateMigrationRequest.caller_role), so a
+             caller who merely has database CREATE + pg_create_subscription (enough
+             to pass the gateway's CanCreateMigration gate) cannot read another
+             operator's journal (handoff LSNs, phase/event history). A caller that
+             fails this check sees the same not-found error a nonexistent migration
+             would produce. A dropped migration (addressable only by id, once its row
+             is gone) has no connection left to check ownership against, so a
+             non-empty caller_role is denied rather than trusted by default. Left
+             empty on the CLI/multiadmin path, which has no SQL-authenticated
+             identity to set it from; the check is skipped in that case, unchanged
+             from before this field existed.
+          in: query
+          name: callerRole
+          schema:
+            title: caller_role
             type: string
       responses:
         "200":
@@ -949,6 +986,23 @@ paths:
           name: ref.name
           schema:
             title: name
+            type: string
+        - description: |-
+            caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+             client is connected as. Set only on the gateway SQL path: it gates an
+             ownership check against the migration's connection (migrations have no
+             owner of their own — see CreateMigrationRequest.caller_role), so a
+             caller who merely has database CREATE + pg_create_subscription (enough
+             to pass the gateway's CanCreateMigration gate) cannot read another
+             operator's migration status. A caller that fails this check sees the
+             same not-found error a nonexistent migration would produce. Left empty
+             on the CLI/multiadmin path, which has no SQL-authenticated identity to
+             set it from; the check is skipped in that case, unchanged from before
+             this field existed.
+          in: query
+          name: callerRole
+          schema:
+            title: caller_role
             type: string
       responses:
         "200":

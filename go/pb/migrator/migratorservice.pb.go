@@ -902,9 +902,24 @@ func (x *MigrationJournalEntry) GetDetail() string {
 // by name. A dropped migration is addressable only by id (the row that carried
 // the name is gone, though its journal entries are retained).
 type GetMigrationJournalRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    int64                  `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+	// client is connected as. Set only on the gateway SQL path: it gates an
+	// ownership check against the migration's connection (migrations have no
+	// owner of their own — see CreateMigrationRequest.caller_role), so a
+	// caller who merely has database CREATE + pg_create_subscription (enough
+	// to pass the gateway's CanCreateMigration gate) cannot read another
+	// operator's journal (handoff LSNs, phase/event history). A caller that
+	// fails this check sees the same not-found error a nonexistent migration
+	// would produce. A dropped migration (addressable only by id, once its row
+	// is gone) has no connection left to check ownership against, so a
+	// non-empty caller_role is denied rather than trusted by default. Left
+	// empty on the CLI/multiadmin path, which has no SQL-authenticated
+	// identity to set it from; the check is skipped in that case, unchanged
+	// from before this field existed.
+	CallerRole    string `protobuf:"bytes,3,opt,name=caller_role,json=callerRole,proto3" json:"caller_role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -949,6 +964,13 @@ func (x *GetMigrationJournalRequest) GetId() int64 {
 func (x *GetMigrationJournalRequest) GetName() string {
 	if x != nil {
 		return x.Name
+	}
+	return ""
+}
+
+func (x *GetMigrationJournalRequest) GetCallerRole() string {
+	if x != nil {
+		return x.CallerRole
 	}
 	return ""
 }
@@ -1389,8 +1411,20 @@ func (x *SetMigrationDirectionResponse) GetStatus() *MigrationStatus {
 
 // GetMigrationRequest addresses one migration by ref (id or name).
 type GetMigrationRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Ref           *MigrationRef          `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Ref   *MigrationRef          `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	// caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+	// client is connected as. Set only on the gateway SQL path: it gates an
+	// ownership check against the migration's connection (migrations have no
+	// owner of their own — see CreateMigrationRequest.caller_role), so a
+	// caller who merely has database CREATE + pg_create_subscription (enough
+	// to pass the gateway's CanCreateMigration gate) cannot read another
+	// operator's migration status. A caller that fails this check sees the
+	// same not-found error a nonexistent migration would produce. Left empty
+	// on the CLI/multiadmin path, which has no SQL-authenticated identity to
+	// set it from; the check is skipped in that case, unchanged from before
+	// this field existed.
+	CallerRole    string `protobuf:"bytes,2,opt,name=caller_role,json=callerRole,proto3" json:"caller_role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1430,6 +1464,13 @@ func (x *GetMigrationRequest) GetRef() *MigrationRef {
 		return x.Ref
 	}
 	return nil
+}
+
+func (x *GetMigrationRequest) GetCallerRole() string {
+	if x != nil {
+		return x.CallerRole
+	}
+	return ""
 }
 
 type GetMigrationResponse struct {
@@ -1488,7 +1529,18 @@ func (x *GetMigrationResponse) GetStatus() *MigrationStatus {
 // migration exists at a time today, so this returns 0 or 1 ids; fetch full
 // details for each via GetMigration.
 type ListMigrationsRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+	// client is connected as. Set only on the gateway SQL path: it filters the
+	// result to migrations whose connection callerRole owns (or whose
+	// OwnerRole predates ownership tracking), the same model
+	// GetMigrationRequest.caller_role uses, so a caller who merely has
+	// database CREATE + pg_create_subscription (enough to pass the gateway's
+	// CanCreateMigration gate) cannot enumerate every operator's migration
+	// ids. Left empty on the CLI/multiadmin path, which has no
+	// SQL-authenticated identity to set it from; every id is then returned
+	// unfiltered, unchanged from before this field existed.
+	CallerRole    string `protobuf:"bytes,1,opt,name=caller_role,json=callerRole,proto3" json:"caller_role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1521,6 +1573,13 @@ func (x *ListMigrationsRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ListMigrationsRequest.ProtoReflect.Descriptor instead.
 func (*ListMigrationsRequest) Descriptor() ([]byte, []int) {
 	return file_migratorservice_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ListMigrationsRequest) GetCallerRole() string {
+	if x != nil {
+		return x.CallerRole
+	}
+	return ""
 }
 
 type ListMigrationsResponse struct {
@@ -2378,10 +2437,12 @@ const file_migratorservice_proto_rawDesc = "" +
 	"\n" +
 	"last_error\x18\n" +
 	" \x01(\tR\tlastError\x12\x16\n" +
-	"\x06detail\x18\v \x01(\tR\x06detail\"@\n" +
+	"\x06detail\x18\v \x01(\tR\x06detail\"a\n" +
 	"\x1aGetMigrationJournalRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"X\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1f\n" +
+	"\vcaller_role\x18\x03 \x01(\tR\n" +
+	"callerRole\"X\n" +
 	"\x1bGetMigrationJournalResponse\x129\n" +
 	"\aentries\x18\x01 \x03(\v2\x1f.migrator.MigrationJournalEntryR\aentries\"\xcd\x01\n" +
 	"\x16CreateMigrationRequest\x127\n" +
@@ -2409,13 +2470,17 @@ const file_migratorservice_proto_rawDesc = "" +
 	"\x15_wait_timeout_seconds\"\x8b\x01\n" +
 	"\x1dSetMigrationDirectionResponse\x127\n" +
 	"\tmigration\x18\x01 \x01(\v2\x19.migrator.MigrationRecordR\tmigration\x121\n" +
-	"\x06status\x18\x02 \x01(\v2\x19.migrator.MigrationStatusR\x06status\"?\n" +
+	"\x06status\x18\x02 \x01(\v2\x19.migrator.MigrationStatusR\x06status\"`\n" +
 	"\x13GetMigrationRequest\x12(\n" +
-	"\x03ref\x18\x01 \x01(\v2\x16.migrator.MigrationRefR\x03ref\"\x82\x01\n" +
+	"\x03ref\x18\x01 \x01(\v2\x16.migrator.MigrationRefR\x03ref\x12\x1f\n" +
+	"\vcaller_role\x18\x02 \x01(\tR\n" +
+	"callerRole\"\x82\x01\n" +
 	"\x14GetMigrationResponse\x127\n" +
 	"\tmigration\x18\x01 \x01(\v2\x19.migrator.MigrationRecordR\tmigration\x121\n" +
-	"\x06status\x18\x02 \x01(\v2\x19.migrator.MigrationStatusR\x06status\"\x17\n" +
-	"\x15ListMigrationsRequest\"*\n" +
+	"\x06status\x18\x02 \x01(\v2\x19.migrator.MigrationStatusR\x06status\"8\n" +
+	"\x15ListMigrationsRequest\x12\x1f\n" +
+	"\vcaller_role\x18\x01 \x01(\tR\n" +
+	"callerRole\"*\n" +
 	"\x16ListMigrationsResponse\x12\x10\n" +
 	"\x03ids\x18\x01 \x03(\x03R\x03ids\"\xbd\x01\n" +
 	"\x14DropMigrationRequest\x12(\n" +
