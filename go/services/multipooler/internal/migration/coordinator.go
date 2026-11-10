@@ -25,6 +25,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 )
 
@@ -138,8 +139,10 @@ func (c *Coordinator) CreateConnection(ctx context.Context, conn *Connection) er
 	return c.store.InsertConnection(ctx, conn)
 }
 
-// DropConnection removes a connection. Fails with ErrConnectionInUse if a
-// migration still references it. Takes c.mu, the same lock every other
+// DropConnection removes a connection, addressed by ref (id or name). Fails
+// with ErrConnectionInUse if a migration still references it. ifExists turns
+// a not-found (including an ownership-masked one, below) into a silent
+// no-op rather than an error. Takes c.mu, the same lock every other
 // coordinator method that mutates migration/connection state holds.
 //
 // callerRole gates an ownership check against the connection's stored
@@ -148,19 +151,32 @@ func (c *Coordinator) CreateConnection(ctx context.Context, conn *Connection) er
 // CanCreateMigration gate could drop a connection it does not own. A
 // rejected caller sees ErrConnectionNotFound, the same error a nonexistent
 // connection produces, so it cannot tell "doesn't exist" from "exists but
-// not mine" — with if_exists set at the RPC layer, that makes the drop a
-// silent no-op rather than an error, same as for a connection that is
-// genuinely absent. Left empty on the CLI/multiadmin path, which has no
+// not mine." Left empty on the CLI/multiadmin path, which has no
 // SQL-authenticated identity to check; the check is skipped in that case,
 // unchanged from before this parameter existed.
-func (c *Coordinator) DropConnection(ctx context.Context, id int64, callerRole string) error {
+//
+// Resolves ref itself rather than taking an already-resolved id, so the
+// caller (the gRPC handler) does not have to fetch the connection via
+// GetConnection first just to learn its id for ifExists handling — that
+// used to mean every DropConnection call fetched the same row twice.
+func (c *Coordinator) DropConnection(ctx context.Context, ref Ref, callerRole string, ifExists bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if err := c.checkConnectionOwnershipByID(ctx, id, callerRole, ErrConnectionNotFound); err != nil {
+	conn, err := c.store.GetConnectionByRef(ctx, ref)
+	if err != nil {
+		if ifExists && errors.Is(err, ErrConnectionNotFound) {
+			return nil
+		}
 		return err
 	}
-	return c.store.DeleteConnection(ctx, id)
+	if err := c.checkConnectionOwnership(ctx, conn, callerRole, ErrConnectionNotFound); err != nil {
+		if ifExists && errors.Is(err, ErrConnectionNotFound) {
+			return nil
+		}
+		return err
+	}
+	return c.store.DeleteConnection(ctx, conn.ID)
 }
 
 // GetConnection returns one connection, addressed by ref (id or name).
@@ -194,6 +210,13 @@ func (c *Coordinator) GetConnection(ctx context.Context, ref Ref, callerRole str
 // empty (CLI/multiadmin path, no SQL-authenticated identity) returns every
 // connection unfiltered, unchanged from before this parameter existed, as
 // does a connection with an empty OwnerRole (predates ownership tracking).
+//
+// Checks every distinct OwnerRole in one batched DeniedConnectionOwners call
+// rather than one CheckConnectionOwnership round trip per connection, so this
+// stays a single extra query regardless of how many connections are stored —
+// and, since there is no longer a per-row loop around the privilege check, a
+// genuine backend failure propagates as this call's own error instead of
+// being indistinguishable from "not owned" and silently dropping that row.
 func (c *Coordinator) ListConnections(ctx context.Context, callerRole string) ([]*Connection, error) {
 	conns, err := c.store.ListConnections(ctx)
 	if err != nil {
@@ -202,9 +225,23 @@ func (c *Coordinator) ListConnections(ctx context.Context, callerRole string) ([
 	if callerRole == "" {
 		return conns, nil
 	}
+	ownerSet := make(map[string]bool)
+	for _, conn := range conns {
+		if conn.OwnerRole != "" {
+			ownerSet[conn.OwnerRole] = true
+		}
+	}
+	owners := make([]string, 0, len(ownerSet))
+	for r := range ownerSet {
+		owners = append(owners, r)
+	}
+	denied, err := c.target.DeniedConnectionOwners(ctx, callerRole, owners)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]*Connection, 0, len(conns))
 	for _, conn := range conns {
-		if conn.OwnerRole == "" || c.target.CheckConnectionOwnership(ctx, callerRole, conn.OwnerRole) == nil {
+		if conn.OwnerRole == "" || !denied[conn.OwnerRole] {
 			out = append(out, conn)
 		}
 	}
@@ -212,20 +249,39 @@ func (c *Coordinator) ListConnections(ctx context.Context, callerRole string) ([
 }
 
 // checkConnectionOwnership verifies that callerRole could use conn, under
-// PostgreSQL's own privilege model (CheckConnectionOwnership). A denial
-// returns errMasked — never the real privilege-denied error — so a caller
-// cannot distinguish "not owned" from whatever errMasked itself signals
-// (typically "does not exist"), mirroring CreateMigration's anti-enumeration
-// model. Skipped (nil) when callerRole is empty (no SQL-authenticated
+// PostgreSQL's own privilege model (CheckConnectionOwnership). A genuine
+// privilege denial returns errMasked — never the real privilege-denied
+// error — so a caller cannot distinguish "not owned" from whatever errMasked
+// itself signals (typically "does not exist"), mirroring CreateMigration's
+// anti-enumeration model. Any other failure (a backend/infra error, not a
+// privilege denial) propagates as-is instead of being masked, so a transient
+// failure is never silently indistinguishable from an ordinary denial — a
+// caller in a loop (ListConnections, ListMigrations) can then tell "omit
+// this one, it's not owned" from "something is actually broken, stop and
+// report it." Skipped (nil) when callerRole is empty (no SQL-authenticated
 // identity) or conn.OwnerRole is empty (predates ownership tracking).
 func (c *Coordinator) checkConnectionOwnership(ctx context.Context, conn *Connection, callerRole string, errMasked error) error {
 	if callerRole == "" || conn.OwnerRole == "" {
 		return nil
 	}
-	if err := c.target.CheckConnectionOwnership(ctx, callerRole, conn.OwnerRole); err != nil {
+	err := c.target.CheckConnectionOwnership(ctx, callerRole, conn.OwnerRole)
+	if err == nil {
+		return nil
+	}
+	if isPrivilegeDenied(err) {
 		return errMasked
 	}
-	return nil
+	return err
+}
+
+// isPrivilegeDenied reports whether err is the specific insufficient_privilege
+// (SQLSTATE 42501) PgDiagnostic CheckConnectionOwnership returns for a
+// genuine ownership denial, as opposed to some other backend/infra failure
+// (a wrapped connection error, a timeout) that happens to come back from the
+// same call.
+func isPrivilegeDenied(err error) bool {
+	var diag *mterrors.PgDiagnostic
+	return errors.As(err, &diag) && diag.Code == mterrors.PgSSInsufficientPrivilege
 }
 
 // checkConnectionOwnershipByID resolves the connection identified by connID
@@ -541,21 +597,42 @@ func (c *Coordinator) runSetup(ctx context.Context, m *Migration, callerRole str
 // (setPhase, reconcileLocked) while holding c.mu. Reading its fields here
 // (liveStatus, project) without c.mu would race those writers. Modifications are
 // rare, so this short read-side lock is cheap.
-func (c *Coordinator) GetMigration(ctx context.Context, ref Ref) (*Projection, error) {
+//
+// callerRole gates the same ownership check DropMigration/SetMigrationDirection
+// use: without it, any role that merely passes the gateway's CanCreateMigration
+// gate could read another operator's migration status. A rejected caller sees
+// ErrNotFound, the same error a nonexistent migration produces, so it cannot
+// tell "doesn't exist" from "exists but not mine." Left empty on the
+// CLI/multiadmin path, which has no SQL-authenticated identity to check; the
+// check is skipped in that case, unchanged from before this parameter existed.
+func (c *Coordinator) GetMigration(ctx context.Context, ref Ref, callerRole string) (*Projection, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	m, err := c.store.GetByRef(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
+	if err := c.checkConnectionOwnershipByID(ctx, m.ConnectionID, callerRole, ErrNotFound); err != nil {
+		return nil, err
+	}
 	status, _ := c.liveStatus(ctx, m)
 	return c.project(ctx, m, status), nil
 }
 
-// ListMigrations returns projections for all migrations. It takes c.mu for the
-// same reason as GetMigration: the cached *Migration values it reads are the
-// ones the write paths mutate in place under c.mu.
-func (c *Coordinator) ListMigrations(ctx context.Context) ([]*Projection, error) {
+// ListMigrations returns projections for every migration callerRole may use.
+// It takes c.mu for the same reason as GetMigration: the cached *Migration
+// values it reads are the ones the write paths mutate in place under c.mu.
+//
+// callerRole gates the same ownership check GetMigration uses, applied here
+// as a filter (an unowned migration is silently omitted) rather than a
+// rejection — without it, any role that merely passes the gateway's
+// CanCreateMigration gate could enumerate every operator's migration. A
+// genuine failure checking ownership (as opposed to an ordinary denial)
+// still propagates as this call's own error rather than being silently
+// treated as "not owned." Left empty on the CLI/multiadmin path, which has
+// no SQL-authenticated identity to check; every migration is then returned
+// unfiltered, unchanged from before this parameter existed.
+func (c *Coordinator) ListMigrations(ctx context.Context, callerRole string) ([]*Projection, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	ms, err := c.store.List(ctx)
@@ -564,6 +641,12 @@ func (c *Coordinator) ListMigrations(ctx context.Context) ([]*Projection, error)
 	}
 	out := make([]*Projection, 0, len(ms))
 	for _, m := range ms {
+		if err := c.checkConnectionOwnershipByID(ctx, m.ConnectionID, callerRole, ErrNotFound); err != nil {
+			if errors.Is(err, ErrNotFound) {
+				continue
+			}
+			return nil, err
+		}
 		status, _ := c.liveStatus(ctx, m)
 		out = append(out, c.project(ctx, m, status))
 	}
@@ -576,13 +659,30 @@ func (c *Coordinator) ListMigrations(ctx context.Context) ([]*Projection, error)
 // drop). ref is an id or name: a live migration is resolved by either, but a
 // dropped migration is addressable only by its id (the row that held the name is
 // gone). The journal never contains credentials, so entries are returned as-is.
-func (c *Coordinator) GetMigrationJournal(ctx context.Context, ref Ref) ([]*JournalEntry, error) {
+//
+// callerRole gates the same ownership check GetMigration uses, against the
+// still-live migration's connection. A dropped migration's connection can no
+// longer be resolved to verify ownership against, so a non-empty callerRole is
+// denied (ErrNotFound) rather than trusted by default in that case. Left
+// empty on the CLI/multiadmin path, which has no SQL-authenticated identity
+// to check; the check is skipped entirely in that case, unchanged from
+// before this parameter existed.
+func (c *Coordinator) GetMigrationJournal(ctx context.Context, ref Ref, callerRole string) ([]*JournalEntry, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	id := ref.ID
-	if m, err := c.store.GetByRef(ctx, ref); err == nil {
+	m, err := c.store.GetByRef(ctx, ref)
+	switch {
+	case err == nil:
 		id = m.ID
-	} else if !errors.Is(err, ErrNotFound) {
+		if err := c.checkConnectionOwnershipByID(ctx, m.ConnectionID, callerRole, ErrNotFound); err != nil {
+			return nil, err
+		}
+	case errors.Is(err, ErrNotFound):
+		if callerRole != "" {
+			return nil, ErrNotFound
+		}
+	default:
 		return nil, err
 	}
 	// A dropped migration is addressable only by id: with no live row and no id
