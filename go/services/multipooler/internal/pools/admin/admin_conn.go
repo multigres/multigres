@@ -28,11 +28,18 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
+	"github.com/multigres/multigres/go/tools/logthrottle"
 )
 
 // cancelRequestTimeout bounds sending a cancel request when a query's context
 // expires. It sits on the timeout path, so keep it short.
 const cancelRequestTimeout = time.Second
+
+// cancelFailureLogInterval bounds how often a failed cancel is logged. While a standby
+// is unreachable every timed-out write can fail the same way, once a second.
+const cancelFailureLogInterval = time.Minute
+
+var cancelFailureThrottle = logthrottle.New(cancelFailureLogInterval)
 
 // DefaultCancelTimeout is the default timeout for cancel/terminate operations.
 // This is used when cancelling a backend query due to context cancellation.
@@ -341,7 +348,10 @@ func execQueryWithContextCancel(ctx context.Context, conn *client.Conn, op func(
 		// until a standby acks. Best effort; the cancelled query's result is discarded.
 		cancelCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cancelRequestTimeout)
 		if err := conn.SendCancelRequest(cancelCtx); err != nil {
-			slog.WarnContext(ctx, "failed to cancel a timed-out query on the server; its backend may keep running", "error", err)
+			if ok, suppressed := cancelFailureThrottle.Allow(time.Now()); ok {
+				slog.WarnContext(ctx, "failed to cancel a timed-out query on the server; its backend may keep running",
+					"error", err, "suppressed_since_last_log", suppressed)
+			}
 		}
 		cancel()
 		// Force-close the connection to unblock the goroutine's blocking network read.
