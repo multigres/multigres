@@ -20,6 +20,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/multigres/multigres/go/common/keyrange"
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -40,6 +41,11 @@ const (
 	keySecondary = pb.ShardKeyRole_SHARD_KEY_ROLE_SECONDARY
 	keyActive    = pb.ShardKeyState_SHARD_KEY_STATE_ACTIVE
 	keyRetired   = pb.ShardKeyState_SHARD_KEY_STATE_RETIRED
+
+	scopeTableGroup = pb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLEGROUP
+	scopeTable      = pb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLE
+
+	testOperation = "11111111-1111-1111-1111-111111111111"
 )
 
 func shard(t *testing.T, id, tableGroupID int64, name string, state pb.ShardState) *pb.Shard {
@@ -51,8 +57,10 @@ func shard(t *testing.T, id, tableGroupID int64, name string, state pb.ShardStat
 
 // validSnapshot is a catalog with the default tablegroup, an active sharded
 // tablegroup commerce (0-80, 80-inf, plus a retired 0-inf), one being
-// created, and a table in commerce with an active primary key, a retired
-// primary key, and a secondary key.
+// created, a table in commerce with an active primary key, a retired
+// primary key, and a secondary key, and an operation's routing rules: shard
+// rules from commerce to analytics, and a table rule moving settings out of
+// default into commerce.
 func validSnapshot(t *testing.T) *pb.Snapshot {
 	t.Helper()
 	return &pb.Snapshot{
@@ -83,6 +91,12 @@ func validSnapshot(t *testing.T) *pb.Snapshot {
 			{ShardKeyId: 30, TableId: 10, ShardIndexId: 20, Name: "old", Role: keyPrimary, State: keyRetired, Columns: []string{"id"}},
 			{ShardKeyId: 31, TableId: 10, ShardIndexId: 20, Name: "by_customer", Role: keyPrimary, State: keyActive, Columns: []string{"customer_id", "region"}},
 			{ShardKeyId: 32, TableId: 10, ShardIndexId: 20, Name: "by_order", Role: keySecondary, State: keyActive, Columns: []string{"id"}},
+		},
+		RoutingRules: []*pb.RoutingRule{
+			// Listed out of range order: the snapshot sorts them.
+			{RuleId: 40, OperationId: testOperation, Scope: scopeTableGroup, FromTablegroupId: 2, ToTablegroupId: 3, ToShardId: new(int64(6)), CreatedVersion: 12},
+			{RuleId: 41, OperationId: testOperation, Scope: scopeTableGroup, FromTablegroupId: 2, ToTablegroupId: 3, ToShardId: new(int64(5)), CreatedVersion: 12},
+			{RuleId: 42, OperationId: testOperation, Scope: scopeTable, FromTablegroupId: 1, FromTableId: new(int64(11)), ToTablegroupId: 2, ToShardKeyId: new(int64(31)), CreatedVersion: 11},
 		},
 	}
 }
@@ -319,6 +333,47 @@ func TestNew_Rejects(t *testing.T) {
 		{"two active primary keys", func(t *testing.T, p *pb.Snapshot) {
 			p.ShardKeys[0].State = keyActive
 		}, `table "public"."orders" has two active primary shard keys, 30 and 31`},
+		{"repeated routing rule id", func(t *testing.T, p *pb.Snapshot) {
+			p.RoutingRules[1].RuleId = 40
+		}, "routing rule id 40 is repeated"},
+		{"rule from a dangling tablegroup", func(t *testing.T, p *pb.Snapshot) {
+			p.RoutingRules[0].FromTablegroupId = 99
+		}, "routing rule 40 refers to tablegroup 99"},
+		{"rule to a dangling tablegroup", func(t *testing.T, p *pb.Snapshot) {
+			p.RoutingRules[0].ToTablegroupId = 99
+		}, "routing rule 40 refers to tablegroup 99"},
+		{"rule to a dangling shard", func(t *testing.T, p *pb.Snapshot) {
+			p.RoutingRules[0].ToShardId = new(int64(99))
+		}, "routing rule 40 refers to shard 99"},
+		{"rule from a dangling table", func(t *testing.T, p *pb.Snapshot) {
+			p.RoutingRules[2].FromTableId = new(int64(99))
+		}, "routing rule 42 refers to table 99"},
+		{"rule with a dangling shard key", func(t *testing.T, p *pb.Snapshot) {
+			p.RoutingRules[2].ToShardKeyId = new(int64(99))
+		}, "routing rule 42 refers to shard key 99"},
+		{"rule with an unknown scope", func(t *testing.T, p *pb.Snapshot) {
+			p.RoutingRules[0].Scope = pb.RoutingRuleScope_ROUTING_RULE_SCOPE_UNSPECIFIED
+		}, "routing rule 40 has unknown scope ROUTING_RULE_SCOPE_UNSPECIFIED"},
+		{"shard rule without a target shard", func(t *testing.T, p *pb.Snapshot) {
+			p.RoutingRules[0].ToShardId = nil
+		}, "shard rule 40 must have a to_shard_id and no from_table_id"},
+		{"shard rule with a source table", func(t *testing.T, p *pb.Snapshot) {
+			p.RoutingRules[0].FromTableId = new(int64(10))
+		}, "shard rule 40 must have a to_shard_id and no from_table_id"},
+		{"table rule without a source table", func(t *testing.T, p *pb.Snapshot) {
+			p.RoutingRules[2].FromTableId = nil
+		}, "table rule 42 must have a from_table_id and no to_shard_id"},
+		{"table rule with a target shard", func(t *testing.T, p *pb.Snapshot) {
+			p.RoutingRules[2].ToShardId = new(int64(2))
+		}, "table rule 42 must have a from_table_id and no to_shard_id"},
+		{"shard rule to a shard of another tablegroup", func(t *testing.T, p *pb.Snapshot) {
+			p.RoutingRules[0].ToShardId = new(int64(2))
+		}, `shard rule 40 targets shard 2 of tablegroup "commerce", not of its to_tablegroup "analytics"`},
+		{"two table rules for a table", func(t *testing.T, p *pb.Snapshot) {
+			p.RoutingRules = append(p.RoutingRules, &pb.RoutingRule{
+				RuleId: 43, OperationId: testOperation, Scope: scopeTable, FromTablegroupId: 1, FromTableId: new(int64(11)), ToTablegroupId: 3,
+			})
+		}, `table "public"."settings" has two table rules, 42 and 43`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var p *pb.Snapshot
@@ -332,6 +387,64 @@ func TestNew_Rejects(t *testing.T) {
 			assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
 		})
 	}
+}
+
+func TestNew_RoutingRules(t *testing.T) {
+	s, err := New(validSnapshot(t))
+	require.NoError(t, err)
+
+	commerce, _ := s.TableGroupByName("commerce")
+	analytics, _ := s.TableGroupByName("analytics")
+	rules := commerce.ShardRules()
+	require.Len(t, rules, 2)
+	assert.Equal(t, []int64{41, 40}, []int64{rules[0].ID(), rules[1].ID()}, "ordered by target range")
+	r := rules[0]
+	assert.Equal(t, testOperation, r.OperationID())
+	assert.Equal(t, scopeTableGroup, r.Scope())
+	assert.Same(t, commerce, r.FromTableGroup())
+	assert.Nil(t, r.FromTable())
+	assert.Same(t, analytics, r.ToTableGroup())
+	assert.Equal(t, "0-40", r.ToShard().Name())
+	assert.Same(t, analytics, r.ToShard().TableGroup())
+	assert.Zero(t, r.ToShardKeyID())
+	assert.Equal(t, int64(12), r.CreatedVersion())
+
+	def, _ := s.TableGroupByName("default")
+	assert.Empty(t, def.ShardRules(), "a table rule is not a shard rule")
+	assert.Empty(t, analytics.ShardRules(), "rules belong to their source")
+
+	settings, _ := s.Table("public", "settings")
+	tr := settings.RoutingRule()
+	require.NotNil(t, tr)
+	assert.Equal(t, int64(42), tr.ID())
+	assert.Equal(t, scopeTable, tr.Scope())
+	assert.Same(t, def, tr.FromTableGroup())
+	assert.Same(t, settings, tr.FromTable())
+	assert.Same(t, commerce, tr.ToTableGroup())
+	assert.Nil(t, tr.ToShard())
+	assert.Equal(t, int64(31), tr.ToShardKeyID())
+
+	orders, _ := s.Table("public", "orders")
+	assert.Nil(t, orders.RoutingRule())
+}
+
+func TestNew_RoutingRulesRoundTrip(t *testing.T) {
+	// A snapshot survives the wire with its rules, including which optional
+	// ids are set.
+	data, err := proto.Marshal(validSnapshot(t))
+	require.NoError(t, err)
+	var p pb.Snapshot
+	require.NoError(t, proto.Unmarshal(data, &p))
+	assert.True(t, proto.Equal(validSnapshot(t), &p))
+	assert.Nil(t, p.GetRoutingRules()[0].FromTableId)
+	assert.Nil(t, p.GetRoutingRules()[2].ToShardId)
+
+	s, err := New(&p)
+	require.NoError(t, err)
+	commerce, _ := s.TableGroupByName("commerce")
+	assert.Len(t, commerce.ShardRules(), 2)
+	settings, _ := s.Table("public", "settings")
+	assert.NotNil(t, settings.RoutingRule())
 }
 
 func TestNew_DoesNotRetainTheProto(t *testing.T) {

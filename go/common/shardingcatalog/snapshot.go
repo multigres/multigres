@@ -64,6 +64,9 @@ type TableGroup struct {
 	// activeShards is the active shards in range order. When there are any,
 	// they cover the whole keyspace without gaps or overlaps.
 	activeShards []*Shard
+	// shardRules is the shard rules from the tablegroup, in target range
+	// order.
+	shardRules []*RoutingRule
 }
 
 // Shard is one key range of a tablegroup.
@@ -83,6 +86,8 @@ type Table struct {
 	tableGroup *TableGroup
 	// primaryKey is the active primary shard key, nil when there is none.
 	primaryKey *ShardKey
+	// rule is the table rule from the table, nil when there is none.
+	rule *RoutingRule
 }
 
 // ShardIndex is a named way to compute a routing identifier.
@@ -104,6 +109,26 @@ type ShardKey struct {
 	shardIndex *ShardIndex
 }
 
+// RoutingRule overrides where the catalog sends traffic while its operation
+// moves data. A shard rule (scope TABLEGROUP) serves the routing identifiers of
+// its source tablegroup in its target shard's range from that shard; a table
+// rule (scope TABLE) serves its table as a member of the target tablegroup.
+type RoutingRule struct {
+	id             int64
+	operationID    string
+	scope          shardingcatalogpb.RoutingRuleScope
+	fromTableGroup *TableGroup
+	// fromTable is the table a table rule moves, nil for a shard rule.
+	fromTable    *Table
+	toTableGroup *TableGroup
+	// toShard is the target of a shard rule, nil for a table rule.
+	toShard *Shard
+	// toShardKeyID is the catalog id of the shard key a table rule places
+	// its table by, 0 when there is none.
+	toShardKeyID   int64
+	createdVersion int64
+}
+
 // New validates pb and builds a Snapshot from it. It rejects a snapshot in
 // which:
 //
@@ -115,7 +140,12 @@ type ShardKey struct {
 //     an active tablegroup has no active shards;
 //   - the default tablegroup is missing, not active, or has any active shard
 //     other than the single shard 0-inf;
-//   - a table has more than one active primary shard key.
+//   - a table has more than one active primary shard key;
+//   - a routing rule's id is repeated, a reference does not resolve, its
+//     scope is unknown or does not match the fields it sets (a table rule
+//     has a from_table_id and no to_shard_id, a shard rule the reverse), a
+//     shard rule's target shard is not in its to_tablegroup_id, or a table
+//     has more than one table rule.
 //
 // pb is not retained, except for the key ranges of its shards, which must not
 // be modified afterward.
@@ -220,7 +250,90 @@ func New(pb *shardingcatalogpb.Snapshot) (*Snapshot, error) {
 			shardIndex: index,
 		}
 	}
+
+	if err := s.addRoutingRules(pb.GetRoutingRules(), tablesByID, keyIDs); err != nil {
+		return nil, err
+	}
 	return s, nil
+}
+
+// addRoutingRules attaches every routing rule to its source, checking ids,
+// references and that each rule's scope matches the fields it sets.
+func (s *Snapshot) addRoutingRules(rules []*shardingcatalogpb.RoutingRule, tablesByID map[int64]*Table, keyIDs map[int64]struct{}) error {
+	shardsByID := make(map[int64]*Shard)
+	for _, g := range s.tableGroups {
+		for _, sh := range g.shards {
+			shardsByID[sh.id] = sh
+		}
+	}
+	ids := make(map[int64]struct{}, len(rules))
+	for _, r := range rules {
+		id := r.GetRuleId()
+		if _, dup := ids[id]; dup {
+			return mterrors.NewInvalidShardingCatalogSnapshot("routing rule id %d is repeated", id)
+		}
+		ids[id] = struct{}{}
+		from, ok := s.tableGroupsByID[r.GetFromTablegroupId()]
+		if !ok {
+			return mterrors.NewInvalidShardingCatalogSnapshot("routing rule %d refers to tablegroup %d, which does not exist", id, r.GetFromTablegroupId())
+		}
+		to, ok := s.tableGroupsByID[r.GetToTablegroupId()]
+		if !ok {
+			return mterrors.NewInvalidShardingCatalogSnapshot("routing rule %d refers to tablegroup %d, which does not exist", id, r.GetToTablegroupId())
+		}
+		rule := &RoutingRule{
+			id:             id,
+			operationID:    r.GetOperationId(),
+			scope:          r.GetScope(),
+			fromTableGroup: from,
+			toTableGroup:   to,
+			createdVersion: r.GetCreatedVersion(),
+		}
+		if r.ToShardKeyId != nil {
+			if _, ok := keyIDs[r.GetToShardKeyId()]; !ok {
+				return mterrors.NewInvalidShardingCatalogSnapshot("routing rule %d refers to shard key %d, which does not exist", id, r.GetToShardKeyId())
+			}
+			rule.toShardKeyID = r.GetToShardKeyId()
+		}
+
+		switch r.GetScope() {
+		case shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLEGROUP:
+			if r.FromTableId != nil || r.ToShardId == nil {
+				return mterrors.NewInvalidShardingCatalogSnapshot("shard rule %d must have a to_shard_id and no from_table_id", id)
+			}
+			sh, ok := shardsByID[r.GetToShardId()]
+			if !ok {
+				return mterrors.NewInvalidShardingCatalogSnapshot("routing rule %d refers to shard %d, which does not exist", id, r.GetToShardId())
+			}
+			if sh.tableGroup != to {
+				return mterrors.NewInvalidShardingCatalogSnapshot("shard rule %d targets shard %d of tablegroup %q, not of its to_tablegroup %q",
+					id, sh.id, sh.tableGroup.name, to.name)
+			}
+			rule.toShard = sh
+			from.shardRules = append(from.shardRules, rule)
+		case shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLE:
+			if r.FromTableId == nil || r.ToShardId != nil {
+				return mterrors.NewInvalidShardingCatalogSnapshot("table rule %d must have a from_table_id and no to_shard_id", id)
+			}
+			t, ok := tablesByID[r.GetFromTableId()]
+			if !ok {
+				return mterrors.NewInvalidShardingCatalogSnapshot("routing rule %d refers to table %d, which does not exist", id, r.GetFromTableId())
+			}
+			if t.rule != nil {
+				return mterrors.NewInvalidShardingCatalogSnapshot("table %q.%q has two table rules, %d and %d", t.schema, t.name, t.rule.id, id)
+			}
+			rule.fromTable = t
+			t.rule = rule
+		default:
+			return mterrors.NewInvalidShardingCatalogSnapshot("routing rule %d has unknown scope %s", id, r.GetScope())
+		}
+	}
+	for _, g := range s.tableGroups {
+		slices.SortFunc(g.shardRules, func(a, b *RoutingRule) int {
+			return bytes.Compare(a.toShard.keyRange.GetStart(), b.toShard.keyRange.GetStart())
+		})
+	}
+	return nil
 }
 
 // addShards attaches every shard to its tablegroup, checking ids, references
@@ -351,6 +464,11 @@ func (g *TableGroup) Shards() []*Shard { return g.shards }
 // there are any, they cover the whole keyspace exactly once.
 func (g *TableGroup) ActiveShards() []*Shard { return g.activeShards }
 
+// ShardRules returns the shard rules from the tablegroup, ordered by the start
+// of their target shards' ranges. It is empty when no rule routes the
+// tablegroup.
+func (g *TableGroup) ShardRules() []*RoutingRule { return g.shardRules }
+
 // IsSharded reports whether the tablegroup has more than one active shard.
 // A tablegroup with no active shards yet (one being created) is not sharded.
 func (g *TableGroup) IsSharded() bool { return len(g.activeShards) > 1 }
@@ -406,6 +524,9 @@ func (t *Table) TableGroup() *TableGroup { return t.tableGroup }
 // it has none.
 func (t *Table) PrimaryShardKey() *ShardKey { return t.primaryKey }
 
+// RoutingRule returns the table rule from the table, or nil when it has none.
+func (t *Table) RoutingRule() *RoutingRule { return t.rule }
+
 // ID is the shard key's catalog id.
 func (k *ShardKey) ID() int64 { return k.id }
 
@@ -438,3 +559,31 @@ func (si *ShardIndex) Params() string { return si.params }
 
 // State is the shard index's lifecycle state.
 func (si *ShardIndex) State() shardingcatalogpb.ShardIndexState { return si.state }
+
+// ID is the rule's catalog id.
+func (r *RoutingRule) ID() int64 { return r.id }
+
+// OperationID is the uuid of the operation the rule belongs to.
+func (r *RoutingRule) OperationID() string { return r.operationID }
+
+// Scope says whether the rule is a shard rule or a table rule.
+func (r *RoutingRule) Scope() shardingcatalogpb.RoutingRuleScope { return r.scope }
+
+// FromTableGroup is the tablegroup whose traffic the rule routes.
+func (r *RoutingRule) FromTableGroup() *TableGroup { return r.fromTableGroup }
+
+// FromTable is the table a table rule moves, nil for a shard rule.
+func (r *RoutingRule) FromTable() *Table { return r.fromTable }
+
+// ToTableGroup is the tablegroup the rule routes to.
+func (r *RoutingRule) ToTableGroup() *TableGroup { return r.toTableGroup }
+
+// ToShard is the shard a shard rule routes to, nil for a table rule.
+func (r *RoutingRule) ToShard() *Shard { return r.toShard }
+
+// ToShardKeyID is the catalog id of the shard key a table rule places its
+// table by, 0 when there is none.
+func (r *RoutingRule) ToShardKeyID() int64 { return r.toShardKeyID }
+
+// CreatedVersion is the routing_version the rule was written at.
+func (r *RoutingRule) CreatedVersion() int64 { return r.createdVersion }

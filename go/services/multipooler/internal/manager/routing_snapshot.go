@@ -92,6 +92,10 @@ var (
 		shardKeyRolePrimary:   shardingcatalogpb.ShardKeyRole_SHARD_KEY_ROLE_PRIMARY,
 		shardKeyRoleSecondary: shardingcatalogpb.ShardKeyRole_SHARD_KEY_ROLE_SECONDARY,
 	}
+	snapshotRoutingRuleScopes = map[string]shardingcatalogpb.RoutingRuleScope{
+		routingScopeTablegroup: shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLEGROUP,
+		routingScopeTable:      shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLE,
+	}
 )
 
 // catalogVersionRefreshInterval is how often the catalog primary rereads
@@ -264,7 +268,8 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 	return out, nil
 }
 
-// loadRoutingSnapshot reads every catalog entity in the caller's transaction.
+// loadRoutingSnapshot reads every catalog entity, routing rules included, in
+// the caller's transaction.
 // It leaves the versions for the caller to fill in.
 func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*shardingcatalogpb.Snapshot, error) {
 	s := &shardingcatalogpb.Snapshot{}
@@ -364,6 +369,24 @@ func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*sharding
 		if k, ok := keys[id]; ok {
 			k.Columns = append(k.Columns, column)
 		}
+	}
+
+	rules, err := readRoutingRules(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rules {
+		s.RoutingRules = append(s.RoutingRules, &shardingcatalogpb.RoutingRule{
+			RuleId:           r.ruleID,
+			OperationId:      r.operationID,
+			Scope:            snapshotRoutingRuleScopes[r.scope],
+			FromTablegroupId: r.fromTablegroupID,
+			FromTableId:      nullableID(r.fromTableID),
+			ToTablegroupId:   r.toTablegroupID,
+			ToShardId:        nullableID(r.toShardID),
+			ToShardKeyId:     nullableID(r.toShardKeyID),
+			CreatedVersion:   r.createdVersion,
+		})
 	}
 	return s, nil
 }

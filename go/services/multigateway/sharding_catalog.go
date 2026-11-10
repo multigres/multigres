@@ -23,8 +23,8 @@ import (
 )
 
 // shardingCatalogStatus is the /debug/sharding-catalog response: the snapshot
-// the gateway holds for each database it has seen. It shows names, ids, states
-// and versions only.
+// the gateway holds for each database it has seen. It shows names, ids, states,
+// versions and rule counts only.
 type shardingCatalogStatus struct {
 	Databases []shardingCatalogDatabase `json:"databases"`
 }
@@ -43,6 +43,8 @@ type shardingCatalogTableGroup struct {
 	Name   string                 `json:"name"`
 	State  string                 `json:"state"`
 	Shards []shardingCatalogShard `json:"shards"`
+	// ShardRules is the number of shard rules routing the tablegroup.
+	ShardRules int `json:"shard_rules"`
 }
 
 type shardingCatalogShard struct {
@@ -63,7 +65,9 @@ func shardingCatalogStatusOf(c *shardingcatalogcache.Cache) shardingCatalogStatu
 			db.RoutingVersion = snap.RoutingVersion()
 			db.PlanEpoch = snap.PlanEpoch()
 			for _, g := range snap.TableGroups() {
-				tg := shardingCatalogTableGroup{ID: g.ID(), Name: g.Name(), State: g.State().String(), Shards: []shardingCatalogShard{}}
+				tg := shardingCatalogTableGroup{
+					ID: g.ID(), Name: g.Name(), State: g.State().String(), Shards: []shardingCatalogShard{}, ShardRules: len(g.ShardRules()),
+				}
 				for _, sh := range g.Shards() {
 					tg.Shards = append(tg.Shards, shardingCatalogShard{ID: sh.ID(), Name: sh.Name(), State: sh.State().String()})
 				}

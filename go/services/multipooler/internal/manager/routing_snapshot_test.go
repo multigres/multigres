@@ -44,7 +44,8 @@ func (env *tableGroupTestEnv) expectSnapshotRead(routingVersion, planEpoch int64
 
 // expectCatalogRows registers every entity read with a catalog holding the
 // default tablegroup, a sharded commerce tablegroup, a table with a primary
-// shard key, and rows in states the snapshot does not know.
+// shard key, rows in states the snapshot does not know, and an import's
+// routing rules: a shard rule from default and a table rule.
 func (env *tableGroupTestEnv) expectCatalogRows() {
 	env.expect("FROM multigres.tablegroup ORDER BY", []string{"tablegroup_id", "name", "state"}, [][]any{
 		{int64(1), "default", "active"},
@@ -71,6 +72,13 @@ func (env *tableGroupTestEnv) expectCatalogRows() {
 		{int64(30), "customer_id"},
 		{int64(30), "region"},
 		{int64(31), "id"},
+	})
+	env.expect("FROM multigres.routing_rule ORDER BY", []string{
+		"rule_id", "operation_id", "scope", "from_tablegroup_id", "from_table_id",
+		"to_tablegroup_id", "to_shard_id", "to_shard_key_id", "created_version",
+	}, [][]any{
+		{int64(40), importOp, "tablegroup", int64(1), nil, int64(7), int64(2), nil, int64(8)},
+		{int64(41), importOp, "table", int64(7), int64(10), int64(1), nil, int64(30), int64(9)},
 	})
 }
 
@@ -115,6 +123,16 @@ func TestGetRoutingSnapshot_Full(t *testing.T) {
 			{ShardKeyId: 30, TableId: 10, ShardIndexId: 20, Name: "by_customer", Role: shardingcatalogpb.ShardKeyRole_SHARD_KEY_ROLE_PRIMARY, State: shardingcatalogpb.ShardKeyState_SHARD_KEY_STATE_ACTIVE, Columns: []string{"customer_id", "region"}},
 			{ShardKeyId: 31, TableId: 10, ShardIndexId: 20, Name: "by_id", Role: shardingcatalogpb.ShardKeyRole_SHARD_KEY_ROLE_SECONDARY, State: shardingcatalogpb.ShardKeyState_SHARD_KEY_STATE_PREPARING, Columns: []string{"id"}},
 		},
+		RoutingRules: []*shardingcatalogpb.RoutingRule{
+			{
+				RuleId: 40, OperationId: importOp, Scope: shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLEGROUP,
+				FromTablegroupId: 1, ToTablegroupId: 7, ToShardId: proto.Int64(2), CreatedVersion: 8,
+			},
+			{
+				RuleId: 41, OperationId: importOp, Scope: shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLE,
+				FromTablegroupId: 7, FromTableId: proto.Int64(10), ToTablegroupId: 1, ToShardKeyId: proto.Int64(30), CreatedVersion: 9,
+			},
+		},
 	}
 	assert.True(t, proto.Equal(want, resp.GetSnapshot()), "got %v", resp.GetSnapshot())
 
@@ -124,6 +142,14 @@ func TestGetRoutingSnapshot_Full(t *testing.T) {
 	commerce, ok := s.TableGroupByName("commerce")
 	require.True(t, ok)
 	assert.True(t, commerce.IsSharded())
+	def, ok := s.TableGroupByName("default")
+	require.True(t, ok)
+	require.Len(t, def.ShardRules(), 1)
+	assert.Same(t, commerce, def.ShardRules()[0].ToTableGroup())
+	orders, ok := s.Table("public", "orders")
+	require.True(t, ok)
+	require.NotNil(t, orders.RoutingRule())
+	assert.Equal(t, int64(41), orders.RoutingRule().ID())
 
 	assert.Equal(t, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY", env.queries[1],
 		"the isolation is set before anything is read")

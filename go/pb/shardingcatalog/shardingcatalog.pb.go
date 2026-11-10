@@ -318,6 +318,60 @@ func (ShardKeyState) EnumDescriptor() ([]byte, []int) {
 	return file_shardingcatalog_proto_rawDescGZIP(), []int{4}
 }
 
+// RoutingRuleScope says what a routing rule moves.
+type RoutingRuleScope int32
+
+const (
+	RoutingRuleScope_ROUTING_RULE_SCOPE_UNSPECIFIED RoutingRuleScope = 0
+	// TABLEGROUP is a shard rule: the routing identifiers of a tablegroup that
+	// fall in the target shard's range are served by that shard.
+	RoutingRuleScope_ROUTING_RULE_SCOPE_TABLEGROUP RoutingRuleScope = 1
+	// TABLE is a table rule: a table is served as a member of another
+	// tablegroup.
+	RoutingRuleScope_ROUTING_RULE_SCOPE_TABLE RoutingRuleScope = 2
+)
+
+// Enum value maps for RoutingRuleScope.
+var (
+	RoutingRuleScope_name = map[int32]string{
+		0: "ROUTING_RULE_SCOPE_UNSPECIFIED",
+		1: "ROUTING_RULE_SCOPE_TABLEGROUP",
+		2: "ROUTING_RULE_SCOPE_TABLE",
+	}
+	RoutingRuleScope_value = map[string]int32{
+		"ROUTING_RULE_SCOPE_UNSPECIFIED": 0,
+		"ROUTING_RULE_SCOPE_TABLEGROUP":  1,
+		"ROUTING_RULE_SCOPE_TABLE":       2,
+	}
+)
+
+func (x RoutingRuleScope) Enum() *RoutingRuleScope {
+	p := new(RoutingRuleScope)
+	*p = x
+	return p
+}
+
+func (x RoutingRuleScope) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RoutingRuleScope) Descriptor() protoreflect.EnumDescriptor {
+	return file_shardingcatalog_proto_enumTypes[5].Descriptor()
+}
+
+func (RoutingRuleScope) Type() protoreflect.EnumType {
+	return &file_shardingcatalog_proto_enumTypes[5]
+}
+
+func (x RoutingRuleScope) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RoutingRuleScope.Descriptor instead.
+func (RoutingRuleScope) EnumDescriptor() ([]byte, []int) {
+	return file_shardingcatalog_proto_rawDescGZIP(), []int{5}
+}
+
 // TableGroup is a tablegroup: a set of tables sharded the same way. It is
 // sharded exactly when it has more than one active shard.
 type TableGroup struct {
@@ -707,6 +761,126 @@ func (x *ShardKey) GetColumns() []string {
 	return nil
 }
 
+// RoutingRule overrides where the catalog sends traffic while the operation
+// that created it moves data: traffic the catalog would send to the source is
+// served by the target. It applies as a single hop: a target is never routed
+// again.
+type RoutingRule struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	RuleId int64                  `protobuf:"varint,1,opt,name=rule_id,json=ruleId,proto3" json:"rule_id,omitempty"`
+	// operation_id is the uuid of the operation the rule belongs to.
+	OperationId      string           `protobuf:"bytes,2,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	Scope            RoutingRuleScope `protobuf:"varint,3,opt,name=scope,proto3,enum=shardingcatalog.RoutingRuleScope" json:"scope,omitempty"`
+	FromTablegroupId int64            `protobuf:"varint,4,opt,name=from_tablegroup_id,json=fromTablegroupId,proto3" json:"from_tablegroup_id,omitempty"`
+	// from_table_id is the table a TABLE rule moves; it is set exactly when the
+	// scope is TABLE.
+	FromTableId    *int64 `protobuf:"varint,5,opt,name=from_table_id,json=fromTableId,proto3,oneof" json:"from_table_id,omitempty"`
+	ToTablegroupId int64  `protobuf:"varint,6,opt,name=to_tablegroup_id,json=toTablegroupId,proto3" json:"to_tablegroup_id,omitempty"`
+	// to_shard_id is the shard of to_tablegroup_id a TABLEGROUP rule routes
+	// to; it is set exactly when the scope is TABLEGROUP.
+	ToShardId *int64 `protobuf:"varint,7,opt,name=to_shard_id,json=toShardId,proto3,oneof" json:"to_shard_id,omitempty"`
+	// to_shard_key_id is the shard key a TABLE rule places the table by in its
+	// target tablegroup, when it has one.
+	ToShardKeyId *int64 `protobuf:"varint,8,opt,name=to_shard_key_id,json=toShardKeyId,proto3,oneof" json:"to_shard_key_id,omitempty"`
+	// created_version is the routing_version the rule was written at.
+	CreatedVersion int64 `protobuf:"varint,9,opt,name=created_version,json=createdVersion,proto3" json:"created_version,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *RoutingRule) Reset() {
+	*x = RoutingRule{}
+	mi := &file_shardingcatalog_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RoutingRule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RoutingRule) ProtoMessage() {}
+
+func (x *RoutingRule) ProtoReflect() protoreflect.Message {
+	mi := &file_shardingcatalog_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RoutingRule.ProtoReflect.Descriptor instead.
+func (*RoutingRule) Descriptor() ([]byte, []int) {
+	return file_shardingcatalog_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *RoutingRule) GetRuleId() int64 {
+	if x != nil {
+		return x.RuleId
+	}
+	return 0
+}
+
+func (x *RoutingRule) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *RoutingRule) GetScope() RoutingRuleScope {
+	if x != nil {
+		return x.Scope
+	}
+	return RoutingRuleScope_ROUTING_RULE_SCOPE_UNSPECIFIED
+}
+
+func (x *RoutingRule) GetFromTablegroupId() int64 {
+	if x != nil {
+		return x.FromTablegroupId
+	}
+	return 0
+}
+
+func (x *RoutingRule) GetFromTableId() int64 {
+	if x != nil && x.FromTableId != nil {
+		return *x.FromTableId
+	}
+	return 0
+}
+
+func (x *RoutingRule) GetToTablegroupId() int64 {
+	if x != nil {
+		return x.ToTablegroupId
+	}
+	return 0
+}
+
+func (x *RoutingRule) GetToShardId() int64 {
+	if x != nil && x.ToShardId != nil {
+		return *x.ToShardId
+	}
+	return 0
+}
+
+func (x *RoutingRule) GetToShardKeyId() int64 {
+	if x != nil && x.ToShardKeyId != nil {
+		return *x.ToShardKeyId
+	}
+	return 0
+}
+
+func (x *RoutingRule) GetCreatedVersion() int64 {
+	if x != nil {
+		return x.CreatedVersion
+	}
+	return 0
+}
+
 // Snapshot is the whole sharding catalog of one database, read in a single
 // transaction. Entities in every state are included; a reader decides which
 // ones it uses. References between entities are by id.
@@ -719,19 +893,20 @@ type Snapshot struct {
 	// plan_epoch advances with every catalog change that can change how an
 	// existing query is planned, so a reader invalidates cached plans when it
 	// moves. Every such change also advances routing_version.
-	PlanEpoch     int64         `protobuf:"varint,2,opt,name=plan_epoch,json=planEpoch,proto3" json:"plan_epoch,omitempty"`
-	Tablegroups   []*TableGroup `protobuf:"bytes,3,rep,name=tablegroups,proto3" json:"tablegroups,omitempty"`
-	Shards        []*Shard      `protobuf:"bytes,4,rep,name=shards,proto3" json:"shards,omitempty"`
-	Tables        []*Table      `protobuf:"bytes,5,rep,name=tables,proto3" json:"tables,omitempty"`
-	ShardIndices  []*ShardIndex `protobuf:"bytes,6,rep,name=shard_indices,json=shardIndices,proto3" json:"shard_indices,omitempty"`
-	ShardKeys     []*ShardKey   `protobuf:"bytes,7,rep,name=shard_keys,json=shardKeys,proto3" json:"shard_keys,omitempty"`
+	PlanEpoch     int64          `protobuf:"varint,2,opt,name=plan_epoch,json=planEpoch,proto3" json:"plan_epoch,omitempty"`
+	Tablegroups   []*TableGroup  `protobuf:"bytes,3,rep,name=tablegroups,proto3" json:"tablegroups,omitempty"`
+	Shards        []*Shard       `protobuf:"bytes,4,rep,name=shards,proto3" json:"shards,omitempty"`
+	Tables        []*Table       `protobuf:"bytes,5,rep,name=tables,proto3" json:"tables,omitempty"`
+	ShardIndices  []*ShardIndex  `protobuf:"bytes,6,rep,name=shard_indices,json=shardIndices,proto3" json:"shard_indices,omitempty"`
+	ShardKeys     []*ShardKey    `protobuf:"bytes,7,rep,name=shard_keys,json=shardKeys,proto3" json:"shard_keys,omitempty"`
+	RoutingRules  []*RoutingRule `protobuf:"bytes,8,rep,name=routing_rules,json=routingRules,proto3" json:"routing_rules,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Snapshot) Reset() {
 	*x = Snapshot{}
-	mi := &file_shardingcatalog_proto_msgTypes[5]
+	mi := &file_shardingcatalog_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -743,7 +918,7 @@ func (x *Snapshot) String() string {
 func (*Snapshot) ProtoMessage() {}
 
 func (x *Snapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_shardingcatalog_proto_msgTypes[5]
+	mi := &file_shardingcatalog_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -756,7 +931,7 @@ func (x *Snapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Snapshot.ProtoReflect.Descriptor instead.
 func (*Snapshot) Descriptor() ([]byte, []int) {
-	return file_shardingcatalog_proto_rawDescGZIP(), []int{5}
+	return file_shardingcatalog_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Snapshot) GetRoutingVersion() int64 {
@@ -808,6 +983,13 @@ func (x *Snapshot) GetShardKeys() []*ShardKey {
 	return nil
 }
 
+func (x *Snapshot) GetRoutingRules() []*RoutingRule {
+	if x != nil {
+		return x.RoutingRules
+	}
+	return nil
+}
+
 var File_shardingcatalog_proto protoreflect.FileDescriptor
 
 const file_shardingcatalog_proto_rawDesc = "" +
@@ -846,7 +1028,20 @@ const file_shardingcatalog_proto_rawDesc = "" +
 	"\x04name\x18\x04 \x01(\tR\x04name\x121\n" +
 	"\x04role\x18\x05 \x01(\x0e2\x1d.shardingcatalog.ShardKeyRoleR\x04role\x124\n" +
 	"\x05state\x18\x06 \x01(\x0e2\x1e.shardingcatalog.ShardKeyStateR\x05state\x12\x18\n" +
-	"\acolumns\x18\a \x03(\tR\acolumns\"\xed\x02\n" +
+	"\acolumns\x18\a \x03(\tR\acolumns\"\xb3\x03\n" +
+	"\vRoutingRule\x12\x17\n" +
+	"\arule_id\x18\x01 \x01(\x03R\x06ruleId\x12!\n" +
+	"\foperation_id\x18\x02 \x01(\tR\voperationId\x127\n" +
+	"\x05scope\x18\x03 \x01(\x0e2!.shardingcatalog.RoutingRuleScopeR\x05scope\x12,\n" +
+	"\x12from_tablegroup_id\x18\x04 \x01(\x03R\x10fromTablegroupId\x12'\n" +
+	"\rfrom_table_id\x18\x05 \x01(\x03H\x00R\vfromTableId\x88\x01\x01\x12(\n" +
+	"\x10to_tablegroup_id\x18\x06 \x01(\x03R\x0etoTablegroupId\x12#\n" +
+	"\vto_shard_id\x18\a \x01(\x03H\x01R\ttoShardId\x88\x01\x01\x12*\n" +
+	"\x0fto_shard_key_id\x18\b \x01(\x03H\x02R\ftoShardKeyId\x88\x01\x01\x12'\n" +
+	"\x0fcreated_version\x18\t \x01(\x03R\x0ecreatedVersionB\x10\n" +
+	"\x0e_from_table_idB\x0e\n" +
+	"\f_to_shard_idB\x12\n" +
+	"\x10_to_shard_key_id\"\xb0\x03\n" +
 	"\bSnapshot\x12'\n" +
 	"\x0frouting_version\x18\x01 \x01(\x03R\x0eroutingVersion\x12\x1d\n" +
 	"\n" +
@@ -856,7 +1051,8 @@ const file_shardingcatalog_proto_rawDesc = "" +
 	"\x06tables\x18\x05 \x03(\v2\x16.shardingcatalog.TableR\x06tables\x12@\n" +
 	"\rshard_indices\x18\x06 \x03(\v2\x1b.shardingcatalog.ShardIndexR\fshardIndices\x128\n" +
 	"\n" +
-	"shard_keys\x18\a \x03(\v2\x19.shardingcatalog.ShardKeyR\tshardKeys*\x92\x01\n" +
+	"shard_keys\x18\a \x03(\v2\x19.shardingcatalog.ShardKeyR\tshardKeys\x12A\n" +
+	"\rrouting_rules\x18\b \x03(\v2\x1c.shardingcatalog.RoutingRuleR\froutingRules*\x92\x01\n" +
 	"\x0fTableGroupState\x12!\n" +
 	"\x1dTABLE_GROUP_STATE_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aTABLE_GROUP_STATE_CREATING\x10\x01\x12\x1c\n" +
@@ -881,7 +1077,11 @@ const file_shardingcatalog_proto_rawDesc = "" +
 	"\x1bSHARD_KEY_STATE_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19SHARD_KEY_STATE_PREPARING\x10\x01\x12\x1a\n" +
 	"\x16SHARD_KEY_STATE_ACTIVE\x10\x02\x12\x1b\n" +
-	"\x17SHARD_KEY_STATE_RETIRED\x10\x03B6Z4github.com/multigres/multigres/go/pb/shardingcatalogb\x06proto3"
+	"\x17SHARD_KEY_STATE_RETIRED\x10\x03*w\n" +
+	"\x10RoutingRuleScope\x12\"\n" +
+	"\x1eROUTING_RULE_SCOPE_UNSPECIFIED\x10\x00\x12!\n" +
+	"\x1dROUTING_RULE_SCOPE_TABLEGROUP\x10\x01\x12\x1c\n" +
+	"\x18ROUTING_RULE_SCOPE_TABLE\x10\x02B6Z4github.com/multigres/multigres/go/pb/shardingcatalogb\x06proto3"
 
 var (
 	file_shardingcatalog_proto_rawDescOnce sync.Once
@@ -895,39 +1095,43 @@ func file_shardingcatalog_proto_rawDescGZIP() []byte {
 	return file_shardingcatalog_proto_rawDescData
 }
 
-var file_shardingcatalog_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_shardingcatalog_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_shardingcatalog_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
+var file_shardingcatalog_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_shardingcatalog_proto_goTypes = []any{
 	(TableGroupState)(0),             // 0: shardingcatalog.TableGroupState
 	(ShardState)(0),                  // 1: shardingcatalog.ShardState
 	(ShardIndexState)(0),             // 2: shardingcatalog.ShardIndexState
 	(ShardKeyRole)(0),                // 3: shardingcatalog.ShardKeyRole
 	(ShardKeyState)(0),               // 4: shardingcatalog.ShardKeyState
-	(*TableGroup)(nil),               // 5: shardingcatalog.TableGroup
-	(*Shard)(nil),                    // 6: shardingcatalog.Shard
-	(*Table)(nil),                    // 7: shardingcatalog.Table
-	(*ShardIndex)(nil),               // 8: shardingcatalog.ShardIndex
-	(*ShardKey)(nil),                 // 9: shardingcatalog.ShardKey
-	(*Snapshot)(nil),                 // 10: shardingcatalog.Snapshot
-	(*clustermetadata.KeyRange)(nil), // 11: clustermetadata.KeyRange
+	(RoutingRuleScope)(0),            // 5: shardingcatalog.RoutingRuleScope
+	(*TableGroup)(nil),               // 6: shardingcatalog.TableGroup
+	(*Shard)(nil),                    // 7: shardingcatalog.Shard
+	(*Table)(nil),                    // 8: shardingcatalog.Table
+	(*ShardIndex)(nil),               // 9: shardingcatalog.ShardIndex
+	(*ShardKey)(nil),                 // 10: shardingcatalog.ShardKey
+	(*RoutingRule)(nil),              // 11: shardingcatalog.RoutingRule
+	(*Snapshot)(nil),                 // 12: shardingcatalog.Snapshot
+	(*clustermetadata.KeyRange)(nil), // 13: clustermetadata.KeyRange
 }
 var file_shardingcatalog_proto_depIdxs = []int32{
 	0,  // 0: shardingcatalog.TableGroup.state:type_name -> shardingcatalog.TableGroupState
-	11, // 1: shardingcatalog.Shard.key_range:type_name -> clustermetadata.KeyRange
+	13, // 1: shardingcatalog.Shard.key_range:type_name -> clustermetadata.KeyRange
 	1,  // 2: shardingcatalog.Shard.state:type_name -> shardingcatalog.ShardState
 	2,  // 3: shardingcatalog.ShardIndex.state:type_name -> shardingcatalog.ShardIndexState
 	3,  // 4: shardingcatalog.ShardKey.role:type_name -> shardingcatalog.ShardKeyRole
 	4,  // 5: shardingcatalog.ShardKey.state:type_name -> shardingcatalog.ShardKeyState
-	5,  // 6: shardingcatalog.Snapshot.tablegroups:type_name -> shardingcatalog.TableGroup
-	6,  // 7: shardingcatalog.Snapshot.shards:type_name -> shardingcatalog.Shard
-	7,  // 8: shardingcatalog.Snapshot.tables:type_name -> shardingcatalog.Table
-	8,  // 9: shardingcatalog.Snapshot.shard_indices:type_name -> shardingcatalog.ShardIndex
-	9,  // 10: shardingcatalog.Snapshot.shard_keys:type_name -> shardingcatalog.ShardKey
-	11, // [11:11] is the sub-list for method output_type
-	11, // [11:11] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	5,  // 6: shardingcatalog.RoutingRule.scope:type_name -> shardingcatalog.RoutingRuleScope
+	6,  // 7: shardingcatalog.Snapshot.tablegroups:type_name -> shardingcatalog.TableGroup
+	7,  // 8: shardingcatalog.Snapshot.shards:type_name -> shardingcatalog.Shard
+	8,  // 9: shardingcatalog.Snapshot.tables:type_name -> shardingcatalog.Table
+	9,  // 10: shardingcatalog.Snapshot.shard_indices:type_name -> shardingcatalog.ShardIndex
+	10, // 11: shardingcatalog.Snapshot.shard_keys:type_name -> shardingcatalog.ShardKey
+	11, // 12: shardingcatalog.Snapshot.routing_rules:type_name -> shardingcatalog.RoutingRule
+	13, // [13:13] is the sub-list for method output_type
+	13, // [13:13] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_shardingcatalog_proto_init() }
@@ -935,13 +1139,14 @@ func file_shardingcatalog_proto_init() {
 	if File_shardingcatalog_proto != nil {
 		return
 	}
+	file_shardingcatalog_proto_msgTypes[5].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shardingcatalog_proto_rawDesc), len(file_shardingcatalog_proto_rawDesc)),
-			NumEnums:      5,
-			NumMessages:   6,
+			NumEnums:      6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

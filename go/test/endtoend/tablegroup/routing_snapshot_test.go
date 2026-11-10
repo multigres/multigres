@@ -57,6 +57,7 @@ type gatewayCatalog struct {
 				Name  string `json:"name"`
 				State string `json:"state"`
 			} `json:"shards"`
+			ShardRules int `json:"shard_rules"`
 		} `json:"tablegroups"`
 	} `json:"databases"`
 }
@@ -66,16 +67,24 @@ type gatewayCatalog struct {
 // ok is false until a snapshot is installed.
 func readGatewayCatalog(t *testing.T, setup *shardsetup.ShardSetup) (version int64, tableGroups map[string][]string, ok bool) {
 	t.Helper()
+	version, tableGroups, _, ok = readGatewayCatalogRules(t, setup)
+	return version, tableGroups, ok
+}
+
+// readGatewayCatalogRules is readGatewayCatalog that also returns each
+// tablegroup's shard rule count by tablegroup name.
+func readGatewayCatalogRules(t *testing.T, setup *shardsetup.ShardSetup) (version int64, tableGroups map[string][]string, shardRules map[string]int, ok bool) {
+	t.Helper()
 	url := fmt.Sprintf("http://localhost:%d/debug/sharding-catalog", setup.Multigateway.HttpPort)
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
 	require.NoError(t, err)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return 0, nil, false
+		return 0, nil, nil, false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return 0, nil, false
+		return 0, nil, nil, false
 	}
 	var got gatewayCatalog
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
@@ -84,16 +93,18 @@ func readGatewayCatalog(t *testing.T, setup *shardsetup.ShardSetup) (version int
 			continue
 		}
 		tableGroups = map[string][]string{}
+		shardRules = map[string]int{}
 		for _, tg := range db.TableGroups {
 			names := []string{}
 			for _, sh := range tg.Shards {
 				names = append(names, sh.Name)
 			}
 			tableGroups[tg.Name] = names
+			shardRules[tg.Name] = tg.ShardRules
 		}
-		return db.RoutingVersion, tableGroups, true
+		return db.RoutingVersion, tableGroups, shardRules, true
 	}
-	return 0, nil, false
+	return 0, nil, nil, false
 }
 
 func getRoutingSnapshot(t *testing.T, manager multipoolermanagerpb.MultipoolerManagerClient, since *int64) *multipoolermanagerdatapb.GetRoutingSnapshotResponse {
@@ -172,6 +183,68 @@ func TestRoutingSnapshot(t *testing.T) {
 		assert.Equal(t, freshVersion+1, createdVersion, "one creation advances routing_version once")
 	})
 
+	t.Run("the snapshot carries the catalog's routing rules", func(t *testing.T) {
+		require.NotZero(t, createdVersion)
+		// No RPC writes rules yet, so the test writes them as a catalog writer
+		// would: in one transaction that advances routing_version. An import
+		// spreads default over commerce's two shards.
+		catalog := connectToCatalog(t, setup)
+		defer catalog.Close()
+		const op = "44444444-4444-4444-4444-444444444444"
+		execCatalogTx(t, catalog,
+			`SELECT routing_version FROM multigres.catalog_state FOR UPDATE`,
+			fmt.Sprintf(`INSERT INTO multigres.operation (operation_id, kind, state) VALUES ('%s', 'import', 'preparing')`, op),
+			fmt.Sprintf(`INSERT INTO multigres.routing_rule
+				(operation_id, scope, from_tablegroup_id, to_tablegroup_id, to_shard_id, created_version)
+				SELECT '%s', 'tablegroup', d.tablegroup_id, c.tablegroup_id, s.shard_id, cs.routing_version + 1
+				FROM multigres.tablegroup d, multigres.tablegroup c
+				JOIN multigres.shard s USING (tablegroup_id), multigres.catalog_state cs
+				WHERE d.name = 'default' AND c.name = 'commerce'
+				ORDER BY s.shard_name DESC`, op),
+			`UPDATE multigres.catalog_state SET routing_version = routing_version + 1, plan_epoch = plan_epoch + 1`,
+		)
+		ruleVersion := createdVersion + 1
+
+		resp := getRoutingSnapshot(t, primary.Manager, &createdVersion)
+		require.False(t, resp.GetUnchanged())
+		snap := resp.GetSnapshot()
+		assert.Equal(t, ruleVersion, snap.GetRoutingVersion())
+		require.Len(t, snap.GetRoutingRules(), 2)
+		for _, r := range snap.GetRoutingRules() {
+			assert.Equal(t, op, r.GetOperationId())
+			assert.Equal(t, shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLEGROUP, r.GetScope())
+			assert.Nil(t, r.FromTableId)
+			assert.NotNil(t, r.ToShardId)
+			assert.Equal(t, ruleVersion, r.GetCreatedVersion())
+		}
+		s, err := shardingcatalog.New(snap)
+		require.NoError(t, err, "the served snapshot validates")
+		def, ok := s.TableGroupByName("default")
+		require.True(t, ok)
+		rules := def.ShardRules()
+		require.Len(t, rules, 2)
+		assert.Equal(t, "0-80", rules[0].ToShard().Name(), "ordered by target range")
+		assert.Equal(t, "80-inf", rules[1].ToShard().Name())
+		assert.Equal(t, "commerce", rules[0].ToTableGroup().Name())
+
+		// The gateway learns of the external write from the next catalog_state
+		// reread on the health stream.
+		require.Eventually(t, func() bool {
+			v, _, shardRules, ok := readGatewayCatalogRules(t, setup)
+			return ok && v == ruleVersion && shardRules["default"] == 2
+		}, catalogPickupTimeout, 200*time.Millisecond, "the gateway never saw the routing rules")
+
+		execCatalogTx(t, catalog,
+			`SELECT routing_version FROM multigres.catalog_state FOR UPDATE`,
+			fmt.Sprintf(`DELETE FROM multigres.routing_rule WHERE operation_id = '%s'`, op),
+			fmt.Sprintf(`UPDATE multigres.operation SET state = 'done' WHERE operation_id = '%s'`, op),
+			`UPDATE multigres.catalog_state SET routing_version = routing_version + 1, plan_epoch = plan_epoch + 1`,
+		)
+		resp = getRoutingSnapshot(t, primary.Manager, &ruleVersion)
+		assert.Empty(t, resp.GetSnapshot().GetRoutingRules())
+		createdVersion = resp.GetRoutingVersion()
+	})
+
 	t.Run("a new catalog primary serves a version no lower than before", func(t *testing.T) {
 		require.NotZero(t, createdVersion)
 		setup.KillPostgres(t, oldPrimaryName)
@@ -203,6 +276,30 @@ func TestRoutingSnapshot(t *testing.T) {
 			return ok && v > resp.GetRoutingVersion() && groups["analytics"] != nil && groups["commerce"] != nil
 		}, catalogPickupTimeout, 200*time.Millisecond, "the gateway never saw a change on the new primary")
 	})
+}
+
+// connectToCatalog opens a superuser connection to the catalog primary's
+// postgres over its Unix socket.
+func connectToCatalog(t *testing.T, setup *shardsetup.ShardSetup) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("postgres", fmt.Sprintf("host=%s port=%d user=postgres dbname=postgres sslmode=disable password=%s",
+		setup.PostgresSocketDir(t), setup.PostgresPort(t), shardsetup.TestPostgresPassword))
+	require.NoError(t, err)
+	require.NoError(t, db.PingContext(t.Context()))
+	return db
+}
+
+// execCatalogTx runs stmts in one committed transaction.
+func execCatalogTx(t *testing.T, db *sql.DB, stmts ...string) {
+	t.Helper()
+	tx, err := db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+	for _, stmt := range stmts {
+		_, err := tx.ExecContext(t.Context(), stmt)
+		require.NoError(t, err, stmt)
+	}
+	require.NoError(t, tx.Commit())
 }
 
 // createThroughGateway runs a CREATE TABLEGROUP through the gateway. Nothing
