@@ -1040,3 +1040,23 @@ func TestNotePipelinedExecute_TableGroupDDLLeavesTheFlag(t *testing.T) {
 		require.Equal(t, before, state.Pipelining(), "it commits on its own, as CREATE DATABASE does")
 	}
 }
+
+func TestNotePipelinedExecute_MigrationDDLLeavesTheFlag(t *testing.T) {
+	for _, sql := range []string{
+		"CREATE MIGRATION m CONNECTION c FOR ALL TABLES",
+		"ALTER MIGRATION m PHASE IMPORT",
+		"DROP MIGRATION IF EXISTS m",
+		"CREATE CONNECTION c OPTIONS (host 'h')",
+		"DROP CONNECTION IF EXISTS c",
+		"SHOW CONNECTION c",
+	} {
+		stmts, err := parser.ParseSQL(sql)
+		require.NoError(t, err, sql)
+		for _, before := range []bool{false, true} {
+			state := NewMultigatewayConnectionState()
+			state.SetPipelining(before)
+			notePipelinedExecute(state, stmts[0])
+			require.Equal(t, before, state.Pipelining(), "%s runs atomically via RPC, like tablegroup DDL: %s", sql, sql)
+		}
+	}
+}
