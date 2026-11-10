@@ -7,9 +7,10 @@ tablegroup, in `multigres.routing_rule`, and every rule belongs to the
 operation (`multigres.operation`) that created it. When no operation runs,
 there are no rules.
 
-This page describes what is implemented today: the rule table and how a rule
-change is validated. Nothing reads or applies rules yet; the RPCs that set and
-read them, and the gateway routing that applies them, come later.
+This page describes what is implemented today: the rule table, how a rule
+change is validated, and how rules reach gateways in the catalog snapshot.
+Nothing applies rules yet; the RPCs that set them, and the gateway routing that
+applies them, come later.
 
 ## Rules
 
@@ -30,10 +31,18 @@ Table rules (a table planned as a member of another tablegroup) are modeled in
 the catalog but not accepted yet.
 
 Every change replaces the whole rule set of one operation, in one catalog
-transaction that locks `multigres.catalog_state`, checks the caller's expected
-routing version, validates the rule set the change leaves behind, and
-increments `routing_version`. A change that is already in effect succeeds and
-returns the current version, so a retry is safe.
+transaction that goes through `writeCatalog`, like every other catalog write.
+`writeCatalog` locks `multigres.catalog_state` before anything else; the rule
+write then checks the caller's expected routing version, validates the rule set
+the change leaves behind, and writes it, and `writeCatalog` advances
+`routing_version` (and `plan_epoch`, when the change can alter how a query is
+planned). A change that is already in effect writes nothing and returns the
+current version, so a retry is safe.
+
+Rules are part of the catalog snapshot that `GetRoutingSnapshot` serves, read
+in the same transaction as every other catalog entity, so two snapshots at the
+same `routing_version` carry the same rules. Gateways cache them with the rest
+of the snapshot.
 
 Operations record the tablegroup they act on by catalog id
 (`request->>'tablegroup_id'`) and finish in state `done` or `failed`, as
