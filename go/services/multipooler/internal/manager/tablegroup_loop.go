@@ -36,20 +36,18 @@ import (
 // hold. It is level-triggered on purpose: every pass derives everything from
 // the catalog and a topology read, keeps nothing in memory between passes, and
 // so resumes after a failover or restart by running again. There is no
-// topology watch; the first pass runs immediately on start and the timer is
-// short while anything is pending.
+// topology watch and no wake-up on a new operation; the first pass runs
+// immediately on start.
 //
 // Only the primary runs a pass. A pooler demoted between the check and the
 // commit cannot commit, because its postgres is read-only, so the role check
 // is a courtesy rather than the fence.
 const (
-	// tableGroupOpsIdleInterval is the pass interval while nothing is pending.
-	// An idle pass is two small indexed queries that return nothing.
-	tableGroupOpsIdleInterval = 30 * time.Second
-	// tableGroupOpsActiveInterval is the pass interval while something is
-	// pending. Provisioning takes minutes, so a few seconds of latency on
-	// completion is invisible.
-	tableGroupOpsActiveInterval = 3 * time.Second
+	// tableGroupOpsInterval is the pass interval. A pass with nothing pending
+	// is two small queries over tiny tables and reads no topology, so the
+	// interval is set by how long a new operation may go unnoticed, not by
+	// cost. Provisioning takes minutes; a few seconds is invisible.
+	tableGroupOpsInterval = 3 * time.Second
 	// createTableGroupTimeout is how long a creation may stay pending before
 	// the loop fails it. Provisioning that has not produced serving shards in
 	// this long is stuck, and a failed operation is inspectable and frees the
@@ -85,64 +83,84 @@ func (pm *MultipoolerManager) startTableGroupOperationsLocked() {
 	go pm.runTableGroupOperations(pm.ctx)
 }
 
-// runTableGroupOperations runs passes until ctx is cancelled, with the
-// interval chosen by whether the last pass found pending work.
+// runTableGroupOperations runs a pass immediately and then every
+// tableGroupOpsInterval until ctx is cancelled. A pass that could not run at
+// all (the catalog unreachable, the manager not open yet) is tried again next
+// interval; it is logged when the failure starts and when it ends, not on
+// every pass, so a long outage does not log every few seconds.
 func (pm *MultipoolerManager) runTableGroupOperations(ctx context.Context) {
 	timer := time.NewTimer(0)
 	defer timer.Stop()
+	var lastErr string
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
 		}
-		interval := tableGroupOpsIdleInterval
-		if pm.tableGroupOperationsPass(ctx) > 0 {
-			interval = tableGroupOpsActiveInterval
+		err := pm.tableGroupOperationsPass(ctx)
+		switch msg := errString(err); {
+		case msg != "" && msg != lastErr:
+			pm.logger.WarnContext(ctx, "tablegroup operations pass failed", "error", err)
+		case msg == "" && lastErr != "":
+			pm.logger.InfoContext(ctx, "tablegroup operations pass succeeded again")
 		}
-		timer.Reset(interval)
+		lastErr = errString(err)
+		timer.Reset(tableGroupOpsInterval)
 	}
 }
 
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
 // tableGroupOperationsPass runs one pass if this pooler is the catalog primary
-// and returns how much work is still pending. A pass that could not run at all
-// (the catalog unreachable, the manager not open yet) is logged and retried at
-// the idle interval, so a persistent failure does not log every few seconds.
-func (pm *MultipoolerManager) tableGroupOperationsPass(ctx context.Context) int {
+// and returns the error that kept the pass from running.
+func (pm *MultipoolerManager) tableGroupOperationsPass(ctx context.Context) error {
 	if pm.stateManager == nil || pm.stateManager.RoutingRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
-		return 0
+		return nil
 	}
 	pending, err := pm.reconcileTableGroups(ctx)
-	if err != nil {
-		pm.logger.WarnContext(ctx, "tablegroup operations pass failed", "error", err)
+	if pending > 0 {
+		pm.logger.DebugContext(ctx, "tablegroup operations pending", "count", pending)
 	}
-	return pending
+	return err
 }
 
 // reconcileTableGroups is one pass: every pending creation is failed if
 // cancelled, completed if every shard serves, failed if it timed out, and left
 // pending otherwise; every dropping tablegroup is deleted once nothing holds
-// it. Topology is read once per pass, for the whole database, and every
-// decision is made against that snapshot. It returns how many are still
-// pending. An error on one does not stop the pass for the others.
+// it. The catalog is read first and topology only when it holds something
+// pending, once, for the whole database; every decision is made against that
+// snapshot. It returns how many are still pending. An error on one does not
+// stop the pass for the others.
 func (pm *MultipoolerManager) reconcileTableGroups(ctx context.Context) (int, error) {
-	records, topoErr := pm.tableGroupPoolerRecords(ctx, "")
-	pending, err := pm.reconcileCreations(ctx, records, topoErr)
-	if err != nil {
-		return pending, err
-	}
-	dropping, err := pm.reconcileDroppings(ctx, records, topoErr)
-	return pending + dropping, err
-}
-
-// reconcileCreations advances every create_tablegroup operation in state
-// creating. topoErr is the error of this pass's topology read; while it is set
-// nothing completes, since a partial read undercounts, and the error is
-// recorded on each pending operation for GetOperation to show.
-func (pm *MultipoolerManager) reconcileCreations(ctx context.Context, records []*clustermetadatapb.Multipooler, topoErr error) (int, error) {
-	qs, err := pm.catalogQueryService()
+	creations, err := pm.listPendingCreations(ctx)
 	if err != nil {
 		return 0, err
+	}
+	droppings, err := pm.listDroppingTableGroups(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if len(creations) == 0 && len(droppings) == 0 {
+		return 0, nil
+	}
+	records, topoErr := pm.tableGroupPoolerRecords(ctx, "")
+	return pm.reconcileCreations(ctx, creations, records, topoErr) +
+		pm.reconcileDroppings(ctx, droppings, records, topoErr), nil
+}
+
+// listPendingCreations returns every create_tablegroup operation in state
+// creating, oldest first. A row that cannot be read is logged and left out:
+// nothing a later pass can do differently.
+func (pm *MultipoolerManager) listPendingCreations(ctx context.Context) ([]operationRow, error) {
+	qs, err := pm.catalogQueryService()
+	if err != nil {
+		return nil, err
 	}
 	execCtx, cancel := context.WithTimeout(ctx, tableGroupOpTimeout)
 	defer cancel()
@@ -150,17 +168,61 @@ func (pm *MultipoolerManager) reconcileCreations(ctx context.Context, records []
 		"SELECT "+operationColumns+" FROM multigres.operation WHERE kind = $1 AND state = $2 ORDER BY created_at",
 		operationKindCreateTableGroup, operationStateCreating)
 	if err != nil {
-		return 0, mterrors.Wrap(err, "failed to list pending tablegroup creations")
+		return nil, mterrors.Wrap(err, "failed to list pending tablegroup creations")
 	}
-	pending := 0
+	ops := make([]operationRow, 0, len(res.Rows))
 	for _, row := range res.Rows {
 		op, err := scanOperationRow(row)
 		if err != nil {
-			// Nothing a later pass can do differently; not counted as pending
-			// so it does not keep the loop on its short interval.
 			pm.logger.WarnContext(ctx, "skipping unreadable tablegroup operation", "error", err)
 			continue
 		}
+		ops = append(ops, op)
+	}
+	return ops, nil
+}
+
+// droppingTableGroup is one row of the loop's dropping-tablegroups query.
+type droppingTableGroup struct {
+	id   int64
+	name string
+}
+
+// listDroppingTableGroups returns every tablegroup in state dropping. A row
+// that cannot be read is logged and left out.
+func (pm *MultipoolerManager) listDroppingTableGroups(ctx context.Context) ([]droppingTableGroup, error) {
+	qs, err := pm.catalogQueryService()
+	if err != nil {
+		return nil, err
+	}
+	execCtx, cancel := context.WithTimeout(ctx, tableGroupOpTimeout)
+	defer cancel()
+	res, err := qs.QueryAdminArgs(execCtx,
+		"SELECT tablegroup_id, name FROM multigres.tablegroup WHERE state = $1 ORDER BY tablegroup_id", tableGroupStateDropping)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to list dropping tablegroups")
+	}
+	groups := make([]droppingTableGroup, 0, len(res.Rows))
+	for _, row := range res.Rows {
+		var tg droppingTableGroup
+		if err := executor.ScanRow(row, &tg.id, &tg.name); err != nil {
+			pm.logger.WarnContext(ctx, "skipping unreadable dropping tablegroup", "error", err)
+			continue
+		}
+		groups = append(groups, tg)
+	}
+	return groups, nil
+}
+
+// reconcileCreations advances every pending creation in ops against the
+// topology snapshot records and returns how many are still pending. topoErr
+// is the error of this pass's topology read; while it is set nothing
+// completes, since a partial read undercounts, and the error is recorded on
+// each pending operation for GetOperation to show.
+func (pm *MultipoolerManager) reconcileCreations(ctx context.Context, ops []operationRow, records []*clustermetadatapb.Multipooler, topoErr error) int {
+	pending := 0
+	for _, op := range ops {
+		var err error
 		switch {
 		case op.cancelRequested:
 			err = pm.failCreateTableGroup(ctx, op, "cancelled")
@@ -184,24 +246,27 @@ func (pm *MultipoolerManager) reconcileCreations(ctx context.Context, records []
 			pending++
 		}
 	}
-	return pending, nil
+	return pending
 }
 
 // completeCreateTableGroup activates a tablegroup in one transaction: the
 // operation to done, its shards to active, the tablegroup to active, and the
 // routing version advanced so routing consumers learn the shard map changed.
-// The first statement is a compare-and-set on the operation's state, so a
-// concurrent or repeated completion finds nothing to do and commits nothing.
+// The first statement is a compare-and-set on the operation's state and
+// cancellation flag, so a concurrent or repeated completion finds nothing to do
+// and commits nothing, and a cancel that landed after this pass read the
+// operation wins: the operation stays creating with the flag set, and the next
+// pass fails it.
 func (pm *MultipoolerManager) completeCreateTableGroup(ctx context.Context, op operationRow) error {
 	return pm.inCatalogTransaction(ctx, "tablegroup activation", func(execCtx context.Context, tx executor.InternalTx) (bool, error) {
 		res, err := tx.QueryArgs(execCtx,
-			"UPDATE multigres.operation SET state = $2, last_error = NULL, updated_at = now() WHERE operation_id = $1 AND state = $3 RETURNING operation_id",
+			"UPDATE multigres.operation SET state = $2, last_error = NULL, updated_at = now() WHERE operation_id = $1 AND state = $3 AND NOT cancel_requested RETURNING operation_id",
 			op.id, operationStateDone, operationStateCreating)
 		if err != nil {
 			return false, mterrors.Wrap(err, "failed to complete operation")
 		}
 		if len(res.Rows) == 0 {
-			return false, nil // already completed or failed by another pass
+			return false, nil // completed, failed or cancelled by another pass or caller
 		}
 		if _, err := tx.QueryArgs(execCtx,
 			"UPDATE multigres.shard SET state = $2 WHERE tablegroup_id = $1 AND state = $3",
@@ -249,43 +314,28 @@ func (pm *MultipoolerManager) failCreateTableGroup(ctx context.Context, op opera
 	})
 }
 
-// reconcileDroppings deletes every dropping tablegroup that nothing holds any
-// more: no pooler record in the topology snapshot carries its id, and no
-// provisioner holds a claim on it (topoclient.Store.ClaimTableGroupProvisioning).
-// A tablegroup is dropping after DropTableGroup or after its creation failed.
-// While topoErr is set nothing is deleted: a partial read could miss a record.
-func (pm *MultipoolerManager) reconcileDroppings(ctx context.Context, records []*clustermetadatapb.Multipooler, topoErr error) (int, error) {
-	qs, err := pm.catalogQueryService()
-	if err != nil {
-		return 0, err
-	}
-	execCtx, cancel := context.WithTimeout(ctx, tableGroupOpTimeout)
-	defer cancel()
-	res, err := qs.QueryAdminArgs(execCtx,
-		"SELECT tablegroup_id, name FROM multigres.tablegroup WHERE state = $1 ORDER BY tablegroup_id", tableGroupStateDropping)
-	if err != nil {
-		return 0, mterrors.Wrap(err, "failed to list dropping tablegroups")
-	}
+// reconcileDroppings deletes every dropping tablegroup in groups that nothing
+// holds any more: no pooler record in the topology snapshot carries its id,
+// and no provisioner holds a claim on it
+// (topoclient.Store.ClaimTableGroupProvisioning). It returns how many are
+// still held. A tablegroup is dropping after DropTableGroup or after its
+// creation failed. While topoErr is set nothing is deleted: a partial read
+// could miss a record.
+func (pm *MultipoolerManager) reconcileDroppings(ctx context.Context, groups []droppingTableGroup, records []*clustermetadatapb.Multipooler, topoErr error) int {
 	pending := 0
-	for _, row := range res.Rows {
-		var id int64
-		var name string
-		if err := executor.ScanRow(row, &id, &name); err != nil {
-			pm.logger.WarnContext(ctx, "skipping unreadable dropping tablegroup", "error", err)
-			continue
-		}
+	for _, tg := range groups {
 		if topoErr != nil {
-			pm.recordDropError(ctx, id, topoErr.Error())
+			pm.recordDropError(ctx, tg.id, topoErr.Error())
 			pending++
 			continue
 		}
-		if poolersRegistered(records, id) > 0 {
+		if poolersRegistered(records, tg.id) > 0 {
 			pending++
 			continue
 		}
-		held, err := pm.tableGroupClaimHeld(ctx, id)
+		held, err := pm.tableGroupClaimHeld(ctx, tg.id)
 		if err != nil {
-			pm.recordDropError(ctx, id, err.Error())
+			pm.recordDropError(ctx, tg.id, err.Error())
 			pending++
 			continue
 		}
@@ -293,12 +343,12 @@ func (pm *MultipoolerManager) reconcileDroppings(ctx context.Context, records []
 			pending++
 			continue
 		}
-		if err := pm.finishDropTableGroup(ctx, name, id); err != nil {
-			pm.logger.WarnContext(ctx, "dropping tablegroup not deleted", "tablegroup", name, "tablegroup_id", id, "error", err)
+		if err := pm.finishDropTableGroup(ctx, tg.name, tg.id); err != nil {
+			pm.logger.WarnContext(ctx, "dropping tablegroup not deleted", "tablegroup", tg.name, "tablegroup_id", tg.id, "error", err)
 			pending++
 		}
 	}
-	return pending, nil
+	return pending
 }
 
 // tableGroupClaimHeld reports whether a provisioner holds a claim on a

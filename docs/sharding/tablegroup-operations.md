@@ -206,9 +206,9 @@ started by the multipooler service on the catalog shard and relaunched on
 every reopen. It is level-triggered on purpose: every pass derives everything
 from the catalog and a topology read, keeps nothing in memory between passes,
 and so resumes after a failover or restart by running again. The first pass
-runs immediately on start, then every three seconds while anything is pending
-and every thirty seconds otherwise. There is no topology watch and no wake-up
-on a new operation; a pass is two small indexed queries, and a few seconds of
+runs immediately on start, then every three seconds. There is no topology
+watch and no wake-up on a new operation; a pass with nothing pending is two
+small queries over tiny tables and reads no topology, and a few seconds of
 latency is invisible next to provisioning. Only the elected primary runs a
 pass; any other pooler skips it.
 
@@ -247,7 +247,7 @@ What this looks like from each side:
 | Scenario                                                     | Behavior                                                                                                                     |
 | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
 | Caller disconnects while waiting                             | The operation continues; `GetOperation` shows it                                                                             |
-| `DropTableGroup` while the tablegroup is still being created | The creation is cancelled and fails on the next pass. If it completed first, a repeated drop drops the now-active tablegroup |
+| `DropTableGroup` while the tablegroup is still being created | The creation is cancelled and fails on the next pass; a cancel that lands before the completing transaction commits wins. If it completed first, a repeated drop drops the now-active tablegroup |
 | Catalog primary fails over                                   | The new primary's first pass resumes every pending operation                                                                 |
 | Provisioner restarts                                         | It reconciles from the list; nothing in Multigres changes                                                                    |
 | Multiadmin or the catalog unreachable from the provisioner   | The provisioner must add nothing and remove nothing until a read succeeds                                                    |
