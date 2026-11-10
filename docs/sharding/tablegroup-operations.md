@@ -244,15 +244,15 @@ tries again. It does not fail the operation.
 
 What this looks like from each side:
 
-| Scenario                                                     | Behavior                                                                                                                     |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| Caller disconnects while waiting                             | The operation continues; `GetOperation` shows it                                                                             |
+| Scenario                                                     | Behavior                                                                                                                                                                                         |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Caller disconnects while waiting                             | The operation continues; `GetOperation` shows it                                                                                                                                                 |
 | `DropTableGroup` while the tablegroup is still being created | The creation is cancelled and fails on the next pass; a cancel that lands before the completing transaction commits wins. If it completed first, a repeated drop drops the now-active tablegroup |
-| Catalog primary fails over                                   | The new primary's first pass resumes every pending operation                                                                 |
-| Provisioner restarts                                         | It reconciles from the list; nothing in Multigres changes                                                                    |
-| Multiadmin or the catalog unreachable from the provisioner   | The provisioner must add nothing and remove nothing until a read succeeds                                                    |
-| Teardown never deletes the pooler records                    | The drop stays `dropping`, with `poolers_registered` showing what is left                                                    |
-| The provisioner never releases its claim                     | The drop stays `dropping` until the claim is released or an operator removes it, like a leaked Kubernetes finalizer          |
-| The list comes from a former primary that lags               | A change is delayed; nothing is removed, since absence is not a signal                                                       |
-| Duplicate `CreateTableGroup` or `DropTableGroup`             | The second caller gets the same operation                                                                                    |
-| Drop then recreate with the same name                        | The new id excludes the old poolers                                                                                          |
+| Catalog primary fails over                                   | The new primary's first pass resumes every pending operation                                                                                                                                     |
+| Provisioner restarts                                         | It reconciles from the list; nothing in Multigres changes                                                                                                                                        |
+| Multiadmin or the catalog unreachable from the provisioner   | The provisioner must add nothing and remove nothing until a read succeeds                                                                                                                        |
+| Teardown never deletes the pooler records                    | The drop stays `dropping`, with `poolers_registered` showing what is left                                                                                                                        |
+| The provisioner never releases its claim                     | The drop stays `dropping` until the claim is released or an operator removes it, like a leaked Kubernetes finalizer                                                                              |
+| The list comes from a former primary that lags               | A change is delayed; nothing is removed, since absence is not a signal                                                                                                                           |
+| Duplicate `CreateTableGroup` or `DropTableGroup`             | The second caller gets the same operation                                                                                                                                                        |
+| Drop then recreate with the same name                        | The new id excludes the old poolers                                                                                                                                                              |
