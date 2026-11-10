@@ -132,7 +132,7 @@ type ConsensusManager struct {
 	cohortEligibility atomic.Int32
 	// suspectedDivergence marks that this node's WAL may have diverged from the
 	// cluster's chosen history, so the next restart-as-standby should run
-	// pg_rewind to drop potential phantom / non-durable WAL. Set when consensus
+	// pg_rewind to drop potential phantom (never-decided) WAL. Set when consensus
 	// ends this node's term (failover) or a replica can't replicate despite
 	// connecting. Atomic; production writes happen on action-lock paths, and the
 	// lock-free health-status reader loads it.

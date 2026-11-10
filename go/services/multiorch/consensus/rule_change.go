@@ -120,28 +120,25 @@ func (r *coordinatorLedRuleChange) Run(
 	}
 	eventlog.Emit(ctx, r.coordinator.logger, eventlog.Started, primaryPromotion)
 
-	// Phase 1: Recruit all nodes concurrently.
+	// Recruit all nodes concurrently.
 	//
 	// Each recruit returns a ConsensusStatus that reflects the node's current WAL
-	// position and durability commitments. The coordinator accumulates these and
-	// tries to build a proposal after each arrival, until one succeeds. This
-	// lets the coordinator select the most advanced node that can still satisfy
-	// the durability policy, without waiting for the slowest nodes in the
-	// cohort to respond.
+	// position and durability commitments.
 
 	recruited := r.dispatchRecruit(ctx, cohort, revocation)
 
-	// Phase 2: collect recruits until tryBuildProposal succeeds, or all nodes
-	// have responded without reaching quorum.
+	// Choose the leader: collect recruits, trying to build a proposal after each
+	// arrival, until tryBuildProposal succeeds or all nodes have responded without
+	// reaching quorum. This selects the most advanced node that can still satisfy
+	// the durability policy, without waiting for the slowest nodes in the cohort.
 	//
 	// We commit to the leader at the FIRST successful tryBuildProposal and stream
 	// Proposes from there — recruits arriving after that point don't change
-	// the choice. This is consensus-correct: only committed writes are
-	// guaranteed durable across the quorum, so the chosen leader carries
-	// every committed write by definition. The tradeoff is that *uncommitted*
-	// WAL on a late-arriving more-advanced node is discarded when the node
-	// joins as a follower (pg_rewind on rejoin) instead of being preserved
-	// by electing that node leader.
+	// the choice. This is safe: the chosen leader carries every committed write.
+	// The tradeoff is that an unrecruited member may hold a more advanced WAL: it
+	// is discarded via an expensive pg_rewind when that node rejoins as a follower,
+	// so it can be worth waiting longer for more cohort members if we expect to
+	// reach any.
 	//
 	// TODO: add a configurable grace period after quorum is reached but
 	// before the leader is locked in, to let slow-but-not-dead nodes
@@ -163,7 +160,7 @@ func (r *coordinatorLedRuleChange) Run(
 		return err
 	}
 
-	// Phase 3: Propose to all nodes concurrently.
+	// Propose to all nodes concurrently.
 	//
 	// Note that we send proposals to all nodes, including those that didn't
 	// respond to recruit or whose recruits arrived after the proposal was
@@ -177,7 +174,7 @@ func (r *coordinatorLedRuleChange) Run(
 
 	promoteResults := r.dispatchPromote(ctx, cohort, propReq, leaderKey)
 
-	// Phase 4: Wait for every Promote to return, not just the leader's. The rule
+	// Wait for every Promote to return, not just the leader's. The rule
 	// change is committed when the leader's Promote succeeds — which can
 	// only happen because enough followers endorsed the proposal first to
 	// satisfy the cohort's durability quorum. Returning early here would

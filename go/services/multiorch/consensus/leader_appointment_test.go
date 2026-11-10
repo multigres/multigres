@@ -180,7 +180,7 @@ func TestAppointLeader(t *testing.T) {
 // position as the outgoing baseline even when it's an undecided proposal —
 // no separate quorum-verification step is needed, since the fresh write
 // this promotion performs can't get its own synchronous ack unless the
-// position it supersedes was already durable. mp1 is both the only cohort
+// position it supersedes was already quorum-held. mp1 is both the only cohort
 // member and the only node reporting the undecided proposal, so recruitment
 // trivially succeeds; the resulting rule keeps mp1 as leader (propagation
 // never changes cohort or durability policy — see validateProposal).
