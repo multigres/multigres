@@ -143,11 +143,13 @@ message Snapshot {
   // snapshot. Two snapshots of the same database with the same
   // routing_version are identical.
   int64 routing_version = 1;
-  // plan_epoch is catalog_state.plan_epoch, reported as is.
+  // plan_epoch advances with every catalog change that can change how an
+  // existing query is planned, so a reader invalidates cached plans when it
+  // moves. Every such change also advances routing_version.
   int64 plan_epoch = 2;
   repeated TableGroup tablegroups = 3;
   repeated Shard shards = 4;
   repeated Table tables = 5;
-  repeated ShardIndex shard_indexes = 6;
+  repeated ShardIndex shard_indices = 6;
   repeated ShardKey shard_keys = 7;
 }

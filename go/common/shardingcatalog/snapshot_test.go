@@ -76,7 +76,7 @@ func validSnapshot(t *testing.T) *pb.Snapshot {
 			{TableId: 10, SchemaName: "public", TableName: "orders", TablegroupId: 2},
 			{TableId: 11, SchemaName: "public", TableName: "settings", TablegroupId: 1},
 		},
-		ShardIndexes: []*pb.ShardIndex{
+		ShardIndices: []*pb.ShardIndex{
 			{ShardIndexId: 20, Name: "hash_xx", Type: "hash", Params: `{"function":"xxhash64"}`, State: pb.ShardIndexState_SHARD_INDEX_STATE_ACTIVE},
 		},
 		ShardKeys: []*pb.ShardKey{
@@ -302,10 +302,10 @@ func TestNew_Rejects(t *testing.T) {
 			p.Tables[1].TableName = "orders"
 		}, `table "public"."orders" is repeated`},
 		{"repeated shard index id", func(t *testing.T, p *pb.Snapshot) {
-			p.ShardIndexes = append(p.ShardIndexes, &pb.ShardIndex{ShardIndexId: 20, Name: "other"})
+			p.ShardIndices = append(p.ShardIndices, &pb.ShardIndex{ShardIndexId: 20, Name: "other"})
 		}, "shard index id 20 is repeated"},
 		{"repeated shard index name", func(t *testing.T, p *pb.Snapshot) {
-			p.ShardIndexes = append(p.ShardIndexes, &pb.ShardIndex{ShardIndexId: 21, Name: "hash_xx"})
+			p.ShardIndices = append(p.ShardIndices, &pb.ShardIndex{ShardIndexId: 21, Name: "hash_xx"})
 		}, `shard index name "hash_xx" is repeated`},
 		{"shard key with a dangling table", func(t *testing.T, p *pb.Snapshot) {
 			p.ShardKeys[0].TableId = 99

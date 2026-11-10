@@ -69,6 +69,11 @@ type healthStreamer struct {
 	// Zero on the primary or when not yet measured. Updated via SetReplicationLag.
 	replicationLagNs atomic.Int64
 
+	// catalog is the sharding catalog's versions as last read on the catalog
+	// primary (see refreshCatalogVersions). Zero elsewhere, and published only
+	// while routing PRIMARY. Protected by mu.
+	catalog catalogVersions
+
 	// metrics publishes replication lag and serving-state transitions as OTel
 	// metrics. Always non-nil after newHealthStreamer.
 	metrics *healthMetrics
@@ -180,15 +185,45 @@ func (hs *healthStreamer) SetReplicationLag(lagNs int64) {
 	hs.replicationLagNs.Store(lagNs)
 }
 
+// observeCatalogVersions records the catalog versions read on the catalog
+// primary and broadcasts them when they changed. Within one term the version
+// only grows, so a read that raced a newer write and returns an older version
+// is ignored.
+func (hs *healthStreamer) observeCatalogVersions(v catalogVersions) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	if v == hs.catalog || v.routingVersion < hs.catalog.routingVersion {
+		return
+	}
+	hs.catalog = v
+	hs.broadcastLocked()
+}
+
+// clearCatalogVersions forgets the catalog versions, on a pooler that is not
+// the catalog primary (any more), so a later term starts from what its own
+// read of the catalog finds.
+func (hs *healthStreamer) clearCatalogVersions() {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	hs.catalog = catalogVersions{}
+}
+
 // buildStateLocked builds the current health state. Caller must hold hs.mu.
 func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
-	return &poolerserver.HealthState{
+	state := &poolerserver.HealthState{
 		PoolerID:                    hs.poolerID,
 		ServingStatus:               hs.servingStatus,
 		RoutingState:                hs.routingState,
 		RecommendedStalenessTimeout: hs.recommendedStalenessTimeout,
 		ReplicationLagNs:            hs.replicationLagNs.Load(),
 	}
+	// Only the routing primary speaks for the catalog: a demoted pooler stops
+	// reporting versions in the same broadcast that drops its PRIMARY role.
+	if hs.routingState.GetRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
+		state.RoutingVersion = hs.catalog.routingVersion
+		state.PlanEpoch = hs.catalog.planEpoch
+	}
+	return state
 }
 
 // broadcastLocked sends the current health state to all registered clients.

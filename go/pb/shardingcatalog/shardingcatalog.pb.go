@@ -716,12 +716,14 @@ type Snapshot struct {
 	// snapshot. Two snapshots of the same database with the same
 	// routing_version are identical.
 	RoutingVersion int64 `protobuf:"varint,1,opt,name=routing_version,json=routingVersion,proto3" json:"routing_version,omitempty"`
-	// plan_epoch is catalog_state.plan_epoch, reported as is.
+	// plan_epoch advances with every catalog change that can change how an
+	// existing query is planned, so a reader invalidates cached plans when it
+	// moves. Every such change also advances routing_version.
 	PlanEpoch     int64         `protobuf:"varint,2,opt,name=plan_epoch,json=planEpoch,proto3" json:"plan_epoch,omitempty"`
 	Tablegroups   []*TableGroup `protobuf:"bytes,3,rep,name=tablegroups,proto3" json:"tablegroups,omitempty"`
 	Shards        []*Shard      `protobuf:"bytes,4,rep,name=shards,proto3" json:"shards,omitempty"`
 	Tables        []*Table      `protobuf:"bytes,5,rep,name=tables,proto3" json:"tables,omitempty"`
-	ShardIndexes  []*ShardIndex `protobuf:"bytes,6,rep,name=shard_indexes,json=shardIndexes,proto3" json:"shard_indexes,omitempty"`
+	ShardIndices  []*ShardIndex `protobuf:"bytes,6,rep,name=shard_indices,json=shardIndices,proto3" json:"shard_indices,omitempty"`
 	ShardKeys     []*ShardKey   `protobuf:"bytes,7,rep,name=shard_keys,json=shardKeys,proto3" json:"shard_keys,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -792,9 +794,9 @@ func (x *Snapshot) GetTables() []*Table {
 	return nil
 }
 
-func (x *Snapshot) GetShardIndexes() []*ShardIndex {
+func (x *Snapshot) GetShardIndices() []*ShardIndex {
 	if x != nil {
-		return x.ShardIndexes
+		return x.ShardIndices
 	}
 	return nil
 }
@@ -852,7 +854,7 @@ const file_shardingcatalog_proto_rawDesc = "" +
 	"\vtablegroups\x18\x03 \x03(\v2\x1b.shardingcatalog.TableGroupR\vtablegroups\x12.\n" +
 	"\x06shards\x18\x04 \x03(\v2\x16.shardingcatalog.ShardR\x06shards\x12.\n" +
 	"\x06tables\x18\x05 \x03(\v2\x16.shardingcatalog.TableR\x06tables\x12@\n" +
-	"\rshard_indexes\x18\x06 \x03(\v2\x1b.shardingcatalog.ShardIndexR\fshardIndexes\x128\n" +
+	"\rshard_indices\x18\x06 \x03(\v2\x1b.shardingcatalog.ShardIndexR\fshardIndices\x128\n" +
 	"\n" +
 	"shard_keys\x18\a \x03(\v2\x19.shardingcatalog.ShardKeyR\tshardKeys*\x92\x01\n" +
 	"\x0fTableGroupState\x12!\n" +
@@ -919,7 +921,7 @@ var file_shardingcatalog_proto_depIdxs = []int32{
 	5,  // 6: shardingcatalog.Snapshot.tablegroups:type_name -> shardingcatalog.TableGroup
 	6,  // 7: shardingcatalog.Snapshot.shards:type_name -> shardingcatalog.Shard
 	7,  // 8: shardingcatalog.Snapshot.tables:type_name -> shardingcatalog.Table
-	8,  // 9: shardingcatalog.Snapshot.shard_indexes:type_name -> shardingcatalog.ShardIndex
+	8,  // 9: shardingcatalog.Snapshot.shard_indices:type_name -> shardingcatalog.ShardIndex
 	9,  // 10: shardingcatalog.Snapshot.shard_keys:type_name -> shardingcatalog.ShardKey
 	11, // [11:11] is the sub-list for method output_type
 	11, // [11:11] is the sub-list for method input_type

@@ -381,3 +381,12 @@ func (s *managerService) ListTableGroups(ctx context.Context, req *multipoolerma
 	}
 	return &multipoolermanagerdatapb.ListTableGroupsResponse{TableGroups: groups}, nil
 }
+
+// GetRoutingSnapshot returns the sharding catalog snapshot.
+func (s *managerService) GetRoutingSnapshot(ctx context.Context, req *multipoolermanagerdatapb.GetRoutingSnapshotRequest) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+	resp, err := s.manager.GetRoutingSnapshot(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}

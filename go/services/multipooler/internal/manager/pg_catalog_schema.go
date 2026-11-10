@@ -204,6 +204,11 @@ var catalogTables = []string{
 // just ON CONFLICT DO NOTHING: INSERT evaluates the identity default before it
 // detects the conflict, so an unguarded insert would consume an id on every
 // open. ON CONFLICT stays as a backstop.
+//
+// The seed does not advance routing_version (see routing_snapshot.go): its
+// rows are only ever inserted in the transaction that creates catalog_state,
+// so no snapshot can be read without them, and every later open changes
+// nothing.
 var catalogSeed = []string{
 	// format_version starts at 0; ensureCatalogSchema sets the real format
 	// right after the seed.

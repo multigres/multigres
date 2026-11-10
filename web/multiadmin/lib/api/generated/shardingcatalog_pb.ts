@@ -557,7 +557,9 @@ export class Snapshot extends Message<Snapshot> {
   routingVersion = protoInt64.zero;
 
   /**
-   * plan_epoch is catalog_state.plan_epoch, reported as is.
+   * plan_epoch advances with every catalog change that can change how an
+   * existing query is planned, so a reader invalidates cached plans when it
+   * moves. Every such change also advances routing_version.
    *
    * @generated from field: int64 plan_epoch = 2;
    */
@@ -579,9 +581,9 @@ export class Snapshot extends Message<Snapshot> {
   tables: Table[] = [];
 
   /**
-   * @generated from field: repeated shardingcatalog.ShardIndex shard_indexes = 6;
+   * @generated from field: repeated shardingcatalog.ShardIndex shard_indices = 6;
    */
-  shardIndexes: ShardIndex[] = [];
+  shardIndices: ShardIndex[] = [];
 
   /**
    * @generated from field: repeated shardingcatalog.ShardKey shard_keys = 7;
@@ -601,7 +603,7 @@ export class Snapshot extends Message<Snapshot> {
     { no: 3, name: "tablegroups", kind: "message", T: TableGroup, repeated: true },
     { no: 4, name: "shards", kind: "message", T: Shard, repeated: true },
     { no: 5, name: "tables", kind: "message", T: Table, repeated: true },
-    { no: 6, name: "shard_indexes", kind: "message", T: ShardIndex, repeated: true },
+    { no: 6, name: "shard_indices", kind: "message", T: ShardIndex, repeated: true },
     { no: 7, name: "shard_keys", kind: "message", T: ShardKey, repeated: true },
   ]);
 

@@ -175,9 +175,9 @@ func New(pb *shardingcatalogpb.Snapshot) (*Snapshot, error) {
 		s.tables[key] = table
 	}
 
-	indexes := make(map[int64]*ShardIndex, len(pb.GetShardIndexes()))
-	indexNames := make(map[string]struct{}, len(pb.GetShardIndexes()))
-	for _, si := range pb.GetShardIndexes() {
+	indexes := make(map[int64]*ShardIndex, len(pb.GetShardIndices()))
+	indexNames := make(map[string]struct{}, len(pb.GetShardIndices()))
+	for _, si := range pb.GetShardIndices() {
 		if _, dup := indexes[si.GetShardIndexId()]; dup {
 			return nil, mterrors.NewInvalidShardingCatalogSnapshot("shard index id %d is repeated", si.GetShardIndexId())
 		}
