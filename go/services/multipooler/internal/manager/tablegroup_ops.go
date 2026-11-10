@@ -217,8 +217,8 @@ func (pm *MultipoolerManager) CreateTableGroup(ctx context.Context, req *multipo
 	}
 
 	var resp *multipoolermanagerdatapb.CreateTableGroupResponse
-	versions, err := pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx) (catalogChange, error) {
-		var change catalogChange
+	var change catalogChange
+	versions, err := pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, _ catalogVersions) (catalogChange, error) {
 		var err error
 		resp, change, err = createTableGroupTx(ctx, tx, req, ranges, layout)
 		return change, err
@@ -226,7 +226,7 @@ func (pm *MultipoolerManager) CreateTableGroup(ctx context.Context, req *multipo
 	if err != nil {
 		return nil, err
 	}
-	if versions != (catalogVersions{}) {
+	if change != catalogUnchanged {
 		pm.logger.InfoContext(ctx, "recorded tablegroup creation", "tablegroup", req.GetName(), "tablegroup_id", resp.GetTablegroupId(),
 			"shards", layout, "operation_id", resp.GetOperationId(), "routing_version", versions.routingVersion)
 	}

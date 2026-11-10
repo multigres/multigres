@@ -354,13 +354,13 @@ func TestWriteCatalog(t *testing.T) {
 		env.expectAdvance(9)
 		env.expectCommit()
 
-		v, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx) (catalogChange, error) {
+		v, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx, _ catalogVersions) (catalogChange, error) {
 			return catalogRoutingChange, writeRow(ctx, tx)
 		})
 		require.NoError(t, err)
 		assert.Equal(t, int64(9), v.routingVersion)
 		assert.Equal(t, []string{
-			"SELECT routing_version FROM multigres.catalog_state FOR UPDATE",
+			"SELECT routing_version, plan_epoch FROM multigres.catalog_state FOR UPDATE",
 			"INSERT INTO multigres.tablegroup_table VALUES (1)",
 			"UPDATE multigres.catalog_state SET routing_version = routing_version + 1 RETURNING routing_version, plan_epoch",
 			"COMMIT",
@@ -376,7 +376,7 @@ func TestWriteCatalog(t *testing.T) {
 			[]string{"routing_version", "plan_epoch"}, [][]any{{int64(9), int64(3)}})
 		env.expectCommit()
 
-		v, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx) (catalogChange, error) {
+		v, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx, _ catalogVersions) (catalogChange, error) {
 			return catalogInvalidatesPlans, writeRow(ctx, tx)
 		})
 		require.NoError(t, err)
@@ -389,7 +389,7 @@ func TestWriteCatalog(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectLock()
 		env.expectAdvance(9)
-		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx) (catalogChange, error) {
+		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions) (catalogChange, error) {
 			return catalogRoutingChange, nil
 		})
 		require.NoError(t, err)
@@ -400,19 +400,22 @@ func TestWriteCatalog(t *testing.T) {
 		env.expectLock()
 		env.expectCommit()
 
-		v, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx) (catalogChange, error) {
+		var got catalogVersions
+		v, err := env.pm.writeCatalog(t.Context(), func(_ context.Context, _ executor.InternalTx, current catalogVersions) (catalogChange, error) {
+			got = current
 			return catalogUnchanged, nil
 		})
 		require.NoError(t, err)
-		assert.Zero(t, v)
-		assert.Equal(t, []string{"SELECT routing_version FROM multigres.catalog_state FOR UPDATE"}, env.queries)
+		assert.Equal(t, catalogVersions{routingVersion: 4, planEpoch: 2}, got, "the writer sees the locked versions")
+		assert.Equal(t, got, v, "an unchanged catalog returns the versions it found")
+		assert.Equal(t, []string{"SELECT routing_version, plan_epoch FROM multigres.catalog_state FOR UPDATE"}, env.queries)
 	})
 	t.Run("a writer error rolls back without advancing", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectLock()
 		env.expectCommit()
 
-		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx) (catalogChange, error) {
+		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions) (catalogChange, error) {
 			return catalogRoutingChange, errors.New("boom")
 		})
 		require.ErrorContains(t, err, "boom")
@@ -424,7 +427,7 @@ func TestWriteCatalog(t *testing.T) {
 		env.expectLock()
 		env.expectCommit()
 
-		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx) (catalogChange, error) {
+		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions) (catalogChange, error) {
 			return catalogChange(99), nil
 		})
 		require.Error(t, err)
@@ -435,7 +438,7 @@ func TestWriteCatalog(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.qs.AddQueryPatternWithError("FROM multigres.catalog_state FOR UPDATE", errors.New("lock timeout"))
 		ran := false
-		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx) (catalogChange, error) {
+		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions) (catalogChange, error) {
 			ran = true
 			return catalogRoutingChange, nil
 		})

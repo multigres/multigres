@@ -99,7 +99,7 @@ func (env *tableGroupTestEnv) nameTaken(id int64, state string) {
 // expectLock registers the catalog_state lock every catalog writer takes
 // first.
 func (env *tableGroupTestEnv) expectLock() {
-	env.expect("FROM multigres.catalog_state FOR UPDATE", []string{"routing_version"}, [][]any{{int64(4)}})
+	env.expect("FROM multigres.catalog_state FOR UPDATE", []string{"routing_version", "plan_epoch"}, [][]any{{int64(4), int64(2)}})
 }
 
 // expectAdvance registers the routing_version increment, returning version.
@@ -196,7 +196,7 @@ func TestCreateTableGroup_RecordsIntent(t *testing.T) {
 	// version advances once, inside the transaction.
 	want := []string{
 		"SELECT pg_is_in_recovery()",
-		"SELECT routing_version FROM multigres.catalog_state FOR UPDATE",
+		"SELECT routing_version, plan_epoch FROM multigres.catalog_state FOR UPDATE",
 		"INSERT INTO multigres.tablegroup (name, state) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING RETURNING tablegroup_id",
 		"INSERT INTO multigres.shard (tablegroup_id, shard_name, range_start, range_end, state) VALUES ($1, $2, decode($3, 'hex'), decode($4, 'hex'), $5)",
 		"INSERT INTO multigres.shard (tablegroup_id, shard_name, range_start, range_end, state) VALUES ($1, $2, decode($3, 'hex'), decode($4, 'hex'), $5)",

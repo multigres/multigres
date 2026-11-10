@@ -126,14 +126,16 @@ const (
 )
 
 // catalogWriter is the body of a catalog write transaction. It runs with the
-// catalog_state lock already held and must leave the transaction open: it
-// neither commits nor rolls back. An error rolls back whatever it wrote.
-type catalogWriter func(ctx context.Context, tx executor.InternalTx) (catalogChange, error)
+// catalog_state lock already held, and current is the versions that lock read:
+// a change the writer reports advances routing_version to exactly
+// current.routingVersion + 1. It must leave the transaction open: it neither
+// commits nor rolls back. An error rolls back whatever it wrote.
+type catalogWriter func(ctx context.Context, tx executor.InternalTx, current catalogVersions) (catalogChange, error)
 
 // writeCatalog runs write in a catalog write transaction on the admin pool,
 // under tableGroupOpTimeout. See the file comment for the protocol it owns.
-// It returns the committed versions, or zero versions when the writer changed
-// nothing.
+// It returns the committed versions, or the current versions, unchanged, when
+// the writer changed nothing.
 func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWriter) (catalogVersions, error) {
 	qs, err := pm.catalogQueryService()
 	if err != nil {
@@ -146,18 +148,19 @@ func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWri
 		return catalogVersions{}, mterrors.Wrap(err, "failed to begin catalog transaction")
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if err := lockCatalogState(execCtx, tx); err != nil {
+	current, err := lockCatalogState(execCtx, tx)
+	if err != nil {
 		return catalogVersions{}, err
 	}
 
-	change, err := write(execCtx, tx)
+	change, err := write(execCtx, tx, current)
 	if err != nil {
 		return catalogVersions{}, err
 	}
 	var invalidatePlans bool
 	switch change {
 	case catalogUnchanged:
-		return catalogVersions{}, nil
+		return current, nil
 	case catalogRoutingChange:
 	case catalogInvalidatesPlans:
 		invalidatePlans = true
@@ -177,12 +180,18 @@ func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWri
 }
 
 // lockCatalogState locks the catalog_state row for the rest of the
-// transaction. Only writeCatalog calls it, before the writer runs.
-func lockCatalogState(ctx context.Context, tx executor.InternalTx) error {
-	if _, err := tx.Query(ctx, "SELECT routing_version FROM multigres.catalog_state FOR UPDATE"); err != nil {
-		return mterrors.Wrap(err, "failed to lock catalog state")
+// transaction and returns the versions it holds. Only writeCatalog calls it,
+// before the writer runs.
+func lockCatalogState(ctx context.Context, tx executor.InternalTx) (catalogVersions, error) {
+	res, err := tx.Query(ctx, catalogVersionsQuery+" FOR UPDATE")
+	if err != nil {
+		return catalogVersions{}, mterrors.Wrap(err, "failed to lock catalog state")
 	}
-	return nil
+	var v catalogVersions
+	if err := executor.ScanSingleRow(res, &v.routingVersion, &v.planEpoch); err != nil {
+		return catalogVersions{}, mterrors.Wrap(err, "failed to read locked catalog versions")
+	}
+	return v, nil
 }
 
 // advanceCatalogVersions advances routing_version by one, and plan_epoch too
