@@ -422,7 +422,10 @@ func TestCheckDropPrivilege(t *testing.T) {
 // pull another operator's source data into a target table the caller does
 // own, without ever holding that source's own credentials.
 func TestCheckConnectionOwnership(t *testing.T) {
-	const checkSQL = "SELECT 1 WHERE NOT pg_has_role($1::name, $2::name, 'USAGE')"
+	const checkSQL = `SELECT 1
+FROM (VALUES ($2::name)) AS t(owner)
+LEFT JOIN pg_roles r ON r.rolname = t.owner
+WHERE r.rolname IS NULL OR NOT pg_has_role($1::name, r.rolname, 'USAGE')`
 
 	t.Run("caller has usage on the owner role: allowed", func(t *testing.T) {
 		qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{checkSQL: emptyResult()}}
@@ -446,6 +449,62 @@ func TestCheckConnectionOwnership(t *testing.T) {
 		require.Equal(t, "42501", mterrors.ExtractSQLSTATE(err))
 		require.ErrorContains(t, err, `"mallory"`)
 		require.NotContains(t, err.Error(), "alice", "must not reveal who owns the connection either")
+	})
+
+	// Regression test: the owner role recorded on a connection can be dropped
+	// (or renamed) independently of the connection row. pg_has_role errors
+	// outright on a role name it cannot find, so calling it directly on
+	// ownerRole would turn "the owner is gone" into a propagated backend
+	// error instead of an ordinary denial. The LEFT JOIN against pg_roles
+	// means a missing ownerRole reaches pg_has_role as NULL, which the
+	// STRICT function returns NULL for rather than erroring — verified
+	// against a live server; this test locks in that the result (a returned
+	// row, same as "lacks usage") is still treated as denied.
+	t.Run("owner role no longer exists: denied, not a backend error", func(t *testing.T) {
+		qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{
+			checkSQL: {Rows: []*sqltypes.Row{{Values: []sqltypes.Value{sqltypes.Value("1")}}}},
+		}}
+		tg := newTarget(qs)
+
+		err := tg.CheckConnectionOwnership(context.Background(), "mallory", "dropped_role")
+
+		require.Error(t, err)
+		require.Equal(t, "42501", mterrors.ExtractSQLSTATE(err))
+	})
+}
+
+// TestDeniedConnectionOwners covers the batched form DeniedConnectionOwners
+// uses, including the same dropped-owner-role handling CheckConnectionOwnership
+// has (see its test) — one owner role in the VALUES list not existing in
+// pg_roles must not fail the whole batch for every other connection.
+func TestDeniedConnectionOwners(t *testing.T) {
+	t.Run("empty ownerRoles is a no-op", func(t *testing.T) {
+		qs := &fakeQS{}
+		tg := newTarget(qs)
+
+		denied, err := tg.DeniedConnectionOwners(context.Background(), "app", nil)
+
+		require.NoError(t, err)
+		require.Empty(t, denied)
+		require.Empty(t, qs.adminArgs, "no query should run for an empty owner-role set")
+	})
+
+	t.Run("only the denied owners (including one whose role no longer exists) come back", func(t *testing.T) {
+		checkSQL := "SELECT t.owner FROM (VALUES ('alice'), ('mallory'), ('dropped_role')) AS t(owner)" +
+			" LEFT JOIN pg_roles r ON r.rolname = t.owner" +
+			" WHERE r.rolname IS NULL OR NOT pg_has_role($1::name, r.rolname, 'USAGE')"
+		qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{
+			checkSQL: {Rows: []*sqltypes.Row{
+				{Values: []sqltypes.Value{sqltypes.Value("mallory")}},
+				{Values: []sqltypes.Value{sqltypes.Value("dropped_role")}},
+			}},
+		}}
+		tg := newTarget(qs)
+
+		denied, err := tg.DeniedConnectionOwners(context.Background(), "app", []string{"alice", "mallory", "dropped_role"})
+
+		require.NoError(t, err)
+		require.Equal(t, map[string]bool{"mallory": true, "dropped_role": true}, denied)
 	})
 }
 

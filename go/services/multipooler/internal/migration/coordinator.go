@@ -145,15 +145,8 @@ func (c *Coordinator) CreateConnection(ctx context.Context, conn *Connection) er
 // no-op rather than an error. Takes c.mu, the same lock every other
 // coordinator method that mutates migration/connection state holds.
 //
-// callerRole gates an ownership check against the connection's stored
-// OwnerRole, the same model CreateMigration's doc comment on CallerRole
-// describes: without it, any role that merely passes the gateway's
-// CanCreateMigration gate could drop a connection it does not own. A
-// rejected caller sees ErrConnectionNotFound, the same error a nonexistent
-// connection produces, so it cannot tell "doesn't exist" from "exists but
-// not mine." Left empty on the CLI/multiadmin path, which has no
-// SQL-authenticated identity to check; the check is skipped in that case,
-// unchanged from before this parameter existed.
+// callerRole gates the same ownership check as GetConnection (see its doc
+// comment for the model); a rejected caller sees ErrConnectionNotFound.
 //
 // Resolves ref itself rather than taking an already-resolved id, so the
 // caller (the gRPC handler) does not have to fetch the connection via
@@ -181,15 +174,21 @@ func (c *Coordinator) DropConnection(ctx context.Context, ref Ref, callerRole st
 
 // GetConnection returns one connection, addressed by ref (id or name).
 //
-// callerRole gates the same ownership check CreateMigration's doc comment on
-// CallerRole describes: without it, any role that merely passes the
-// gateway's CanCreateMigration gate could read another operator's
-// connection — including its DSN, a full libpq conninfo that may carry a
-// password. A rejected caller sees ErrConnectionNotFound, the same error a
-// nonexistent connection produces, so it cannot tell "doesn't exist" from
-// "exists but not mine." Left empty on the CLI/multiadmin path, which has no
-// SQL-authenticated identity to check; the check is skipped in that case,
-// unchanged from before this parameter existed.
+// callerRole gates an ownership check against the connection's stored
+// OwnerRole: without it, any role that merely passes the gateway's
+// CanCreateMigration gate could read another operator's connection —
+// including its DSN, a full libpq conninfo that may carry a password — or,
+// on the methods below that gate the same way, drop it, enumerate it, or
+// read a migration/journal entry that names it. A rejected caller sees the
+// same not-found error the resource's absence would produce, so it cannot
+// tell "doesn't exist" from "exists but not mine," the anti-enumeration
+// model CreateMigration's doc comment on CallerRole also follows. Left
+// empty on the CLI/multiadmin path, which has no SQL-authenticated identity
+// to check; the check is skipped in that case, unchanged from before this
+// parameter existed. See checkConnectionOwnership for exactly what
+// "ownership" and "masked" mean, including the one case (the owner role
+// itself no longer exists as a server role) a denial covers that isn't
+// really about privilege.
 func (c *Coordinator) GetConnection(ctx context.Context, ref Ref, callerRole string) (*Connection, error) {
 	conn, err := c.store.GetConnectionByRef(ctx, ref)
 	if err != nil {
@@ -203,13 +202,11 @@ func (c *Coordinator) GetConnection(ctx context.Context, ref Ref, callerRole str
 
 // ListConnections returns every stored connection callerRole may use.
 //
-// A named connection carries no ACL of its own (see CheckConnectionOwnership),
-// so without this filter any role that merely passes the gateway's
-// CanCreateMigration gate could enumerate every operator's configured source
-// host/dbname/user — metadata about credentials it does not hold. callerRole
-// empty (CLI/multiadmin path, no SQL-authenticated identity) returns every
-// connection unfiltered, unchanged from before this parameter existed, as
-// does a connection with an empty OwnerRole (predates ownership tracking).
+// callerRole gates the same ownership check as GetConnection (see its doc
+// comment), applied here as a filter (an unowned connection is silently
+// omitted) rather than a rejection. Left empty on the CLI/multiadmin path:
+// every connection is returned unfiltered, unchanged from before this
+// parameter existed.
 //
 // Checks every distinct OwnerRole in one batched DeniedConnectionOwners call
 // rather than one CheckConnectionOwnership round trip per connection, so this
@@ -260,6 +257,13 @@ func (c *Coordinator) ListConnections(ctx context.Context, callerRole string) ([
 // this one, it's not owned" from "something is actually broken, stop and
 // report it." Skipped (nil) when callerRole is empty (no SQL-authenticated
 // identity) or conn.OwnerRole is empty (predates ownership tracking).
+//
+// A conn.OwnerRole that no longer exists as a server role (the role was
+// dropped or renamed after the connection recorded it) is masked the same
+// as an ordinary denial, not propagated as a backend error: nothing can
+// verify ownership against a role that is gone, and the alternative —
+// treating it as allowed — would let anyone claim an orphaned connection.
+// CheckConnectionOwnership handles this itself rather than erroring.
 func (c *Coordinator) checkConnectionOwnership(ctx context.Context, conn *Connection, callerRole string, errMasked error) error {
 	if callerRole == "" || conn.OwnerRole == "" {
 		return nil
@@ -334,13 +338,10 @@ type CreateParams struct {
 	SequenceMargin int64
 	// CallerRole is the PostgreSQL role the gateway's SCRAM-authenticated SQL
 	// client is connected as. Set only on the gateway SQL path (CREATE
-	// MIGRATION): it gates the connection-ownership check below, so a caller
-	// who merely has database CREATE + pg_create_subscription (enough to pass
-	// the gateway's CanCreateMigration gate) cannot name a connection it does
-	// not own and use its credentials to pull another operator's source data
-	// into a table it does own. Left empty on the CLI/multiadmin path, which
-	// has no SQL-authenticated identity to set it from; the check is skipped
-	// in that case, unchanged from before this field existed.
+	// MIGRATION); gates the connection-ownership check below — see
+	// GetConnection's doc comment for the model. Left empty on the
+	// CLI/multiadmin path, which has no SQL-authenticated identity to set it
+	// from.
 	CallerRole string
 }
 
@@ -598,13 +599,9 @@ func (c *Coordinator) runSetup(ctx context.Context, m *Migration, callerRole str
 // (liveStatus, project) without c.mu would race those writers. Modifications are
 // rare, so this short read-side lock is cheap.
 //
-// callerRole gates the same ownership check DropMigration/SetMigrationDirection
-// use: without it, any role that merely passes the gateway's CanCreateMigration
-// gate could read another operator's migration status. A rejected caller sees
-// ErrNotFound, the same error a nonexistent migration produces, so it cannot
-// tell "doesn't exist" from "exists but not mine." Left empty on the
-// CLI/multiadmin path, which has no SQL-authenticated identity to check; the
-// check is skipped in that case, unchanged from before this parameter existed.
+// callerRole gates the same ownership check as GetConnection (see its doc
+// comment), applied against the migration's connection — a migration has no
+// owner of its own. A rejected caller sees ErrNotFound.
 func (c *Coordinator) GetMigration(ctx context.Context, ref Ref, callerRole string) (*Projection, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -623,15 +620,12 @@ func (c *Coordinator) GetMigration(ctx context.Context, ref Ref, callerRole stri
 // It takes c.mu for the same reason as GetMigration: the cached *Migration
 // values it reads are the ones the write paths mutate in place under c.mu.
 //
-// callerRole gates the same ownership check GetMigration uses, applied here
-// as a filter (an unowned migration is silently omitted) rather than a
-// rejection — without it, any role that merely passes the gateway's
-// CanCreateMigration gate could enumerate every operator's migration. A
-// genuine failure checking ownership (as opposed to an ordinary denial)
-// still propagates as this call's own error rather than being silently
-// treated as "not owned." Left empty on the CLI/multiadmin path, which has
-// no SQL-authenticated identity to check; every migration is then returned
-// unfiltered, unchanged from before this parameter existed.
+// callerRole gates the same ownership check as GetConnection (see its doc
+// comment), applied here as a filter like ListConnections — an unowned
+// migration is silently omitted rather than rejecting the whole call, but a
+// genuine failure checking ownership still propagates as this call's own
+// error. Left empty on the CLI/multiadmin path: every migration is returned
+// unfiltered.
 func (c *Coordinator) ListMigrations(ctx context.Context, callerRole string) ([]*Projection, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -660,13 +654,11 @@ func (c *Coordinator) ListMigrations(ctx context.Context, callerRole string) ([]
 // dropped migration is addressable only by its id (the row that held the name is
 // gone). The journal never contains credentials, so entries are returned as-is.
 //
-// callerRole gates the same ownership check GetMigration uses, against the
-// still-live migration's connection. A dropped migration's connection can no
-// longer be resolved to verify ownership against, so a non-empty callerRole is
-// denied (ErrNotFound) rather than trusted by default in that case. Left
-// empty on the CLI/multiadmin path, which has no SQL-authenticated identity
-// to check; the check is skipped entirely in that case, unchanged from
-// before this parameter existed.
+// callerRole gates the same ownership check as GetConnection (see its doc
+// comment), against the still-live migration's connection. A dropped
+// migration's connection can no longer be resolved to verify ownership
+// against, so a non-empty callerRole is denied (ErrNotFound) rather than
+// trusted by default in that case.
 func (c *Coordinator) GetMigrationJournal(ctx context.Context, ref Ref, callerRole string) ([]*JournalEntry, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -703,12 +695,10 @@ type DropOptions struct {
 
 	// CallerRole is the PostgreSQL role the gateway's SCRAM-authenticated SQL
 	// client is connected as. Set only on the gateway SQL path (DROP
-	// MIGRATION): it gates an ownership check against the migration's
-	// connection, so a caller who merely has database CREATE +
-	// pg_create_subscription (enough to pass the gateway's CanCreateMigration
-	// gate) cannot name another operator's migration and abort it. Left empty
-	// on the CLI/multiadmin path, which has no SQL-authenticated identity to
-	// set it from; the check is skipped in that case.
+	// MIGRATION); gates an ownership check against the migration's connection
+	// — see GetConnection's doc comment for the model. Left empty on the
+	// CLI/multiadmin path, which has no SQL-authenticated identity to set it
+	// from.
 	CallerRole string
 }
 
@@ -725,12 +715,10 @@ func (c *Coordinator) DropMigration(ctx context.Context, ref Ref, opts DropOptio
 		return nil, err
 	}
 
-	// See SetMigrationDirection's identical check for why this must be
-	// re-verified against the migration's connection here, not just at create
-	// time: a migration is addressed by id/name alone, without naming (and so
-	// without having to own) its connection. Masked as ErrNotFound, the same
-	// error an unknown ref produces, so a caller cannot distinguish "no such
-	// migration" from "exists but not mine."
+	// Re-verified against the migration's connection here, not just at create
+	// time, since a migration is addressed by id/name alone, without naming
+	// (and so without having to own) its connection — see GetConnection's doc
+	// comment for the model; SetMigrationDirection re-verifies the same way.
 	if err := c.checkConnectionOwnershipByID(ctx, m.ConnectionID, opts.CallerRole, ErrNotFound); err != nil {
 		return nil, err
 	}
@@ -984,15 +972,17 @@ type ActivateOptions struct {
 
 	// CallerRole is the PostgreSQL role the gateway's SCRAM-authenticated
 	// client is connected as, set only on the gateway SQL path (ALTER
-	// MIGRATION ... PHASE). It gates the destructive DropTables step a
-	// not-yet-started IMPORT runs: the gateway's CanCreateMigration check only
-	// confirms the caller could perform logical-replication setup in
-	// principle, not that it owns the specific target tables this migration
-	// names — without this, that role could name an arbitrary existing table
-	// and have it dropped via the admin pool regardless of ownership. Empty on
-	// the CLI/multiadmin path, which never touches the gateway and has no
-	// SQL-authenticated identity to check; the check is skipped in that case,
-	// unchanged from today's behavior.
+	// MIGRATION ... PHASE). Besides gating an ownership check against the
+	// migration's connection (see GetConnection's doc comment for that
+	// model), it also gates the destructive DropTables step a not-yet-started
+	// IMPORT runs: the gateway's CanCreateMigration check only confirms the
+	// caller could perform logical-replication setup in principle, not that
+	// it owns the specific target tables this migration names — without
+	// this, that role could name an arbitrary existing table and have it
+	// dropped via the admin pool regardless of ownership. Empty on the
+	// CLI/multiadmin path, which never touches the gateway and has no
+	// SQL-authenticated identity to check; both checks are skipped in that
+	// case, unchanged from today's behavior.
 	CallerRole string
 }
 
@@ -1114,16 +1104,10 @@ func (c *Coordinator) SetMigrationDirection(ctx context.Context, ref Ref, target
 		return nil, err
 	}
 
-	// A role that merely passes the gateway's CanCreateMigration gate (database
-	// CREATE + pg_create_subscription) does not necessarily own this migration's
-	// connection — without this, it could flip another operator's migration to
-	// EXPORT (or trigger its not-yet-started IMPORT setup), reusing that
-	// connection's stored credentials for replication it was never authorized to
-	// drive. Mirrors CreateMigration's ownership check against the same
-	// connection, re-verified here because a migration can be addressed by id/name
-	// alone, without naming (and so without having to own) its connection. Masked
-	// as ErrNotFound, the same error an unknown ref produces, so a caller cannot
-	// distinguish "no such migration" from "exists but not mine."
+	// callerRole gates the same ownership check as GetConnection (see its doc
+	// comment), re-verified here (as DropMigration also does) because a
+	// migration can be addressed by id/name alone, without naming (and so
+	// without having to own) its connection.
 	if err := c.checkConnectionOwnershipByID(ctx, m.ConnectionID, opts.CallerRole, ErrNotFound); err != nil {
 		c.mu.Unlock()
 		return nil, err
@@ -1196,6 +1180,14 @@ func (c *Coordinator) SetMigrationDirection(ctx context.Context, ref Ref, target
 	defer c.mu.Unlock()
 	m, err = c.store.GetByRef(ctx, ref)
 	if err != nil {
+		return nil, err
+	}
+	// Re-verified against the freshly re-locked state for the same reason the
+	// phase is re-validated below: c.mu was released for the readiness wait
+	// (or simply never re-taken, if there was none), so ownership of this
+	// migration's connection could have changed while this call was not
+	// holding the lock.
+	if err := c.checkConnectionOwnershipByID(ctx, m.ConnectionID, opts.CallerRole, ErrNotFound); err != nil {
 		return nil, err
 	}
 	// Re-validate against the authoritative, freshly re-locked state: the gate
