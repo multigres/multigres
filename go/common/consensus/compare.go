@@ -179,17 +179,18 @@ func (p RuleNumberPosition) CompareAuthority(other RuleNumberPosition) int {
 }
 
 // CompareAuthority returns negative, zero, or positive based on whether a carries
-// less, the same, or more authority than b: a decided rule outranks another
-// position's unfinished proposal, even one with a higher rule number, and only
-// when both decisions agree does each side's proposal break the tie.
+// less, the same, or more authority than b. It says which rule position is in force:
+// a decided rule outranks another position's unfinished proposal, even one with a
+// higher rule number, and only when both decisions agree does each side's proposal
+// break the tie.
 //
-// Authority answers whether a request may be accepted. A revocation is a promise
-// that sets a floor on it, and a recruited quorum of such promises is what
-// authorizes a coordinator to propose a rule.
+// Use it to ask which rule should be in effect: which of two rules supersedes the
+// other, whether a node's rule has been superseded, which intended rule to follow. A
+// revocation is a promise that sets a floor on authority, and a recruited quorum of
+// such promises is what authorizes a coordinator to propose a rule.
 //
-// It is not the WAL order. A node can hold more WAL without knowing a rule is
-// decided, so never use it to decide which node is further along; use
-// CompareWALProgress for that.
+// Do not use it to ask which node is further along. A node can hold more WAL without
+// knowing a rule is decided; use CompareWALProgress for that.
 //
 // TODO: a proposal built on a recruited quorum could be called an "authorized
 // proposal".
@@ -408,12 +409,24 @@ func RuleNamesLeader(rule *clustermetadatapb.ShardRule, id *clustermetadatapb.ID
 
 // CompareWALProgress returns negative, zero, or positive based on whether a holds
 // less, the same, or more WAL than b: the latest rule it records, then LSN. An
-// undecided proposal counts, since it is real WAL. Which rules a position knows
-// to be decided plays no part: a node can hold more WAL without knowing what is
-// decided. A missing or unparsable LSN is treated as less than any valid LSN.
+// undecided proposal counts, since it is real WAL. Which rules a position knows to
+// be decided plays no part.
 //
-// WAL order answers who is further along. The recruit position floor is a promise
-// that sets a floor on it. See CompareAuthority for the other order.
+// Use it to ask who holds more of the transactions that must survive: ranking
+// leader candidates, finding the most advanced WAL, setting a certificate's frozen
+// LSN, judging the recruit position floor (a promise that sets a floor on WAL). It
+// only ranks. Whether a candidate is safe is decided by the recruitment conditions,
+// the minimum leader position and a frozen cohort, not by this order.
+//
+// Do not use it to ask which rule is in force: a node can hold more WAL without
+// knowing a rule is decided. Use CompareAuthority for that.
+//
+// A missing or unparsable LSN counts as the lowest. That suits ranking candidates,
+// but a promise should fail closed instead.
+//
+// TODO: LSNs are only comparable along one timeline, and an equal latest rule does
+// not guarantee the same timeline, for example when Promote decides a stuck rule on
+// its own timeline first.
 func CompareWALProgress(a, b *clustermetadatapb.PoolerPosition) int {
 	latest := func(p *clustermetadatapb.PoolerPosition) *clustermetadatapb.RuleNumber {
 		return RuleNumberPositionOf(p.GetPosition()).LatestWALRule()
