@@ -211,7 +211,7 @@ func TestRecordTermPrimary_ReturnsCopies(t *testing.T) {
 // that write is still in flight, and a second RecordTermPrimary call then
 // upgrades the same rule from Proposal to Decision once the write succeeds.
 // That upgrade must not silently clear rewind_ready, even though
-// CompareKnowledge ranks a decision above its own term's undecided
+// CompareAuthority ranks a decision above its own term's undecided
 // proposal.
 func TestRecordTermPrimary_RewindReadySurvivesProposalBecomingDecision(t *testing.T) {
 	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p1"}

@@ -156,42 +156,48 @@ func RuleNumberPositionOf(pos *clustermetadatapb.RulePosition) RuleNumberPositio
 	}
 }
 
-// Latest returns the newest rule the position records: the proposal if one is
-// outstanding, otherwise the decision.
-func (p RuleNumberPosition) Latest() *clustermetadatapb.RuleNumber {
+// LatestWALRule returns the newest rule the position records in its WAL: the
+// proposal if one is outstanding, otherwise the decision.
+func (p RuleNumberPosition) LatestWALRule() *clustermetadatapb.RuleNumber {
 	if ruleNumberIsUnset(p.Proposal) {
 		return p.Decision
 	}
 	return p.Proposal
 }
 
-// Compare returns negative, zero, or positive based on whether p is behind,
-// equal to, or ahead of other. The decision takes precedence over
-// everything else — a confirmed rule always outranks another position's
+// CompareAuthority returns negative, zero, or positive based on whether p carries
+// less, the same, or more authority than other (see the CompareAuthority function).
+// The decision takes precedence over everything else — a confirmed rule always outranks another position's
 // unconfirmed proposal alone, even one with a higher rule number. Only when
 // both decisions agree does each side's proposal break the tie (further
 // beyond a shared decision is more advanced).
-func (p RuleNumberPosition) Compare(other RuleNumberPosition) int {
+func (p RuleNumberPosition) CompareAuthority(other RuleNumberPosition) int {
 	if cmp := CompareRuleNumbers(p.Decision, other.Decision); cmp != 0 {
 		return cmp
 	}
 	return CompareRuleNumbers(p.Proposal, other.Proposal)
 }
 
-// CompareKnowledge returns negative, zero, or positive based on whether a is
-// behind, equal to, or ahead of b in what it knows or intends: a confirmed rule
-// outranks another position's unconfirmed proposal alone, even one with a higher
-// rule number, and only when both decisions agree does each side's proposal
-// break the tie.
+// CompareAuthority returns negative, zero, or positive based on whether a carries
+// less, the same, or more authority than b: a decided rule outranks another
+// position's unfinished proposal, even one with a higher rule number, and only
+// when both decisions agree does each side's proposal break the tie.
 //
-// This orders knowledge, not WAL. A node can hold more WAL without knowing what
-// is decided, so never use it to decide which node is further along; use
+// Authority answers whether a request may be accepted. A revocation is a promise
+// that sets a floor on it, and a recruited quorum of such promises is what
+// authorizes a coordinator to propose a rule.
+//
+// It is not the WAL order. A node can hold more WAL without knowing a rule is
+// decided, so never use it to decide which node is further along; use
 // CompareWALProgress for that.
-func CompareKnowledge(a, b *clustermetadatapb.RulePosition) int {
-	return RuleNumberPositionOf(a).Compare(RuleNumberPositionOf(b))
+//
+// TODO: a proposal built on a recruited quorum could be called an "authorized
+// proposal".
+func CompareAuthority(a, b *clustermetadatapb.RulePosition) int {
+	return RuleNumberPositionOf(a).CompareAuthority(RuleNumberPositionOf(b))
 }
 
-// MostAdvancedPosition returns the PoolerPosition holding the most WAL among the
+// MostAdvancedWALPosition returns the PoolerPosition holding the most WAL among the
 // given statuses (see CompareWALProgress). Returns nil if no status has a
 // parseable LSN.
 //
@@ -200,7 +206,7 @@ func CompareKnowledge(a, b *clustermetadatapb.RulePosition) int {
 // that need to derive an ExternallyCertifiedRevocation from cached cohort
 // state — e.g. the bootstrap path before recruitment — use this to obtain the
 // outgoing rule number and frozen LSN.
-func MostAdvancedPosition(statuses []*clustermetadatapb.ConsensusStatus) *clustermetadatapb.PoolerPosition {
+func MostAdvancedWALPosition(statuses []*clustermetadatapb.ConsensusStatus) *clustermetadatapb.PoolerPosition {
 	var best *clustermetadatapb.PoolerPosition
 	for _, cs := range statuses {
 		pos := cs.GetCurrentPosition()
@@ -242,7 +248,7 @@ func ReplicationPrimaryOrNil(cs *clustermetadatapb.ConsensusStatus) *clustermeta
 // most to least settled; name a "highest X" for its level, never just "known":
 //   - decided: the decision half of a pooler's own position (HighestDecidedRule);
 //   - recorded: a pooler's own position, which may also carry an undecided
-//     proposal ("position" always means this level, as in MostAdvancedPosition);
+//     proposal ("position" always means this level, as in MostAdvancedWALPosition);
 //   - intended: recorded, plus rules only advertised through a ReplicationPrimary,
 //     which no pooler's WAL need hold yet. This function ranks at this level.
 //
@@ -251,7 +257,7 @@ func ReplicationPrimaryOrNil(cs *clustermetadatapb.ConsensusStatus) *clustermeta
 // replication primary holds leadership — a follower can learn of a newer
 // leader (possibly still undecided on the leader's own side) via its
 // replication primary before its own position advances. Unlike
-// MostAdvancedPosition, ranking is purely by position (no LSN tiebreak, no
+// MostAdvancedWALPosition, ranking is purely by position (no LSN tiebreak, no
 // LSN requirement), since leader identity is a function of the rule alone.
 // Returns nil when no status carries a rule.
 //
@@ -270,7 +276,7 @@ func HighestIntendedRule(statuses []*clustermetadatapb.ConsensusStatus) *cluster
 			cs.GetCurrentPosition().GetPosition(),
 			ReplicationPrimaryOrNil(cs).GetPosition(),
 		} {
-			if best == nil || CompareKnowledge(position, best) > 0 {
+			if best == nil || CompareAuthority(position, best) > 0 {
 				best = position
 			}
 		}
@@ -311,7 +317,7 @@ func ReplicationPrimaryMatches(rp *clustermetadatapb.ReplicationPrimary, target 
 	if rp == nil || target == nil || targetPosition == nil {
 		return false
 	}
-	if CompareKnowledge(rp.GetPosition(), targetPosition) < 0 {
+	if CompareAuthority(rp.GetPosition(), targetPosition) < 0 {
 		return false
 	}
 	rpPrimary := rp.GetPrimary()
@@ -340,7 +346,7 @@ func ReplicationPrimaryMatches(rp *clustermetadatapb.ReplicationPrimary, target 
 // (false -> true, never the reverse) whenever candidate and current share a
 // coordinator_term — including when candidate's position is a decision
 // replacing current's still-outstanding proposal at that same term, which
-// CompareKnowledge ranks as strictly more advanced. Folding rewind_ready
+// CompareAuthority ranks as strictly more advanced. Folding rewind_ready
 // only within cmp==0 would miss exactly that transition and silently
 // regress a rewind_ready flip already observed.
 func MergeReplicationPrimary(current, candidate *clustermetadatapb.ReplicationPrimary) (result *clustermetadatapb.ReplicationPrimary, changed bool) {
@@ -352,7 +358,7 @@ func MergeReplicationPrimary(current, candidate *clustermetadatapb.ReplicationPr
 		PossiblyUndecidedRule(current.GetPosition()).GetRuleNumber().GetCoordinatorTerm() {
 		rewindReady = rewindReady || current.GetRewindReady()
 	}
-	cmp := CompareKnowledge(candidate.GetPosition(), current.GetPosition())
+	cmp := CompareAuthority(candidate.GetPosition(), current.GetPosition())
 	if cmp < 0 {
 		return current, false
 	}
@@ -405,9 +411,12 @@ func RuleNamesLeader(rule *clustermetadatapb.ShardRule, id *clustermetadatapb.ID
 // undecided proposal counts, since it is real WAL. Which rules a position knows
 // to be decided plays no part: a node can hold more WAL without knowing what is
 // decided. A missing or unparsable LSN is treated as less than any valid LSN.
+//
+// WAL order answers who is further along. The recruit position floor is a promise
+// that sets a floor on it. See CompareAuthority for the other order.
 func CompareWALProgress(a, b *clustermetadatapb.PoolerPosition) int {
 	latest := func(p *clustermetadatapb.PoolerPosition) *clustermetadatapb.RuleNumber {
-		return RuleNumberPositionOf(p.GetPosition()).Latest()
+		return RuleNumberPositionOf(p.GetPosition()).LatestWALRule()
 	}
 	if cmp := CompareRuleNumbers(latest(a), latest(b)); cmp != 0 {
 		return cmp

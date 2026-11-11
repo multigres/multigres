@@ -391,7 +391,7 @@ func statusReplicationPrimary(pos *clustermetadatapb.PoolerPosition, replication
 	// Whichever position wins is republished whole (decision and proposal
 	// together), not flattened to a single merged rule.
 	position := ruleStorePosition
-	if consensus.CompareKnowledge(highestKnownPosition, ruleStorePosition) >= 0 {
+	if consensus.CompareAuthority(highestKnownPosition, ruleStorePosition) >= 0 {
 		// RPC-delivered position leads or ties the rule store — use it.
 		position = highestKnownPosition
 	}
@@ -706,11 +706,11 @@ func (cm *ConsensusManager) recruitPositionFloorIfOutstanding(pos *clustermetada
 	if floor == nil {
 		return nil
 	}
-	currentLatest := consensus.RuleNumberPositionOf(pos.GetPosition()).Latest()
+	currentLatest := consensus.RuleNumberPositionOf(pos.GetPosition()).LatestWALRule()
 	floorLatest := consensus.RuleNumberPosition{
 		Decision: floor.GetPosition().GetDecision(),
 		Proposal: floor.GetPosition().GetProposal(),
-	}.Latest()
+	}.LatestWALRule()
 	if cmp := consensus.CompareRuleNumbers(currentLatest, floorLatest); cmp != 0 {
 		if cmp > 0 {
 			return nil

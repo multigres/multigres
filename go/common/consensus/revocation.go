@@ -229,7 +229,7 @@ func recruitAttempt(previousRecruitForDecision *clustermetadatapb.TermRevocation
 // function of the two consensus messages; callers handle storage I/O,
 // locking, and any logging.
 //
-// Comparison is two-tiered, mirroring CompareKnowledge — decision
+// Comparison is two-tiered, mirroring CompareAuthority — decision
 // dominates outright, and only a tie falls through to the second tier:
 //
 //   - If revocation.outgoing_rule strictly exceeds position.decision, the
@@ -282,7 +282,7 @@ func IsSelfRevoked(status *clustermetadatapb.ConsensusStatus) bool {
 	current := status.GetCurrentPosition().GetPosition()
 	known := ReplicationPrimaryOrNil(status).GetPosition()
 	highest := current
-	if CompareKnowledge(known, current) > 0 {
+	if CompareAuthority(known, current) > 0 {
 		highest = known
 	}
 	return IsRuleRevoked(highest, status.GetTermRevocation())

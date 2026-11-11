@@ -47,7 +47,7 @@ func (o observedOutgoingRule) recruitsRecordingRule() []*clustermetadatapb.Conse
 	latest := o.transition.PossiblyUndecidedRule().GetRuleNumber()
 	var recording []*clustermetadatapb.ConsensusStatus
 	for _, cs := range o.recruited {
-		if CompareRuleNumbers(RuleNumberPositionOf(cs.GetCurrentPosition().GetPosition()).Latest(), latest) == 0 {
+		if CompareRuleNumbers(RuleNumberPositionOf(cs.GetCurrentPosition().GetPosition()).LatestWALRule(), latest) == 0 {
 			recording = append(recording, cs)
 		}
 	}

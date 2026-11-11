@@ -134,7 +134,7 @@ const (
 func (rs *ruleStore) cacheRuleObservation(pos *clustermetadatapb.PoolerPosition) {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
-	if rs.lastPos != nil && pos != nil && consensus.CompareKnowledge(pos.GetPosition(), rs.lastPos.GetPosition()) < 0 {
+	if rs.lastPos != nil && pos != nil && consensus.CompareAuthority(pos.GetPosition(), rs.lastPos.GetPosition()) < 0 {
 		// This position observation is stale. Ignore it.
 		return
 	}

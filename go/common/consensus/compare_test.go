@@ -85,7 +85,7 @@ func TestCompareRuleNumbers(t *testing.T) {
 	}
 }
 
-func TestMostAdvancedPosition(t *testing.T) {
+func TestMostAdvancedWALPosition(t *testing.T) {
 	mkID := func(name string) *clustermetadatapb.ID {
 		return &clustermetadatapb.ID{
 			Component: clustermetadatapb.ID_MULTIPOOLER,
@@ -98,12 +98,12 @@ func TestMostAdvancedPosition(t *testing.T) {
 	}
 
 	t.Run("empty input returns nil", func(t *testing.T) {
-		got := MostAdvancedPosition(nil)
+		got := MostAdvancedWALPosition(nil)
 		assert.Nil(t, got)
 	})
 
 	t.Run("all statuses have unparsable LSN: returns nil", func(t *testing.T) {
-		got := MostAdvancedPosition([]*clustermetadatapb.ConsensusStatus{
+		got := MostAdvancedWALPosition([]*clustermetadatapb.ConsensusStatus{
 			status("a", pos(3, "")),
 			status("b", pos(3, "bad-lsn")),
 		})
@@ -111,7 +111,7 @@ func TestMostAdvancedPosition(t *testing.T) {
 	})
 
 	t.Run("highest rule wins regardless of LSN", func(t *testing.T) {
-		got := MostAdvancedPosition([]*clustermetadatapb.ConsensusStatus{
+		got := MostAdvancedWALPosition([]*clustermetadatapb.ConsensusStatus{
 			status("a", pos(2, "0/9000000")),
 			status("b", pos(4, "0/100")),
 			status("c", pos(3, "0/500000")),
@@ -121,7 +121,7 @@ func TestMostAdvancedPosition(t *testing.T) {
 	})
 
 	t.Run("same rule highest LSN wins", func(t *testing.T) {
-		got := MostAdvancedPosition([]*clustermetadatapb.ConsensusStatus{
+		got := MostAdvancedWALPosition([]*clustermetadatapb.ConsensusStatus{
 			status("a", pos(3, "0/100")),
 			status("b", pos(3, "0/300")),
 			status("c", pos(3, "0/200")),
@@ -133,7 +133,7 @@ func TestMostAdvancedPosition(t *testing.T) {
 		rule := func(term int64) *clustermetadatapb.ShardRule {
 			return &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term}}
 		}
-		got := MostAdvancedPosition([]*clustermetadatapb.ConsensusStatus{
+		got := MostAdvancedWALPosition([]*clustermetadatapb.ConsensusStatus{
 			status("a", &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: rule(3)}, Lsn: "0/100"}),
 			status("b", &clustermetadatapb.PoolerPosition{Position: &clustermetadatapb.RulePosition{Decision: rule(2), Proposal: rule(3)}, Lsn: "0/200"}),
 		})
@@ -141,7 +141,7 @@ func TestMostAdvancedPosition(t *testing.T) {
 	})
 
 	t.Run("skips statuses with unparsable LSN", func(t *testing.T) {
-		got := MostAdvancedPosition([]*clustermetadatapb.ConsensusStatus{
+		got := MostAdvancedWALPosition([]*clustermetadatapb.ConsensusStatus{
 			status("a", pos(5, "bad-lsn")),
 			status("b", pos(3, "0/100")),
 		})
@@ -326,7 +326,7 @@ func TestMergeReplicationPrimary(t *testing.T) {
 	})
 
 	t.Run("rewind_ready carries forward when a decision replaces its own term's proposal", func(t *testing.T) {
-		// CompareKnowledge ranks a decision strictly above its own term's
+		// CompareAuthority ranks a decision strictly above its own term's
 		// undecided proposal (cmp > 0, not cmp == 0), so this exercises the
 		// carry-forward on the advance path, not just the same-position path.
 		proposal := &clustermetadatapb.ReplicationPrimary{
@@ -508,7 +508,7 @@ func TestPossiblyUndecidedRule(t *testing.T) {
 	assert.Equal(t, proposal, PossiblyUndecidedRule(&clustermetadatapb.RulePosition{Decision: decision, Proposal: proposal}), "outstanding proposal: prefers proposal")
 }
 
-func TestCompareKnowledge(t *testing.T) {
+func TestCompareAuthority(t *testing.T) {
 	decision := func(term int64) *clustermetadatapb.RulePosition {
 		return &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(term, 0)}}
 	}
@@ -535,7 +535,7 @@ func TestCompareKnowledge(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, CompareKnowledge(tt.a, tt.b))
+			assert.Equal(t, tt.want, CompareAuthority(tt.a, tt.b))
 		})
 	}
 }

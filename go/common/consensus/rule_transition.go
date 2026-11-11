@@ -83,10 +83,10 @@ func (t RuleTransition) IntendedLeaderID() *clustermetadatapb.ID {
 	return t.PossiblyUndecidedRule().GetLeaderId()
 }
 
-// Compare returns negative, zero or positive as t is behind, equal to, or ahead
-// of other. See CompareKnowledge for the ordering.
-func (t RuleTransition) Compare(other RuleTransition) int {
-	return CompareKnowledge(t.pos, other.pos)
+// CompareAuthority returns negative, zero or positive as t carries less, the same, or
+// more authority than other. See the CompareAuthority function for the ordering.
+func (t RuleTransition) CompareAuthority(other RuleTransition) int {
+	return CompareAuthority(t.pos, other.pos)
 }
 
 // IsRevokedBy reports whether revocation revokes this transition's rule. See

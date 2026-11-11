@@ -215,7 +215,7 @@ func (c *Coordinator) AppointInitialLeader(ctx context.Context, shardRef *cluste
 	// externally-certified rule changes, the agent (this method) is
 	// responsible for choosing the outgoing rule and authoring the
 	// revocation; common/consensus consumes the cert without re-deriving.
-	mostAdvanced := commonconsensus.MostAdvancedPosition(cohortStatuses)
+	mostAdvanced := commonconsensus.MostAdvancedWALPosition(cohortStatuses)
 	if mostAdvanced == nil {
 		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"cannot bootstrap shard %s: no cohort member has a known WAL position", shardRef.GetShard())
