@@ -174,18 +174,18 @@ func (p RuleNumberPosition) CompareAuthority(other RuleNumberPosition) int {
 	return CompareRuleNumbers(p.Proposal, other.Proposal)
 }
 
-// Positions are compared in three ways, each answering its own question:
-//   - Promises, by term: a node promised to term T refuses a recruitment below T,
-//     whatever rule it names (ValidateRevocation).
-//   - Authority, decision first (CompareAuthority): which rule is in force. Use it
-//     to accept or refuse a request and to choose which rule to act on.
-//   - WAL, latest rule then LSN (CompareWALProgress): who holds more of what must
-//     survive. Use it to choose a leader, freeze an LSN or judge the recusal floor.
+// Positions are compared for two questions:
+//   - Authority: which rule is in force (CompareAuthority, decision first). Use it to
+//     accept or refuse a request and to choose which rule to act on. Promises are part
+//     of authority but are ordered by term alone: a node promised to term T refuses a
+//     recruitment below T, whatever rule it names (ValidateRevocation).
+//   - WAL: who holds more of what must survive (CompareWALProgress, latest rule then
+//     LSN). Use it to choose a leader, freeze an LSN or judge the recusal floor.
 //
-// Recruit uses all three: its promise by term, its revocation scope by authority
-// (IsRuleRevoked) and its recusal floor by WAL. A known decision must never be
-// forgotten, so authority ranks it first; it says nothing about holding the data,
-// so the WAL order ignores it.
+// Recruit uses both: its promise and revocation scope (IsRuleRevoked) by authority,
+// and its recusal floor by WAL. A known decision must never be forgotten, so
+// authority ranks it first; it says nothing about holding the data, so the WAL order
+// ignores it.
 
 // CompareAuthority returns negative, zero, or positive based on whether a carries
 // less, the same, or more authority than b: which rule is in force. A decided rule
