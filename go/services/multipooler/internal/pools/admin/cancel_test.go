@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,8 +39,8 @@ func captureDefaultLog(t *testing.T) *bytes.Buffer {
 
 func TestCancelOnServer_LogsWhenCancelsStartFailingAndWhenTheyRecover(t *testing.T) {
 	logs := captureDefaultLog(t)
-	cancelFailures.Store(0)
-	t.Cleanup(func() { cancelFailures.Store(0) })
+	cancelFailures.succeed()
+	t.Cleanup(func() { cancelFailures.succeed() })
 	errUnreachable := errors.New("postmaster unreachable")
 	fail := func(context.Context) error { return errUnreachable }
 	succeed := func(context.Context) error { return nil }
@@ -55,15 +56,40 @@ func TestCancelOnServer_LogsWhenCancelsStartFailingAndWhenTheyRecover(t *testing
 	require.Len(t, lines, 3, logs.String())
 	assert.Contains(t, lines[0], "level=WARN")
 	assert.Contains(t, lines[0], "error=\"postmaster unreachable\"")
+	assert.Contains(t, lines[0], "failed_cancels=1")
 	assert.Contains(t, lines[1], "level=INFO")
 	assert.Contains(t, lines[1], "failed_cancels=3")
 	assert.Contains(t, lines[2], "level=WARN", "a new run of failures is logged again")
-	assert.Equal(t, int64(1), cancelFailures.Load())
+	assert.Equal(t, 1, cancelFailures.succeed())
+}
+
+func TestFailureRun_LogsAgainWhileTheRunLasts(t *testing.T) {
+	var run failureRun
+	start := time.Now()
+
+	log, count := run.fail(start)
+	assert.True(t, log, "the first failure is logged")
+	assert.Equal(t, 1, count)
+
+	log, count = run.fail(start.Add(cancelFailureReminder - time.Second))
+	assert.False(t, log, "failures within the reminder interval are not logged")
+	assert.Equal(t, 2, count)
+
+	log, count = run.fail(start.Add(cancelFailureReminder))
+	assert.True(t, log, "the run is logged again once the reminder interval passes")
+	assert.Equal(t, 3, count)
+
+	log, _ = run.fail(start.Add(cancelFailureReminder + time.Second))
+	assert.False(t, log, "the reminder interval restarts from the last log")
+
+	assert.Equal(t, 4, run.succeed())
+	log, count = run.fail(start.Add(cancelFailureReminder + 2*time.Second))
+	assert.True(t, log, "a new run is logged at once")
+	assert.Equal(t, 1, count)
 }
 
 func TestCancelOnServer_BoundsTheSendEvenIfTheCallerHasNoDeadline(t *testing.T) {
-	cancelFailures.Store(0)
-	t.Cleanup(func() { cancelFailures.Store(0) })
+	t.Cleanup(func() { cancelFailures.succeed() })
 	callerCtx, cancel := context.WithCancel(t.Context())
 	cancel()
 

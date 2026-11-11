@@ -19,8 +19,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
-	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -30,15 +28,6 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
 )
-
-// cancelRequestTimeout bounds sending a cancel request when a query's context
-// expires. It sits on the timeout path, so keep it short.
-const cancelRequestTimeout = time.Second
-
-// cancelFailures counts failed cancel requests since the last one that succeeded.
-// Only the first failure and the recovery are logged, so a persistent failure does
-// not log once per timed-out query.
-var cancelFailures atomic.Int64
 
 // DefaultCancelTimeout is the default timeout for cancel/terminate operations.
 // This is used when cancelling a backend query due to context cancellation.
@@ -381,23 +370,6 @@ func execQueryWithContextCancel(ctx context.Context, conn *client.Conn, op func(
 		return nil, context.Cause(ctx)
 	case res := <-ch:
 		return res.results, res.err
-	}
-}
-
-// cancelOnServer sends a cancel request with send, best effort. It logs when cancels
-// start failing and when they succeed again, not each failure.
-func cancelOnServer(ctx context.Context, send func(context.Context) error) {
-	cancelCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cancelRequestTimeout)
-	defer cancel()
-	if err := send(cancelCtx); err != nil {
-		if cancelFailures.Add(1) == 1 {
-			slog.WarnContext(ctx, "failed to cancel a timed-out query on the server; its backend may keep running; "+
-				"further failures are not logged until a cancel succeeds", "error", err)
-		}
-		return
-	}
-	if failed := cancelFailures.Swap(0); failed > 0 {
-		slog.InfoContext(ctx, "cancelling timed-out queries on the server works again", "failed_cancels", failed)
 	}
 }
 
