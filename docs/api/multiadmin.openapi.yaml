@@ -4111,7 +4111,7 @@ components:
           title: shards
           type: array
         state:
-          $ref: '#/components/schemas/multipoolermanagerdata.TableGroupState'
+          $ref: '#/components/schemas/shardingcatalog.TableGroupState'
           title: state
         tablegroupId:
           description: |-
@@ -4124,11 +4124,11 @@ components:
           type: string
       title: TableGroup
       type: object
-    multipoolermanagerdata.TableGroupState:
+    shardingcatalog.TableGroupState:
       description: |-
-        TableGroupState is the lifecycle state of a listed tablegroup. A
-         provisioner neither provisions nor removes a tablegroup in a state it does
-         not know, including UNSPECIFIED.
+        TableGroupState is the lifecycle state of a tablegroup. A reader neither
+         provisions, removes nor routes to a tablegroup in a state it does not know,
+         including UNSPECIFIED.
       enum:
         - TABLE_GROUP_STATE_UNSPECIFIED
         - TABLE_GROUP_STATE_CREATING

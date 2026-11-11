@@ -35,6 +35,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	shardingcatalogpb "github.com/multigres/multigres/go/pb/shardingcatalog"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 )
 
@@ -54,6 +55,11 @@ import (
 //     claims a tablegroup's id in topology before provisioning it and
 //     releases the claim after removing everything, and a drop completes,
 //     deleting the rows, only once the id has no claim and no pooler record.
+//
+// Every catalog write runs through writeCatalog (routing_snapshot.go), which
+// locks multigres.catalog_state first and advances its routing_version when
+// the write changes a snapshot's contents. A CREATE that finds the name taken
+// changes nothing and leaves the version alone.
 //
 // Only the catalog primary writes these tables, through the admin pool, which
 // is the same single-writer arrangement ensureCatalogSchema relies on. A
@@ -92,10 +98,10 @@ var (
 		operationStateDone:     multipoolermanagerdatapb.OperationState_OPERATION_STATE_DONE,
 		operationStateFailed:   multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED,
 	}
-	tableGroupStates = map[string]multipoolermanagerdatapb.TableGroupState{
-		tableGroupStateCreating: multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_CREATING,
-		tableGroupStateActive:   multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_ACTIVE,
-		tableGroupStateDropping: multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_DROPPING,
+	tableGroupStates = map[string]shardingcatalogpb.TableGroupState{
+		tableGroupStateCreating: shardingcatalogpb.TableGroupState_TABLE_GROUP_STATE_CREATING,
+		tableGroupStateActive:   shardingcatalogpb.TableGroupState_TABLE_GROUP_STATE_ACTIVE,
+		tableGroupStateDropping: shardingcatalogpb.TableGroupState_TABLE_GROUP_STATE_DROPPING,
 	}
 )
 
@@ -161,15 +167,23 @@ func (pm *MultipoolerManager) checkCatalogShard() error {
 // demoted. A former primary that has not yet learned of the newer rule still
 // passes, so a caller must never read an authoritative absence from an answer.
 func (pm *MultipoolerManager) checkCatalogPrimary(ctx context.Context) error {
+	_, err := pm.catalogPrimaryRule(ctx)
+	return err
+}
+
+// catalogPrimaryRule is checkCatalogPrimary that also returns the consensus
+// rule this pooler is the primary under.
+func (pm *MultipoolerManager) catalogPrimaryRule(ctx context.Context) (*clustermetadatapb.RuleNumber, error) {
 	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
-		return err
+		return nil, err
 	}
-	if role := pm.stateManager.RoutingRole(); role != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
-		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+	rs := pm.stateManager.RoutingState()
+	if role := rs.GetRole(); role != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
+		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"operation not allowed: this pooler is not the elected primary of the catalog shard (routing role %s, service_id: %s)",
 			role, pm.serviceID.String())
 	}
-	return nil
+	return rs.GetRule(), nil
 }
 
 // catalogQueryService returns the admin query service, or an error when the
@@ -210,75 +224,82 @@ func (pm *MultipoolerManager) CreateTableGroup(ctx context.Context, req *multipo
 		layout[i] = keyrange.ShardName(kr)
 	}
 
-	qs, err := pm.catalogQueryService()
+	var resp *multipoolermanagerdatapb.CreateTableGroupResponse
+	versions, err := pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx) (catalogChange, error) {
+		var change catalogChange
+		var err error
+		resp, change, err = createTableGroupTx(ctx, tx, req, ranges, layout)
+		return change, err
+	})
 	if err != nil {
 		return nil, err
 	}
-	execCtx, cancel := context.WithTimeout(ctx, tableGroupOpTimeout)
-	defer cancel()
-	tx, err := qs.BeginAdmin(execCtx)
-	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to begin tablegroup transaction")
+	if versions != (catalogVersions{}) {
+		pm.logger.InfoContext(ctx, "recorded tablegroup creation", "tablegroup", req.GetName(), "tablegroup_id", resp.GetTablegroupId(),
+			"shards", layout, "operation_id", resp.GetOperationId(), "routing_version", versions.routingVersion)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	return resp, nil
+}
 
-	// Claim the name. A concurrent CREATE of the same name blocks on the
-	// unique index until the other transaction ends; if that one committed,
-	// nothing is inserted here and the name resolves against its row instead.
-	res, err := tx.QueryArgs(execCtx,
+// createTableGroupTx is CreateTableGroup's catalog transaction. A name that
+// already has a row (an active tablegroup, or a creation to join) is resolved
+// without writing anything, and reported as catalogNoSnapshotChange.
+func createTableGroupTx(ctx context.Context, tx executor.InternalTx, req *multipoolermanagerdatapb.CreateTableGroupRequest, ranges []*clustermetadatapb.KeyRange, layout []string) (*multipoolermanagerdatapb.CreateTableGroupResponse, catalogChange, error) {
+	// Claim the name. writeCatalog's catalog_state lock already serializes
+	// catalog writers, so a concurrent CREATE of the same name waits for this
+	// transaction to end; if it committed, nothing is inserted there and the
+	// name resolves against this row instead.
+	res, err := tx.QueryArgs(ctx,
 		"INSERT INTO multigres.tablegroup (name, state) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING RETURNING tablegroup_id",
 		req.GetName(), tableGroupStateCreating)
 	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to insert tablegroup")
+		return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to insert tablegroup")
 	}
 	if len(res.Rows) == 0 {
-		res, err = tx.QueryArgs(execCtx,
+		res, err = tx.QueryArgs(ctx,
 			"SELECT tablegroup_id, state FROM multigres.tablegroup WHERE name = $1 FOR UPDATE", req.GetName())
 		if err != nil {
-			return nil, mterrors.Wrap(err, "failed to look up tablegroup")
+			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to look up tablegroup")
 		}
 		if len(res.Rows) == 0 {
 			// The conflicting row was deleted after the insert saw it: a
 			// creation that failed concurrently. Retrying claims the name.
-			return nil, mterrors.Errorf(mtrpcpb.Code_ABORTED, "tablegroup %q changed concurrently; retry", req.GetName())
+			return nil, catalogNoSnapshotChange, mterrors.Errorf(mtrpcpb.Code_ABORTED, "tablegroup %q changed concurrently; retry", req.GetName())
 		}
 		var id int64
 		var state string
 		if err := executor.ScanRow(res.Rows[0], &id, &state); err != nil {
-			return nil, mterrors.Wrap(err, "failed to read tablegroup row")
+			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to read tablegroup row")
 		}
-		return pm.createTableGroupExisting(execCtx, tx, req, id, state, layout)
+		resp, err := createTableGroupExisting(ctx, tx, req, id, state, layout)
+		return resp, catalogNoSnapshotChange, err
 	}
 	var id int64
 	if err := executor.ScanSingleRow(res, &id); err != nil {
-		return nil, mterrors.Wrap(err, "failed to read new tablegroup id")
+		return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to read new tablegroup id")
 	}
 	for _, kr := range ranges {
 		// Bounds travel as hex text and are decoded in SQL: query parameters
 		// are sent in text format, so raw bytes cannot be bound to a bytea.
 		// A nil parameter is NULL, which is how the catalog spells the start
 		// and end of the keyspace.
-		if _, err := tx.QueryArgs(execCtx,
+		if _, err := tx.QueryArgs(ctx,
 			"INSERT INTO multigres.shard (tablegroup_id, shard_name, range_start, range_end, state) VALUES ($1, $2, decode($3, 'hex'), decode($4, 'hex'), $5)",
 			id, keyrange.ShardName(kr), hexBound(kr.GetStart()), hexBound(kr.GetEnd()), shardStatePreparing); err != nil {
-			return nil, mterrors.Wrap(err, "failed to insert shard")
+			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to insert shard")
 		}
 	}
 	opID := uuid.NewString()
 	request, err := json.Marshal(createTableGroupRequest{TableGroupID: id, Name: req.GetName(), Shards: layout})
 	if err != nil {
-		return nil, mterrors.Wrap(err, "failed to encode operation request")
+		return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to encode operation request")
 	}
-	if _, err := tx.QueryArgs(execCtx,
+	if _, err := tx.QueryArgs(ctx,
 		"INSERT INTO multigres.operation (operation_id, kind, state, request) VALUES ($1, $2, $3, $4::jsonb)",
 		opID, operationKindCreateTableGroup, operationStateCreating, string(request)); err != nil {
-		return nil, mterrors.Wrap(err, "failed to insert operation")
+		return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to insert operation")
 	}
-	if err := tx.Commit(execCtx); err != nil {
-		return nil, mterrors.Wrap(err, "failed to commit tablegroup creation")
-	}
-	pm.logger.InfoContext(ctx, "recorded tablegroup creation", "tablegroup", req.GetName(), "tablegroup_id", id, "shards", layout, "operation_id", opID)
-	return &multipoolermanagerdatapb.CreateTableGroupResponse{OperationId: opID, TablegroupId: id}, nil
+	return &multipoolermanagerdatapb.CreateTableGroupResponse{OperationId: opID, TablegroupId: id}, catalogRoutingChange, nil
 }
 
 // createTableGroupExisting resolves a CREATE for a name that already has a
@@ -287,7 +308,7 @@ func (pm *MultipoolerManager) CreateTableGroup(ctx context.Context, req *multipo
 // in-flight operation, so a retried or concurrent CREATE joins it, when the
 // layout matches or IF NOT EXISTS is given (which, as in PostgreSQL, ignores
 // the definition); otherwise a different layout is a conflict.
-func (pm *MultipoolerManager) createTableGroupExisting(ctx context.Context, tx executor.InternalTx, req *multipoolermanagerdatapb.CreateTableGroupRequest, id int64, state string, layout []string) (*multipoolermanagerdatapb.CreateTableGroupResponse, error) {
+func createTableGroupExisting(ctx context.Context, tx executor.InternalTx, req *multipoolermanagerdatapb.CreateTableGroupRequest, id int64, state string, layout []string) (*multipoolermanagerdatapb.CreateTableGroupResponse, error) {
 	switch state {
 	case tableGroupStateActive:
 		if req.GetIfNotExists() {

@@ -151,6 +151,13 @@ type PoolerGatewayOpts struct {
 	// LocalPooler, when set, is the only pooler the gateway uses: every other
 	// pooler in the topology is ignored. minigres sets it. Optional.
 	LocalPooler *LocalPooler
+	// OnCatalogShardHealth is called on every health update from a pooler of
+	// a database's catalog shard (the default tablegroup's 0-inf shard), after
+	// the load balancer has processed it. primary is whether the update is a
+	// live report of the routing primary; rule and routingVersion are the
+	// consensus rule it is primary under and the sharding catalog version it
+	// carries, both unset unless primary. Optional.
+	OnCatalogShardHealth func(database string, primary bool, rule *clustermetadatapb.RuleNumber, routingVersion int64)
 }
 
 // LocalPooler is the pooler running in the same process as the gateway: the
@@ -238,6 +245,16 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 		Cache:           cache,
 	})
 
+	onHealthUpdate := lb.onPoolerHealthUpdate
+	if opts.OnCatalogShardHealth != nil {
+		onHealthUpdate = func(conn *poolerConnection) {
+			lb.onPoolerHealthUpdate(conn)
+			if database, primary, rule, version, ok := catalogShardHealth(conn); ok {
+				opts.OnCatalogShardHealth(database, primary, rule, version)
+			}
+		}
+	}
+
 	// Start pooler discovery. The cache owns the per-pooler *poolerConnection
 	// rider: OnLive constructs the connection, OnUpdate refreshes topology
 	// metadata, and OnGone closes it. Routing leadership and buffer drain come
@@ -246,7 +263,7 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 	// load balancing wants immediate visibility into membership changes.
 	cache.Start(poolerwatch.Hooks[*poolerConnection]{
 		OnLive: func(p *clustermetadatapb.Multipooler, _ *poolerConnection) *poolerConnection {
-			conn, err := newPoolerConnection(opts.Ctx, p, opts.Logger, opts.DialOpt, opts.LocalPooler, lb.onPoolerHealthUpdate)
+			conn, err := newPoolerConnection(opts.Ctx, p, opts.Logger, opts.DialOpt, opts.LocalPooler, onHealthUpdate)
 			if err != nil {
 				opts.Logger.ErrorContext(opts.Ctx, "failed to create pooler connection",
 					"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
@@ -277,6 +294,29 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 		cache:        cache,
 		logger:       opts.Logger,
 	}
+}
+
+// catalogShardHealth classifies a health update for OnCatalogShardHealth. ok
+// is false for a pooler outside a catalog shard. primary is the same live
+// routing-primary rule the load balancer applies (see onPoolerHealthUpdate);
+// rule and version are the reported consensus rule and routing_version, both
+// unset unless primary.
+func catalogShardHealth(conn *poolerConnection) (database string, primary bool, rule *clustermetadatapb.RuleNumber, version int64, ok bool) {
+	ref := conn.PoolerInfo().GetShardRef()
+	if ref.GetTableGroup() != constants.DefaultTableGroup || ref.GetShard() != constants.DefaultShard {
+		return "", false, nil, 0, false
+	}
+	health := conn.Health()
+	if health == nil {
+		return "", false, nil, 0, false
+	}
+	primary = health.LastError == nil &&
+		health.RoutingState.GetRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY
+	if primary {
+		rule = health.RoutingState.GetRule()
+		version = health.RoutingVersion
+	}
+	return ref.GetDatabase(), primary, rule, version, true
 }
 
 // isSingleQuery reports whether a request is a single autocommit query — no

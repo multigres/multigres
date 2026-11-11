@@ -31,6 +31,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	shardingcatalogpb "github.com/multigres/multigres/go/pb/shardingcatalog"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 )
@@ -92,7 +93,34 @@ func (env *tableGroupTestEnv) expect(pattern string, columns []string, rows [][]
 // conflicts and returns nothing, and the lookup returns the existing row.
 func (env *tableGroupTestEnv) nameTaken(id int64, state string) {
 	env.expect("ON CONFLICT \\(name\\) DO NOTHING", []string{"tablegroup_id"}, nil)
-	env.expect("FOR UPDATE", []string{"tablegroup_id", "state"}, [][]any{{id, state}})
+	env.expect("FROM multigres.tablegroup WHERE name = \\$1 FOR UPDATE", []string{"tablegroup_id", "state"}, [][]any{{id, state}})
+}
+
+// expectLock registers the catalog_state lock every catalog writer takes
+// first.
+func (env *tableGroupTestEnv) expectLock() {
+	env.expect("FROM multigres.catalog_state FOR UPDATE", []string{"routing_version"}, [][]any{{int64(4)}})
+}
+
+// expectAdvance registers the routing_version increment, returning version.
+func (env *tableGroupTestEnv) expectAdvance(version int64) {
+	env.expect("UPDATE multigres.catalog_state SET routing_version", []string{"routing_version", "plan_epoch"}, [][]any{{version, int64(0)}})
+}
+
+// expectCommit registers COMMIT, so it shows in env.queries.
+func (env *tableGroupTestEnv) expectCommit() {
+	env.expect("^COMMIT$", nil, nil)
+}
+
+// queriesMatching returns the recorded queries that contain substr.
+func (env *tableGroupTestEnv) queriesMatching(substr string) []string {
+	var out []string
+	for _, q := range env.queries {
+		if strings.Contains(q, substr) {
+			out = append(out, q)
+		}
+	}
+	return out
 }
 
 func (env *tableGroupTestEnv) expectPrimary() {
@@ -147,9 +175,13 @@ func TestValidateTableGroupName(t *testing.T) {
 func TestCreateTableGroup_RecordsIntent(t *testing.T) {
 	env := newCatalogTestEnv(t)
 	env.expectPrimary()
+	env.expectLock()
 	env.expect("INSERT INTO multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
 	env.expect("INSERT INTO multigres.shard", nil, nil)
 	env.expect("INSERT INTO multigres.operation", nil, nil)
+	env.expectCatalogRows()
+	env.expectAdvance(5)
+	env.expectCommit()
 
 	// Shards are given out of order; the catalog gets them in canonical order.
 	resp, err := env.pm.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{
@@ -161,12 +193,20 @@ func TestCreateTableGroup_RecordsIntent(t *testing.T) {
 	_, err = uuid.Parse(resp.OperationId)
 	require.NoError(t, err, "operation id is a UUID")
 
+	// The catalog_state lock comes before any other catalog row, the snapshot
+	// the write would commit is checked, and the version advances once,
+	// inside the transaction.
 	want := []string{
 		"SELECT pg_is_in_recovery()",
+		"SELECT routing_version FROM multigres.catalog_state FOR UPDATE",
 		"INSERT INTO multigres.tablegroup (name, state) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING RETURNING tablegroup_id",
 		"INSERT INTO multigres.shard (tablegroup_id, shard_name, range_start, range_end, state) VALUES ($1, $2, decode($3, 'hex'), decode($4, 'hex'), $5)",
 		"INSERT INTO multigres.shard (tablegroup_id, shard_name, range_start, range_end, state) VALUES ($1, $2, decode($3, 'hex'), decode($4, 'hex'), $5)",
 		"INSERT INTO multigres.operation (operation_id, kind, state, request) VALUES ($1, $2, $3, $4::jsonb)",
+		snapshotTableGroupsQuery, snapshotShardsQuery, snapshotTablesQuery,
+		snapshotShardIndicesQuery, snapshotShardKeysQuery, snapshotShardKeyColumnsQuery,
+		"UPDATE multigres.catalog_state SET routing_version = routing_version + 1 RETURNING routing_version, plan_epoch",
+		"COMMIT",
 	}
 	assert.Equal(t, want, env.queries)
 }
@@ -174,9 +214,12 @@ func TestCreateTableGroup_RecordsIntent(t *testing.T) {
 func TestCreateTableGroup_DefaultsToSingleShard(t *testing.T) {
 	env := newCatalogTestEnv(t)
 	env.expectPrimary()
+	env.expectLock()
 	env.expect("INSERT INTO multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
 	env.expect("INSERT INTO multigres.shard", nil, nil)
 	env.expect("INSERT INTO multigres.operation", nil, nil)
+	env.expectCatalogRows()
+	env.expectAdvance(5)
 
 	_, err := env.pm.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "commerce"})
 	require.NoError(t, err)
@@ -193,6 +236,7 @@ func TestCreateTableGroup_ExistingActive(t *testing.T) {
 	t.Run("without IF NOT EXISTS is an error", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectPrimary()
+		env.expectLock()
 		env.nameTaken(testTableGroupID, tableGroupStateActive)
 
 		_, err := env.pm.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "commerce"})
@@ -202,6 +246,7 @@ func TestCreateTableGroup_ExistingActive(t *testing.T) {
 	t.Run("with IF NOT EXISTS is a no-op", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectPrimary()
+		env.expectLock()
 		env.nameTaken(testTableGroupID, tableGroupStateActive)
 
 		resp, err := env.pm.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "commerce", IfNotExists: true})
@@ -209,11 +254,13 @@ func TestCreateTableGroup_ExistingActive(t *testing.T) {
 		assert.True(t, resp.AlreadyExists)
 		assert.Equal(t, testTableGroupID, resp.TablegroupId)
 		assert.Empty(t, resp.OperationId)
-		assert.Len(t, env.queries, 3, "nothing written after the claim conflicts")
+		assert.Len(t, env.queries, 4, "nothing written after the claim conflicts")
+		assert.Empty(t, env.queriesMatching("routing_version + 1"), "an unchanged catalog keeps its version")
 	})
 	t.Run("the default tablegroup is always active", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectPrimary()
+		env.expectLock()
 		env.nameTaken(int64(1), tableGroupStateActive)
 
 		_, err := env.pm.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "default"})
@@ -226,6 +273,7 @@ func TestCreateTableGroup_ExistingCreating(t *testing.T) {
 	t.Run("same layout joins the in-flight operation", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectPrimary()
+		env.expectLock()
 		env.nameTaken(testTableGroupID, tableGroupStateCreating)
 		env.expect("SELECT shard_name FROM multigres.shard", []string{"shard_name"}, [][]any{{"0-80"}, {"80-inf"}})
 		env.expect("SELECT operation_id FROM multigres.operation", []string{"operation_id"}, [][]any{{testOpID}})
@@ -236,10 +284,12 @@ func TestCreateTableGroup_ExistingCreating(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, testOpID, resp.OperationId)
 		assert.Equal(t, testTableGroupID, resp.TablegroupId)
+		assert.Empty(t, env.queriesMatching("routing_version + 1"), "joining a creation writes nothing")
 	})
 	t.Run("different layout is a conflict", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectPrimary()
+		env.expectLock()
 		env.nameTaken(testTableGroupID, tableGroupStateCreating)
 		env.expect("SELECT shard_name FROM multigres.shard", []string{"shard_name"}, [][]any{{"0-80"}, {"80-inf"}})
 
@@ -253,6 +303,7 @@ func TestCreateTableGroup_ExistingCreating(t *testing.T) {
 	t.Run("IF NOT EXISTS joins whatever the layout", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectPrimary()
+		env.expectLock()
 		env.nameTaken(testTableGroupID, tableGroupStateCreating)
 		env.expect("SELECT operation_id FROM multigres.operation", []string{"operation_id"}, [][]any{{testOpID}})
 
@@ -266,6 +317,7 @@ func TestCreateTableGroup_ExistingCreating(t *testing.T) {
 	t.Run("a creating tablegroup with more than one pending operation is internal", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectPrimary()
+		env.expectLock()
 		env.nameTaken(testTableGroupID, tableGroupStateCreating)
 		env.expect("SELECT shard_name FROM multigres.shard", []string{"shard_name"}, [][]any{{"0-inf"}})
 		env.expect("SELECT operation_id FROM multigres.operation", []string{"operation_id"}, [][]any{{testOpID}, {uuid.NewString()}})
@@ -278,8 +330,9 @@ func TestCreateTableGroup_ExistingCreating(t *testing.T) {
 	t.Run("a conflicting row deleted before the lookup asks for a retry", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectPrimary()
+		env.expectLock()
 		env.expect("ON CONFLICT \\(name\\) DO NOTHING", []string{"tablegroup_id"}, nil)
-		env.expect("FOR UPDATE", []string{"tablegroup_id", "state"}, nil)
+		env.expect("FROM multigres.tablegroup WHERE name = \\$1 FOR UPDATE", []string{"tablegroup_id", "state"}, nil)
 
 		_, err := env.pm.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "commerce"})
 		require.Error(t, err)
@@ -288,6 +341,7 @@ func TestCreateTableGroup_ExistingCreating(t *testing.T) {
 	t.Run("dropping is a conflict", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectPrimary()
+		env.expectLock()
 		env.nameTaken(testTableGroupID, tableGroupStateDropping)
 
 		_, err := env.pm.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "commerce"})
@@ -459,20 +513,20 @@ func TestListTableGroups(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, groups, 3)
 		assert.Equal(t, int64(10), groups[2].TablegroupId)
-		assert.Equal(t, multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_DROPPING, groups[2].State, "a dropping tablegroup is the removal signal")
+		assert.Equal(t, shardingcatalogpb.TableGroupState_TABLE_GROUP_STATE_DROPPING, groups[2].State, "a dropping tablegroup is the removal signal")
 		assert.Equal(t, []string{"0-inf"}, groups[2].Shards)
 		assert.Equal(t, int64(7), groups[0].TablegroupId)
 		assert.Equal(t, "commerce", groups[0].Name)
-		assert.Equal(t, multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_ACTIVE, groups[0].State)
+		assert.Equal(t, shardingcatalogpb.TableGroupState_TABLE_GROUP_STATE_ACTIVE, groups[0].State)
 		assert.Equal(t, []string{"0-80", "80-inf"}, groups[0].Shards)
 		assert.Equal(t, int64(9), groups[1].TablegroupId)
 		assert.Equal(t, "analytics", groups[1].Name)
-		assert.Equal(t, multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_CREATING, groups[1].State)
+		assert.Equal(t, shardingcatalogpb.TableGroupState_TABLE_GROUP_STATE_CREATING, groups[1].State)
 		assert.Equal(t, []string{"0-inf"}, groups[1].Shards)
 		require.Len(t, env.queries, 2)
 		assert.Contains(t, env.queries[1], "WHERE t.name <> $1 ORDER BY", "every state is listed")
 		for _, state := range []string{tableGroupStateCreating, tableGroupStateActive, tableGroupStateDropping} {
-			assert.NotEqual(t, multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_UNSPECIFIED, tableGroupStates[state], state)
+			assert.NotEqual(t, shardingcatalogpb.TableGroupState_TABLE_GROUP_STATE_UNSPECIFIED, tableGroupStates[state], state)
 		}
 	})
 	t.Run("empty catalog is an empty list, not nil", func(t *testing.T) {

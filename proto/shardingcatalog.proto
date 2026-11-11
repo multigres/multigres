@@ -1,0 +1,155 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// The sharding catalog as its readers see it: one message per catalog entity,
+// carrying the catalog's ids, and a Snapshot of the whole catalog. The catalog
+// itself lives in the multigres schema on the catalog shard (the default
+// tablegroup's 0-inf shard), and only that shard's primary writes it.
+
+syntax = "proto3";
+
+package shardingcatalog;
+
+import "clustermetadata.proto";
+
+option go_package = "github.com/multigres/multigres/go/pb/shardingcatalog";
+
+// TableGroupState is the lifecycle state of a tablegroup. A reader neither
+// provisions, removes nor routes to a tablegroup in a state it does not know,
+// including UNSPECIFIED.
+enum TableGroupState {
+  TABLE_GROUP_STATE_UNSPECIFIED = 0;
+  // CREATING is a tablegroup whose shards are being provisioned.
+  TABLE_GROUP_STATE_CREATING = 1;
+  // ACTIVE is a tablegroup whose creation completed.
+  TABLE_GROUP_STATE_ACTIVE = 2;
+  // DROPPING is a tablegroup being dropped, or whose creation failed: the
+  // provisioner removes everything it provisioned for the id, deletes those
+  // poolers' topology records, and releases its claim. The catalog then
+  // deletes the tablegroup, and the name is free for a new tablegroup with a
+  // new id.
+  TABLE_GROUP_STATE_DROPPING = 3;
+}
+
+// ShardState is the lifecycle state of a shard.
+enum ShardState {
+  SHARD_STATE_UNSPECIFIED = 0;
+  // PREPARING is a shard that is being provisioned and does not serve yet.
+  SHARD_STATE_PREPARING = 1;
+  // ACTIVE is a shard that owns its key range.
+  SHARD_STATE_ACTIVE = 2;
+  // RETIRED is a shard that no longer owns its key range.
+  SHARD_STATE_RETIRED = 3;
+}
+
+// ShardIndexState is the lifecycle state of a shard index.
+enum ShardIndexState {
+  SHARD_INDEX_STATE_UNSPECIFIED = 0;
+  SHARD_INDEX_STATE_PREPARING = 1;
+  SHARD_INDEX_STATE_ACTIVE = 2;
+  SHARD_INDEX_STATE_RETIRED = 3;
+}
+
+// ShardKeyRole says what a shard key is for.
+enum ShardKeyRole {
+  SHARD_KEY_ROLE_UNSPECIFIED = 0;
+  // PRIMARY is the key that places a table's rows on shards. A table has at
+  // most one active primary shard key.
+  SHARD_KEY_ROLE_PRIMARY = 1;
+  // SECONDARY is a key that finds rows without deciding where they live.
+  SHARD_KEY_ROLE_SECONDARY = 2;
+}
+
+// ShardKeyState is the lifecycle state of a shard key.
+enum ShardKeyState {
+  SHARD_KEY_STATE_UNSPECIFIED = 0;
+  SHARD_KEY_STATE_PREPARING = 1;
+  SHARD_KEY_STATE_ACTIVE = 2;
+  SHARD_KEY_STATE_RETIRED = 3;
+}
+
+// TableGroup is a tablegroup: a set of tables sharded the same way. It is
+// sharded exactly when it has more than one active shard.
+message TableGroup {
+  int64 tablegroup_id = 1;
+  string name = 2;
+  TableGroupState state = 3;
+}
+
+// Shard is one key range of a tablegroup.
+message Shard {
+  int64 shard_id = 1;
+  int64 tablegroup_id = 2;
+  // name is the canonical name of key_range, e.g. "0-80" or "80-inf".
+  string name = 3;
+  // key_range is the range of routing identifiers the shard owns. An empty
+  // start is the start of the keyspace; an empty end is the end (exclusive).
+  clustermetadata.KeyRange key_range = 4;
+  ShardState state = 5;
+}
+
+// Table is a table placed in a tablegroup.
+message Table {
+  int64 table_id = 1;
+  string schema_name = 2;
+  string table_name = 3;
+  int64 tablegroup_id = 4;
+}
+
+// ShardIndex is a database-wide, named way to compute a routing identifier
+// from column values.
+message ShardIndex {
+  int64 shard_index_id = 1;
+  string name = 2;
+  // type is the shard index type, e.g. "hash" or "lookup". Users can define
+  // their own types, so it is free text.
+  string type = 3;
+  // params is the type's settings as a JSON object, exactly as the catalog
+  // stores it. It is text rather than a google.protobuf.Struct because Struct
+  // carries every number as a double, which would lose precision in integer
+  // settings, and because only the code for the given type knows its shape.
+  string params = 4;
+  ShardIndexState state = 5;
+}
+
+// ShardKey binds a table's columns to a shard index.
+message ShardKey {
+  int64 shard_key_id = 1;
+  int64 table_id = 2;
+  int64 shard_index_id = 3;
+  string name = 4;
+  ShardKeyRole role = 5;
+  ShardKeyState state = 6;
+  // columns are the key's column names, in key order.
+  repeated string columns = 7;
+}
+
+// Snapshot is the whole sharding catalog of one database, read in a single
+// transaction. Entities in every state are included; a reader decides which
+// ones it uses. References between entities are by id.
+message Snapshot {
+  // routing_version advances with every catalog change that alters a
+  // snapshot. Two snapshots of the same database with the same
+  // routing_version are identical.
+  int64 routing_version = 1;
+  // plan_epoch advances with every catalog change that can change how an
+  // existing query is planned, so a reader invalidates cached plans when it
+  // moves. Every such change also advances routing_version.
+  int64 plan_epoch = 2;
+  repeated TableGroup tablegroups = 3;
+  repeated Shard shards = 4;
+  repeated Table tables = 5;
+  repeated ShardIndex shard_indices = 6;
+  repeated ShardKey shard_keys = 7;
+}

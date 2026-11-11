@@ -135,6 +135,14 @@ func (ssm *StateManager) RoutingRole() clustermetadatapb.RoutingRole {
 	return ssm.deriveRoutingState(ssm.pgMode, ssm.consensusStatus()).Role.ToProto()
 }
 
+// RoutingState returns this pooler's current routing role together with the
+// rule that qualifies it, derived live like RoutingRole.
+func (ssm *StateManager) RoutingState() *clustermetadatapb.RoutingState {
+	ssm.mu.Lock()
+	defer ssm.mu.Unlock()
+	return ssm.deriveRoutingState(ssm.pgMode, ssm.consensusStatus()).ToProto()
+}
+
 // NewStateManager creates a new StateManager. consensusStatus returns the live
 // consensus snapshot (e.g. ConsensusManager.CachedConsensusStatus), combined with
 // the cached recovery state to derive the routing role / write-safety live.

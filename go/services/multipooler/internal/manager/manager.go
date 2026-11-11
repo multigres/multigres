@@ -691,6 +691,9 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	// StartTopoRegistration) picks it up and writes to etcd. Only the serving
 	// status changes here; the role is left as the record already holds it.
 	go pm.runHealthHeartbeat(pm.ctx, timeouts.DefaultHealthHeartbeatInterval)
+	if pm.isCatalogShard() {
+		go pm.runCatalogVersionRefresh(pm.ctx, catalogVersionRefreshInterval)
+	}
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
 		s.ServingStatus = reconciledServingStatus(targetServingStatus, pm.migrationServingHold())
 	}); err != nil {

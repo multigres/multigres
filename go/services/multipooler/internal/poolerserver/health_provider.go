@@ -50,6 +50,11 @@ type HealthState struct {
 	// ReplicationLagNs is the current replication lag in nanoseconds,
 	// measured via heartbeat timestamps. Zero on the primary or when unknown.
 	ReplicationLagNs int64
+
+	// RoutingVersion and PlanEpoch are the sharding catalog's versions,
+	// reported only by the catalog shard's primary; zero elsewhere.
+	RoutingVersion int64
+	PlanEpoch      int64
 }
 
 // HealthProvider provides health information for the pooler.
@@ -82,6 +87,8 @@ func (h *HealthState) ToProto() *multipoolerpb.StreamPoolerHealthResponse {
 		ServingStatus:    h.ServingStatus,
 		RoutingState:     h.RoutingState,
 		ReplicationLagNs: h.ReplicationLagNs,
+		RoutingVersion:   h.RoutingVersion,
+		PlanEpoch:        h.PlanEpoch,
 	}
 	if h.RecommendedStalenessTimeout > 0 {
 		resp.RecommendedStalenessTimeout = durationpb.New(h.RecommendedStalenessTimeout)

@@ -2806,8 +2806,18 @@ type StreamPoolerHealthResponse struct {
 	// replication_lag_ns is the current replication lag in nanoseconds,
 	// measured via heartbeat timestamps. Zero on a leader or when unknown.
 	ReplicationLagNs int64 `protobuf:"varint,6,opt,name=replication_lag_ns,json=replicationLagNs,proto3" json:"replication_lag_ns,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// routing_version and plan_epoch are the sharding catalog's versions
+	// (multigres.catalog_state). Only the primary of the catalog shard reports
+	// them; every other pooler leaves them zero. They are read from committed
+	// state, which under synchronous replication is visible only once the
+	// shard's durability policy has acknowledged it, except for a commit whose
+	// wait for that acknowledgement was cancelled. A gateway that sees a
+	// routing_version above the snapshot it holds fetches a new one with
+	// GetRoutingSnapshot.
+	RoutingVersion int64 `protobuf:"varint,7,opt,name=routing_version,json=routingVersion,proto3" json:"routing_version,omitempty"`
+	PlanEpoch      int64 `protobuf:"varint,8,opt,name=plan_epoch,json=planEpoch,proto3" json:"plan_epoch,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *StreamPoolerHealthResponse) Reset() {
@@ -2871,6 +2881,20 @@ func (x *StreamPoolerHealthResponse) GetRecommendedStalenessTimeout() *durationp
 func (x *StreamPoolerHealthResponse) GetReplicationLagNs() int64 {
 	if x != nil {
 		return x.ReplicationLagNs
+	}
+	return 0
+}
+
+func (x *StreamPoolerHealthResponse) GetRoutingVersion() int64 {
+	if x != nil {
+		return x.RoutingVersion
+	}
+	return 0
+}
+
+func (x *StreamPoolerHealthResponse) GetPlanEpoch() int64 {
+	if x != nil {
+		return x.PlanEpoch
 	}
 	return 0
 }
@@ -3266,13 +3290,16 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x18keep_sticky_reservations\x18\x04 \x01(\bR\x16keepStickyReservations\"`\n" +
 	"!ReleaseReservedConnectionResponse\x12;\n" +
 	"\x0ereserved_state\x18\x01 \x01(\v2\x14.query.ReservedStateR\rreservedState\"\x1b\n" +
-	"\x19StreamPoolerHealthRequest\"\xec\x02\n" +
+	"\x19StreamPoolerHealthRequest\"\xb4\x03\n" +
 	"\x1aStreamPoolerHealthResponse\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12K\n" +
 	"\x0eserving_status\x18\x03 \x01(\x0e2$.clustermetadata.PoolerServingStatusR\rservingStatus\x12B\n" +
 	"\rrouting_state\x18\x04 \x01(\v2\x1d.clustermetadata.RoutingStateR\froutingState\x12]\n" +
 	"\x1drecommended_staleness_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x1brecommendedStalenessTimeout\x12,\n" +
-	"\x12replication_lag_ns\x18\x06 \x01(\x03R\x10replicationLagNs\"\xcd\x01\n" +
+	"\x12replication_lag_ns\x18\x06 \x01(\x03R\x10replicationLagNs\x12'\n" +
+	"\x0frouting_version\x18\a \x01(\x03R\x0eroutingVersion\x12\x1d\n" +
+	"\n" +
+	"plan_epoch\x18\b \x01(\x03R\tplanEpoch\"\xcd\x01\n" +
 	"\x19NotificationStreamRequest\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x12-\n" +
 	"\x12subscribe_channels\x18\x02 \x03(\tR\x11subscribeChannels\x121\n" +
