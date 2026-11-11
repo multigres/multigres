@@ -460,6 +460,10 @@ type fakeSource struct {
 	lagSeconds float64
 	lagPresent bool
 	lagErr     error
+	// onReplicationLag, when set, runs at the start of ReplicationLag: a hook
+	// for a change that lands while SetMigrationDirection's readiness wait is
+	// unlocked (e.g. simulating the connection's ownership changing mid-wait).
+	onReplicationLag func()
 
 	subExists    bool
 	subExistsErr error
@@ -559,6 +563,9 @@ func (s *fakeSource) CurrentLSN() (string, error) {
 }
 
 func (s *fakeSource) ReplicationLag(string) (uint64, float64, bool, error) {
+	if s.onReplicationLag != nil {
+		s.onReplicationLag()
+	}
 	return s.lag, s.lagSeconds, s.lagPresent, s.lagErr
 }
 

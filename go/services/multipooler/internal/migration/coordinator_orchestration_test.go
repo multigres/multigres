@@ -371,6 +371,28 @@ func TestSetMigrationDirection_ConnectionOwnership(t *testing.T) {
 		require.Equal(t, PhaseExporting, proj.Phase)
 	})
 
+	t.Run("ownership revoked during the readiness wait is caught on re-check", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.c.now = time.Now
+		m := tc.seed(&Migration{Phase: PhaseImporting})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipAllow = map[string]bool{"alice": true}
+		tc.src.lagPresent = true
+		tc.tgt.subExists = true
+		// c.mu is released for the readiness wait; simulate the connection's
+		// ownership changing (e.g. DropConnection + re-create under a new
+		// owner) in that window, right as the wait is about to succeed.
+		tc.src.onReplicationLag = func() {
+			tc.tgt.checkConnectionOwnershipAllow = map[string]bool{}
+		}
+
+		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionExport,
+			ActivateOptions{CallerRole: "alice", MaxLagBytes: 1024, WaitTimeout: time.Second})
+		require.ErrorIs(t, err, ErrNotFound, "must not leak that the migration exists but is merely unauthorized")
+		require.NotContains(t, tc.log, "target.CreatePublication", "a rejected re-check must never reach the switch")
+		require.Equal(t, PhaseImporting, tc.store.migs[testMigID].Phase, "a rejected switch must not change phase")
+	})
+
 	t.Run("a non-owning caller is rejected before a not-yet-started IMPORT runs setup", func(t *testing.T) {
 		tc := newTestCoord(t)
 		tc.seed(&Migration{Phase: PhaseCreated})
