@@ -1264,11 +1264,11 @@ func (ccs *CreateConversionStmt) SqlString() string {
 	}
 
 	if ccs.ForEncodingName != "" {
-		parts = append(parts, "FOR", fmt.Sprintf("'%s'", ccs.ForEncodingName))
+		parts = append(parts, "FOR", QuoteStringLiteral(ccs.ForEncodingName))
 	}
 
 	if ccs.ToEncodingName != "" {
-		parts = append(parts, "TO", fmt.Sprintf("'%s'", ccs.ToEncodingName))
+		parts = append(parts, "TO", QuoteStringLiteral(ccs.ToEncodingName))
 	}
 
 	if ccs.FuncName != nil && ccs.FuncName.Len() > 0 {
@@ -2017,7 +2017,7 @@ func (ces *CreateEnumStmt) SqlString() string {
 		quotedVals := []string{}
 		for _, item := range ces.Vals.Items {
 			if val, ok := item.(*String); ok {
-				quotedVals = append(quotedVals, "'"+val.SVal+"'")
+				quotedVals = append(quotedVals, QuoteStringLiteral(val.SVal))
 			}
 		}
 		parts = append(parts, "("+strings.Join(quotedVals, ", ")+")")
@@ -2175,14 +2175,14 @@ func (aes *AlterEnumStmt) SqlString() string {
 
 	if aes.OldVal != "" {
 		// RENAME VALUE
-		parts = append(parts, "RENAME VALUE", "'"+aes.OldVal+"'", "TO", "'"+aes.NewVal+"'")
+		parts = append(parts, "RENAME VALUE", QuoteStringLiteral(aes.OldVal), "TO", QuoteStringLiteral(aes.NewVal))
 	} else {
 		// ADD VALUE
 		parts = append(parts, "ADD VALUE")
 		if aes.SkipIfNewValExists {
 			parts = append(parts, "IF NOT EXISTS")
 		}
-		parts = append(parts, "'"+aes.NewVal+"'")
+		parts = append(parts, QuoteStringLiteral(aes.NewVal))
 
 		if aes.NewValNeighbor != "" {
 			if aes.NewValIsAfter {
@@ -2190,7 +2190,7 @@ func (aes *AlterEnumStmt) SqlString() string {
 			} else {
 				parts = append(parts, "BEFORE")
 			}
-			parts = append(parts, "'"+aes.NewValNeighbor+"'")
+			parts = append(parts, QuoteStringLiteral(aes.NewValNeighbor))
 		}
 	}
 

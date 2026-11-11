@@ -35,20 +35,21 @@ import (
 // identifier (column, table, role, tablespace, constraint name, etc.):
 //
 //  1. Save its original value.
-//  2. Replace it with `weird ` + original — a value that *requires*
-//     double-quoting on emit (the space alone forces QuoteIdentifier to quote).
+//  2. Replace it with `weird"'` + original — a value that must be both quoted
+//     and escaped on emit, whether the field is written as an identifier or as
+//     a string literal.
 //  3. Call SqlString on the statement and feed the result back into ParseSQL.
-//  4. If the re-parse fails, the deparser is emitting that field unquoted —
-//     that's a missed QuoteIdentifier site.
+//  4. If the re-parse fails, the deparser is emitting that field unquoted or
+//     unescaped — that's a missed QuoteIdentifier / QuoteStringLiteral site.
 //  5. Restore the original value before moving on.
 //
 // Heuristic + ignore list: any string field whose name contains "name"
 // (case-insensitive) is treated as a candidate identifier, plus a small
-// allow-list (AccessMethod, Subname, Newname). Fields that *look* like
-// identifiers but aren't (file paths, locale strings, privilege keywords)
-// go into nonIdentifierFields keyed by `TypeName.FieldName`. That map is
-// the durable audit artifact — adding a new identifier-typed string field
-// requires explicit classification.
+// allow-list of other identifier and string-literal fields. Fields that
+// *look* like identifiers but aren't (file paths, locale strings, privilege
+// keywords) go into nonIdentifierFields keyed by `TypeName.FieldName`. That
+// map is the durable audit artifact — adding a new identifier-typed string
+// field requires explicit classification.
 //
 // By default we fuzz the curated `*_cases.json` files. The full PostgreSQL
 // regression corpus is included unless `go test -short` is set.
@@ -122,7 +123,7 @@ func fuzzStmt(stmt ast.Stmt, query string, report func(fuzzFinding)) {
 		if !ref.Value.CanSet() {
 			continue
 		}
-		mutated := "weird " + ref.Original
+		mutated := "weird\"'" + ref.Original
 		ref.Value.SetString(mutated)
 
 		// SqlString may panic on certain partially-formed nodes — treat as a finding.
@@ -205,14 +206,15 @@ func collectIdentifierFields(v reflect.Value, parentPath string, visited map[uin
 
 // isIdentifierField decides whether a string field should be fuzzed as an
 // identifier. Default heuristic: name contains "name" (case-insensitive), plus
-// a small allow-list of other identifier-typed fields. Specific fields are
-// excluded via nonIdentifierFields.
+// a small allow-list of other identifier and string-literal fields. Specific
+// fields are excluded via nonIdentifierFields.
 func isIdentifierField(typeName, fieldName string) bool {
 	if nonIdentifierFields[typeName+"."+fieldName] {
 		return false
 	}
 	switch fieldName {
-	case "AccessMethod", "Subname", "Newname":
+	case "AccessMethod", "Subname", "Newname", "Role",
+		"Gid", "Filename", "Label", "NewVal", "OldVal", "NewValNeighbor", "Payload", "Provider":
 		return true
 	}
 	return strings.Contains(strings.ToLower(fieldName), "name")

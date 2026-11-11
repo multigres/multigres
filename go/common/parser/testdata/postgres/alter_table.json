@@ -3418,7 +3418,7 @@
   {
     "comment": "alter_table - Statement 714",
     "query": "create trigger ttdummy before delete or update on alterlock for each row execute procedure ttdummy (1, 1)",
-    "expected": "CREATE TRIGGER ttdummy BEFORE UPDATE OR DELETE ON alterlock FOR EACH ROW EXECUTE FUNCTION ttdummy(1, 1)"
+    "expected": "CREATE TRIGGER ttdummy BEFORE UPDATE OR DELETE ON alterlock FOR EACH ROW EXECUTE FUNCTION ttdummy('1', '1')"
   },
   {
     "comment": "alter_table - Statement 715",

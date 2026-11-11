@@ -201,17 +201,17 @@ func (ts *TransactionStmt) SqlString() string {
 	case TRANS_STMT_PREPARE:
 		parts = append(parts, "PREPARE", "TRANSACTION")
 		if ts.Gid != "" {
-			parts = append(parts, fmt.Sprintf("'%s'", ts.Gid))
+			parts = append(parts, QuoteStringLiteral(ts.Gid))
 		}
 	case TRANS_STMT_COMMIT_PREPARED:
 		parts = append(parts, "COMMIT", "PREPARED")
 		if ts.Gid != "" {
-			parts = append(parts, fmt.Sprintf("'%s'", ts.Gid))
+			parts = append(parts, QuoteStringLiteral(ts.Gid))
 		}
 	case TRANS_STMT_ROLLBACK_PREPARED:
 		parts = append(parts, "ROLLBACK", "PREPARED")
 		if ts.Gid != "" {
-			parts = append(parts, fmt.Sprintf("'%s'", ts.Gid))
+			parts = append(parts, QuoteStringLiteral(ts.Gid))
 		}
 	}
 
@@ -973,7 +973,7 @@ func (crs *CreateRoleStmt) SqlString() string {
 
 	parts = append(parts, "CREATE")
 	parts = append(parts, crs.StmtType.String())
-	parts = append(parts, crs.Role)
+	parts = append(parts, QuoteIdentifier(crs.Role))
 
 	// Add options if present
 	if crs.Options != nil && len(crs.Options.Items) > 0 {
@@ -1542,10 +1542,9 @@ func (v *VariableSetStmt) SqlString() string {
 				var values []string
 				for _, arg := range v.Args.Items {
 					if str, ok := arg.(*String); ok {
-						if v.Name == "role" && (strings.EqualFold(str.SVal, "none") || strings.EqualFold(str.SVal, "default")) {
-							values = append(values, "'"+strings.ReplaceAll(str.SVal, "'", "''")+"'")
-						} else if needsQuoting(str.SVal) {
-							values = append(values, "'"+strings.ReplaceAll(str.SVal, "'", "''")+"'")
+						roleKeyword := v.Name == "role" && (strings.EqualFold(str.SVal, "none") || strings.EqualFold(str.SVal, "default"))
+						if roleKeyword || needsQuoting(str.SVal) {
+							values = append(values, QuoteStringLiteral(str.SVal))
 						} else {
 							values = append(values, str.SVal)
 						}
@@ -1608,7 +1607,7 @@ func (v *VariableSetStmt) SqlString() string {
 				for _, arg := range v.Args.Items {
 					if str, ok := arg.(*String); ok {
 						if needsQuoting(str.SVal) {
-							values = append(values, "'"+strings.ReplaceAll(str.SVal, "'", "''")+"'")
+							values = append(values, QuoteStringLiteral(str.SVal))
 						} else {
 							values = append(values, str.SVal)
 						}
@@ -1867,7 +1866,7 @@ func (ass *AlterSystemStmt) SqlString() string {
 				for _, arg := range ass.Setstmt.Args.Items {
 					if str, ok := arg.(*String); ok {
 						if needsQuoting(str.SVal) {
-							values = append(values, "'"+strings.ReplaceAll(str.SVal, "'", "''")+"'")
+							values = append(values, QuoteStringLiteral(str.SVal))
 						} else {
 							values = append(values, str.SVal)
 						}
@@ -2312,7 +2311,7 @@ func (cs *CopyStmt) SqlString() string {
 			parts = append(parts, "STDOUT")
 		}
 	} else {
-		parts = append(parts, "'"+cs.Filename+"'")
+		parts = append(parts, QuoteStringLiteral(cs.Filename))
 	}
 
 	// Add options if any - always use modern parenthesized syntax
@@ -2569,7 +2568,7 @@ func formatVacuumOption(option *DefElem) string {
 			return optionName + " false"
 		default:
 			// String value - quote it for VACUUM options
-			return optionName + " '" + arg.SVal + "'"
+			return optionName + " " + QuoteStringLiteral(arg.SVal)
 		}
 	case *Boolean:
 		if arg.BoolVal {
@@ -2921,7 +2920,7 @@ func (ls *LoadStmt) StatementType() string {
 
 // SqlString returns the SQL representation of the LOAD statement
 func (ls *LoadStmt) SqlString() string {
-	return fmt.Sprintf("LOAD '%s'", ls.Filename)
+	return "LOAD " + QuoteStringLiteral(ls.Filename)
 }
 
 // NotifyStmt represents a NOTIFY statement.

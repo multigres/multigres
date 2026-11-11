@@ -80,3 +80,63 @@ func TestMultiStatementTransactionSemantics(t *testing.T) {
 		})
 	}
 }
+
+// TestMultiStatementBatchQuotedValues covers quoted values inside a batch. The
+// gateway re-renders each batched statement from its AST, so a value that is
+// not re-escaped breaks the statement or, worse, splits it into new ones.
+func TestMultiStatementBatchQuotedValues(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping multi-statement test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping")
+	}
+
+	setup := getSharedSetup(t)
+	for _, target := range setup.ComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			ctx := utils.WithTimeout(t, 30*time.Second)
+			db, err := sql.Open("postgres", shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable", "connect_timeout=5"))
+			require.NoError(t, err)
+			defer db.Close()
+			db.SetMaxOpenConns(1)
+
+			cleanup := func() {
+				for _, q := range []string{
+					"DROP TYPE IF EXISTS batch_quote_mood",
+					"DROP TYPE IF EXISTS batch_quote_label",
+					"DROP TABLE IF EXISTS batch_quote_victim",
+				} {
+					_, err := db.ExecContext(ctx, q)
+					require.NoError(t, err)
+				}
+			}
+			cleanup()
+			defer cleanup()
+
+			_, err = db.ExecContext(ctx, "CREATE TABLE batch_quote_victim (id int)")
+			require.NoError(t, err)
+
+			_, err = db.ExecContext(ctx, "CREATE TYPE batch_quote_mood AS ENUM ('happy', 'don''t know'); SELECT 1")
+			require.NoError(t, err)
+			_, err = db.ExecContext(ctx, "ALTER TYPE batch_quote_mood ADD VALUE 'it''s'; SELECT 1")
+			require.NoError(t, err)
+
+			var labels string
+			require.NoError(t, db.QueryRowContext(ctx,
+				"SELECT string_agg(enumlabel, '|' ORDER BY enumsortorder) FROM pg_enum WHERE enumtypid = 'batch_quote_mood'::regtype").Scan(&labels))
+			assert.Equal(t, "happy|don't know|it's", labels)
+
+			_, err = db.ExecContext(ctx, "SELECT 1; CREATE TYPE batch_quote_label AS ENUM ('x''); DROP TABLE batch_quote_victim; --')")
+			require.NoError(t, err)
+
+			require.NoError(t, db.QueryRowContext(ctx,
+				"SELECT string_agg(enumlabel, '|') FROM pg_enum WHERE enumtypid = 'batch_quote_label'::regtype").Scan(&labels))
+			assert.Equal(t, "x'); DROP TABLE batch_quote_victim; --", labels)
+
+			var victimExists bool
+			require.NoError(t, db.QueryRowContext(ctx, "SELECT to_regclass('batch_quote_victim') IS NOT NULL").Scan(&victimExists))
+			assert.True(t, victimExists, "text inside an enum label must not run as a statement")
+		})
+	}
+}
