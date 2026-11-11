@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math"
 	"os"
@@ -966,16 +967,39 @@ func (s *PgCtldService) StopRestoreCommand(ctx context.Context, req *pb.StopRest
 	pidFile := pgctld.RestoreCommandPIDFile(s.pgConfig.PoolerDir)
 	s.logger.InfoContext(ctx, "gRPC StopRestoreCommand request", "pidfile", pidFile)
 
-	pidBytes, err := os.ReadFile(pidFile)
+	f, err := os.Open(pidFile)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &pb.StopRestoreCommandResponse{Found: false, Message: "no restore_command pidfile found"}, nil
 		}
+		return nil, fmt.Errorf("failed to open restore_command pidfile %s: %w", pidFile, err)
+	}
+	defer f.Close()
+	pidBytes, err := io.ReadAll(f)
+	if err != nil {
 		return nil, fmt.Errorf("failed to read restore_command pidfile %s: %w", pidFile, err)
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(pidBytes)))
 	if err != nil {
-		return nil, fmt.Errorf("invalid PID in %s: %w", pidFile, err)
+		// The wrapper publishes its pidfile by rename, so a live wrapper never
+		// leaves an unparseable one. What is left is debris from a crash or a
+		// full disk, which names no process to stop. Failing here would make
+		// recruit drop this pooler until the next wrapper run overwrites the
+		// file, so treat it like any other stale pidfile.
+		s.logger.WarnContext(ctx, "ignoring unparseable restore_command pidfile", "pidfile", pidFile, "error", err)
+		return &pb.StopRestoreCommandResponse{Found: false, Message: "restore_command pidfile does not contain a PID"}, nil
+	}
+
+	// A live wrapper holds an exclusive flock on its pidfile until it exits
+	// (see publishPidfile). If a shared lock is free, no wrapper is running and
+	// the PID may already belong to an unrelated process, so it must not be
+	// signalled.
+	switch err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB); {
+	case err == nil:
+		return &pb.StopRestoreCommandResponse{Found: false, Message: fmt.Sprintf("pid %d holds no restore_command lock; pidfile is stale", pid)}, nil
+	case errors.Is(err, syscall.EWOULDBLOCK):
+	default:
+		return nil, fmt.Errorf("failed to check restore_command pidfile lock %s: %w", pidFile, err)
 	}
 
 	// findErr means the process doesn't exist (only possible FindProcess
@@ -986,7 +1010,7 @@ func (s *PgCtldService) StopRestoreCommand(ctx context.Context, req *pb.StopRest
 		return &pb.StopRestoreCommandResponse{Found: false, Message: fmt.Sprintf("pid %d from pidfile not found", pid)}, nil
 	}
 	if process.Signal(syscall.Signal(0)) != nil {
-		// Already exited on its own; the pidfile is just stale.
+		// Exited between the lock check and now.
 		return &pb.StopRestoreCommandResponse{Found: false, Message: fmt.Sprintf("pid %d is not running", pid)}, nil
 	}
 
