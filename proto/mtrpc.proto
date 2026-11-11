@@ -197,7 +197,7 @@ message RPCError {
   Code code = 2;
 
   // pg_diagnostic contains the full PostgreSQL diagnostic information when the error
-  // originated from PostgreSQL. This allows preserving all 14 PostgreSQL error fields
+  // originated from PostgreSQL. This allows preserving all PostgreSQL error fields
   // (SQLSTATE, position, hint, detail, etc.) through gRPC serialization, enabling
   // proper PostgreSQL-format error display to clients.
   // When present, this should be used to format the error response to the client.

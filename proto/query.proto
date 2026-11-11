@@ -187,6 +187,15 @@ message PgDiagnostic {
 
   // constraint_name is the name of the constraint associated with the diagnostic (optional)
   string constraint_name = 14;
+
+  // file is the source-code file name where the diagnostic was reported (optional)
+  string file = 16;
+
+  // line is the source-code line number where the diagnostic was reported (0 if not available)
+  int32 line = 17;
+
+  // routine is the source-code routine name reporting the diagnostic (optional)
+  string routine = 18;
 }
 
 // PgNotification represents a PostgreSQL asynchronous notification.

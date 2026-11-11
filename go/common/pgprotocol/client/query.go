@@ -797,6 +797,14 @@ func parseDiagnosticFields(msgType byte, body []byte) *mterrors.PgDiagnostic {
 			diag.DataType = value
 		case protocol.FieldConstraint:
 			diag.Constraint = value
+		case protocol.FieldFile:
+			diag.File = value
+		case protocol.FieldLine:
+			if line, err := strconv.ParseInt(value, 10, 32); err == nil {
+				diag.Line = int32(line)
+			}
+		case protocol.FieldRoutine:
+			diag.Routine = value
 		}
 	}
 
