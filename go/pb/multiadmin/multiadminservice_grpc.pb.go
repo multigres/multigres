@@ -23,6 +23,7 @@ package multiadmin
 import (
 	context "context"
 	migrator "github.com/multigres/multigres/go/pb/migrator"
+	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -63,6 +64,9 @@ const (
 	MultiadminService_GetConnection_FullMethodName              = "/multiadmin.MultiadminService/GetConnection"
 	MultiadminService_ListConnections_FullMethodName            = "/multiadmin.MultiadminService/ListConnections"
 	MultiadminService_DropConnection_FullMethodName             = "/multiadmin.MultiadminService/DropConnection"
+	MultiadminService_GetRoutingRules_FullMethodName            = "/multiadmin.MultiadminService/GetRoutingRules"
+	MultiadminService_SetRoutingRules_FullMethodName            = "/multiadmin.MultiadminService/SetRoutingRules"
+	MultiadminService_DeleteRoutingRules_FullMethodName         = "/multiadmin.MultiadminService/DeleteRoutingRules"
 )
 
 // MultiadminServiceClient is the client API for MultiadminService service.
@@ -273,6 +277,15 @@ type MultiadminServiceClient interface {
 	ListConnections(ctx context.Context, in *migrator.ListConnectionsRequest, opts ...grpc.CallOption) (*migrator.ListConnectionsResponse, error)
 	// DropConnection removes a connection.
 	DropConnection(ctx context.Context, in *migrator.DropConnectionRequest, opts ...grpc.CallOption) (*migrator.DropConnectionResponse, error)
+	// GetRoutingRules returns a database's routing rules by name, with the
+	// routing version a rule change is based on. It reads the catalog
+	// primary's sharding catalog snapshot.
+	GetRoutingRules(ctx context.Context, in *GetRoutingRulesRequest, opts ...grpc.CallOption) (*GetRoutingRulesResponse, error)
+	// SetRoutingRules replaces every routing rule of an operation. A change
+	// already in effect succeeds without changing the routing version.
+	SetRoutingRules(ctx context.Context, in *multipoolermanagerdata.SetRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetRoutingRulesResponse, error)
+	// DeleteRoutingRules deletes every routing rule of an operation.
+	DeleteRoutingRules(ctx context.Context, in *multipoolermanagerdata.DeleteRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error)
 }
 
 type multiadminServiceClient struct {
@@ -573,6 +586,36 @@ func (c *multiadminServiceClient) DropConnection(ctx context.Context, in *migrat
 	return out, nil
 }
 
+func (c *multiadminServiceClient) GetRoutingRules(ctx context.Context, in *GetRoutingRulesRequest, opts ...grpc.CallOption) (*GetRoutingRulesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRoutingRulesResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_GetRoutingRules_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiadminServiceClient) SetRoutingRules(ctx context.Context, in *multipoolermanagerdata.SetRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetRoutingRulesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.SetRoutingRulesResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_SetRoutingRules_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiadminServiceClient) DeleteRoutingRules(ctx context.Context, in *multipoolermanagerdata.DeleteRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.DeleteRoutingRulesResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_DeleteRoutingRules_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiadminServiceServer is the server API for MultiadminService service.
 // All implementations must embed UnimplementedMultiadminServiceServer
 // for forward compatibility.
@@ -781,6 +824,15 @@ type MultiadminServiceServer interface {
 	ListConnections(context.Context, *migrator.ListConnectionsRequest) (*migrator.ListConnectionsResponse, error)
 	// DropConnection removes a connection.
 	DropConnection(context.Context, *migrator.DropConnectionRequest) (*migrator.DropConnectionResponse, error)
+	// GetRoutingRules returns a database's routing rules by name, with the
+	// routing version a rule change is based on. It reads the catalog
+	// primary's sharding catalog snapshot.
+	GetRoutingRules(context.Context, *GetRoutingRulesRequest) (*GetRoutingRulesResponse, error)
+	// SetRoutingRules replaces every routing rule of an operation. A change
+	// already in effect succeeds without changing the routing version.
+	SetRoutingRules(context.Context, *multipoolermanagerdata.SetRoutingRulesRequest) (*multipoolermanagerdata.SetRoutingRulesResponse, error)
+	// DeleteRoutingRules deletes every routing rule of an operation.
+	DeleteRoutingRules(context.Context, *multipoolermanagerdata.DeleteRoutingRulesRequest) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error)
 	mustEmbedUnimplementedMultiadminServiceServer()
 }
 
@@ -877,6 +929,15 @@ func (UnimplementedMultiadminServiceServer) ListConnections(context.Context, *mi
 }
 func (UnimplementedMultiadminServiceServer) DropConnection(context.Context, *migrator.DropConnectionRequest) (*migrator.DropConnectionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DropConnection not implemented")
+}
+func (UnimplementedMultiadminServiceServer) GetRoutingRules(context.Context, *GetRoutingRulesRequest) (*GetRoutingRulesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRoutingRules not implemented")
+}
+func (UnimplementedMultiadminServiceServer) SetRoutingRules(context.Context, *multipoolermanagerdata.SetRoutingRulesRequest) (*multipoolermanagerdata.SetRoutingRulesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetRoutingRules not implemented")
+}
+func (UnimplementedMultiadminServiceServer) DeleteRoutingRules(context.Context, *multipoolermanagerdata.DeleteRoutingRulesRequest) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteRoutingRules not implemented")
 }
 func (UnimplementedMultiadminServiceServer) mustEmbedUnimplementedMultiadminServiceServer() {}
 func (UnimplementedMultiadminServiceServer) testEmbeddedByValue()                           {}
@@ -1421,6 +1482,60 @@ func _MultiadminService_DropConnection_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiadminService_GetRoutingRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRoutingRulesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).GetRoutingRules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_GetRoutingRules_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).GetRoutingRules(ctx, req.(*GetRoutingRulesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiadminService_SetRoutingRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.SetRoutingRulesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).SetRoutingRules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_SetRoutingRules_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).SetRoutingRules(ctx, req.(*multipoolermanagerdata.SetRoutingRulesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiadminService_DeleteRoutingRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.DeleteRoutingRulesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).DeleteRoutingRules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_DeleteRoutingRules_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).DeleteRoutingRules(ctx, req.(*multipoolermanagerdata.DeleteRoutingRulesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiadminService_ServiceDesc is the grpc.ServiceDesc for MultiadminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1543,6 +1658,18 @@ var MultiadminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DropConnection",
 			Handler:    _MultiadminService_DropConnection_Handler,
+		},
+		{
+			MethodName: "GetRoutingRules",
+			Handler:    _MultiadminService_GetRoutingRules_Handler,
+		},
+		{
+			MethodName: "SetRoutingRules",
+			Handler:    _MultiadminService_SetRoutingRules_Handler,
+		},
+		{
+			MethodName: "DeleteRoutingRules",
+			Handler:    _MultiadminService_DeleteRoutingRules_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

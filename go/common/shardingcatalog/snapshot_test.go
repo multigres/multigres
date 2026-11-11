@@ -15,6 +15,7 @@
 package shardingcatalog
 
 import (
+	"slices"
 	"sync"
 	"testing"
 
@@ -406,7 +407,7 @@ func TestNew_RoutingRules(t *testing.T) {
 	assert.Same(t, analytics, r.ToTableGroup())
 	assert.Equal(t, "0-40", r.ToShard().Name())
 	assert.Same(t, analytics, r.ToShard().TableGroup())
-	assert.Zero(t, r.ToShardKeyID())
+	assert.Nil(t, r.ToShardKey(), "a shard rule has no shard key")
 	assert.Equal(t, int64(12), r.CreatedVersion())
 
 	def, _ := s.TableGroupByName("default")
@@ -422,10 +423,40 @@ func TestNew_RoutingRules(t *testing.T) {
 	assert.Same(t, settings, tr.FromTable())
 	assert.Same(t, commerce, tr.ToTableGroup())
 	assert.Nil(t, tr.ToShard())
-	assert.Equal(t, int64(31), tr.ToShardKeyID())
-
 	orders, _ := s.Table("public", "orders")
+	require.NotNil(t, tr.ToShardKey())
+	assert.Same(t, orders.PrimaryShardKey(), tr.ToShardKey(), "the rule and the table share one ShardKey per key")
+
 	assert.Nil(t, orders.RoutingRule())
+}
+
+func TestNew_RoutingRuleToAKeyThatIsNotAnActivePrimary(t *testing.T) {
+	// A table rule usually targets the key the table moves to, which is not
+	// any table's active primary key yet.
+	p := validSnapshot(t)
+	p.RoutingRules[2].ToShardKeyId = new(int64(32))
+	s, err := New(p)
+	require.NoError(t, err)
+	settings, _ := s.Table("public", "settings")
+	k := settings.RoutingRule().ToShardKey()
+	require.NotNil(t, k)
+	assert.Equal(t, int64(32), k.ID())
+	assert.Equal(t, "by_order", k.Name())
+	assert.Equal(t, keySecondary, k.Role())
+	assert.Equal(t, []string{"id"}, k.Columns())
+	assert.Equal(t, "hash_xx", k.ShardIndex().Name())
+}
+
+func TestSnapshot_RoutingRulesInIDOrder(t *testing.T) {
+	p := validSnapshot(t)
+	slices.Reverse(p.RoutingRules)
+	s, err := New(p)
+	require.NoError(t, err)
+	var ids []int64
+	for _, r := range s.RoutingRules() {
+		ids = append(ids, r.ID())
+	}
+	assert.Equal(t, []int64{40, 41, 42}, ids, "shard and table rules together, ordered by id")
 }
 
 func TestNew_RoutingRulesRoundTrip(t *testing.T) {

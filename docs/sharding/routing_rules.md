@@ -8,9 +8,8 @@ operation (`multigres.operation`) that created it. When no operation runs,
 there are no rules.
 
 This page describes what is implemented today: the rule table, how a rule
-change is validated, and how rules reach gateways in the catalog snapshot.
-Nothing applies rules yet; the RPCs that set them, and the gateway routing that
-applies them, come later.
+change is validated, how rules reach gateways in the catalog snapshot, and the
+RPCs that set and read rules. Gateways don't apply rules yet; that comes later.
 
 ## Rules
 
@@ -51,3 +50,24 @@ Operations record the tablegroup they act on by catalog id
 ends `failed`. A finished operation may not change routing. While another
 operation has not finished on a tablegroup, such as its creation, no rule may
 route from or to it.
+
+## API
+
+The catalog primary serves the RPCs on its manager service; multiadmin
+forwards them to it.
+
+| Multiadmin RPC       | Multiadmin REST                                                                                        | Pooler RPC           |
+| -------------------- | ------------------------------------------------------------------------------------------------------ | -------------------- |
+| `GetRoutingRules`    | `GET /api/v1/databases/{database}/routing`                                                             | `GetRoutingSnapshot` |
+| `SetRoutingRules`    | `PUT /api/v1/databases/{database}/routing/operations/{operation_id}/rules`                             | `SetRoutingRules`    |
+| `DeleteRoutingRules` | `DELETE /api/v1/databases/{database}/routing/operations/{operation_id}/rules?expectedRoutingVersion=N` | `DeleteRoutingRules` |
+
+`GetRoutingRules` reads the catalog snapshot and returns its rules by name,
+with the `routing_version` a rule change is based on. Every catalog write
+advances that version, a new tablegroup as well as a rule change, so a change
+based on an older read fails and the caller reads again.
+
+Errors: a pooler that is not the catalog primary answers `UNAVAILABLE` to a
+rule change (find the primary and retry); a stale expected version or a change
+the catalog does not allow answers `FAILED_PRECONDITION`; a malformed request
+answers `INVALID_ARGUMENT`.

@@ -691,7 +691,7 @@ func TestWriteCatalog(t *testing.T) {
 				return catalogRoutingChange, nil
 			})
 			require.Error(t, err)
-			assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+			assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "the caller rediscovers the primary and retries")
 			assert.Contains(t, err.Error(), tc.want)
 			assert.False(t, ran)
 			assert.Empty(t, env.queriesMatching("catalog_state"), "nothing is locked")

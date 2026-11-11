@@ -955,3 +955,56 @@ message GetRoutingSnapshotResponse {
   // shard's primary for the whole read, set in both cases.
   clustermetadata.RuleNumber consensus_rule = 5;
 }
+
+// =============================================================================
+// Routing rules
+// =============================================================================
+
+// ShardRoutingRuleSpec requests a shard rule by name: the routing identifiers
+// of from_tablegroup in to_shard's range are served by to_shard of
+// to_tablegroup.
+message ShardRoutingRuleSpec {
+  string from_tablegroup = 1;
+  string to_tablegroup = 2;
+  string to_shard = 3;
+}
+
+// SetRoutingRulesRequest replaces every routing rule of an operation.
+message SetRoutingRulesRequest {
+  // database must be the database the pooler serves.
+  string database = 1;
+  // operation_id is the operation that owns the rules (a UUID). It must exist
+  // and not have finished: its state is neither done nor failed (see
+  // OperationState).
+  string operation_id = 2;
+  // rules are the operation's new rules. Shard rules only for now. No other
+  // unfinished operation may act on a tablegroup they route from or to.
+  repeated ShardRoutingRuleSpec rules = 3;
+  // expected_routing_version is the routing version the change is based on,
+  // as GetRoutingSnapshot returned it. Every catalog write advances the
+  // version, so a change fails if anything changed since it was read. A
+  // change already in effect succeeds whatever its value.
+  int64 expected_routing_version = 4;
+}
+
+// SetRoutingRulesResponse returns the routing version after the change.
+message SetRoutingRulesResponse {
+  int64 routing_version = 1;
+}
+
+// DeleteRoutingRulesRequest deletes every routing rule of an operation.
+message DeleteRoutingRulesRequest {
+  // database must be the database the pooler serves.
+  string database = 1;
+  // operation_id is the operation that owns the rules (a UUID).
+  string operation_id = 2;
+  // expected_routing_version is the routing version the change is based on.
+  // Deleting the rules of an operation that has none succeeds whatever its
+  // value.
+  int64 expected_routing_version = 3;
+}
+
+// DeleteRoutingRulesResponse returns the routing version after the change.
+message DeleteRoutingRulesResponse {
+  int64 routing_version = 1;
+}

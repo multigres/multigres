@@ -17,9 +17,10 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, ListDesiredTableGroupsRequest, ListDesiredTableGroupsResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
+import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, GetRoutingRulesRequest, GetRoutingRulesResponse, ListDesiredTableGroupsRequest, ListDesiredTableGroupsResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
 import { MethodKind } from "@bufbuild/protobuf";
 import { CreateConnectionRequest, CreateConnectionResponse, CreateMigrationRequest, CreateMigrationResponse, DropConnectionRequest, DropConnectionResponse, DropMigrationRequest, DropMigrationResponse, GetConnectionRequest, GetConnectionResponse, GetMigrationJournalRequest, GetMigrationJournalResponse, GetMigrationRequest, GetMigrationResponse, ListConnectionsRequest, ListConnectionsResponse, ListMigrationsRequest, ListMigrationsResponse, SetMigrationDirectionRequest, SetMigrationDirectionResponse } from "./migratorservice_pb";
+import { DeleteRoutingRulesRequest, DeleteRoutingRulesResponse, SetRoutingRulesRequest, SetRoutingRulesResponse } from "./multipoolermanagerdata_pb";
 
 /**
  * MultiadminService provides administrative APIs for cluster metadata, backups, and shard operations.
@@ -490,6 +491,42 @@ export const MultiadminService = {
       name: "DropConnection",
       I: DropConnectionRequest,
       O: DropConnectionResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * GetRoutingRules returns a database's routing rules by name, with the
+     * routing version a rule change is based on. It reads the catalog
+     * primary's sharding catalog snapshot.
+     *
+     * @generated from rpc multiadmin.MultiadminService.GetRoutingRules
+     */
+    getRoutingRules: {
+      name: "GetRoutingRules",
+      I: GetRoutingRulesRequest,
+      O: GetRoutingRulesResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * SetRoutingRules replaces every routing rule of an operation. A change
+     * already in effect succeeds without changing the routing version.
+     *
+     * @generated from rpc multiadmin.MultiadminService.SetRoutingRules
+     */
+    setRoutingRules: {
+      name: "SetRoutingRules",
+      I: SetRoutingRulesRequest,
+      O: SetRoutingRulesResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * DeleteRoutingRules deletes every routing rule of an operation.
+     *
+     * @generated from rpc multiadmin.MultiadminService.DeleteRoutingRules
+     */
+    deleteRoutingRules: {
+      name: "DeleteRoutingRules",
+      I: DeleteRoutingRulesRequest,
+      O: DeleteRoutingRulesResponse,
       kind: MethodKind.Unary,
     },
   }

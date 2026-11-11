@@ -152,7 +152,11 @@ type catalogWriter func(ctx context.Context, tx executor.InternalTx, current cat
 // writeCatalog runs write in a catalog write transaction on the admin pool,
 // under tableGroupOpTimeout. See the file comment for the protocol it owns.
 // It refuses to run unless this pooler is the elected primary of the catalog
-// shard, so no writer has to check that itself. It returns the advanced
+// shard, so no writer has to check that itself. A pooler that is not the
+// primary is refused with UNAVAILABLE, whatever the reason the check failed:
+// a caller that checked first has lost the primary since, which says nothing
+// about the catalog, so the caller rediscovers the primary and retries. It
+// returns the advanced
 // versions, or for catalogNoSnapshotChange, where nothing advances and nothing
 // is published, the current versions unchanged.
 func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWriter) (catalogVersions, error) {
@@ -164,7 +168,7 @@ func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWri
 	// makes postgres read-only.
 	rule, err := pm.catalogPrimaryRule(ctx)
 	if err != nil {
-		return catalogVersions{}, err
+		return catalogVersions{}, mterrors.WithCode(err, mtrpcpb.Code_UNAVAILABLE)
 	}
 	qs, err := pm.catalogQueryService()
 	if err != nil {
@@ -323,6 +327,7 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 		snapshot.RoutingVersion = v.routingVersion
 		snapshot.PlanEpoch = v.planEpoch
 		out.Snapshot = snapshot
+		pm.metrics.recordRoutingRules(ctx, pm.record.ShardRef().GetDatabase(), len(snapshot.GetRoutingRules()))
 	}
 	// The answer is labelled with the rule checked before the read. Check
 	// again: a pooler that is no longer the primary fails as it would have
