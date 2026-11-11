@@ -144,7 +144,9 @@ service MultipoolerManager {
   // Tablegroup operations
   // Served only by the pooler that is primary for the catalog shard (the
   // default tablegroup's 0-inf shard), which is the sole writer of the
-  // sharding catalog. Other poolers reject them with FAILED_PRECONDITION.
+  // sharding catalog. Other poolers reject them with FAILED_PRECONDITION; a
+  // pooler that stops being the primary while the request is in flight
+  // returns UNAVAILABLE, and the caller rediscovers the primary and retries.
   //
 
   // CreateTableGroup records the intent to create a tablegroup: the tablegroup

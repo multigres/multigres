@@ -98,6 +98,23 @@ func TestRoutingRPCs_OnlyOnCatalogPrimary(t *testing.T) {
 	assert.False(t, began, "a refused routing RPC must not open a transaction")
 }
 
+// A pooler whose routing role is still PRIMARY but whose postgres is already
+// in recovery, as during a demotion, passes requireCatalogPrimary and is then
+// refused by writeCatalog. It answers UNAVAILABLE, like any other pooler that
+// is not the catalog primary, so the caller retries on the new primary rather
+// than treating it as a refused change.
+func TestRoutingRPCs_DemotedMidRequestIsUnavailable(t *testing.T) {
+	env := newCatalogTestEnv(t)
+	env.expect("SELECT pg_is_in_recovery", []string{"pg_is_in_recovery"}, [][]any{{"t"}})
+
+	_, err := env.pm.SetRoutingRules(t.Context(), &multipoolermanagerdatapb.SetRoutingRulesRequest{
+		Database: testTableGroupDB, OperationId: importOp, Rules: importRuleSpec, ExpectedRoutingVersion: 5,
+	})
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "error: %v", err)
+	assert.Equal(t, []string{"SELECT pg_is_in_recovery()"}, env.queries, "refused by writeCatalog's check, before anything is locked")
+}
+
 // importRuleSpec is the import's rule from the default tablegroup to srctg.
 var importRuleSpec = []*multipoolermanagerdatapb.ShardRoutingRuleSpec{{FromTablegroup: "default", ToTablegroup: "srctg", ToShard: "0-inf"}}
 
@@ -111,7 +128,8 @@ func TestSetRoutingRules_WritesThroughWriteCatalog(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int64(6), resp.GetRoutingVersion())
-	assert.Contains(t, env.queries[0], "FROM multigres.catalog_state FOR UPDATE", "the catalog_state lock comes first")
+	assert.Equal(t, "SELECT pg_is_in_recovery()", env.queries[0], "writeCatalog checks for the catalog primary first")
+	assert.Contains(t, env.queries[1], "FROM multigres.catalog_state FOR UPDATE", "the catalog_state lock comes before any other catalog row")
 	assert.Len(t, env.queriesMatching("INSERT INTO multigres.routing_rule"), 1)
 	assert.Equal(t, "COMMIT", env.queries[len(env.queries)-1])
 }
