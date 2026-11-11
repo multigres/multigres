@@ -39,8 +39,8 @@ type problemState struct {
 	lastKnown   types.Problem
 }
 
-// clearedProblem is a problem that is no longer detected, as last seen.
-type clearedProblem struct {
+// problemSpan is a problem as last seen, and how long it has been, or was, detected.
+type problemSpan struct {
 	problem  types.Problem
 	duration time.Duration
 }
@@ -48,7 +48,7 @@ type clearedProblem struct {
 // problemTransitions are the changes between two consecutive cycles' detected sets.
 type problemTransitions struct {
 	appeared []types.Problem
-	cleared  []clearedProblem
+	cleared  []problemSpan
 }
 
 // problemTracker is the single record of which problems are currently detected
@@ -102,14 +102,14 @@ func (t *problemTracker) reconcile(detected []types.Problem, now time.Time) prob
 	}
 	for key, state := range t.active {
 		if _, still := seen[key]; !still {
-			transitions.cleared = append(transitions.cleared, clearedProblem{
+			transitions.cleared = append(transitions.cleared, problemSpan{
 				problem:  state.lastKnown,
 				duration: now.Sub(state.brokenSince),
 			})
 			delete(t.active, key)
 		}
 	}
-	slices.SortFunc(transitions.cleared, func(a, b clearedProblem) int {
+	slices.SortFunc(transitions.cleared, func(a, b problemSpan) int {
 		return compareKeys(keyOf(a.problem), keyOf(b.problem))
 	})
 	return transitions
@@ -120,6 +120,31 @@ func (t *problemTracker) activeProblems() []types.Problem {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	keys := t.oldestFirstLocked()
+	problems := make([]types.Problem, 0, len(keys))
+	for _, key := range keys {
+		problems = append(problems, t.active[key].lastKnown)
+	}
+	return problems
+}
+
+// activeSpans returns the currently detected problems, oldest first, with how long
+// each has been detected at now.
+func (t *problemTracker) activeSpans(now time.Time) []problemSpan {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	keys := t.oldestFirstLocked()
+	spans := make([]problemSpan, 0, len(keys))
+	for _, key := range keys {
+		state := t.active[key]
+		spans = append(spans, problemSpan{problem: state.lastKnown, duration: now.Sub(state.brokenSince)})
+	}
+	return spans
+}
+
+// oldestFirstLocked returns the active problems' keys, oldest first. t.mu must be held.
+func (t *problemTracker) oldestFirstLocked() []problemKey {
 	keys := make([]problemKey, 0, len(t.active))
 	for key := range t.active {
 		keys = append(keys, key)
@@ -127,11 +152,7 @@ func (t *problemTracker) activeProblems() []types.Problem {
 	slices.SortFunc(keys, func(a, b problemKey) int {
 		return cmp.Or(t.active[a].brokenSince.Compare(t.active[b].brokenSince), compareKeys(a, b))
 	})
-	problems := make([]types.Problem, 0, len(keys))
-	for _, key := range keys {
-		problems = append(problems, t.active[key].lastKnown)
-	}
-	return problems
+	return keys
 }
 
 func compareKeys(a, b problemKey) int {

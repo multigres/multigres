@@ -145,6 +145,51 @@ func TestEngineObserveProblems_LogsTransitions(t *testing.T) {
 	assert.Empty(t, engine.GetDetectedProblems())
 }
 
+func TestProblemTracker_ActiveSpansAreOldestFirstWithHowLongEachHasBeenDetected(t *testing.T) {
+	tracker := newProblemTracker()
+	older := shardProblem(types.ProblemShardAtRisk, nil)
+	newer := poolerProblem(types.ProblemReplicaNotReplicating, "replica-1", nil)
+	start := time.Now()
+	tracker.reconcile([]types.Problem{older}, start)
+	tracker.reconcile([]types.Problem{older, newer}, start.Add(time.Minute))
+
+	spans := tracker.activeSpans(start.Add(3 * time.Minute))
+
+	require.Len(t, spans, 2)
+	assert.Equal(t, types.ProblemShardAtRisk, spans[0].problem.Code)
+	assert.Equal(t, 3*time.Minute, spans[0].duration)
+	assert.Equal(t, types.ProblemReplicaNotReplicating, spans[1].problem.Code)
+	assert.Equal(t, 2*time.Minute, spans[1].duration)
+}
+
+func TestEngineRemindPersistingProblems(t *testing.T) {
+	var logs bytes.Buffer
+	engine := &Engine{logger: slog.New(slog.NewTextHandler(&logs, nil)), problems: newProblemTracker()}
+	persisting := shardProblem(types.ProblemLeaderUnreachableByCohort, nil)
+	start := time.Now()
+	engine.problems.reconcile([]types.Problem{persisting}, start)
+	reminders := func() int { return strings.Count(logs.String(), "problem still detected") }
+
+	engine.remindPersistingProblems(t.Context(), start.Add(5*time.Minute))
+	assert.Equal(t, 0, reminders(), "a problem younger than the interval is not reminded about")
+
+	engine.remindPersistingProblems(t.Context(), start.Add(10*time.Minute))
+	assert.Equal(t, 1, reminders(), "a check that logged nothing does not delay the first reminder")
+	assert.Contains(t, logs.String(), "problem_code=LeaderUnreachableByCohort")
+	assert.Contains(t, logs.String(), "duration=10m0s")
+
+	engine.remindPersistingProblems(t.Context(), start.Add(19*time.Minute))
+	assert.Equal(t, 1, reminders(), "reminders go out at most once per interval")
+
+	engine.remindPersistingProblems(t.Context(), start.Add(20*time.Minute))
+	assert.Equal(t, 2, reminders(), "the interval runs from the last reminder")
+	assert.Contains(t, logs.String(), "duration=20m0s")
+
+	engine.problems.reconcile(nil, start.Add(21*time.Minute))
+	engine.remindPersistingProblems(t.Context(), start.Add(30*time.Minute))
+	assert.Equal(t, 2, reminders(), "a cleared problem is not reminded about")
+}
+
 // The recovery loop reconciles once per cycle while metrics collection and gRPC
 // handlers read concurrently; run under -race.
 func TestProblemTracker_ReadsAreSafeWhileTheLoopReconciles(t *testing.T) {

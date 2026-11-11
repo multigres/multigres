@@ -208,6 +208,9 @@ type Engine struct {
 
 	// Problems currently detected, and since when. Reconciled once per cycle.
 	problems *problemTracker
+	// lastProblemReminder is when persisting problems were last logged. Only the
+	// recovery loop reads or writes it.
+	lastProblemReminder time.Time
 
 	// Metrics
 	metrics *Metrics
@@ -459,8 +462,42 @@ func (re *Engine) collectStreamHealthData() []StreamHealthData {
 // cycle, then applies and logs the transitions. Call it once per cycle, after
 // every analyzer has run, with the full detected set.
 func (re *Engine) observeProblems(ctx context.Context, problems []types.Problem) {
-	transitions := re.problems.reconcile(problems, time.Now())
+	now := time.Now()
+	transitions := re.problems.reconcile(problems, now)
 	re.logProblemTransitions(ctx, transitions)
+	re.remindPersistingProblems(ctx, now)
+}
+
+// problemReminderInterval is how often problems that persist are logged again.
+const problemReminderInterval = 10 * time.Minute
+
+// remindPersistingProblems logs, at most once per problemReminderInterval, each
+// problem that has been detected for at least that long, so a long-lived problem
+// doesn't go quiet in the logs after its first line. The interval runs from the last
+// reminder that logged something, so a lone problem is first reminded about exactly
+// one interval after it appeared.
+func (re *Engine) remindPersistingProblems(ctx context.Context, now time.Time) {
+	if now.Sub(re.lastProblemReminder) < problemReminderInterval {
+		return
+	}
+	var due []problemSpan
+	for _, s := range re.problems.activeSpans(now) {
+		if s.duration >= problemReminderInterval {
+			due = append(due, s)
+		}
+	}
+	if len(due) == 0 {
+		return
+	}
+	re.lastProblemReminder = now
+	for _, s := range due {
+		re.logger.InfoContext(ctx, "problem still detected",
+			"problem_code", s.problem.Code,
+			"entity_id", s.problem.EntityID(),
+			"shard_key", commontypes.FormatShardRef(s.problem.ShardRef),
+			"description", s.problem.Description,
+			"duration", s.duration)
+	}
 }
 
 // logProblemTransitions logs each problem once when it appears and once when it
