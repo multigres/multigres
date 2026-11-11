@@ -718,3 +718,21 @@ func TestBufferShutdownAfterEnqueue(t *testing.T) {
 	assert.Empty(t, buf.queue)
 	buf.mu.Unlock()
 }
+
+// TestBufferDoesNotStartForACancelledRequest: a request whose context is already
+// done must not move an idle shard to BUFFERING, which nobody would end.
+func TestBufferDoesNotStartForACancelledRequest(t *testing.T) {
+	buf := New(context.Background(), testConfig(t), testLogger())
+	defer buf.Shutdown()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	retryDone, err := buf.WaitForFailoverEnd(ctx, shard1Key)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Nil(t, retryDone)
+
+	// Nothing is waiting on the shard, so a proactive wait finds it idle.
+	retryDone, err = buf.WaitIfAlreadyBuffering(context.Background(), shard1Key)
+	require.NoError(t, err)
+	require.Nil(t, retryDone, "the shard must not have started buffering")
+}

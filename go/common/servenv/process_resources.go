@@ -19,7 +19,7 @@ import (
 )
 
 // ProcessResources holds the resources a process has only one of: its serving
-// environment and its gRPC servers. The process's main creates and owns them
+// environment and its gRPC server. The process's main creates and owns them
 // and hands them to every component it runs; components never create their
 // own. When several components run in one process (as in minigres), main
 // hands the same value to each, so they cannot end up with different servers.
@@ -37,13 +37,21 @@ type ProcessResources struct {
 	// their services on it; main registers its flags.
 	GrpcServer *GrpcServer
 
-	// QueryGrpcServer is where the multipooler serves its query service: the
-	// same as GrpcServer, except in minigres, where it is an in-memory server.
-	// The serving loop must start it too.
+	// QueryGrpcServer is where the multipooler serves its query service over
+	// gRPC: the same as GrpcServer. Nil in minigres, where the only caller,
+	// the multigateway in the same process, calls the pooler directly, so the
+	// query service is not served over gRPC at all. Optional.
 	QueryGrpcServer *GrpcServer
+
+	// SequencedShutdown is set when main runs the components' shutdown
+	// itself, in order, instead of each component registering it as a
+	// shutdown hook of its own. Minigres sets it so its gateway drains before
+	// its pooler stops PostgreSQL: servenv runs the hooks of one phase all at
+	// once.
+	SequencedShutdown bool
 }
 
-// Validate reports whether every resource is set. A component given an
+// Validate reports whether every required resource is set. A component given an
 // incomplete ProcessResources would, for example, register its services on a
 // gRPC server that is never started.
 func (pr ProcessResources) Validate() error {
@@ -53,9 +61,6 @@ func (pr ProcessResources) Validate() error {
 	}
 	if pr.GrpcServer == nil {
 		errs = append(errs, errors.New("GrpcServer is required"))
-	}
-	if pr.QueryGrpcServer == nil {
-		errs = append(errs, errors.New("QueryGrpcServer is required"))
 	}
 	return errors.Join(errs...)
 }

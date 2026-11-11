@@ -80,11 +80,15 @@ func TestActivateDeactivateMigration(t *testing.T) {
 
 	tc := targetConn(t, ctx, primary, targetDB)
 	defer tc.Close()
+	requireSynchronousSubscription(t, ctx, tc, id)
 
 	// Activate (switch to EXPORT): Multigres becomes the source of truth.
 	exportResp, err := mt.SetMigrationDirection(ctx, &migratorpb.SetMigrationDirectionRequest{Ref: idRef(id), Direction: migratorpb.MigrationDirection_MIGRATION_DIRECTION_EXPORT})
 	require.NoError(t, err)
 	require.Equal(t, migratorpb.MigrationDirection_MIGRATION_DIRECTION_EXPORT, exportResp.GetStatus().GetActiveDirection())
+	exportSC := dialSource(t, ctx, srcPort)
+	defer exportSC.Close()
+	requireSynchronousSubscription(t, ctx, exportSC, id)
 
 	// A write on the Multigres target must reach the old database.
 	_, err = tc.Query(ctx, "INSERT INTO public.orders (v) VALUES ('x')")
@@ -101,6 +105,7 @@ func TestActivateDeactivateMigration(t *testing.T) {
 	importResp, err := mt.SetMigrationDirection(ctx, &migratorpb.SetMigrationDirectionRequest{Ref: idRef(id), Direction: migratorpb.MigrationDirection_MIGRATION_DIRECTION_IMPORT})
 	require.NoError(t, err)
 	require.Equal(t, migratorpb.MigrationDirection_MIGRATION_DIRECTION_IMPORT, importResp.GetStatus().GetActiveDirection())
+	requireSynchronousSubscription(t, ctx, tc, id)
 
 	// A write on the old database must reach the Multigres target again.
 	sc := dialSource(t, ctx, srcPort)

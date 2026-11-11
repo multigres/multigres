@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/keyrange"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multipooler/grpcmanagerservice"
@@ -38,6 +39,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/grpcconsensusservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager"
+	"github.com/multigres/multigres/go/services/multipooler/localpoolerservice"
 	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
@@ -90,10 +92,14 @@ func validateUnrecoverableMinAttempts(n int) error {
 
 // Multipooler represents the main multipooler instance with all configuration and state
 type Multipooler struct {
+	// backingConnection names the connection an unmanaged pooler fronts. Setting
+	// it makes the pooler unmanaged (see leadershipModeFor).
+	backingConnection   viperutil.Value[string]
 	pgctldAddr          viperutil.Value[string]
 	cell                viperutil.Value[string]
 	database            viperutil.Value[string]
 	tableGroup          viperutil.Value[string]
+	tableGroupID        viperutil.Value[int64]
 	shard               viperutil.Value[string]
 	serviceID           viperutil.Value[string]
 	socketFilePath      viperutil.Value[string]
@@ -140,13 +146,25 @@ type Multipooler struct {
 	reg *viperutil.Registry
 	// GrpcServer is the grpc server
 	grpcServer *servenv.GrpcServer
-	// queryGrpcServer serves the query service (ProcessResources.QueryGrpcServer).
+	// queryGrpcServer serves the query service over gRPC
+	// (ProcessResources.QueryGrpcServer). Nil in minigres, where it is served
+	// only in-process, through localServer.
 	queryGrpcServer *servenv.GrpcServer
+	// localServer serves the pooler to callers in this process (minigres's
+	// gateway) without gRPC; see LocalPoolerService.
+	localServer *localpoolerservice.Server
+
+	// sequencedShutdown is ProcessResources.SequencedShutdown: main calls
+	// GracefulShutdown itself instead of the multipooler registering it.
+	sequencedShutdown bool
+
 	// Senv is the serving environment
 	senv      *servenv.ServEnv
 	telemetry *telemetry.Telemetry
 	// connPoolConfig holds connection pool configuration (manager created inside MultipoolerManager)
 	connPoolConfig *connpoolmanager.Config
+	// connections is where an unmanaged pooler gets its backing connection from.
+	connections connectionSource
 
 	// ts is set from Init's ts argument. Owned by whoever constructed this
 	// Multipooler (cmd/multipooler standalone, or cmd/minigres sharing it with
@@ -188,7 +206,8 @@ func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, res
 		panic("multipooler: reg is required")
 	}
 	mp := &Multipooler{
-		reg: reg,
+		reg:         reg,
+		connections: unconfiguredSource{},
 		pgctldAddr: viperutil.Configure(reg, "pgctld-addr", viperutil.Options[string]{
 			Default:  "localhost:15200",
 			FlagName: "pgctld-addr",
@@ -216,11 +235,21 @@ func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, res
 			FlagName: "shard",
 			Dynamic:  false,
 		}),
+		tableGroupID: viperutil.Configure(reg, "tablegroup-id", viperutil.Options[int64]{
+			Default:  0,
+			FlagName: "tablegroup-id",
+			Dynamic:  false,
+		}),
 		serviceID: viperutil.Configure(reg, "service-id", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "service-id",
 			Dynamic:  false,
 			EnvVars:  []string{"MT_SERVICE_ID"},
+		}),
+		backingConnection: viperutil.Configure(reg, "backing-connection", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "backing-connection",
+			Dynamic:  false,
 		}),
 		socketFilePath: viperutil.Configure(reg, "socket-file", viperutil.Options[string]{
 			Default:  "",
@@ -326,6 +355,8 @@ func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, res
 	mp.senv = resources.ServEnv
 	mp.grpcServer = resources.GrpcServer
 	mp.queryGrpcServer = resources.QueryGrpcServer
+	mp.localServer = localpoolerservice.NewServer()
+	mp.sequencedShutdown = resources.SequencedShutdown
 	mp.statusPath = statusPath
 	mp.staticLeader = staticLeader
 	mp.senv.InitServiceMap("grpc", "pooler")
@@ -345,11 +376,13 @@ func (mp *Multipooler) consensusEnabled() bool {
 
 // RegisterFlags registers all multipooler flags with the given FlagSet
 func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
+	flags.String("backing-connection", mp.backingConnection.Default(), "Name of the connection of an external postgres to front. Setting it makes this an unmanaged pooler: no pgctld, backups or consensus")
 	flags.String("pgctld-addr", mp.pgctldAddr.Default(), "Address of pgctld gRPC service")
 	flags.String("cell", mp.cell.Default(), "cell to use")
 	flags.String("database", mp.database.Default(), "database name this multipooler serves (overrides "+constants.PgDatabaseEnvVar+" env var)")
 	flags.String("table-group", mp.tableGroup.Default(), "table group this multipooler serves (required)")
 	flags.String("shard", mp.shard.Default(), "shard this multipooler serves (required)")
+	flags.Int64("tablegroup-id", mp.tableGroupID.Default(), "catalog id of the table group this multipooler serves, as reported by ListDesiredTableGroups; 0 when unknown (the default table group, or one configured outside the catalog)")
 	flags.String("service-id", mp.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
 	flags.String("socket-file", mp.socketFilePath.Default(), "PostgreSQL Unix socket file path. If unset, derived as <pooler-dir>/pg_sockets/.s.PGSQL.<pg-port> when --pooler-dir is set; set explicitly to empty (--socket-file='') to force a TCP connection")
 	flags.String("pooler-dir", mp.poolerDir.Default(), "pooler directory path")
@@ -371,10 +404,12 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 
 	viperutil.BindFlags(
 		flags,
+		mp.backingConnection,
 		mp.pgctldAddr,
 		mp.cell,
 		mp.database,
 		mp.tableGroup,
+		mp.tableGroupID,
 		mp.shard,
 		mp.serviceID,
 		mp.socketFilePath,
@@ -435,6 +470,16 @@ func (mp *Multipooler) pgBackRestCipherKeyFilePath() (string, bool) {
 	return "", false
 }
 
+// resolveLeadershipMode derives the leadership mode from --backing-connection
+// and whether this is a static leader, and checks that the backend flags agree
+// with it.
+func (mp *Multipooler) resolveLeadershipMode() (clustermetadatapb.LeadershipMode, error) {
+	if err := validateBackendFlags(mp.backingConnection.Get(), mp.flagExplicitlySet); err != nil {
+		return 0, err
+	}
+	return leadershipModeFor(mp.backingConnection.Get(), mp.staticLeader)
+}
+
 // Init initializes the multipooler. If any services fail to start,
 // or if some connections fail, it launches goroutines that retry
 // until successful. ts is the process's already-open topology store (main
@@ -471,46 +516,110 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		return errors.New("database is required")
 	}
 
-	if err := mp.connPoolConfig.ResolvePgPassword(); err != nil {
-		return fmt.Errorf("resolve admin password: %w", err)
-	}
-
-	cipherKeys, err := mp.resolvePgBackRestCipherKeys()
+	mode, err := mp.resolveLeadershipMode()
 	if err != nil {
-		return fmt.Errorf("resolve backup cipher keys: %w", err)
+		return err
 	}
+	unmanaged := !topoclient.IsManagedLeadershipMode(mode)
 
-	if mp.tableGroup.Get() == "" {
+	// A tablegroup and shard this pooler cannot serve are refused here, before anything is
+	// fetched or dialed.
+	tableGroup, shard := mp.tableGroup.Get(), mp.shard.Get()
+	if tableGroup == "" {
 		return errors.New("table group is required")
 	}
-
-	if mp.shard.Get() == "" {
+	if shard == "" {
 		return errors.New("shard is required")
 	}
-
-	if err := keyrange.ValidateTableGroupAndShard(mp.tableGroup.Get(), mp.shard.Get()); err != nil {
+	if err := keyrange.ValidateTableGroupAndShard(tableGroup, shard); err != nil {
 		return err
 	}
-
-	if os.Getenv(constants.PgDataDirEnvVar) == "" {
-		return errors.New("PGDATA environment variable is required")
+	if mp.tableGroupID.Get() < 0 {
+		return errors.New("tablegroup-id must not be negative")
 	}
-
-	// Adopt configuration pgctld owns (postgres port, pooler dir, pgBackRest
-	// port and cert paths) from its Status RPC, unless explicitly configured
-	// here. pgctld is the process that actually applies these values, so
-	// adopting them removes a class of hand-balanced flag duplication.
-	adopted, err := mp.adoptPgctldValues(startCtx, logger)
+	// The shard name was validated above, so this should never fail.
+	keyRange, err := keyrange.ParseShardName(shard)
 	if err != nil {
 		return err
+	}
+	if unmanaged {
+		if err := manager.ValidateUnmanagedTableGroup(tableGroup); err != nil {
+			return err
+		}
+	}
+
+	// The pooler's topology record, built once from what is known now.
+	multipooler := topoclient.NewMultipooler(serviceID, cell, mp.senv.GetHostname())
+	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())
+	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
+	multipooler.ShardRef = &clustermetadatapb.ShardRef{
+		Database:   mp.database.Get(),
+		TableGroup: tableGroup,
+		Shard:      shard,
+	}
+	multipooler.TablegroupId = mp.tableGroupID.Get()
+	multipooler.KeyRange = keyRange
+	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
+	multipooler.LeadershipMode = mode
+
+	// An unmanaged pooler takes its endpoint and credentials from the named backing
+	// connection, and has no pgctld, no data directory and no backups. A managed one takes the
+	// admin password from its own configuration, manages backup keys, and adopts the
+	// configuration pgctld owns (postgres port, pooler dir, pgBackRest port and cert paths)
+	// from its Status RPC, unless explicitly configured here: pgctld is the process that
+	// actually applies these values, so adopting them removes a class of hand-balanced flag
+	// duplication.
+	var (
+		externalBackend *manager.ExternalBackend
+		cipherKey       backup.CipherKeys
+		adopted         adoptedPgctldValues
+	)
+	if unmanaged {
+		backing, err := fetchBackingConnection(startCtx, mp.connections, mp.backingConnection.Get())
+		if err != nil {
+			return fmt.Errorf("resolve backing connection: %w", err)
+		}
+
+		// The endpoint of an unmanaged pooler is set here and nowhere else: the record
+		// publishes its port, the TLS validation below checks its host, and the manager
+		// dials, probes and serves from it, so they can never disagree.
+		externalBackend = &manager.ExternalBackend{Host: backing.Host, Port: backing.Port, Database: backing.Database}
+		if err := checkBackingDatabase(mp.backingConnection.Get(), externalBackend, mp.database.Get()); err != nil {
+			return err
+		}
+		mp.connPoolConfig.SetBackingCredentials(backing.User, backing.Password, backing.SSLMode, backing.SSLRootCert, backing.SSLNegotiation)
+		multipooler.PortMap["postgres"] = int32(externalBackend.Port)
+	} else {
+		if err := mp.connPoolConfig.ResolvePgPassword(); err != nil {
+			return fmt.Errorf("resolve admin password: %w", err)
+		}
+		cipherKey, err = mp.resolvePgBackRestCipherKeys()
+		if err != nil {
+			return fmt.Errorf("resolve backup cipher keys: %w", err)
+		}
+		if os.Getenv(constants.PgDataDirEnvVar) == "" {
+			return errors.New("PGDATA environment variable is required")
+		}
+		adopted, err = mp.adoptPgctldValues(startCtx, logger)
+		if err != nil {
+			return err
+		}
+		multipooler.PortMap["postgres"] = int32(adopted.pgPort)
+		multipooler.PortMap["pgbackrest"] = int32(adopted.pgBackRestPort)
+		multipooler.PoolerDir = adopted.poolerDir
+		multipooler.PgDataDir = os.Getenv(constants.PgDataDirEnvVar)
 	}
 
 	// Resolve the postgres socket path: an unset --socket-file derives it from
 	// pooler-dir + pg-port (the same formula pgctld uses to configure
 	// unix_socket_directories), so co-located deployments need not repeat it.
-	socketFilePath := resolveSocketFilePath(mp.socketFilePath.Get(), mp.flagExplicitlySet("socket-file"), adopted.poolerDir, adopted.pgPort)
-	if socketFilePath != mp.socketFilePath.Get() {
-		logger.InfoContext(startCtx, "derived postgres socket file from pooler-dir and pg-port", "socket_file", socketFilePath)
+	// An unmanaged pooler always dials TCP.
+	socketFilePath := ""
+	if !unmanaged {
+		socketFilePath = resolveSocketFilePath(mp.socketFilePath.Get(), mp.flagExplicitlySet("socket-file"), adopted.poolerDir, adopted.pgPort)
+		if socketFilePath != mp.socketFilePath.Get() {
+			logger.InfoContext(startCtx, "derived postgres socket file from pooler-dir and pg-port", "socket_file", socketFilePath)
+		}
 	}
 	mp.resolvedSocketFilePath = socketFilePath
 
@@ -518,36 +627,18 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	// or missing CA bundle should fail startup rather than silently downgrading
 	// the multipooler → postgres dials to plaintext.
 	pgHost := ""
-	if socketFilePath == "" {
+	switch {
+	case externalBackend != nil:
+		pgHost = externalBackend.Host
+	case socketFilePath == "":
 		pgHost = mp.senv.GetHostname()
 	}
 	if err := mp.connPoolConfig.ValidatePGSSL(pgHost); err != nil {
 		return err
 	}
 
-	// Create multipooler record with all fields now that servenv.Init() has set them up
-	multipooler := topoclient.NewMultipooler(serviceID, cell, mp.senv.GetHostname())
-	multipooler.PortMap["grpc"] = int32(mp.grpcServer.Port())
-	multipooler.PortMap["http"] = int32(mp.senv.GetHTTPPort())
-	multipooler.PortMap["postgres"] = int32(adopted.pgPort)
-	multipooler.PortMap["pgbackrest"] = int32(adopted.pgBackRestPort)
-	multipooler.ShardRef = &clustermetadatapb.ShardRef{
-		Database:   mp.database.Get(),
-		TableGroup: mp.tableGroup.Get(),
-		Shard:      mp.shard.Get(),
-	}
-	// The shard name was validated above, so this should never fail.
-	keyRange, err := keyrange.ParseShardName(mp.shard.Get())
-	if err != nil {
+	if err := requireUnchangedManagement(startCtx, mp.ts, multipooler.Id, mode, logger); err != nil {
 		return err
-	}
-	multipooler.KeyRange = keyRange
-	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
-	multipooler.PoolerDir = adopted.poolerDir
-	multipooler.PgDataDir = os.Getenv(constants.PgDataDirEnvVar)
-	multipooler.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_CONSENSUS
-	if mp.staticLeader {
-		multipooler.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
 	}
 
 	minAttempts := mp.postgresUnrecoverableMinAttempts.Get()
@@ -555,7 +646,8 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		return err
 	}
 
-	consensusEnabled := mp.consensusEnabled()
+	// An unmanaged pooler never takes part in consensus.
+	consensusEnabled := mp.consensusEnabled() && !unmanaged
 
 	logger.InfoContext(startCtx, "initializing MultipoolerManager")
 	poolerManager, err := manager.NewMultipoolerManager(logger, multipooler, &manager.Config{
@@ -569,18 +661,20 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		PgctldAddr:                     mp.pgctldAddr.Get(),
 		ConsensusEnabled:               consensusEnabled,
 		ConnPoolConfig:                 mp.connPoolConfig,
-		BackendVpidTrackingEnabled:     mp.backendVpidTrackingEnabled.Get(),
+		BackendVpidTrackingEnabled:     mp.backendVpidTrackingEnabled.Get() && !unmanaged,
 		SlotBasedReplicationEnabled:    mp.slotBasedReplicationEnabled.Get,
 		// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server
 		PgBackRestCertFile: adopted.pgBackRestCertFile,
 		PgBackRestKeyFile:  adopted.pgBackRestKeyFile,
 		PgBackRestCAFile:   adopted.pgBackRestCAFile,
-		BackupCipherKeys:   cipherKeys,
+		BackupCipherKeys:   cipherKey,
 
 		PostgresUnrecoverableTimeout:     mp.postgresUnrecoverableTimeout.Get(),
 		PostgresUnrecoverableMinAttempts: minAttempts,
 
 		StaticLeader: mp.staticLeader,
+
+		ExternalBackend: externalBackend,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)
@@ -592,10 +686,15 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	// out of manager.Start so RPC unit tests don't run background DB queries).
 	poolerManager.StartBackupHealth()
 	grpcmanagerservice.RegisterPoolerManagerServices(mp.senv, mp.grpcServer)
+	// An unmanaged pooler registers no consensus RPCs: consensusEnabled is false for it, and
+	// the service answers Unimplemented.
 	if consensusEnabled {
 		grpcconsensusservice.RegisterConsensusServices(mp.senv, mp.grpcServer)
 	}
-	grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.queryGrpcServer)
+	if mp.queryGrpcServer != nil {
+		grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.queryGrpcServer)
+	}
+	localpoolerservice.RegisterPoolerServices(mp.localServer)
 	grpcmigrationservice.RegisterMigrationServices(mp.senv, mp.grpcServer)
 
 	mp.senv.HTTPHandleFunc(mp.statusPath, mp.handleIndex)
@@ -621,6 +720,9 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	// publisher, and the shutdown unregister on close all live behind
 	// StartTopoRegistration / StopTopoRegistration on the manager.
 	mp.poolerManager = poolerManager
+	if !mp.sequencedShutdown {
+		mp.senv.OnTermSync(mp.GracefulShutdown)
+	}
 	mp.senv.OnRun(func() {
 		poolerManager.StartTopoRegistration(func(s string) {
 			mp.serverStatus.mu.Lock()
@@ -639,6 +741,25 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		mp.Shutdown(ctx)
 	})
 	return nil
+}
+
+// GracefulShutdown stops serving and stops PostgreSQL: the local query service
+// refuses new calls and waits for running ones, then the manager drains the
+// pools and stops PostgreSQL. It runs on SIGTERM, as an OnTermSync hook unless
+// main runs it itself (ProcessResources.SequencedShutdown), once what calls
+// the pooler has stopped.
+func (mp *Multipooler) GracefulShutdown() {
+	mp.localServer.Stop()
+	mp.poolerManager.Shutdown()
+}
+
+// LocalPoolerService returns the pooler for callers in this process, such as
+// minigres's gateway: its query service, credential lookup and health, the
+// same code the gRPC service uses, called directly. Calls are refused as
+// unavailable before the pooler registers its services and once shutdown
+// begins.
+func (mp *Multipooler) LocalPoolerService() queryservice.Pooler {
+	return mp.localServer
 }
 
 // Database returns the configured database name.
@@ -790,8 +911,7 @@ func resolveAdoptedValues(flags adoptedPgctldValues, explicit map[string]bool, s
 // multiorch keeps visibility), so a pgBackRest-only adoption falls back to
 // the flag values with a warning instead of refusing to start.
 func (mp *Multipooler) adoptPgctldValues(ctx context.Context, logger *slog.Logger) (adoptedPgctldValues, error) {
-	requiredFlags := []string{"pg-port", "pooler-dir"}
-	optionalFlags := []string{"pgbackrest-port", "pgbackrest-cert-file", "pgbackrest-key-file", "pgbackrest-ca-file"}
+	requiredFlags, optionalFlags := pgctldRequiredFlags, pgctldOptionalFlags
 	explicit := make(map[string]bool, len(requiredFlags)+len(optionalFlags))
 	allExplicit, requiredExplicit := true, true
 	for _, name := range requiredFlags {

@@ -29,6 +29,8 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	migratorpb "github.com/multigres/multigres/go/pb/migrator"
+	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -61,6 +63,11 @@ type poolerHealth struct {
 	// Zero on the primary or when not yet measured.
 	ReplicationLagNs int64
 
+	// RoutingVersion and PlanEpoch are the sharding catalog's versions, which
+	// only the catalog shard's primary reports. Zero from any other pooler.
+	RoutingVersion int64
+	PlanEpoch      int64
+
 	// LastError is the most recent error from the health stream.
 	LastError error
 
@@ -90,6 +97,8 @@ func (h *poolerHealth) simpleCopy() *poolerHealth {
 		ServingStatus:    h.ServingStatus,
 		RoutingState:     h.RoutingState,
 		ReplicationLagNs: h.ReplicationLagNs,
+		RoutingVersion:   h.RoutingVersion,
+		PlanEpoch:        h.PlanEpoch,
 		LastError:        h.LastError,
 		LastResponse:     h.LastResponse,
 	}
@@ -109,17 +118,16 @@ type poolerConnection struct {
 	// Accessed atomically to avoid data races between UpdatePoolerInfo and readers.
 	poolerInfo atomic.Pointer[topoclient.MultipoolerInfo]
 
-	// conn is the underlying gRPC connection. Production code reaches the
-	// connection only via queryService (which owns its lifecycle: Shutdown
-	// calls queryService.Close()). The field is retained so telemetry tests
-	// can inspect the dial's OpenTelemetry attributes directly.
+	// conn is the underlying gRPC connection; nil for a LocalPooler, which is
+	// called directly. Production code reaches the connection only via pooler
+	// (which owns its lifecycle: Shutdown calls pooler.Close()). The field is
+	// retained so telemetry tests can inspect the dial's OpenTelemetry
+	// attributes directly.
 	conn *grpc.ClientConn
 
-	// client is the gRPC client for health streaming
-	client multipoolerservice.MultipoolerServiceClient
-
-	// queryService handles query execution over gRPC
-	queryService queryservice.QueryService
+	// pooler is the pooler's query service, credential lookup, health and
+	// notifications: over gRPC, or direct calls to a pooler in this process.
+	pooler queryservice.Pooler
 
 	// logger for debugging
 	logger *slog.Logger
@@ -152,10 +160,6 @@ type poolerConnection struct {
 	onHealthUpdate func(*poolerConnection)
 }
 
-// localPoolerTarget is the gRPC target for a LocalPooler; its dial options
-// ignore it.
-const localPoolerTarget = "passthrough:///local-multipooler"
-
 // newPoolerConnection creates a new connection to a multipooler instance and
 // starts health streaming automatically.
 //
@@ -175,41 +179,41 @@ func newPoolerConnection(
 	poolerInfo := &topoclient.MultipoolerInfo{Multipooler: pooler}
 	poolerID := topoclient.ComponentIDString(pooler.Id)
 	addr := poolerInfo.Addr()
-	dialOpts := []grpc.DialOption{grpcDialOpt}
-	if local != nil {
-		// The pooler is in this process; its topology address is not used.
-		addr = localPoolerTarget
-		dialOpts = local.DialOptions
-	}
 
 	logger.DebugContext(ctx, "creating pooler connection",
 		"pooler_id", poolerID,
 		"addr", addr,
+		"local", local != nil,
 		"is_leader", pooler.GetRoutingState() != nil)
 
-	// Create gRPC connection with telemetry attributes
-	conn, err := grpccommon.NewClient(addr,
-		grpccommon.WithAttributes(rpcclient.PoolerSpanAttributes(pooler.Id)...),
-		grpccommon.WithDialOptions(dialOpts...),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create gRPC client for pooler %s at %s: %w", poolerID, addr, err)
+	// Call the pooler directly when it is in this process, over gRPC
+	// otherwise.
+	var conn *grpc.ClientConn
+	var service queryservice.Pooler
+	if local != nil {
+		service = newDirectQueryService(local.Service)
+	} else {
+		var err error
+		conn, err = grpccommon.NewClient(addr,
+			grpccommon.WithAttributes(rpcclient.PoolerSpanAttributes(pooler.Id)...),
+			grpccommon.WithDialOptions(grpcDialOpt),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create gRPC client for pooler %s at %s: %w", poolerID, addr, err)
+		}
+		service = newGRPCQueryService(conn, poolerID, logger)
 	}
 
 	// Derive a cancellable context from the service-lifetime context for the
 	// health stream goroutine. This ensures proper shutdown propagation.
 	ctx, cancel := context.WithCancel(ctx)
 
-	// Create QueryService wrapper
-	queryService := newGRPCQueryService(conn, poolerID, logger)
-
 	// Initialize health state to DISABLED until the health stream provides data.
 	// Shard identity is available via poolerInfo; the gateway derives role from
 	// consensus observations, not the topology Type label.
 	pc := &poolerConnection{
 		conn:           conn,
-		client:         multipoolerservice.NewMultipoolerServiceClient(conn),
-		queryService:   queryService,
+		pooler:         service,
 		logger:         logger,
 		ctx:            ctx,
 		cancel:         cancel,
@@ -256,15 +260,33 @@ func (pc *poolerConnection) PoolerInfo() *topoclient.MultipoolerInfo {
 	return pc.poolerInfo.Load()
 }
 
-// ServiceClient returns the MultipoolerServiceClient for admin operations.
-// This can be used for authentication, health checks, and other system-level operations.
-func (pc *poolerConnection) ServiceClient() multipoolerservice.MultipoolerServiceClient {
-	return pc.client
+// Pooler returns the pooler's query service, credential lookup, health and
+// notifications for this connection.
+func (pc *poolerConnection) Pooler() queryservice.Pooler {
+	return pc.pooler
+}
+
+// ManagerClient returns a pooler manager client over this connection's gRPC
+// channel, which serves the manager service alongside the query service. The
+// local pooler is called in process, with no channel, and has none.
+func (pc *poolerConnection) ManagerClient() (multipoolermanagerpb.MultipoolerManagerClient, error) {
+	if pc.conn == nil {
+		return nil, fmt.Errorf("pooler %s has no gRPC connection for its manager service", pc.ID())
+	}
+	return multipoolermanagerpb.NewMultipoolerManagerClient(pc.conn), nil
 }
 
 // QueryService returns the query execution service for this connection.
 func (pc *poolerConnection) QueryService() queryservice.QueryService {
-	return pc.queryService
+	return pc.pooler
+}
+
+// MigratorClient returns a Migrator service client on the same gRPC
+// connection. The Migrator service is registered on the multipooler's gRPC
+// server, so this reaches the migration coordinator on the shard primary. Used
+// by the gateway's migration DDL interface.
+func (pc *poolerConnection) MigratorClient() migratorpb.MigratorClient {
+	return migratorpb.NewMigratorClient(pc.conn)
 }
 
 // Shutdown stops the health stream goroutine and closes the underlying
@@ -279,7 +301,7 @@ func (pc *poolerConnection) Shutdown() error {
 		pc.cancel()
 	}
 
-	if err := pc.queryService.Close(); err != nil {
+	if err := pc.pooler.Close(); err != nil {
 		return fmt.Errorf("failed to close query service for pooler %s: %w", poolerID, err)
 	}
 	return nil
@@ -352,7 +374,7 @@ func (pc *poolerConnection) streamHealth(
 	pc.healthTimedOut.Store(false)
 
 	// Open the health stream.
-	stream, err := pc.client.StreamPoolerHealth(streamCtx, &multipoolerservice.StreamPoolerHealthRequest{})
+	recv, err := pc.pooler.SubscribeHealth(streamCtx)
 	if err != nil {
 		pc.logger.WarnContext(streamCtx, "failed to open health stream",
 			"pooler_id", poolerID,
@@ -374,7 +396,7 @@ func (pc *poolerConnection) streamHealth(
 
 	// Process responses from the stream.
 	for {
-		response, err := stream.Recv()
+		response, err := recv()
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				pc.logger.DebugContext(streamCtx, "health stream closed by server", "pooler_id", poolerID)
@@ -424,6 +446,8 @@ func (pc *poolerConnection) processHealthResponse(response *multipoolerservice.S
 		ServingStatus:    response.ServingStatus,
 		RoutingState:     response.RoutingState,
 		ReplicationLagNs: response.ReplicationLagNs,
+		RoutingVersion:   response.RoutingVersion,
+		PlanEpoch:        response.PlanEpoch,
 		LastError:        nil,
 		LastResponse:     time.Now(),
 	}

@@ -27,6 +27,7 @@ import (
 	migratorpb "github.com/multigres/multigres/go/pb/migrator"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multiadminconnect "github.com/multigres/multigres/go/pb/multiadmin/multiadminconnect"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
 // connectAdapter wraps MultiadminServer to implement the connect-go handler interface.
@@ -106,6 +107,14 @@ func (a *connectAdapter) GetDatabase(ctx context.Context, req *connect.Request[m
 
 func (a *connectAdapter) GetCellNames(ctx context.Context, req *connect.Request[multiadminpb.GetCellNamesRequest]) (*connect.Response[multiadminpb.GetCellNamesResponse], error) {
 	resp, err := a.MultiadminServer.GetCellNames(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (a *connectAdapter) ListDesiredTableGroups(ctx context.Context, req *connect.Request[multiadminpb.ListDesiredTableGroupsRequest]) (*connect.Response[multiadminpb.ListDesiredTableGroupsResponse], error) {
+	resp, err := a.MultiadminServer.ListDesiredTableGroups(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -316,6 +325,33 @@ func (a *connectAdapter) ListConnections(ctx context.Context, req *connect.Reque
 // DropConnection forwards to the Multigres Migrator service.
 func (a *connectAdapter) DropConnection(ctx context.Context, req *connect.Request[migratorpb.DropConnectionRequest]) (*connect.Response[migratorpb.DropConnectionResponse], error) {
 	resp, err := a.MultiadminServer.DropConnection(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// GetRoutingRules reads the routing rules from the database's catalog primary.
+func (a *connectAdapter) GetRoutingRules(ctx context.Context, req *connect.Request[multiadminpb.GetRoutingRulesRequest]) (*connect.Response[multiadminpb.GetRoutingRulesResponse], error) {
+	resp, err := a.MultiadminServer.GetRoutingRules(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// SetRoutingRules forwards to the database's catalog primary.
+func (a *connectAdapter) SetRoutingRules(ctx context.Context, req *connect.Request[multipoolermanagerdatapb.SetRoutingRulesRequest]) (*connect.Response[multipoolermanagerdatapb.SetRoutingRulesResponse], error) {
+	resp, err := a.MultiadminServer.SetRoutingRules(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// DeleteRoutingRules forwards to the database's catalog primary.
+func (a *connectAdapter) DeleteRoutingRules(ctx context.Context, req *connect.Request[multipoolermanagerdatapb.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdatapb.DeleteRoutingRulesResponse], error) {
+	resp, err := a.MultiadminServer.DeleteRoutingRules(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}

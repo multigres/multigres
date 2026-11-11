@@ -25,9 +25,11 @@ import (
 // target file is never in a partially written state.
 //
 // The function creates a temporary file in the same directory as the target,
-// writes the data, syncs it to disk, and then atomically renames it to the
-// target path. This provides durability guarantees and prevents readers from
-// seeing partial writes.
+// writes the data, syncs it to disk, atomically renames it to the target path,
+// and then syncs the directory so the rename itself survives a power loss.
+// This provides durability guarantees and prevents readers from seeing partial
+// writes. If the directory sync fails the new content is already in place but
+// not known to be durable, and an error is returned.
 func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	tmpFile, err := os.CreateTemp(dir, ".tmp-*")
@@ -61,5 +63,24 @@ func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
 
+	// The rename is a directory update; without a directory fsync a power loss can revert it.
+	return syncDir(dir)
+}
+
+// syncDir fsyncs a directory so a rename or create inside it is durable.
+// fsync on a file does not persist its directory entry; see fsync(2)
+// (https://man7.org/linux/man-pages/man2/fsync.2.html) and the same
+// rename-then-fsync-directory sequence in PostgreSQL's durable_rename()
+// (src/backend/storage/file/fd.c) and etcd's WAL (server/storage/wal/wal.go).
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("failed to open directory for sync: %w", err)
+	}
+	defer d.Close()
+
+	if err := d.Sync(); err != nil {
+		return fmt.Errorf("failed to sync directory: %w", err)
+	}
 	return nil
 }

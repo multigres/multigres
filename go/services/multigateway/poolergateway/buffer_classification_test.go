@@ -57,7 +57,7 @@ func deadTCPAddr(t *testing.T) string {
 
 // queryServiceAt builds a grpcQueryService over a real (lazy) gRPC client
 // connection to addr, mirroring how poolerConnection wires it in production.
-func queryServiceAt(t *testing.T, addr string) queryservice.QueryService {
+func queryServiceAt(t *testing.T, addr string) queryservice.Pooler {
 	t.Helper()
 	cc, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)

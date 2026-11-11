@@ -146,18 +146,16 @@ func ParseShardWatchTargets(targets []string) ([]WatchTarget, error) {
 // Config encapsulates all multiorch configuration.
 // This is passed to the recovery engine and other components.
 type Config struct {
-	cell                               viperutil.Value[string]
-	serviceID                          viperutil.Value[string]
-	shardWatchTargets                  viperutil.Value[[]string]
-	bookkeepingInterval                viperutil.Value[time.Duration]
-	poolerHealthCheckInterval          viperutil.Value[time.Duration]
-	healthCheckWorkers                 viperutil.Value[int]
-	recoveryCycleInterval              viperutil.Value[time.Duration]
-	leaderFailoverGracePeriodBase      viperutil.Value[time.Duration]
-	leaderFailoverGracePeriodMaxJitter viperutil.Value[time.Duration]
-	verifyReplicationTimeout           viperutil.Value[time.Duration]
-	leaderPostgresResponseThreshold    viperutil.Value[time.Duration]
-	allowUnsafeInitialCohort           viperutil.Value[bool]
+	cell                            viperutil.Value[string]
+	serviceID                       viperutil.Value[string]
+	shardWatchTargets               viperutil.Value[[]string]
+	bookkeepingInterval             viperutil.Value[time.Duration]
+	poolerHealthCheckInterval       viperutil.Value[time.Duration]
+	healthCheckWorkers              viperutil.Value[int]
+	recoveryCycleInterval           viperutil.Value[time.Duration]
+	verifyReplicationTimeout        viperutil.Value[time.Duration]
+	leaderPostgresResponseThreshold viperutil.Value[time.Duration]
+	allowUnsafeInitialCohort        viperutil.Value[bool]
 }
 
 // Constants
@@ -211,18 +209,6 @@ func NewConfig(reg *viperutil.Registry) *Config {
 			Dynamic:  true,
 			EnvVars:  []string{"MT_RECOVERY_CYCLE_INTERVAL"},
 		}),
-		leaderFailoverGracePeriodBase: viperutil.Configure(reg, "leader-failover-grace-period-base", viperutil.Options[time.Duration]{
-			Default:  4 * time.Second,
-			FlagName: "leader-failover-grace-period-base",
-			Dynamic:  true,
-			EnvVars:  []string{"MT_LEADER_FAILOVER_GRACE_PERIOD_BASE"},
-		}),
-		leaderFailoverGracePeriodMaxJitter: viperutil.Configure(reg, "leader-failover-grace-period-max-jitter", viperutil.Options[time.Duration]{
-			Default:  8 * time.Second,
-			FlagName: "leader-failover-grace-period-max-jitter",
-			Dynamic:  true,
-			EnvVars:  []string{"MT_LEADER_FAILOVER_GRACE_PERIOD_MAX_JITTER"},
-		}),
 		verifyReplicationTimeout: viperutil.Configure(reg, "verify-replication-timeout", viperutil.Options[time.Duration]{
 			Default:  5 * time.Second,
 			FlagName: "verify-replication-timeout",
@@ -273,14 +259,6 @@ func (c *Config) GetRecoveryCycleInterval() time.Duration {
 	return c.recoveryCycleInterval.Get()
 }
 
-func (c *Config) GetLeaderFailoverGracePeriodBase() time.Duration {
-	return c.leaderFailoverGracePeriodBase.Get()
-}
-
-func (c *Config) GetLeaderFailoverGracePeriodMaxJitter() time.Duration {
-	return c.leaderFailoverGracePeriodMaxJitter.Get()
-}
-
 func (c *Config) GetVerifyReplicationTimeout() time.Duration {
 	return c.verifyReplicationTimeout.Get()
 }
@@ -327,14 +305,6 @@ func (c *Config) DefaultRecoveryCycleInterval() time.Duration {
 	return c.recoveryCycleInterval.Default()
 }
 
-func (c *Config) DefaultLeaderFailoverGracePeriodBase() time.Duration {
-	return c.leaderFailoverGracePeriodBase.Default()
-}
-
-func (c *Config) DefaultLeaderFailoverGracePeriodMaxJitter() time.Duration {
-	return c.leaderFailoverGracePeriodMaxJitter.Default()
-}
-
 func (c *Config) DefaultVerifyReplicationTimeout() time.Duration {
 	return c.verifyReplicationTimeout.Default()
 }
@@ -356,8 +326,6 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Duration("pooler-health-check-interval", c.DefaultPoolerHealthCheckInterval(), "interval between health checks for a single pooler")
 	fs.Int("health-check-workers", c.DefaultHealthCheckWorkers(), "number of concurrent workers polling pooler health")
 	fs.Duration("recovery-cycle-interval", c.DefaultRecoveryCycleInterval(), "interval between recovery cycles")
-	fs.Duration("leader-failover-grace-period-base", c.DefaultLeaderFailoverGracePeriodBase(), "base of the window within which a leader failover is expected to complete; a revocation older than the window is treated as abandoned")
-	fs.Duration("leader-failover-grace-period-max-jitter", c.DefaultLeaderFailoverGracePeriodMaxJitter(), "max jitter added to leader-failover-grace-period-base")
 	fs.Duration("verify-replication-timeout", c.DefaultVerifyReplicationTimeout(), "timeout for verifying replication started after fix")
 	fs.Duration("leader-postgres-response-threshold", c.DefaultLeaderPostgresResponseThreshold(), "max age of primary postgres last-responded timestamp before replicas-connected suppression of failover is lifted")
 	fs.Bool("allow-unsafe-initial-cohort", c.DefaultAllowUnsafeInitialCohort(), "allow bootstrapping a cohort that satisfies the durability policy but can't survive losing any single member (test use only)")
@@ -369,8 +337,6 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 		c.poolerHealthCheckInterval,
 		c.healthCheckWorkers,
 		c.recoveryCycleInterval,
-		c.leaderFailoverGracePeriodBase,
-		c.leaderFailoverGracePeriodMaxJitter,
 		c.verifyReplicationTimeout,
 		c.leaderPostgresResponseThreshold,
 		c.allowUnsafeInitialCohort)
@@ -379,14 +345,9 @@ func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 // Test helper functions
 
 // NewTestConfig creates a Config for testing with optional custom values.
-// Sets the failover window (base and jitter) to zero, so a revocation counts as aged immediately.
 func NewTestConfig(opts ...func(*Config)) *Config {
 	reg := viperutil.NewRegistry()
 	cfg := NewConfig(reg)
-
-	// Set safe defaults for tests - no failover window by default
-	cfg.leaderFailoverGracePeriodBase.Set(0)
-	cfg.leaderFailoverGracePeriodMaxJitter.Set(0)
 
 	for _, opt := range opts {
 		opt(cfg)
@@ -426,20 +387,6 @@ func WithHealthCheckWorkers(n int) func(*Config) {
 func WithRecoveryCycleInterval(d time.Duration) func(*Config) {
 	return func(cfg *Config) {
 		cfg.recoveryCycleInterval.Set(d)
-	}
-}
-
-// WithLeaderFailoverGracePeriodBase sets the leader failover grace period base for testing.
-func WithLeaderFailoverGracePeriodBase(d time.Duration) func(*Config) {
-	return func(cfg *Config) {
-		cfg.leaderFailoverGracePeriodBase.Set(d)
-	}
-}
-
-// WithLeaderFailoverGracePeriodMaxJitter sets the leader failover grace period max jitter for testing.
-func WithLeaderFailoverGracePeriodMaxJitter(d time.Duration) func(*Config) {
-	return func(cfg *Config) {
-		cfg.leaderFailoverGracePeriodMaxJitter.Set(d)
 	}
 }
 

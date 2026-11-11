@@ -17,11 +17,14 @@ package queryserving
 import (
 	"context"
 	"fmt"
+	"io"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
@@ -119,6 +122,99 @@ func TestReservationLoss(t *testing.T) {
 	}
 }
 
+// TestReservationLoss_HoldCursorClosedInRolledBackTransaction closes a WITH HOLD
+// cursor inside a transaction that then rolls back, either by ROLLBACK or by a
+// COMMIT of a failed transaction. CLOSE is not transactional in PostgreSQL, so
+// the cursor stays closed, and the gateway must not count it as open afterwards.
+// A later transaction that suspends a portal and loses its reservation then lost
+// only the transaction: the statement fails and the session stays open. With the
+// cursor wrongly counted as open, the suspended portal counts as session state
+// and the gateway ends the session instead.
+//
+// This relies on the multipooler adding ReasonPortal to a transaction's
+// reservation when a portal suspends: lostSessionState only looks at open hold
+// cursors when that reason is present. If suspended portals stop adding it, this
+// test passes without the fix too; check that it still fails with the fix
+// reverted.
+func TestReservationLoss_HoldCursorClosedInRolledBackTransaction(t *testing.T) {
+	skipIfNoRealPostgres(t)
+	setup := getSharedSetup(t)
+	ctx := utils.WithTimeout(t, 5*time.Minute)
+
+	for _, end := range []struct {
+		name string
+		run  func(t *testing.T, conn *pgx.Conn)
+	}{
+		{"rollback", func(t *testing.T, conn *pgx.Conn) {
+			utils.RequirePgxExec(t, ctx, conn, "ROLLBACK")
+		}},
+		{"commit_after_error", func(t *testing.T, conn *pgx.Conn) {
+			_ = utils.RequirePgError(t, utils.PgxExec(ctx, conn, "SELECT 1/0"), "22012")
+			tag, err := conn.Exec(ctx, "COMMIT")
+			require.NoError(t, err)
+			require.Equal(t, "ROLLBACK", tag.String(), "COMMIT of a failed transaction must roll it back")
+		}},
+	} {
+		for _, closeSQL := range []string{"CLOSE rl_hold", "CLOSE ALL"} {
+			t.Run(end.name+"/"+strings.ReplaceAll(strings.ToLower(closeSQL), " ", "_"), func(t *testing.T) {
+				a := openReservationLossConn(t, ctx, setup, pgx.QueryExecModeSimpleProtocol)
+				utils.RequirePgxExec(t, ctx, a, "DECLARE rl_hold CURSOR WITH HOLD FOR SELECT g FROM generate_series(1, 3) g")
+				utils.RequirePgxExec(t, ctx, a, "BEGIN")
+				utils.RequirePgxExec(t, ctx, a, closeSQL)
+				end.run(t, a)
+				_ = utils.RequirePgError(t, utils.PgxExec(ctx, a, "FETCH 1 FROM rl_hold"), "34000")
+
+				utils.RequirePgxExec(t, ctx, a, "BEGIN")
+				pid := pgxBackendPID(t, ctx, a)
+				requireSuspendedPortal(t, ctx, a, "rl_portal", "SELECT g FROM generate_series(1, 3) g")
+
+				terminateBackend(t, ctx, setup, pid)
+
+				err := utils.PgxExec(ctx, a, "SELECT 1")
+				var pgErr *pgconn.PgError
+				require.ErrorAs(t, err, &pgErr)
+				require.Equal(t, "ERROR", pgErr.Severity, "a lost transaction must not end the session: %+v", pgErr)
+				require.Contains(t, []string{"40001", "08006"}, pgErr.Code, "got %+v", pgErr)
+				require.False(t, a.IsClosed())
+
+				utils.RequirePgxExec(t, ctx, a, "ROLLBACK")
+				utils.RequirePgxExec(t, ctx, a, "SELECT 1")
+			})
+		}
+	}
+}
+
+// requireSuspendedPortal binds sql, which must return more than one row, to
+// portal and executes it for one row, so the portal suspends and stays open for
+// the rest of the transaction.
+func requireSuspendedPortal(t *testing.T, ctx context.Context, conn *pgx.Conn, portal, sql string) {
+	t.Helper()
+	fe := conn.PgConn().Frontend()
+	fe.Send(&pgproto3.Parse{Query: sql})
+	fe.Send(&pgproto3.Bind{DestinationPortal: portal})
+	fe.Send(&pgproto3.Execute{Portal: portal, MaxRows: 1})
+	fe.Send(&pgproto3.Sync{})
+	require.NoError(t, fe.Flush())
+
+	rows := 0
+	for {
+		msg, err := conn.PgConn().ReceiveMessage(ctx)
+		require.NoError(t, err)
+		switch m := msg.(type) {
+		case *pgproto3.ErrorResponse:
+			require.Failf(t, "portal execution failed", "%s: %s", m.Code, m.Message)
+		case *pgproto3.DataRow:
+			rows++
+		case *pgproto3.CommandComplete:
+			require.Failf(t, "portal ran to completion", "portal %s must suspend after one row", portal)
+		case *pgproto3.ReadyForQuery:
+			require.Equal(t, 1, rows, "portal %s must return exactly one row", portal)
+			require.Equal(t, byte('T'), m.TxStatus, "the portal must run inside the transaction")
+			return
+		}
+	}
+}
+
 // TestReservationLoss_CopyFromStdin loses a temp-table reservation in the middle
 // of COPY FROM STDIN. Whichever COPY step observes the loss (sending data,
 // finishing, or the abort that follows a failed send), the session must end.
@@ -131,35 +227,37 @@ func TestReservationLoss_CopyFromStdin(t *testing.T) {
 	utils.RequirePgxExec(t, ctx, a, "CREATE TEMP TABLE rl_copy (id int, pad text)")
 	pid := pgxBackendPID(t, ctx, a)
 
-	// Terminate the backend once the COPY is under way, then keep sending
-	// enough rows that the data reaches the dead connection.
-	src := &terminatingCopySource{rows: 200000, terminate: func() { terminateBackend(t, ctx, setup, pid) }}
-	_, err := a.CopyFrom(ctx, pgx.Identifier{"rl_copy"}, []string{"id", "pad"}, src)
+	// Use protocol messages directly: pgx.CopyFrom writes concurrently with
+	// reading the response, so a write error can mask the server's FATAL.
+	deadline, ok := ctx.Deadline()
+	require.True(t, ok)
+	require.NoError(t, a.PgConn().Conn().SetDeadline(deadline))
+	frontend := a.PgConn().Frontend()
+	frontend.SendQuery(&pgproto3.Query{String: "COPY rl_copy (id, pad) FROM STDIN"})
+	require.NoError(t, frontend.Flush())
+	msg, err := frontend.Receive()
+	require.NoError(t, err)
+	require.IsType(t, &pgproto3.CopyInResponse{}, msg)
 
-	requireSessionEnded(t, ctx, a, err, "temp_table")
-}
+	terminateBackend(t, ctx, setup, pid)
 
-// terminatingCopySource is a pgx.CopyFromSource that calls terminate before
-// producing its first row.
-type terminatingCopySource struct {
-	rows      int
-	n         int
-	terminate func()
-}
-
-func (s *terminatingCopySource) Next() bool {
-	if s.n == 0 {
-		s.terminate()
+	// Flush a small upload and its end marker together before reading. The
+	// dead backend must be detected by either the data send or finalization.
+	frontend.Send(&pgproto3.CopyData{Data: []byte("1\tpadding\n")})
+	frontend.Send(&pgproto3.CopyDone{})
+	require.NoError(t, frontend.Flush())
+	msg, err = frontend.Receive()
+	require.NoError(t, err)
+	require.IsType(t, &pgproto3.ErrorResponse{}, msg)
+	pgErr := utils.RequirePgError(t, pgconn.ErrorResponseToPgError(msg.(*pgproto3.ErrorResponse)), "57P01")
+	require.Equal(t, "FATAL", pgErr.Severity, "got %+v", pgErr)
+	if pgErr.Message != "terminating connection due to administrator command" {
+		require.Contains(t, pgErr.Detail, "temp_table")
 	}
-	s.n++
-	return s.n <= s.rows
+	_, err = frontend.Receive()
+	// Frontend.Receive translates a closed socket's EOF to ErrUnexpectedEOF.
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF, "the gateway must close the connection after the FATAL")
 }
-
-func (s *terminatingCopySource) Values() ([]any, error) {
-	return []any{s.n, "padding padding padding padding padding padding"}, nil
-}
-
-func (s *terminatingCopySource) Err() error { return nil }
 
 func openReservationLossConn(t *testing.T, ctx context.Context, setup shardsetup.Cluster, mode pgx.QueryExecMode) *pgx.Conn {
 	t.Helper()

@@ -19,6 +19,7 @@ import (
 	"context"
 	"time"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -42,12 +43,20 @@ func RegisterPoolerManagerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServ
 	// Register ourselves to be invoked when the manager starts
 	manager.RegisterPoolerManagerServices = append(manager.RegisterPoolerManagerServices, func(pm *manager.MultipoolerManager) {
 		if grpc.CheckServiceMap("poolermanager", senv) {
-			srv := &managerService{
-				manager: pm,
-			}
-			multipoolermanagerpb.RegisterMultipoolerManagerServer(grpc.Server, srv)
+			registerManagerService(grpc.Server, pm)
 		}
 	})
+}
+
+// registerManagerService registers the service for a pooler that has a postgres to manage. An
+// unmanaged pooler has no lifecycle RPCs: the service is not registered at all, so every method,
+// any added later included, answers Unimplemented and none can reach the external database.
+// The mode is immutable for the process, so deciding once, here, is enough.
+func registerManagerService(server grpc.ServiceRegistrar, pm *manager.MultipoolerManager) {
+	if pm.IsUnmanaged() {
+		return
+	}
+	multipoolermanagerpb.RegisterMultipoolerManagerServer(server, &managerService{manager: pm})
 }
 
 // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
@@ -169,6 +178,26 @@ func (s *managerService) ReconcileFollowers(ctx context.Context, req *multipoole
 // SetPostgresRestartsEnabled enables or disables automatic PostgreSQL restarts by the monitor
 func (s *managerService) SetPostgresRestartsEnabled(ctx context.Context, req *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error) {
 	return s.manager.SetPostgresRestartsEnabled(ctx, req)
+}
+
+// SetRoutingRules replaces every routing rule of an operation. Only the
+// catalog primary serves it.
+func (s *managerService) SetRoutingRules(ctx context.Context, req *multipoolermanagerdatapb.SetRoutingRulesRequest) (*multipoolermanagerdatapb.SetRoutingRulesResponse, error) {
+	resp, err := s.manager.SetRoutingRules(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
+// DeleteRoutingRules deletes every routing rule of an operation. Only the
+// catalog primary serves it.
+func (s *managerService) DeleteRoutingRules(ctx context.Context, req *multipoolermanagerdatapb.DeleteRoutingRulesRequest) (*multipoolermanagerdatapb.DeleteRoutingRulesResponse, error) {
+	resp, err := s.manager.DeleteRoutingRules(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
 }
 
 // ReloadConfig triggers a PostgreSQL configuration reload and confirms it took effect.
@@ -344,4 +373,40 @@ func (s *managerService) sendManagerHealthSnapshot(
 	}
 
 	return stream.Send(response)
+}
+
+// CreateTableGroup records the intent to create a tablegroup in the catalog.
+func (s *managerService) CreateTableGroup(ctx context.Context, req *multipoolermanagerdatapb.CreateTableGroupRequest) (*multipoolermanagerdatapb.CreateTableGroupResponse, error) {
+	resp, err := s.manager.CreateTableGroup(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
+// GetOperation returns a catalog operation's current state.
+func (s *managerService) GetOperation(ctx context.Context, req *multipoolermanagerdatapb.GetOperationRequest) (*multipoolermanagerdatapb.GetOperationResponse, error) {
+	op, err := s.manager.GetOperation(ctx, req.GetOperationId())
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return &multipoolermanagerdatapb.GetOperationResponse{Operation: op}, nil
+}
+
+// ListTableGroups returns the tablegroups the provisioner should have.
+func (s *managerService) ListTableGroups(ctx context.Context, req *multipoolermanagerdatapb.ListTableGroupsRequest) (*multipoolermanagerdatapb.ListTableGroupsResponse, error) {
+	groups, err := s.manager.ListTableGroups(ctx)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return &multipoolermanagerdatapb.ListTableGroupsResponse{TableGroups: groups}, nil
+}
+
+// GetRoutingSnapshot returns the sharding catalog snapshot.
+func (s *managerService) GetRoutingSnapshot(ctx context.Context, req *multipoolermanagerdatapb.GetRoutingSnapshotRequest) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+	resp, err := s.manager.GetRoutingSnapshot(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
 }

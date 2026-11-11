@@ -18,8 +18,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/safepath"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	s3tools "github.com/multigres/multigres/go/tools/s3"
@@ -28,6 +31,13 @@ import (
 // Config provides a unified interface for backup operations
 type Config struct {
 	proto *clustermetadatapb.BackupLocation
+
+	// tableGroup, tableGroupID and shard scope the pgBackRest repository to
+	// one shard; see ForShard. An empty tableGroup means the location's base
+	// path.
+	tableGroup   string
+	tableGroupID int64
+	shard        string
 }
 
 // NewConfig creates a Config from a BackupLocation proto
@@ -41,6 +51,60 @@ func NewConfig(loc *clustermetadatapb.BackupLocation) (*Config, error) {
 	}
 
 	return &Config{proto: loc}, nil
+}
+
+// ForShard returns c with its pgBackRest repository scoped to one shard.
+// Every shard of a database needs its own repository: they all use the same
+// stanza name, and two shards' WAL and backups in one repository collide (a
+// second shard's stanza-create fails because the repository already belongs
+// to another cluster). The catalog shard keeps the location's base path, where
+// every repository created before tablegroups existed lives and must stay,
+// since a repository cannot move. Any other shard gets
+// tablegroups/<tablegroup>/<tablegroupID>/<shard> below the base path, or
+// tablegroups/<tablegroup>/<shard> when its catalog id is unknown (0).
+//
+// The fixed tablegroups component keeps every tablegroup name clear of the
+// catalog shard's own repository layout (its archive, backup and gen-N
+// directories, and on S3 its stanza directory), whatever the name is. The
+// catalog id is in the path because a dropped tablegroup's backups are kept: a
+// tablegroup created later under the same name gets a new id, and so a fresh
+// repository, instead of restoring the old one's data or failing to create its
+// stanza over it. Shard names always contain a hyphen, so the two shapes
+// cannot collide.
+func (c *Config) ForShard(tableGroup string, tableGroupID int64, shard string) (*Config, error) {
+	if tableGroup == "" || shard == "" {
+		return nil, errors.New("table group and shard are required to scope a backup repository")
+	}
+	if tableGroupID < 0 {
+		return nil, fmt.Errorf("invalid table group id %d", tableGroupID)
+	}
+	if constants.IsCatalogShard(tableGroup, shard) {
+		return &Config{proto: c.proto}, nil
+	}
+	return &Config{proto: c.proto, tableGroup: tableGroup, tableGroupID: tableGroupID, shard: shard}, nil
+}
+
+// RepositoryScope returns the path ForShard adds below the base path, such as
+// "tablegroups/commerce/7/0-80", or "" for the catalog shard, whose
+// repository is the base path itself.
+func (c *Config) RepositoryScope() string {
+	return strings.Join(c.shardPathComponents(), "/")
+}
+
+// tableGroupsPathComponent is the directory below the base path that holds the
+// repositories of every shard but the catalog shard.
+const tableGroupsPathComponent = "tablegroups"
+
+// shardPathComponents returns the path components ForShard adds below the
+// base path, or nil for the base path itself.
+func (c *Config) shardPathComponents() []string {
+	if c.tableGroup == "" {
+		return nil
+	}
+	if c.tableGroupID == 0 {
+		return []string{tableGroupsPathComponent, c.tableGroup, c.shard}
+	}
+	return []string{tableGroupsPathComponent, c.tableGroup, strconv.FormatInt(c.tableGroupID, 10), c.shard}
 }
 
 // Type returns the backup location type for logging/metrics
@@ -155,9 +219,10 @@ func (c *Config) GetS3Config() *clustermetadatapb.S3Backup {
 
 // PgBackRestConfig returns the storage configuration for one repository,
 // keyed with the given pgbackrest repo index. Generation determines the
-// storage path: generation 1 is the backup location's base path, and every
-// later generation gets a distinct gen-<N> component under it — repositories
-// must never share a path (their archive/backup trees would collide).
+// storage path: generation 1 is the shard's repository path (the backup
+// location's base path for the catalog shard; see ForShard), and every later
+// generation gets a distinct gen-<N> component under it — repositories must
+// never share a path (their archive/backup trees would collide).
 //
 // Generation 1 deliberately gets no path component of its own: clusters that
 // predate repo generations have their repo pinned at the base path (a
@@ -168,6 +233,13 @@ func (c *Config) PgBackRestConfig(index int, generation int64, stanzaName string
 	switch loc := c.proto.Location.(type) {
 	case *clustermetadatapb.BackupLocation_Filesystem:
 		path := loc.Filesystem.Path
+		if components := c.shardPathComponents(); components != nil {
+			var err error
+			path, err = safepath.Join(path, components...)
+			if err != nil {
+				return nil, err
+			}
+		}
 		if generation != InitialRepoGeneration {
 			var err error
 			path, err = safepath.Join(path, fmt.Sprintf("gen-%d", generation))
@@ -202,6 +274,10 @@ func (c *Config) PgBackRestConfig(index int, generation int64, stanzaName string
 			// Use web-id for IRSA, since pgBackRest's "auto" only checks EC2 metadata.
 			if os.Getenv("AWS_WEB_IDENTITY_TOKEN_FILE") != "" && os.Getenv("AWS_ROLE_ARN") != "" {
 				config[prefix+"s3-key-type"] = "web-id"
+				// pgBackRest's default STS host, sts.amazonaws.com, has no IPv6
+				// address, so an IPv6-only pod could never get credentials. The
+				// regional dual-stack endpoint answers over either family.
+				config[prefix+"s3-sts-host"] = "sts." + loc.S3.Region + ".api.aws"
 			} else {
 				// Fall back to auto for EC2 instance metadata
 				config[prefix+"s3-key-type"] = "auto"
@@ -209,8 +285,9 @@ func (c *Config) PgBackRestConfig(index int, generation int64, stanzaName string
 		}
 
 		if loc.S3.Endpoint == "" {
-			// AWS S3 - generate standard endpoint
-			config[prefix+"s3-endpoint"] = "s3." + loc.S3.Region + ".amazonaws.com"
+			// Dual-stack, because the plain s3.<region> endpoint has no IPv6
+			// address and pods on IPv6-only networks need to reach the bucket.
+			config[prefix+"s3-endpoint"] = "s3.dualstack." + loc.S3.Region + ".amazonaws.com"
 			// Use virtual-hosted style (AWS default)
 			config[prefix+"s3-uri-style"] = "host"
 			// TLS verification defaults to 'y', no need to set explicitly
@@ -223,6 +300,9 @@ func (c *Config) PgBackRestConfig(index int, generation int64, stanzaName string
 
 		// Repo path includes prefix if set
 		path := "/" + stanzaName
+		for _, component := range slices.Backward(c.shardPathComponents()) {
+			path = "/" + safepath.EncodePathComponent(component) + path
+		}
 		if loc.S3.KeyPrefix != "" {
 			path = "/" + strings.TrimSuffix(loc.S3.KeyPrefix, "/") + path
 		}

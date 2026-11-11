@@ -88,4 +88,10 @@ type AvailabilityPolicy struct {
 	// the recheck then uses its cached state. Not yet measured against real Status
 	// latency.
 	PreRecheckRefreshTimeout time.Duration
+
+	// RecruitAbandonedAfter is how old a follower's term revocation must be, with
+	// no failover completed, before we treat the recruit as abandoned. Within it a
+	// live coordinator may still be finishing the failover, and advancing the rule
+	// out from under it would fight it. Should exceed a normal failover's duration.
+	RecruitAbandonedAfter time.Duration
 }

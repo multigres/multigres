@@ -93,6 +93,15 @@ func (p *protectedPgctldClient) PgRewind(ctx context.Context, req *pgctldpb.PgRe
 	return p.client.PgRewind(ctx, req, opts...)
 }
 
+// PgRewindAbort fences a PgRewind run id and terminates its pg_rewind if it is
+// running. Requires action lock to be held by caller.
+func (p *protectedPgctldClient) PgRewindAbort(ctx context.Context, req *pgctldpb.PgRewindAbortRequest, opts ...grpc.CallOption) (*pgctldpb.PgRewindAbortResponse, error) {
+	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
+		return nil, fmt.Errorf("PgRewindAbort requires action lock to be held: %w", err)
+	}
+	return p.client.PgRewindAbort(ctx, req, opts...)
+}
+
 // StopRestoreCommand stops any in-flight restore_command invocation. Requires
 // action lock to be held by caller (it can signal a running process).
 func (p *protectedPgctldClient) StopRestoreCommand(ctx context.Context, req *pgctldpb.StopRestoreCommandRequest, opts ...grpc.CallOption) (*pgctldpb.StopRestoreCommandResponse, error) {

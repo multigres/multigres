@@ -171,6 +171,16 @@ func countRows(t *testing.T, ctx context.Context, conn *client.Conn, table strin
 	return n, true
 }
 
+func requireSynchronousSubscription(t *testing.T, ctx context.Context, conn *client.Conn, id int64) {
+	t.Helper()
+	res, err := conn.Query(ctx, fmt.Sprintf("SELECT subsynccommit FROM pg_subscription WHERE subname = 'mt_sub_%d'", id))
+	require.NoError(t, err)
+	require.Len(t, res, 1)
+	require.Len(t, res[0].Rows, 1)
+	require.Len(t, res[0].Rows[0].Values, 1)
+	require.Equal(t, "on", string(res[0].Rows[0].Values[0]), "migration subscription must honor synchronous commit policy")
+}
+
 // startStandaloneSource initdb's and launches a throwaway postgres with
 // wal_level=logical on a free port, returning that port. Torn down via cleanup.
 func startStandaloneSource(t *testing.T) int {

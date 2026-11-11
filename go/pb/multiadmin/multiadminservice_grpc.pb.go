@@ -23,6 +23,7 @@ package multiadmin
 import (
 	context "context"
 	migrator "github.com/multigres/multigres/go/pb/migrator"
+	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -36,6 +37,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	MultiadminService_GetCell_FullMethodName                    = "/multiadmin.MultiadminService/GetCell"
 	MultiadminService_GetDatabase_FullMethodName                = "/multiadmin.MultiadminService/GetDatabase"
+	MultiadminService_ListDesiredTableGroups_FullMethodName     = "/multiadmin.MultiadminService/ListDesiredTableGroups"
 	MultiadminService_GetCellNames_FullMethodName               = "/multiadmin.MultiadminService/GetCellNames"
 	MultiadminService_GetDatabaseNames_FullMethodName           = "/multiadmin.MultiadminService/GetDatabaseNames"
 	MultiadminService_GetGateways_FullMethodName                = "/multiadmin.MultiadminService/GetGateways"
@@ -62,6 +64,9 @@ const (
 	MultiadminService_GetConnection_FullMethodName              = "/multiadmin.MultiadminService/GetConnection"
 	MultiadminService_ListConnections_FullMethodName            = "/multiadmin.MultiadminService/ListConnections"
 	MultiadminService_DropConnection_FullMethodName             = "/multiadmin.MultiadminService/DropConnection"
+	MultiadminService_GetRoutingRules_FullMethodName            = "/multiadmin.MultiadminService/GetRoutingRules"
+	MultiadminService_SetRoutingRules_FullMethodName            = "/multiadmin.MultiadminService/SetRoutingRules"
+	MultiadminService_DeleteRoutingRules_FullMethodName         = "/multiadmin.MultiadminService/DeleteRoutingRules"
 )
 
 // MultiadminServiceClient is the client API for MultiadminService service.
@@ -84,6 +89,19 @@ type MultiadminServiceClient interface {
 	// database; other topology failures become Internal (13). This read can be retried with bounded
 	// backoff after a transient dependency failure.
 	GetDatabase(ctx context.Context, in *GetDatabaseRequest, opts ...grpc.CallOption) (*GetDatabaseResponse, error)
+	// ListDesiredTableGroups returns a database's tablegroups for a provisioner:
+	// every non-default tablegroup recorded in the sharding catalog, with its
+	// shard layout. It provisions the CREATING and ACTIVE ones and removes the
+	// DROPPING ones; a tablegroup missing from the list is never removed (see
+	// ListTableGroupsResponse). The list is read from the catalog primary, so it
+	// reflects committed intent, not what is currently provisioned.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the database name is missing. NotFound (5) means topology has no
+	// primary pooler for the database's catalog shard yet. Every downstream failure becomes
+	// Unavailable (14). A provisioner must treat any error as "unknown", never as an empty list: it
+	// adds nothing and removes nothing until a read succeeds.
+	ListDesiredTableGroups(ctx context.Context, in *ListDesiredTableGroupsRequest, opts ...grpc.CallOption) (*ListDesiredTableGroupsResponse, error)
 	// GetCellNames retrieves all cell names in the cluster
 	//
 	// Errors and recovery:
@@ -259,6 +277,15 @@ type MultiadminServiceClient interface {
 	ListConnections(ctx context.Context, in *migrator.ListConnectionsRequest, opts ...grpc.CallOption) (*migrator.ListConnectionsResponse, error)
 	// DropConnection removes a connection.
 	DropConnection(ctx context.Context, in *migrator.DropConnectionRequest, opts ...grpc.CallOption) (*migrator.DropConnectionResponse, error)
+	// GetRoutingRules returns a database's routing rules by name, with the
+	// routing version a rule change is based on. It reads the catalog
+	// primary's sharding catalog snapshot.
+	GetRoutingRules(ctx context.Context, in *GetRoutingRulesRequest, opts ...grpc.CallOption) (*GetRoutingRulesResponse, error)
+	// SetRoutingRules replaces every routing rule of an operation. A change
+	// already in effect succeeds without changing the routing version.
+	SetRoutingRules(ctx context.Context, in *multipoolermanagerdata.SetRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetRoutingRulesResponse, error)
+	// DeleteRoutingRules deletes every routing rule of an operation.
+	DeleteRoutingRules(ctx context.Context, in *multipoolermanagerdata.DeleteRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error)
 }
 
 type multiadminServiceClient struct {
@@ -283,6 +310,16 @@ func (c *multiadminServiceClient) GetDatabase(ctx context.Context, in *GetDataba
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetDatabaseResponse)
 	err := c.cc.Invoke(ctx, MultiadminService_GetDatabase_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiadminServiceClient) ListDesiredTableGroups(ctx context.Context, in *ListDesiredTableGroupsRequest, opts ...grpc.CallOption) (*ListDesiredTableGroupsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListDesiredTableGroupsResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_ListDesiredTableGroups_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -549,6 +586,36 @@ func (c *multiadminServiceClient) DropConnection(ctx context.Context, in *migrat
 	return out, nil
 }
 
+func (c *multiadminServiceClient) GetRoutingRules(ctx context.Context, in *GetRoutingRulesRequest, opts ...grpc.CallOption) (*GetRoutingRulesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetRoutingRulesResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_GetRoutingRules_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiadminServiceClient) SetRoutingRules(ctx context.Context, in *multipoolermanagerdata.SetRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetRoutingRulesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.SetRoutingRulesResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_SetRoutingRules_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiadminServiceClient) DeleteRoutingRules(ctx context.Context, in *multipoolermanagerdata.DeleteRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.DeleteRoutingRulesResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_DeleteRoutingRules_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiadminServiceServer is the server API for MultiadminService service.
 // All implementations must embed UnimplementedMultiadminServiceServer
 // for forward compatibility.
@@ -569,6 +636,19 @@ type MultiadminServiceServer interface {
 	// database; other topology failures become Internal (13). This read can be retried with bounded
 	// backoff after a transient dependency failure.
 	GetDatabase(context.Context, *GetDatabaseRequest) (*GetDatabaseResponse, error)
+	// ListDesiredTableGroups returns a database's tablegroups for a provisioner:
+	// every non-default tablegroup recorded in the sharding catalog, with its
+	// shard layout. It provisions the CREATING and ACTIVE ones and removes the
+	// DROPPING ones; a tablegroup missing from the list is never removed (see
+	// ListTableGroupsResponse). The list is read from the catalog primary, so it
+	// reflects committed intent, not what is currently provisioned.
+	//
+	// Errors and recovery:
+	// InvalidArgument (3) means the database name is missing. NotFound (5) means topology has no
+	// primary pooler for the database's catalog shard yet. Every downstream failure becomes
+	// Unavailable (14). A provisioner must treat any error as "unknown", never as an empty list: it
+	// adds nothing and removes nothing until a read succeeds.
+	ListDesiredTableGroups(context.Context, *ListDesiredTableGroupsRequest) (*ListDesiredTableGroupsResponse, error)
 	// GetCellNames retrieves all cell names in the cluster
 	//
 	// Errors and recovery:
@@ -744,6 +824,15 @@ type MultiadminServiceServer interface {
 	ListConnections(context.Context, *migrator.ListConnectionsRequest) (*migrator.ListConnectionsResponse, error)
 	// DropConnection removes a connection.
 	DropConnection(context.Context, *migrator.DropConnectionRequest) (*migrator.DropConnectionResponse, error)
+	// GetRoutingRules returns a database's routing rules by name, with the
+	// routing version a rule change is based on. It reads the catalog
+	// primary's sharding catalog snapshot.
+	GetRoutingRules(context.Context, *GetRoutingRulesRequest) (*GetRoutingRulesResponse, error)
+	// SetRoutingRules replaces every routing rule of an operation. A change
+	// already in effect succeeds without changing the routing version.
+	SetRoutingRules(context.Context, *multipoolermanagerdata.SetRoutingRulesRequest) (*multipoolermanagerdata.SetRoutingRulesResponse, error)
+	// DeleteRoutingRules deletes every routing rule of an operation.
+	DeleteRoutingRules(context.Context, *multipoolermanagerdata.DeleteRoutingRulesRequest) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error)
 	mustEmbedUnimplementedMultiadminServiceServer()
 }
 
@@ -759,6 +848,9 @@ func (UnimplementedMultiadminServiceServer) GetCell(context.Context, *GetCellReq
 }
 func (UnimplementedMultiadminServiceServer) GetDatabase(context.Context, *GetDatabaseRequest) (*GetDatabaseResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDatabase not implemented")
+}
+func (UnimplementedMultiadminServiceServer) ListDesiredTableGroups(context.Context, *ListDesiredTableGroupsRequest) (*ListDesiredTableGroupsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListDesiredTableGroups not implemented")
 }
 func (UnimplementedMultiadminServiceServer) GetCellNames(context.Context, *GetCellNamesRequest) (*GetCellNamesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetCellNames not implemented")
@@ -838,6 +930,15 @@ func (UnimplementedMultiadminServiceServer) ListConnections(context.Context, *mi
 func (UnimplementedMultiadminServiceServer) DropConnection(context.Context, *migrator.DropConnectionRequest) (*migrator.DropConnectionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DropConnection not implemented")
 }
+func (UnimplementedMultiadminServiceServer) GetRoutingRules(context.Context, *GetRoutingRulesRequest) (*GetRoutingRulesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRoutingRules not implemented")
+}
+func (UnimplementedMultiadminServiceServer) SetRoutingRules(context.Context, *multipoolermanagerdata.SetRoutingRulesRequest) (*multipoolermanagerdata.SetRoutingRulesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetRoutingRules not implemented")
+}
+func (UnimplementedMultiadminServiceServer) DeleteRoutingRules(context.Context, *multipoolermanagerdata.DeleteRoutingRulesRequest) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteRoutingRules not implemented")
+}
 func (UnimplementedMultiadminServiceServer) mustEmbedUnimplementedMultiadminServiceServer() {}
 func (UnimplementedMultiadminServiceServer) testEmbeddedByValue()                           {}
 
@@ -891,6 +992,24 @@ func _MultiadminService_GetDatabase_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MultiadminServiceServer).GetDatabase(ctx, req.(*GetDatabaseRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiadminService_ListDesiredTableGroups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListDesiredTableGroupsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).ListDesiredTableGroups(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_ListDesiredTableGroups_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).ListDesiredTableGroups(ctx, req.(*ListDesiredTableGroupsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1363,6 +1482,60 @@ func _MultiadminService_DropConnection_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiadminService_GetRoutingRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRoutingRulesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).GetRoutingRules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_GetRoutingRules_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).GetRoutingRules(ctx, req.(*GetRoutingRulesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiadminService_SetRoutingRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.SetRoutingRulesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).SetRoutingRules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_SetRoutingRules_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).SetRoutingRules(ctx, req.(*multipoolermanagerdata.SetRoutingRulesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiadminService_DeleteRoutingRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.DeleteRoutingRulesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).DeleteRoutingRules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_DeleteRoutingRules_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).DeleteRoutingRules(ctx, req.(*multipoolermanagerdata.DeleteRoutingRulesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiadminService_ServiceDesc is the grpc.ServiceDesc for MultiadminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1377,6 +1550,10 @@ var MultiadminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetDatabase",
 			Handler:    _MultiadminService_GetDatabase_Handler,
+		},
+		{
+			MethodName: "ListDesiredTableGroups",
+			Handler:    _MultiadminService_ListDesiredTableGroups_Handler,
 		},
 		{
 			MethodName: "GetCellNames",
@@ -1481,6 +1658,18 @@ var MultiadminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DropConnection",
 			Handler:    _MultiadminService_DropConnection_Handler,
+		},
+		{
+			MethodName: "GetRoutingRules",
+			Handler:    _MultiadminService_GetRoutingRules_Handler,
+		},
+		{
+			MethodName: "SetRoutingRules",
+			Handler:    _MultiadminService_SetRoutingRules_Handler,
+		},
+		{
+			MethodName: "DeleteRoutingRules",
+			Handler:    _MultiadminService_DeleteRoutingRules_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

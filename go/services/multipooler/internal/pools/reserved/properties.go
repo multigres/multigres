@@ -35,6 +35,11 @@ type ReservationProperties struct {
 	// Portals tracks suspended portal names when reserved for portals.
 	// Multiple portals can be open on the same connection.
 	Portals map[string]struct{}
+
+	// TempDiscardedInTxn is set when DISCARD TEMP ran inside the open
+	// transaction. The statement is transactional, so whether the temp objects
+	// are really gone is only known once the transaction concludes.
+	TempDiscardedInTxn bool
 }
 
 // NewReservationProperties creates new reservation properties with the given reasons bitmask.

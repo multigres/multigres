@@ -151,10 +151,12 @@ func (pm *MultipoolerManager) MigrationCoordinatorIfPrimary(ctx context.Context)
 	return coord, nil
 }
 
-// ensureMigrationSchema runs EnsureSchema at most once per process. The table
-// is normally created at shard bootstrap and replicated in; this covers
-// shards bootstrapped before the table existed. Primary-only, since the
-// caller has already passed primary guardrails.
+// ensureMigrationSchema runs EnsureSchema at most once per process. The schema
+// is normally created at shard bootstrap and replicated in, and on the catalog
+// shard ensureSidecarSchemas re-ensures it on every open (see
+// ensureCatalogMigrationSchema); this covers shards bootstrapped before a table
+// existed. Primary-only, since the caller has already passed primary
+// guardrails.
 //
 // EnsureSchema reports ErrNoConnectionsTable when multigres.connections is
 // absent. Off the catalog shard that is the normal state, and the schema is
@@ -252,6 +254,12 @@ func (pm *MultipoolerManager) migrationServingHold() bool {
 // mid-migration. It is a single count over a tiny table and never touches
 // the state-manager lock.
 func (pm *MultipoolerManager) refreshMigrationHold(ctx context.Context) {
+	if pm.IsUnmanaged() {
+		// An unmanaged pooler's database is external: no migration state of ours lives
+		// there, so nothing holds it, and it is never queried for that state.
+		pm.migrationImportHold.Store(int32(migrationHoldNotHeld))
+		return
+	}
 	qs := pm.internalQueryService()
 	if qs == nil {
 		// Connection pools not yet open at startup, or otherwise unavailable: the

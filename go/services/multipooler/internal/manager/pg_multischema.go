@@ -114,9 +114,11 @@ func (pm *MultipoolerManager) isCatalogShard() bool {
 // repeatedly against an already-initialized schema.
 //
 // Currently this is the shared multigres.shard_ref type and backend_vpid on
-// every shard, plus the versioned sharding catalog on the catalog shard
+// every shard, plus, on the catalog shard, the versioned sharding catalog
 // (ensureCatalogSchema, which is idempotent via its format version rather than
-// IF NOT EXISTS); add future late-added sidecar tables here as they arise.
+// IF NOT EXISTS) and the migrator's schema that depends on it
+// (ensureCatalogMigrationSchema); add future late-added sidecar tables here as
+// they arise.
 func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context) error {
 	// shard_ref goes first: ensuring it renames a legacy multigres.shard_key
 	// composite, which must happen before the catalog ensure creates its
@@ -134,10 +136,35 @@ func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context) error {
 		if err := pm.ensureCatalogSchema(ctx); err != nil {
 			return err
 		}
+		// The migrator's schema needs multigres.connections, so it goes after
+		// the catalog.
+		if err := pm.ensureCatalogMigrationSchema(ctx); err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
+
+// ensureCatalogMigrationSchema runs the migration store's EnsureSchema on the
+// catalog shard, which adds the foreign key from multigres.migration into
+// multigres.connections and the stat_migration view. Running it at bootstrap
+// puts both in the first backup, which the bootstrapping pooler restores from.
+func (pm *MultipoolerManager) ensureCatalogMigrationSchema(ctx context.Context) error {
+	queryService := pm.internalQueryService()
+	if queryService == nil {
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "internal query service unavailable for migration schema")
+	}
+	execCtx, cancel := context.WithTimeout(ctx, migrationSchemaTimeout)
+	defer cancel()
+	if err := migration.NewStore(queryService).EnsureSchema(execCtx); err != nil {
+		return mterrors.Wrap(err, "failed to ensure migration schema")
+	}
+	return nil
+}
+
+// migrationSchemaTimeout bounds ensureCatalogMigrationSchema.
+const migrationSchemaTimeout = 5 * time.Second
 
 // createSchema creates the multigres sidecar schema under the admin
 // (true-superuser) connection, so the schema is owned by the true superuser and
@@ -213,6 +240,8 @@ GRANT SELECT ON TABLE multigres.backend_vpid TO PUBLIC`); err != nil {
 // a catalog table on the catalog shard (see ensureCatalogSchema). The migrator's
 // own schema ensure adds the foreign key from multigres.migration into it where it
 // exists (see migration.AddConnectionForeignKeySQL); this definition has none.
+// On the catalog shard, ensureCatalogMigrationSchema runs that ensure after the
+// catalog.
 func (pm *MultipoolerManager) createMigrationTable(ctx context.Context) error {
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
