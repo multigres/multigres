@@ -919,3 +919,36 @@ func TestRevokedOutgoingRule_CheckLeaderCanDecideProposal_MultiCell(t *testing.T
 		require.ErrorContains(t, check(zone2.a, zone2.b), "outgoing proposal cannot be finalized: recruited members cannot satisfy its policy")
 	})
 }
+
+// A recruit holds the outgoing rule if its WAL records it last, whatever it knows to be
+// decided: one that has not learned a newer decision still holds the proposal.
+//
+// Not reachable today: deciding a rule is itself a WAL write, and a proposal is only
+// written after the previous rule is decided, so a recruit that holds the proposal has
+// already replayed that decision. It matters once a decision can advance independently of
+// the WAL, such as with a commit index.
+func TestObservedOutgoingRule_RecruitsRecordingRule(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	rev := revocation(5, ruleNum(3, 2))
+	older := makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c)
+	newer := makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c)
+	proposal := makeRule(ruleNum(3, 2), atLeast(2), zone1.a, zone1.b, zone1.c, zone1.d)
+	recruits := []*clustermetadatapb.ConsensusStatus{
+		// Holds the proposal but knows only the older decision.
+		makeStatusWithProposal(zone1.a, &clustermetadatapb.RulePosition{Decision: older, Proposal: proposal}, rev, "0/2000000"),
+		makeStatusWithProposal(zone1.b, &clustermetadatapb.RulePosition{Decision: newer, Proposal: proposal}, rev, "0/2000000"),
+		// Records only a decision, so it never saw the proposal.
+		makeStatusWithProposal(zone1.c, &clustermetadatapb.RulePosition{Decision: newer}, rev, "0/1000000"),
+		// A member of the proposal's cohort outside the decision's cohort still counts.
+		makeStatusWithProposal(zone1.d, &clustermetadatapb.RulePosition{Decision: newer, Proposal: proposal}, rev, "0/2000000"),
+	}
+	observed, err := discoverOutgoingRule(recruits, ruleNum(3, 2), revocationBasis{})
+	require.NoError(t, err)
+
+	var names []string
+	for _, cs := range observed.recruitsRecordingRule() {
+		names = append(names, cs.GetId().GetName())
+	}
+
+	assert.ElementsMatch(t, []string{zone1.a.GetName(), zone1.b.GetName(), zone1.d.GetName()}, names)
+}
