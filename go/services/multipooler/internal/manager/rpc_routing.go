@@ -17,41 +17,40 @@ package manager
 import (
 	"context"
 
-	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// requireCatalogPrimary checks that this pooler is the writable primary of
-// database's default tablegroup, which holds the catalog and is the only
-// place routing rules may be written. A standby's copy is never a source of
-// truth.
-func (pm *MultipoolerManager) requireCatalogPrimary(database string) error {
+// checkRoutingRuleCaller checks that a rule RPC for database reached the
+// catalog primary: the database is this pooler's, and this pooler is the
+// elected primary of the catalog shard, by the same checkCatalogShard and
+// checkCatalogPrimary every catalog writer uses.
+func (pm *MultipoolerManager) checkRoutingRuleCaller(ctx context.Context, database string) error {
 	if database == "" {
 		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "database is required")
 	}
-	key := pm.record.ShardRef()
-	if database != key.GetDatabase() {
+	if own := pm.record.ShardRef().GetDatabase(); database != own {
 		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
-			"database %q does not match this pooler's database %q", database, key.GetDatabase())
+			"database %q does not match this pooler's database %q", database, own)
 	}
-	// UNAVAILABLE, not FAILED_PRECONDITION: not being the catalog primary (a
-	// pooler of another tablegroup, a standby, a demoted primary, one still
-	// being promoted) says nothing about the catalog's state, so the caller
-	// rediscovers the catalog primary and retries.
-	if !constants.IsCatalogShard(key.GetTableGroup(), key.GetShard()) ||
-		pm.stateManager == nil ||
-		pm.stateManager.RoutingRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
-		return mterrors.New(mtrpcpb.Code_UNAVAILABLE, "not the catalog primary pooler")
+	// UNAVAILABLE, not the FAILED_PRECONDITION the checks return: not being
+	// the catalog primary (a pooler of another tablegroup, a standby, a
+	// demoted primary, one still being promoted) says nothing about the
+	// catalog's state, so the caller rediscovers the catalog primary and
+	// retries.
+	if err := pm.checkCatalogShard(); err != nil {
+		return mterrors.WithCode(err, mtrpcpb.Code_UNAVAILABLE)
+	}
+	if err := pm.checkCatalogPrimary(ctx); err != nil {
+		return mterrors.WithCode(err, mtrpcpb.Code_UNAVAILABLE)
 	}
 	return nil
 }
 
 // SetRoutingRules replaces every routing rule of an operation.
 func (pm *MultipoolerManager) SetRoutingRules(ctx context.Context, req *multipoolermanagerdatapb.SetRoutingRulesRequest) (*multipoolermanagerdatapb.SetRoutingRulesResponse, error) {
-	if err := pm.requireCatalogPrimary(req.GetDatabase()); err != nil {
+	if err := pm.checkRoutingRuleCaller(ctx, req.GetDatabase()); err != nil {
 		return nil, err
 	}
 	change := routingRuleChange{operationID: req.GetOperationId(), expectedRoutingVersion: req.GetExpectedRoutingVersion()}
@@ -74,7 +73,7 @@ func (pm *MultipoolerManager) SetRoutingRules(ctx context.Context, req *multipoo
 
 // DeleteRoutingRules deletes every routing rule of an operation.
 func (pm *MultipoolerManager) DeleteRoutingRules(ctx context.Context, req *multipoolermanagerdatapb.DeleteRoutingRulesRequest) (*multipoolermanagerdatapb.DeleteRoutingRulesResponse, error) {
-	if err := pm.requireCatalogPrimary(req.GetDatabase()); err != nil {
+	if err := pm.checkRoutingRuleCaller(ctx, req.GetDatabase()); err != nil {
 		return nil, err
 	}
 	versions, err := pm.writeRoutingRules(ctx, routingRuleChange{

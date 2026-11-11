@@ -35,8 +35,8 @@ import (
 const routingTestDatabase = "db1"
 
 // newRoutingTestManager returns a manager of routingTestDatabase's shard
-// tableGroup/shard whose role is PRIMARY when primary is set, and its mock
-// query service.
+// tableGroup/shard whose role is PRIMARY, with postgres out of recovery, when
+// primary is set, and its mock query service.
 func newRoutingTestManager(t *testing.T, tableGroup, shard string, primary bool) (*MultipoolerManager, *mock.QueryService) {
 	t.Helper()
 	pm, m := newTestManagerWithMock(t, tableGroup, shard)
@@ -45,30 +45,40 @@ func newRoutingTestManager(t *testing.T, tableGroup, shard string, primary bool)
 		ShardRef: &clustermetadatapb.ShardRef{Database: routingTestDatabase, TableGroup: tableGroup, Shard: shard},
 	})
 	pm.stateManager = NewStateManager(pm.logger, pm.record, selfLeaderConsensusStatus)
+	inRecovery := "t"
 	if primary {
 		pm.stateManager.pgMode = pgmode.Primary
+		inRecovery = "f"
 	}
+	m.AddQueryPattern("^SELECT pg_is_in_recovery\\(\\)$", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{inRecovery}}))
 	return pm, m
 }
 
-func TestRequireCatalogPrimary(t *testing.T) {
+func TestCheckRoutingRuleCaller(t *testing.T) {
 	tests := []struct {
 		name       string
 		tableGroup string
 		primary    bool
-		database   string
-		code       mtrpcpb.Code
+		// demoting leaves the routing role PRIMARY with postgres in recovery,
+		// as while a demotion is under way.
+		demoting bool
+		database string
+		code     mtrpcpb.Code
 	}{
 		{name: "catalog primary", tableGroup: constants.DefaultTableGroup, primary: true, database: routingTestDatabase},
 		{name: "no database", tableGroup: constants.DefaultTableGroup, primary: true, code: mtrpcpb.Code_INVALID_ARGUMENT},
 		{name: "another database", tableGroup: constants.DefaultTableGroup, primary: true, database: "db2", code: mtrpcpb.Code_INVALID_ARGUMENT},
 		{name: "catalog standby", tableGroup: constants.DefaultTableGroup, database: routingTestDatabase, code: mtrpcpb.Code_UNAVAILABLE},
 		{name: "primary of another tablegroup", tableGroup: "tg1", primary: true, database: routingTestDatabase, code: mtrpcpb.Code_UNAVAILABLE},
+		{name: "catalog primary being demoted", tableGroup: constants.DefaultTableGroup, primary: true, demoting: true, database: routingTestDatabase, code: mtrpcpb.Code_UNAVAILABLE},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pm, _ := newRoutingTestManager(t, tt.tableGroup, constants.DefaultShard, tt.primary)
-			err := pm.requireCatalogPrimary(tt.database)
+			pm, m := newRoutingTestManager(t, tt.tableGroup, constants.DefaultShard, tt.primary)
+			if tt.demoting {
+				m.PrependQueryPatternOnce("^SELECT pg_is_in_recovery\\(\\)$", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+			}
+			err := pm.checkRoutingRuleCaller(context.Background(), tt.database)
 			if tt.code == mtrpcpb.Code_OK {
 				require.NoError(t, err)
 				return
@@ -99,10 +109,10 @@ func TestRoutingRPCs_OnlyOnCatalogPrimary(t *testing.T) {
 }
 
 // A pooler whose routing role is still PRIMARY but whose postgres is already
-// in recovery, as during a demotion, passes requireCatalogPrimary and is then
-// refused by writeCatalog. It answers UNAVAILABLE, like any other pooler that
-// is not the catalog primary, so the caller retries on the new primary rather
-// than treating it as a refused change.
+// in recovery, as during a demotion, answers UNAVAILABLE, like any other
+// pooler that is not the catalog primary, so the caller retries on the new
+// primary rather than treating it as a refused change. writeCatalog answers
+// the same if the demotion lands after this check (TestWriteCatalog).
 func TestRoutingRPCs_DemotedMidRequestIsUnavailable(t *testing.T) {
 	env := newCatalogTestEnv(t)
 	env.expect("SELECT pg_is_in_recovery", []string{"pg_is_in_recovery"}, [][]any{{"t"}})
@@ -112,7 +122,7 @@ func TestRoutingRPCs_DemotedMidRequestIsUnavailable(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "error: %v", err)
-	assert.Equal(t, []string{"SELECT pg_is_in_recovery()"}, env.queries, "refused by writeCatalog's check, before anything is locked")
+	assert.Equal(t, []string{"SELECT pg_is_in_recovery()"}, env.queries, "refused before anything is locked")
 }
 
 // importRuleSpec is the import's rule from the default tablegroup to srctg.
@@ -128,8 +138,9 @@ func TestSetRoutingRules_WritesThroughWriteCatalog(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int64(6), resp.GetRoutingVersion())
-	assert.Equal(t, "SELECT pg_is_in_recovery()", env.queries[0], "writeCatalog checks for the catalog primary first")
-	assert.Contains(t, env.queries[1], "FROM multigres.catalog_state FOR UPDATE", "the catalog_state lock comes before any other catalog row")
+	assert.Equal(t, []string{"SELECT pg_is_in_recovery()", "SELECT pg_is_in_recovery()"}, env.queries[:2],
+		"the RPC checks for the catalog primary and writeCatalog checks again")
+	assert.Contains(t, env.queries[2], "FROM multigres.catalog_state FOR UPDATE", "the catalog_state lock comes before any other catalog row")
 	assert.Len(t, env.queriesMatching("INSERT INTO multigres.routing_rule"), 1)
 	assert.Equal(t, "COMMIT", env.queries[len(env.queries)-1])
 }
