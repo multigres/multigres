@@ -235,7 +235,7 @@ func (pm *MultipoolerManager) CreateTableGroup(ctx context.Context, req *multipo
 
 // createTableGroupTx is CreateTableGroup's catalog transaction. A name that
 // already has a row (an active tablegroup, or a creation to join) is resolved
-// without writing anything, and reported as catalogUnchanged.
+// without writing anything, and reported as catalogNoSnapshotChange.
 func createTableGroupTx(ctx context.Context, tx executor.InternalTx, req *multipoolermanagerdatapb.CreateTableGroupRequest, ranges []*clustermetadatapb.KeyRange, layout []string) (*multipoolermanagerdatapb.CreateTableGroupResponse, catalogChange, error) {
 	// Claim the name. writeCatalog's catalog_state lock already serializes
 	// catalog writers, so a concurrent CREATE of the same name waits for this
@@ -245,30 +245,30 @@ func createTableGroupTx(ctx context.Context, tx executor.InternalTx, req *multip
 		"INSERT INTO multigres.tablegroup (name, state) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING RETURNING tablegroup_id",
 		req.GetName(), tableGroupStateCreating)
 	if err != nil {
-		return nil, catalogUnchanged, mterrors.Wrap(err, "failed to insert tablegroup")
+		return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to insert tablegroup")
 	}
 	if len(res.Rows) == 0 {
 		res, err = tx.QueryArgs(ctx,
 			"SELECT tablegroup_id, state FROM multigres.tablegroup WHERE name = $1 FOR UPDATE", req.GetName())
 		if err != nil {
-			return nil, catalogUnchanged, mterrors.Wrap(err, "failed to look up tablegroup")
+			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to look up tablegroup")
 		}
 		if len(res.Rows) == 0 {
 			// The conflicting row was deleted after the insert saw it: a
 			// creation that failed concurrently. Retrying claims the name.
-			return nil, catalogUnchanged, mterrors.Errorf(mtrpcpb.Code_ABORTED, "tablegroup %q changed concurrently; retry", req.GetName())
+			return nil, catalogNoSnapshotChange, mterrors.Errorf(mtrpcpb.Code_ABORTED, "tablegroup %q changed concurrently; retry", req.GetName())
 		}
 		var id int64
 		var state string
 		if err := executor.ScanRow(res.Rows[0], &id, &state); err != nil {
-			return nil, catalogUnchanged, mterrors.Wrap(err, "failed to read tablegroup row")
+			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to read tablegroup row")
 		}
 		resp, err := createTableGroupExisting(ctx, tx, req, id, state, layout)
-		return resp, catalogUnchanged, err
+		return resp, catalogNoSnapshotChange, err
 	}
 	var id int64
 	if err := executor.ScanSingleRow(res, &id); err != nil {
-		return nil, catalogUnchanged, mterrors.Wrap(err, "failed to read new tablegroup id")
+		return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to read new tablegroup id")
 	}
 	for _, kr := range ranges {
 		// Bounds travel as hex text and are decoded in SQL: query parameters
@@ -278,18 +278,18 @@ func createTableGroupTx(ctx context.Context, tx executor.InternalTx, req *multip
 		if _, err := tx.QueryArgs(ctx,
 			"INSERT INTO multigres.shard (tablegroup_id, shard_name, range_start, range_end, state) VALUES ($1, $2, decode($3, 'hex'), decode($4, 'hex'), $5)",
 			id, keyrange.ShardName(kr), hexBound(kr.GetStart()), hexBound(kr.GetEnd()), shardStatePreparing); err != nil {
-			return nil, catalogUnchanged, mterrors.Wrap(err, "failed to insert shard")
+			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to insert shard")
 		}
 	}
 	opID := uuid.NewString()
 	request, err := json.Marshal(createTableGroupRequest{TableGroupID: id, Name: req.GetName(), Shards: layout})
 	if err != nil {
-		return nil, catalogUnchanged, mterrors.Wrap(err, "failed to encode operation request")
+		return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to encode operation request")
 	}
 	if _, err := tx.QueryArgs(ctx,
 		"INSERT INTO multigres.operation (operation_id, kind, state, request) VALUES ($1, $2, $3, $4::jsonb)",
 		opID, operationKindCreateTableGroup, operationStateCreating, string(request)); err != nil {
-		return nil, catalogUnchanged, mterrors.Wrap(err, "failed to insert operation")
+		return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to insert operation")
 	}
 	return &multipoolermanagerdatapb.CreateTableGroupResponse{OperationId: opID, TablegroupId: id}, catalogRoutingChange, nil
 }

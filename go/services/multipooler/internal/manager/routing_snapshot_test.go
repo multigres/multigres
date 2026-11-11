@@ -395,17 +395,26 @@ func TestWriteCatalog(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, env.queriesMatching("plan_epoch = plan_epoch"))
 	})
-	t.Run("an unchanged catalog rolls back and keeps its version", func(t *testing.T) {
+	t.Run("a write outside the snapshot commits without advancing", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
+		hs := env.withHealthStreamer(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+		_, updates := hs.subscribe()
 		env.expectLock()
+		env.expect("UPDATE multigres.operation", nil, nil)
 		env.expectCommit()
 
-		v, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx) (catalogChange, error) {
-			return catalogUnchanged, nil
+		v, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx) (catalogChange, error) {
+			_, err := tx.Query(ctx, "UPDATE multigres.operation SET last_error = 'x'")
+			return catalogNoSnapshotChange, err
 		})
 		require.NoError(t, err)
 		assert.Zero(t, v)
-		assert.Equal(t, []string{"SELECT routing_version FROM multigres.catalog_state FOR UPDATE"}, env.queries)
+		assert.Equal(t, []string{
+			"SELECT routing_version FROM multigres.catalog_state FOR UPDATE",
+			"UPDATE multigres.operation SET last_error = 'x'",
+			"COMMIT",
+		}, env.queries, "the write is kept, and no version advances")
+		assert.Empty(t, updates, "nothing is published")
 	})
 	t.Run("a writer error rolls back without advancing", func(t *testing.T) {
 		env := newCatalogTestEnv(t)

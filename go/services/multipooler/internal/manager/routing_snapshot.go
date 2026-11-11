@@ -36,7 +36,9 @@ import (
 // which owns that protocol: it locks the catalog_state row before the writer
 // touches anything else, advances the version once when the writer reports a
 // routing change (and plan_epoch with it when the change invalidates cached
-// plans), commits, and publishes the new versions. Holding the lock for
+// plans), commits, and publishes the new versions. Writes outside the snapshot
+// (operation rows, for instance) go through it too, and commit without
+// advancing anything. Holding the lock for
 // the whole transaction serializes catalog writers, and taking it first in
 // every writer is the lock order: catalog_state, then the other catalog rows,
 // never the other way round. A writer must not begin its own transaction.
@@ -107,33 +109,36 @@ type catalogVersions struct {
 
 const catalogVersionsQuery = "SELECT routing_version, plan_epoch FROM multigres.catalog_state"
 
-// catalogChange is what a writeCatalog writer did to the catalog.
+// catalogChange is what a writeCatalog writer's change does to the catalog
+// versions. The transaction commits whichever it is; only an error from the
+// writer rolls it back.
 type catalogChange int
 
 const (
-	// catalogUnchanged means the writer changed nothing; the transaction is
-	// rolled back and the version stays.
-	catalogUnchanged catalogChange = iota
+	// catalogNoSnapshotChange means the writer changed nothing a snapshot
+	// contains: it wrote nothing, or only rows outside the snapshot such as
+	// operation rows. No version advances.
+	catalogNoSnapshotChange catalogChange = iota
 	// catalogRoutingChange means the writer changed rows a snapshot contains;
-	// routing_version advances and the transaction commits.
+	// routing_version advances.
 	catalogRoutingChange
 	// catalogInvalidatesPlans means the writer changed rows a snapshot
 	// contains in a way that can change how an existing query is planned, so
 	// cached plans must be invalidated: routing_version and plan_epoch both
-	// advance and the transaction commits. Every such change is also a routing
-	// change.
+	// advance. Every such change is also a routing change.
 	catalogInvalidatesPlans
 )
 
 // catalogWriter is the body of a catalog write transaction. It runs with the
 // catalog_state lock already held and must leave the transaction open: it
-// neither commits nor rolls back. An error rolls back whatever it wrote.
+// neither commits nor rolls back. What it wrote commits unless it returns an
+// error, which rolls everything back.
 type catalogWriter func(ctx context.Context, tx executor.InternalTx) (catalogChange, error)
 
 // writeCatalog runs write in a catalog write transaction on the admin pool,
 // under tableGroupOpTimeout. See the file comment for the protocol it owns.
-// It returns the committed versions, or zero versions when the writer changed
-// nothing.
+// It returns the advanced versions, or zero versions for
+// catalogNoSnapshotChange, where nothing advances and nothing is published.
 func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWriter) (catalogVersions, error) {
 	qs, err := pm.catalogQueryService()
 	if err != nil {
@@ -156,7 +161,10 @@ func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWri
 	}
 	var invalidatePlans bool
 	switch change {
-	case catalogUnchanged:
+	case catalogNoSnapshotChange:
+		if err := tx.Commit(execCtx); err != nil {
+			return catalogVersions{}, mterrors.Wrap(err, "failed to commit catalog transaction")
+		}
 		return catalogVersions{}, nil
 	case catalogRoutingChange:
 	case catalogInvalidatesPlans:
