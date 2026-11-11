@@ -451,15 +451,9 @@ WHERE r.rolname IS NULL OR NOT pg_has_role($1::name, r.rolname, 'USAGE')`
 		require.NotContains(t, err.Error(), "alice", "must not reveal who owns the connection either")
 	})
 
-	// Regression test: the owner role recorded on a connection can be dropped
-	// (or renamed) independently of the connection row. pg_has_role errors
-	// outright on a role name it cannot find, so calling it directly on
-	// ownerRole would turn "the owner is gone" into a propagated backend
-	// error instead of an ordinary denial. The LEFT JOIN against pg_roles
-	// means a missing ownerRole reaches pg_has_role as NULL, which the
-	// STRICT function returns NULL for rather than erroring — verified
-	// against a live server; this test locks in that the result (a returned
-	// row, same as "lacks usage") is still treated as denied.
+	// Regression test: a dropped ownerRole must still come back as an
+	// ordinary denial, not a propagated pg_has_role "role does not exist"
+	// error (verified against a live server; see target.go's doc comment).
 	t.Run("owner role no longer exists: denied, not a backend error", func(t *testing.T) {
 		qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{
 			checkSQL: {Rows: []*sqltypes.Row{{Values: []sqltypes.Value{sqltypes.Value("1")}}}},
@@ -473,10 +467,8 @@ WHERE r.rolname IS NULL OR NOT pg_has_role($1::name, r.rolname, 'USAGE')`
 	})
 }
 
-// TestDeniedConnectionOwners covers the batched form DeniedConnectionOwners
-// uses, including the same dropped-owner-role handling CheckConnectionOwnership
-// has (see its test) — one owner role in the VALUES list not existing in
-// pg_roles must not fail the whole batch for every other connection.
+// TestDeniedConnectionOwners covers the batched form, including that one
+// dropped owner role in the VALUES list must not fail the whole batch.
 func TestDeniedConnectionOwners(t *testing.T) {
 	t.Run("empty ownerRoles is a no-op", func(t *testing.T) {
 		qs := &fakeQS{}

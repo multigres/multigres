@@ -175,20 +175,11 @@ func (c *Coordinator) DropConnection(ctx context.Context, ref Ref, callerRole st
 // GetConnection returns one connection, addressed by ref (id or name).
 //
 // callerRole gates an ownership check against the connection's stored
-// OwnerRole: without it, any role that merely passes the gateway's
-// CanCreateMigration gate could read another operator's connection —
-// including its DSN, a full libpq conninfo that may carry a password — or,
-// on the methods below that gate the same way, drop it, enumerate it, or
-// read a migration/journal entry that names it. A rejected caller sees the
-// same not-found error the resource's absence would produce, so it cannot
-// tell "doesn't exist" from "exists but not mine," the anti-enumeration
-// model CreateMigration's doc comment on CallerRole also follows. Left
-// empty on the CLI/multiadmin path, which has no SQL-authenticated identity
-// to check; the check is skipped in that case, unchanged from before this
-// parameter existed. See checkConnectionOwnership for exactly what
-// "ownership" and "masked" mean, including the one case (the owner role
-// itself no longer exists as a server role) a denial covers that isn't
-// really about privilege.
+// OwnerRole — the same check DropConnection, ListConnections, and the
+// migration/journal methods below use. A rejected caller sees the same
+// not-found error the resource's absence would, so it can't tell "doesn't
+// exist" from "exists but not mine." Empty on the CLI/multiadmin path,
+// where the check is skipped. See checkConnectionOwnership for details.
 func (c *Coordinator) GetConnection(ctx context.Context, ref Ref, callerRole string) (*Connection, error) {
 	conn, err := c.store.GetConnectionByRef(ctx, ref)
 	if err != nil {
@@ -258,12 +249,9 @@ func (c *Coordinator) ListConnections(ctx context.Context, callerRole string) ([
 // report it." Skipped (nil) when callerRole is empty (no SQL-authenticated
 // identity) or conn.OwnerRole is empty (predates ownership tracking).
 //
-// A conn.OwnerRole that no longer exists as a server role (the role was
-// dropped or renamed after the connection recorded it) is masked the same
-// as an ordinary denial, not propagated as a backend error: nothing can
-// verify ownership against a role that is gone, and the alternative —
-// treating it as allowed — would let anyone claim an orphaned connection.
-// CheckConnectionOwnership handles this itself rather than erroring.
+// A conn.OwnerRole that no longer exists as a server role is masked as an
+// ordinary denial rather than erroring — CheckConnectionOwnership handles
+// this; treating it as allowed would let anyone claim an orphaned connection.
 func (c *Coordinator) checkConnectionOwnership(ctx context.Context, conn *Connection, callerRole string, errMasked error) error {
 	if callerRole == "" || conn.OwnerRole == "" {
 		return nil
@@ -1182,11 +1170,8 @@ func (c *Coordinator) SetMigrationDirection(ctx context.Context, ref Ref, target
 	if err != nil {
 		return nil, err
 	}
-	// Re-verified against the freshly re-locked state for the same reason the
-	// phase is re-validated below: c.mu was released for the readiness wait
-	// (or simply never re-taken, if there was none), so ownership of this
-	// migration's connection could have changed while this call was not
-	// holding the lock.
+	// Re-verified for the same reason the phase is re-validated below: c.mu
+	// was released, so ownership could have changed in the meantime.
 	if err := c.checkConnectionOwnershipByID(ctx, m.ConnectionID, opts.CallerRole, ErrNotFound); err != nil {
 		return nil, err
 	}
