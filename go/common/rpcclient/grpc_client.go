@@ -295,6 +295,49 @@ func (c *Client) SetPostgresRestartsEnabled(ctx context.Context, pooler *cluster
 }
 
 //
+// Manager Service Methods - Routing Rules
+//
+
+// GetRoutingSnapshot reads the sharding catalog snapshot from the catalog primary pooler.
+func (c *Client) GetRoutingSnapshot(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.GetRoutingSnapshotRequest) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.GetRoutingSnapshot(ctx, request)
+}
+
+// SetRoutingRules replaces every routing rule of an operation on the catalog primary pooler.
+func (c *Client) SetRoutingRules(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.SetRoutingRulesRequest) (*multipoolermanagerdatapb.SetRoutingRulesResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.SetRoutingRules(ctx, request)
+}
+
+// DeleteRoutingRules deletes every routing rule of an operation on the catalog primary pooler.
+func (c *Client) DeleteRoutingRules(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.DeleteRoutingRulesRequest) (*multipoolermanagerdatapb.DeleteRoutingRulesResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.DeleteRoutingRules(ctx, request)
+}
+
+//
 // Manager Service Methods - PostgreSQL Configuration Reload
 //
 
@@ -377,4 +420,20 @@ func (c *Client) Close() {
 func (c *Client) CloseTablet(pooler *clustermetadatapb.Multipooler) {
 	addr := getPoolerAddr(pooler)
 	c.cache.close(addr)
+}
+
+//
+// Manager Service Methods - Tablegroup operations
+//
+
+func (c *Client) ListTableGroups(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ListTableGroupsRequest) (*multipoolermanagerdatapb.ListTableGroupsResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.ListTableGroups(ctx, request)
 }

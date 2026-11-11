@@ -215,6 +215,20 @@ func Errorf(code mtrpcpb.Code, format string, args ...any) error {
 	}
 }
 
+// NewInvalidShardingCatalogSnapshot returns the INVALID_ARGUMENT error for a
+// sharding catalog snapshot that breaks a validation rule, with the message
+// prefixed so every such rejection reads the same. Callers name catalog
+// entities by name and id only, never by their contents.
+func NewInvalidShardingCatalogSnapshot(format string, args ...any) error {
+	// Built directly rather than through Errorf, so the recorded stack starts
+	// at the caller.
+	return &fundamental{
+		msg:   "invalid sharding catalog snapshot: " + fmt.Sprintf(format, args...),
+		code:  mtrpcpb.Code_INVALID_ARGUMENT,
+		stack: callers(),
+	}
+}
+
 // fundamental is an error that has a message and a stack, but no caller.
 type fundamental struct {
 	msg  string

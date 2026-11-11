@@ -1590,8 +1590,19 @@ type GetAuthCredentialsResponse struct {
 	// replication=true / replication=database startup parameter. The gateway
 	// enforces it after SCRAM completes and rejects with SQLSTATE 42501 if false.
 	IsReplicationRole bool `protobuf:"varint,2,opt,name=is_replication_role,json=isReplicationRole,proto3" json:"is_replication_role,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// can_create_migration mirrors whether this role could itself perform the
+	// logical-replication setup a migration drives: rolsuper, or (CREATE
+	// privilege on the connected database AND membership in the
+	// pg_create_subscription predefined role) — the same two checks PostgreSQL
+	// itself enforces for CREATE PUBLICATION (database CREATE + table
+	// ownership, not re-checked here since it's per-table and dynamic) and
+	// CREATE SUBSCRIPTION (superuser, or pg_create_subscription + database
+	// CREATE, PG16+). The gateway gates migration/connection DDL on this so an
+	// authenticated client without this capability can't trigger migration
+	// setup, cutover, or source-credential storage it couldn't do directly.
+	CanCreateMigration bool `protobuf:"varint,3,opt,name=can_create_migration,json=canCreateMigration,proto3" json:"can_create_migration,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *GetAuthCredentialsResponse) Reset() {
@@ -1634,6 +1645,13 @@ func (x *GetAuthCredentialsResponse) GetScramHash() string {
 func (x *GetAuthCredentialsResponse) GetIsReplicationRole() bool {
 	if x != nil {
 		return x.IsReplicationRole
+	}
+	return false
+}
+
+func (x *GetAuthCredentialsResponse) GetCanCreateMigration() bool {
+	if x != nil {
+		return x.CanCreateMigration
 	}
 	return false
 }
@@ -2788,8 +2806,18 @@ type StreamPoolerHealthResponse struct {
 	// replication_lag_ns is the current replication lag in nanoseconds,
 	// measured via heartbeat timestamps. Zero on a leader or when unknown.
 	ReplicationLagNs int64 `protobuf:"varint,6,opt,name=replication_lag_ns,json=replicationLagNs,proto3" json:"replication_lag_ns,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// routing_version and plan_epoch are the sharding catalog's versions
+	// (multigres.catalog_state). Only the primary of the catalog shard reports
+	// them; every other pooler leaves them zero. They are read from committed
+	// state, which under synchronous replication is visible only once the
+	// shard's durability policy has acknowledged it, except for a commit whose
+	// wait for that acknowledgement was cancelled. A gateway that sees a
+	// routing_version above the snapshot it holds fetches a new one with
+	// GetRoutingSnapshot.
+	RoutingVersion int64 `protobuf:"varint,7,opt,name=routing_version,json=routingVersion,proto3" json:"routing_version,omitempty"`
+	PlanEpoch      int64 `protobuf:"varint,8,opt,name=plan_epoch,json=planEpoch,proto3" json:"plan_epoch,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *StreamPoolerHealthResponse) Reset() {
@@ -2853,6 +2881,20 @@ func (x *StreamPoolerHealthResponse) GetRecommendedStalenessTimeout() *durationp
 func (x *StreamPoolerHealthResponse) GetReplicationLagNs() int64 {
 	if x != nil {
 		return x.ReplicationLagNs
+	}
+	return 0
+}
+
+func (x *StreamPoolerHealthResponse) GetRoutingVersion() int64 {
+	if x != nil {
+		return x.RoutingVersion
+	}
+	return 0
+}
+
+func (x *StreamPoolerHealthResponse) GetPlanEpoch() int64 {
+	if x != nil {
+		return x.PlanEpoch
 	}
 	return 0
 }
@@ -3153,11 +3195,12 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\vdescription\x18\x01 \x01(\v2\x1b.query.StatementDescriptionR\vdescription\"S\n" +
 	"\x19GetAuthCredentialsRequest\x12\x1a\n" +
 	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12\x1a\n" +
-	"\busername\x18\x02 \x01(\tR\busername\"k\n" +
+	"\busername\x18\x02 \x01(\tR\busername\"\x9d\x01\n" +
 	"\x1aGetAuthCredentialsResponse\x12\x1d\n" +
 	"\n" +
 	"scram_hash\x18\x01 \x01(\tR\tscramHash\x12.\n" +
-	"\x13is_replication_role\x18\x02 \x01(\bR\x11isReplicationRole\"\xb6\x04\n" +
+	"\x13is_replication_role\x18\x02 \x01(\bR\x11isReplicationRole\x120\n" +
+	"\x14can_create_migration\x18\x03 \x01(\bR\x12canCreateMigration\"\xb6\x04\n" +
 	"\x16CopyBidiExecuteRequest\x12F\n" +
 	"\x05phase\x18\x01 \x01(\x0e20.multipoolerservice.CopyBidiExecuteRequest.PhaseR\x05phase\x12R\n" +
 	"\tdirection\x18\t \x01(\x0e24.multipoolerservice.CopyBidiExecuteRequest.DirectionR\tdirection\x12\x14\n" +
@@ -3247,13 +3290,16 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x18keep_sticky_reservations\x18\x04 \x01(\bR\x16keepStickyReservations\"`\n" +
 	"!ReleaseReservedConnectionResponse\x12;\n" +
 	"\x0ereserved_state\x18\x01 \x01(\v2\x14.query.ReservedStateR\rreservedState\"\x1b\n" +
-	"\x19StreamPoolerHealthRequest\"\xec\x02\n" +
+	"\x19StreamPoolerHealthRequest\"\xb4\x03\n" +
 	"\x1aStreamPoolerHealthResponse\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12K\n" +
 	"\x0eserving_status\x18\x03 \x01(\x0e2$.clustermetadata.PoolerServingStatusR\rservingStatus\x12B\n" +
 	"\rrouting_state\x18\x04 \x01(\v2\x1d.clustermetadata.RoutingStateR\froutingState\x12]\n" +
 	"\x1drecommended_staleness_timeout\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\x1brecommendedStalenessTimeout\x12,\n" +
-	"\x12replication_lag_ns\x18\x06 \x01(\x03R\x10replicationLagNs\"\xcd\x01\n" +
+	"\x12replication_lag_ns\x18\x06 \x01(\x03R\x10replicationLagNs\x12'\n" +
+	"\x0frouting_version\x18\a \x01(\x03R\x0eroutingVersion\x12\x1d\n" +
+	"\n" +
+	"plan_epoch\x18\b \x01(\x03R\tplanEpoch\"\xcd\x01\n" +
 	"\x19NotificationStreamRequest\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x12-\n" +
 	"\x12subscribe_channels\x18\x02 \x03(\tR\x11subscribeChannels\x121\n" +

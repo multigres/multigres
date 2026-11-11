@@ -40,14 +40,19 @@ import (
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	migratorpb "github.com/multigres/multigres/go/pb/migrator"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/auth"
 	"github.com/multigres/multigres/go/services/multigateway/buffer"
+	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/executor"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
 	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
 	"github.com/multigres/multigres/go/services/multigateway/scatterconn"
+	"github.com/multigres/multigres/go/services/multigateway/shardingcatalogcache"
+	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -62,7 +67,9 @@ type Multigateway struct {
 	// pgTLSCertFile is the path to the TLS certificate file for PostgreSQL SSL connections.
 	pgTLSCertFile viperutil.Value[string]
 	// pgTLSKeyFile is the path to the TLS private key file for PostgreSQL SSL connections.
-	pgTLSKeyFile viperutil.Value[string]
+	pgTLSKeyFile        viperutil.Value[string]
+	pgTrustedProxyCIDRs viperutil.Value[[]string]
+	pgTLSOffload        viperutil.Value[bool]
 	// pgRequireSSL rejects plaintext client connections; requires cert + key.
 	pgRequireSSL viperutil.Value[bool]
 	// slotBasedReplicationEnabled gates admitting non-temporary logical failover
@@ -78,6 +85,18 @@ type Multigateway struct {
 	// multigres.multipoolers from this gateway. Off by default: the names are
 	// then ordinary unknown relations to the backend.
 	clusterViewsEnabled viperutil.Value[bool]
+	// tableGroupDDLEnabled executes CREATE and DROP TABLEGROUP. Off by
+	// default: only a cluster whose provisioner creates tablegroups from the
+	// catalog can complete them, so elsewhere the statements are rejected.
+	// nil with a single pooler, which has no shards to add.
+	tableGroupDDLEnabled viperutil.Value[bool]
+	// shardingCatalogPollInterval is the backstop poll of each database's
+	// sharding catalog snapshot. nil with a single pooler, which has no
+	// catalog to follow.
+	shardingCatalogPollInterval viperutil.Value[time.Duration]
+	// shardingCatalog caches each database's sharding catalog snapshot. nil
+	// with a single pooler.
+	shardingCatalog *shardingcatalogcache.Cache
 	// poolerGateway manages connections to poolers and owns the lifecycle
 	// of the underlying pooler cache (topology watch + per-pooler health
 	// streams + per-pooler connection riders).
@@ -151,6 +170,10 @@ type Multigateway struct {
 	// renumber, so the loss is fatal: it fails the readiness check (to
 	// drain new connections) and triggers shutdownOnPrefixLoss.
 	prefixLost atomic.Bool
+	// leaderServed is set the first time a pooler's health stream reports
+	// it is the leader, PRIMARY and SERVING: from then on writes can be
+	// routed. See LeaderServed.
+	leaderServed atomic.Bool
 	// shutdownOnPrefixLoss initiates the gateway's graceful shutdown when
 	// its PID prefix claim is lost; the supervisor then restarts the
 	// process, which claims a fresh prefix. A field so tests can observe
@@ -169,6 +192,10 @@ type Multigateway struct {
 	// localPooler, when set, is the only pooler the multigateway uses (see
 	// poolergateway.LocalPooler). nil in Multigres.
 	localPooler *poolergateway.LocalPooler
+
+	// sequencedShutdown is ProcessResources.SequencedShutdown: main calls
+	// Shutdown itself instead of the multigateway registering it.
+	sequencedShutdown bool
 }
 
 // singlePooler reports whether the multigateway serves the only pooler of its
@@ -191,8 +218,9 @@ func (mg *Multigateway) singlePooler() bool {
 // localPooler is the pooler in the same process, the only one the multigateway
 // then uses (minigres); nil uses every pooler in the topology (Multigres).
 // With a local pooler, what needs several poolers or gateways is off: replica
-// reads, failover buffering, the multipooler gRPC TLS settings and
-// cross-gateway cancel forwarding. Their flags are not registered.
+// reads, failover buffering, the multipooler gRPC TLS settings,
+// cross-gateway cancel forwarding and tablegroup DDL. Their flags are not
+// registered.
 func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string, localPooler *poolergateway.LocalPooler) *Multigateway {
 	if reg == nil {
 		panic("multigateway: reg is required")
@@ -258,6 +286,14 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 			Dynamic:  false,
 			EnvVars:  []string{"MT_QUERY_LOG_SAMPLE_RATE"},
 		}),
+		pgTrustedProxyCIDRs: viperutil.Configure(reg, "pg-trusted-proxy-cidrs", viperutil.Options[[]string]{
+			Default: []string{}, FlagName: "pg-trusted-proxy-cidrs", Dynamic: false,
+			EnvVars: []string{"MT_PG_TRUSTED_PROXY_CIDRS"},
+		}),
+		pgTLSOffload: viperutil.Configure(reg, "pg-tls-offload", viperutil.Options[bool]{
+			Default: false, FlagName: "pg-tls-offload", Dynamic: false,
+			EnvVars: []string{"MT_PG_TLS_OFFLOAD"},
+		}),
 		pgTLSCertFile: viperutil.Configure(reg, "pg-tls-cert-file", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "pg-tls-cert-file",
@@ -309,6 +345,7 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 	}
 	mg.senv = resources.ServEnv
 	mg.grpcServer = resources.GrpcServer
+	mg.sequencedShutdown = resources.SequencedShutdown
 	mg.statusPath = statusPath
 	mg.localPooler = localPooler
 	// Settings are not even created with a single pooler, so their environment
@@ -317,15 +354,43 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 		mg.replicaConfig = newReplicaConfig(reg)
 		mg.bufferConfig = buffer.NewConfig(reg)
 		mg.connConfig = rpcclient.NewConnConfig(reg)
+		mg.tableGroupDDLEnabled = viperutil.Configure(reg, "enable-tablegroup-ddl", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "enable-tablegroup-ddl",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_ENABLE_TABLEGROUP_DDL"},
+		})
+		mg.shardingCatalogPollInterval = viperutil.Configure(reg, "sharding-catalog-poll-interval", viperutil.Options[time.Duration]{
+			Default:  10 * time.Second,
+			FlagName: "sharding-catalog-poll-interval",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_SHARDING_CATALOG_POLL_INTERVAL"},
+		})
 	}
 	mg.shutdownOnPrefixLoss = func() { mg.senv.InitiateShutdown() }
 
 	return mg
 }
 
+// ShardingCatalog returns the per-database sharding catalog snapshots, or nil
+// with a single pooler. Nothing on the query path reads it yet.
+func (mg *Multigateway) ShardingCatalog() shardingcatalogcache.Source {
+	if mg.shardingCatalog == nil {
+		return nil
+	}
+	return mg.shardingCatalog
+}
+
 // Executor returns the query executor for this multigateway.
 func (mg *Multigateway) Executor() *executor.Executor {
 	return mg.executor
+}
+
+// LeaderServed reports whether the gateway has seen a leader pooler serving
+// at least once since it started, so it has been able to route queries. It
+// stays true if the leader later stops serving.
+func (mg *Multigateway) LeaderServed() bool {
+	return mg.leaderServed.Load()
 }
 
 // ServiceIdentity returns the identity the multigateway reports when main
@@ -350,6 +415,8 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 	fs.String("pg-bind-address", mg.pgBindAddress.Default(), "address to bind the PostgreSQL listener to")
 	fs.Duration("statement-timeout", mg.statementTimeout.Default(), "Default statement execution timeout. 0 disables.")
 	fs.Duration("authentication-timeout", mg.authenticationTimeout.Default(), "Maximum time allowed to complete client authentication (SSL handshake, startup message, SCRAM). Negative disables; 0 uses the protocol default of 60s.")
+	fs.StringSlice("pg-trusted-proxy-cidrs", mg.pgTrustedProxyCIDRs.Default(), "optional proxy CIDR restriction for PostgreSQL PROXY v2 headers; empty trusts any TCP peer")
+	fs.Bool("pg-tls-offload", mg.pgTLSOffload.Default(), "accept TLS without ALPN after a trusted PROXY v2 address header. Requires TLS; proxy CIDRs are optional.")
 	fs.String("pg-tls-cert-file", mg.pgTLSCertFile.Default(), "path to TLS certificate file for PostgreSQL SSL connections")
 	fs.String("pg-tls-key-file", mg.pgTLSKeyFile.Default(), "path to TLS private key file for PostgreSQL SSL connections")
 	fs.Bool("pg-require-ssl", mg.pgRequireSSL.Default(), "require TLS for all client PostgreSQL connections; multigateway fails to start if no cert/key is configured. CancelRequest still permitted over plaintext.")
@@ -369,6 +436,8 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.statementTimeout,
 		mg.authenticationTimeout,
 		mg.pgTLSCertFile,
+		mg.pgTrustedProxyCIDRs,
+		mg.pgTLSOffload,
 		mg.pgTLSKeyFile,
 		mg.pgRequireSSL,
 		mg.slotBasedReplicationEnabled,
@@ -380,6 +449,14 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.queryLogSampleRate,
 	)
 	mg.replicaConfig.registerFlags(fs)
+	if mg.tableGroupDDLEnabled != nil {
+		fs.Bool("enable-tablegroup-ddl", mg.tableGroupDDLEnabled.Default(), "execute CREATE TABLEGROUP and DROP TABLEGROUP from this gateway. Enable only where a provisioner creates tablegroups from the sharding catalog (the Kubernetes operator); without one a creation can never complete. Default off; the statements are then rejected as not supported.")
+		viperutil.BindFlags(fs, mg.tableGroupDDLEnabled)
+	}
+	if mg.shardingCatalogPollInterval != nil {
+		fs.Duration("sharding-catalog-poll-interval", mg.shardingCatalogPollInterval.Default(), "how often to refetch each database's sharding catalog snapshot from the catalog primary when no newer version has been reported on its health stream. 0 disables the poll.")
+		viperutil.BindFlags(fs, mg.shardingCatalogPollInterval)
+	}
 	if mg.bufferConfig != nil {
 		mg.bufferConfig.RegisterFlags(fs)
 	}
@@ -457,17 +534,45 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 		notifMetrics,
 	)
 
+	onLeaderServing := func(sk *clustermetadatapb.ShardRef) {
+		mg.leaderServed.Store(true)
+		notifMgr.OnLeaderServing(sk)
+	}
+
+	// The sharding catalog cache follows the catalog primary's health stream
+	// and fetches through the pooler gateway, which exists by the time the
+	// first health update arrives.
+	var onCatalogShardHealth func(string, bool, *clustermetadatapb.RuleNumber, int64)
+	if mg.shardingCatalogPollInterval != nil {
+		mg.shardingCatalog = shardingcatalogcache.New(mg.shutdownCtx, logger,
+			func(ctx context.Context, database string, since *shardingcatalogcache.Position) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+				client, err := catalogPrimaryClient(mg.poolerGateway, database)
+				if err != nil {
+					return nil, err
+				}
+				req := &multipoolermanagerdatapb.GetRoutingSnapshotRequest{}
+				if since != nil {
+					req.SinceVersion = &since.RoutingVersion
+					req.SinceConsensusRule = since.Rule
+				}
+				return client.GetRoutingSnapshot(ctx, req)
+			},
+			mg.shardingCatalogPollInterval.Get())
+		onCatalogShardHealth = mg.shardingCatalog.ObserveCatalogShard
+	}
+
 	mg.poolerGateway = poolergateway.NewPoolerGateway(poolergateway.PoolerGatewayOpts{
-		OnLeaderServing: notifMgr.OnLeaderServing,
-		Ctx:             mg.shutdownCtx,
-		Source:          mg.ts,
-		LocalCell:       mg.cell.Get(),
-		Logger:          logger,
-		DialOpt:         poolerTransportCreds,
-		LocalPooler:     mg.localPooler,
-		Buffer:          mg.buffer,
-		LowLag:          mg.replicaConfig.LowLag(),
-		HighTolerance:   mg.replicaConfig.HighTolerance(),
+		OnLeaderServing:      onLeaderServing,
+		OnCatalogShardHealth: onCatalogShardHealth,
+		Ctx:                  mg.shutdownCtx,
+		Source:               mg.ts,
+		LocalCell:            mg.cell.Get(),
+		Logger:               logger,
+		DialOpt:              poolerTransportCreds,
+		LocalPooler:          mg.localPooler,
+		Buffer:               mg.buffer,
+		LowLag:               mg.replicaConfig.LowLag(),
+		HighTolerance:        mg.replicaConfig.HighTolerance(),
 	})
 	logger.InfoContext(ctx, "pooler cache started", "local_cell", mg.cell.Get())
 
@@ -481,6 +586,10 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	if mg.clusterViewsEnabled.Get() {
 		mg.executor.SetClusterViewSource(mg)
 		logger.InfoContext(ctx, "cluster views enabled")
+	}
+	if mg.tableGroupDDLEnabled != nil && mg.tableGroupDDLEnabled.Get() {
+		mg.executor.SetTableGroupAdmin(newTableGroupAdmin(mg.poolerGateway))
+		logger.InfoContext(ctx, "tablegroup DDL enabled")
 	}
 	// Started only now that mg.executor is assigned — see CobraPreRunE's doc
 	// comment, which subscribes mg.configReloaded, for why the consumer
@@ -572,6 +681,32 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	mg.pgHandler.SetKeepTransactionOnGatewayRejection(mg.keepTransactionOnGatewayRejection.Get)
 
 	mg.pgHandler.SetNotificationManager(notifMgr, notifMetrics.NotificationDropped)
+
+	// Wire the migration/connection DDL interface. The migrator service is
+	// hosted on the shard primary multipooler, so resolve it via the same
+	// failover-following path LISTEN/NOTIFY uses. Named connections persist in
+	// the shard's Postgres, not on the gateway, so they survive restarts and
+	// are shared across replicas.
+	mg.executor.SetMigrationBackend(&engine.MigrationBackend{
+		Client: func() migratorpb.MigratorClient {
+			conn, err := mg.poolerGateway.GetConnection(&querypb.Target{
+				ShardRef: &clustermetadatapb.ShardRef{
+					Database:   constants.DefaultPostgresDatabase,
+					TableGroup: constants.DefaultTableGroup,
+					Shard:      constants.DefaultShard,
+				},
+				Mode: querypb.Mode_MODE_WRITABLE,
+			})
+			if err != nil || conn == nil {
+				return nil
+			}
+			return conn.MigratorClient()
+		},
+		TargetDatabase:   constants.DefaultPostgresDatabase,
+		TargetShard:      constants.DefaultShard,
+		TargetTableGroup: constants.DefaultTableGroup,
+	})
+
 	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
 		Address:               pgAddr,
@@ -579,6 +714,8 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 		GatewayID:             pidPrefix,
 		CredentialProvider:    credentialProvider,
 		TLSConfig:             pgTLSConfig,
+		TrustedProxyCIDRs:     mg.pgTrustedProxyCIDRs.Get(),
+		TLSOffload:            mg.pgTLSOffload.Get(),
 		RequireTLS:            requireSSL,
 		AuthenticationTimeout: mg.authenticationTimeout.Get(),
 		AuthMetrics:           gatewayMetrics,
@@ -604,6 +741,8 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 			GatewayID:             pidPrefix,
 			CredentialProvider:    credentialProvider,
 			TLSConfig:             pgTLSConfig,
+			TrustedProxyCIDRs:     mg.pgTrustedProxyCIDRs.Get(),
+			TLSOffload:            mg.pgTLSOffload.Get(),
 			RequireTLS:            requireSSL,
 			AuthenticationTimeout: mg.authenticationTimeout.Get(),
 			AuthMetrics:           gatewayMetrics,
@@ -691,6 +830,9 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	)
 
 	mg.senv.HTTPHandleFunc(mg.statusPath, mg.handleIndex)
+	if mg.shardingCatalog != nil {
+		mg.senv.HTTPHandleFunc("/debug/sharding-catalog", servenv.RequireBearerAuth(mg.grpcServer.AuthPlugin, mg.handleShardingCatalog))
+	}
 
 	// The gateway is ready only when all conditions are met:
 	// 1. No init errors (topology registration succeeded)
@@ -713,9 +855,12 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 		return nil
 	})
 
-	mg.senv.OnClose(func() {
-		mg.Shutdown()
-	})
+	if !mg.sequencedShutdown {
+		mg.senv.OnClose(func() {
+			// No deadline: servenv bounds the OnClose hooks.
+			mg.Shutdown(ctxutil.Detach(ctx))
+		})
+	}
 	return nil
 }
 
@@ -769,13 +914,16 @@ func (mg *Multigateway) CobraPreRunE(cmd *cobra.Command) error {
 	return nil
 }
 
-func (mg *Multigateway) Shutdown() {
-	mg.senv.GetLogger().Info("multigateway shutting down")
+// Shutdown stops the multigateway. It stops accepting client connections and
+// waits for the open ones to end; when ctx ends first, it cuts them (see
+// server.Listener.Shutdown) and goes on.
+func (mg *Multigateway) Shutdown(ctx context.Context) {
+	mg.senv.GetLogger().InfoContext(ctx, "multigateway shutting down")
 
 	// Stop PostgreSQL listener
 	if mg.pgListener != nil {
-		if err := mg.pgListener.Close(); err != nil {
-			mg.senv.GetLogger().Error("error closing Postgres listener", "error", err)
+		if err := mg.pgListener.Shutdown(ctx); err != nil {
+			mg.senv.GetLogger().ErrorContext(ctx, "error closing Postgres listener", "error", err)
 		} else {
 			mg.senv.GetLogger().Info("Postgres listener stopped") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}
@@ -783,10 +931,10 @@ func (mg *Multigateway) Shutdown() {
 
 	// Stop replica PostgreSQL listener (if running)
 	if mg.pgReplicaListener != nil {
-		if err := mg.pgReplicaListener.Close(); err != nil {
-			mg.senv.GetLogger().Error("error closing replica Postgres listener", "error", err)
+		if err := mg.pgReplicaListener.Shutdown(ctx); err != nil {
+			mg.senv.GetLogger().ErrorContext(ctx, "error closing replica Postgres listener", "error", err)
 		} else {
-			mg.senv.GetLogger().Info("replica Postgres listener stopped")
+			mg.senv.GetLogger().InfoContext(ctx, "replica Postgres listener stopped")
 		}
 	}
 
@@ -822,9 +970,9 @@ func (mg *Multigateway) Shutdown() {
 	// per-pooler connections and cancels per-pooler health-stream goroutines.
 	if mg.poolerGateway != nil {
 		if err := mg.poolerGateway.Close(); err != nil {
-			mg.senv.GetLogger().Error("error closing pooler gateway", "error", err)
+			mg.senv.GetLogger().ErrorContext(ctx, "error closing pooler gateway", "error", err)
 		} else {
-			mg.senv.GetLogger().Info("pooler gateway closed")
+			mg.senv.GetLogger().InfoContext(ctx, "pooler gateway closed")
 		}
 	}
 

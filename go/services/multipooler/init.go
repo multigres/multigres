@@ -99,6 +99,7 @@ type Multipooler struct {
 	cell                viperutil.Value[string]
 	database            viperutil.Value[string]
 	tableGroup          viperutil.Value[string]
+	tableGroupID        viperutil.Value[int64]
 	shard               viperutil.Value[string]
 	serviceID           viperutil.Value[string]
 	socketFilePath      viperutil.Value[string]
@@ -152,6 +153,11 @@ type Multipooler struct {
 	// localServer serves the pooler to callers in this process (minigres's
 	// gateway) without gRPC; see LocalPoolerService.
 	localServer *localpoolerservice.Server
+
+	// sequencedShutdown is ProcessResources.SequencedShutdown: main calls
+	// GracefulShutdown itself instead of the multipooler registering it.
+	sequencedShutdown bool
+
 	// Senv is the serving environment
 	senv      *servenv.ServEnv
 	telemetry *telemetry.Telemetry
@@ -227,6 +233,11 @@ func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, res
 		shard: viperutil.Configure(reg, "shard", viperutil.Options[string]{
 			Default:  "",
 			FlagName: "shard",
+			Dynamic:  false,
+		}),
+		tableGroupID: viperutil.Configure(reg, "tablegroup-id", viperutil.Options[int64]{
+			Default:  0,
+			FlagName: "tablegroup-id",
 			Dynamic:  false,
 		}),
 		serviceID: viperutil.Configure(reg, "service-id", viperutil.Options[string]{
@@ -345,6 +356,7 @@ func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, res
 	mp.grpcServer = resources.GrpcServer
 	mp.queryGrpcServer = resources.QueryGrpcServer
 	mp.localServer = localpoolerservice.NewServer()
+	mp.sequencedShutdown = resources.SequencedShutdown
 	mp.statusPath = statusPath
 	mp.staticLeader = staticLeader
 	mp.senv.InitServiceMap("grpc", "pooler")
@@ -370,6 +382,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("database", mp.database.Default(), "database name this multipooler serves (overrides "+constants.PgDatabaseEnvVar+" env var)")
 	flags.String("table-group", mp.tableGroup.Default(), "table group this multipooler serves (required)")
 	flags.String("shard", mp.shard.Default(), "shard this multipooler serves (required)")
+	flags.Int64("tablegroup-id", mp.tableGroupID.Default(), "catalog id of the table group this multipooler serves, as reported by ListDesiredTableGroups; 0 when unknown (the default table group, or one configured outside the catalog)")
 	flags.String("service-id", mp.serviceID.Default(), "optional service ID (if empty, a random ID will be generated)")
 	flags.String("socket-file", mp.socketFilePath.Default(), "PostgreSQL Unix socket file path. If unset, derived as <pooler-dir>/pg_sockets/.s.PGSQL.<pg-port> when --pooler-dir is set; set explicitly to empty (--socket-file='') to force a TCP connection")
 	flags.String("pooler-dir", mp.poolerDir.Default(), "pooler directory path")
@@ -396,6 +409,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.cell,
 		mp.database,
 		mp.tableGroup,
+		mp.tableGroupID,
 		mp.shard,
 		mp.serviceID,
 		mp.socketFilePath,
@@ -520,6 +534,9 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	if err := keyrange.ValidateTableGroupAndShard(tableGroup, shard); err != nil {
 		return err
 	}
+	if mp.tableGroupID.Get() < 0 {
+		return errors.New("tablegroup-id must not be negative")
+	}
 	// The shard name was validated above, so this should never fail.
 	keyRange, err := keyrange.ParseShardName(shard)
 	if err != nil {
@@ -540,6 +557,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		TableGroup: tableGroup,
 		Shard:      shard,
 	}
+	multipooler.TablegroupId = mp.tableGroupID.Get()
 	multipooler.KeyRange = keyRange
 	multipooler.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	multipooler.LeadershipMode = mode
@@ -676,7 +694,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	if mp.queryGrpcServer != nil {
 		grpcpoolerservice.RegisterPoolerServices(mp.senv, mp.queryGrpcServer)
 	}
-	localpoolerservice.RegisterPoolerServices(mp.senv, mp.localServer)
+	localpoolerservice.RegisterPoolerServices(mp.localServer)
 	grpcmigrationservice.RegisterMigrationServices(mp.senv, mp.grpcServer)
 
 	mp.senv.HTTPHandleFunc(mp.statusPath, mp.handleIndex)
@@ -702,6 +720,9 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	// publisher, and the shutdown unregister on close all live behind
 	// StartTopoRegistration / StopTopoRegistration on the manager.
 	mp.poolerManager = poolerManager
+	if !mp.sequencedShutdown {
+		mp.senv.OnTermSync(mp.GracefulShutdown)
+	}
 	mp.senv.OnRun(func() {
 		poolerManager.StartTopoRegistration(func(s string) {
 			mp.serverStatus.mu.Lock()
@@ -720,6 +741,16 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		mp.Shutdown(ctx)
 	})
 	return nil
+}
+
+// GracefulShutdown stops serving and stops PostgreSQL: the local query service
+// refuses new calls and waits for running ones, then the manager drains the
+// pools and stops PostgreSQL. It runs on SIGTERM, as an OnTermSync hook unless
+// main runs it itself (ProcessResources.SequencedShutdown), once what calls
+// the pooler has stopped.
+func (mp *Multipooler) GracefulShutdown() {
+	mp.localServer.Stop()
+	mp.poolerManager.Shutdown()
 }
 
 // LocalPoolerService returns the pooler for callers in this process, such as

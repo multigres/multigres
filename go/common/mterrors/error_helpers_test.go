@@ -89,6 +89,26 @@ func TestIsCachedPlanError(t *testing.T) {
 	require.False(t, IsCachedPlanError(errors.New("plain")))
 }
 
+func TestIsReplicationSlotActiveError(t *testing.T) {
+	slotActive := &PgDiagnostic{
+		MessageType: 'E', Severity: "ERROR",
+		Code:    PgSSObjectInUse, // "55006"
+		Message: `replication slot "mt_sub_1" is active for PID 4242`,
+	}
+	otherObjectInUse := &PgDiagnostic{
+		MessageType: 'E', Severity: "ERROR",
+		Code: PgSSObjectInUse, Message: "cursor \"c1\" is in use",
+	}
+	syntax := &PgDiagnostic{MessageType: 'E', Code: "42601", Message: "syntax error"}
+
+	require.True(t, IsReplicationSlotActiveError(slotActive))
+	require.True(t, IsReplicationSlotActiveError(fmt.Errorf("wrapped: %w", slotActive)))
+	require.False(t, IsReplicationSlotActiveError(otherObjectInUse), "other 55006 errors are not a slot-active race")
+	require.False(t, IsReplicationSlotActiveError(syntax))
+	require.False(t, IsReplicationSlotActiveError(nil))
+	require.False(t, IsReplicationSlotActiveError(errors.New("plain")))
+}
+
 func TestIsGatewayRejection(t *testing.T) {
 	// A gateway rejection is produced as a *GatewayRejection at construction.
 	gatewayReject := NewFeatureNotSupported("SET/RESET inside a PL/pgSQL body is not supported")

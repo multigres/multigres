@@ -27,7 +27,6 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/queryservice"
-	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -66,12 +65,10 @@ func NewServer() *Server {
 }
 
 // RegisterPoolerServices makes server serve the pooler's query service once
-// the pooler registers its services, and stops it, waiting for running calls,
-// with the gRPC servers' graceful stop: before OnClose closes the pools and
-// executor.
-func RegisterPoolerServices(senv *servenv.ServEnv, server *Server) {
+// the pooler registers its services. The multipooler stops it at shutdown,
+// before stopping PostgreSQL.
+func RegisterPoolerServices(server *Server) {
 	poolerserver.RegisterPoolerServices = append(poolerserver.RegisterPoolerServices, server.register)
-	senv.OnTermSync(server.Stop)
 }
 
 var _ queryservice.Pooler = (*Server)(nil)

@@ -595,3 +595,15 @@ func TestIsAuthenticationError(t *testing.T) {
 		})
 	}
 }
+
+func TestNewInvalidShardingCatalogSnapshot(t *testing.T) {
+	err := NewInvalidShardingCatalogSnapshot("tablegroup id %d is repeated", 7)
+	assert.Equal(t, "invalid sharding catalog snapshot: tablegroup id 7 is repeated", err.Error())
+	assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, Code(err))
+
+	setLogErrStacks(true)
+	defer setLogErrStacks(false)
+	printed := fmt.Sprintf("%+v", err)
+	assert.Contains(t, printed, "TestNewInvalidShardingCatalogSnapshot", "the stack starts at the caller")
+	assert.NotContains(t, printed, "mterrors.NewInvalidShardingCatalogSnapshot", "the helper's own frame is not recorded")
+}

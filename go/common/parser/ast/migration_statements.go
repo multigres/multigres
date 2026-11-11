@@ -122,6 +122,22 @@ func (n *ShowConnectionsStmt) SqlString() string {
 	return "SHOW CONNECTION " + QuoteIdentifier(n.Name)
 }
 
+// IsMigrationDDL reports whether stmt is one of the gateway's migration or
+// connection management statements — CREATE/ALTER/DROP MIGRATION,
+// CREATE/DROP CONNECTION, or SHOW CONNECTION[S]. None of these are real
+// PostgreSQL syntax; a backend asked to Parse or Describe any of them would
+// answer with a syntax error, so every site that forwards raw query text to a
+// backend must check this first and handle the statement locally instead.
+func IsMigrationDDL(stmt Stmt) bool {
+	switch stmt.(type) {
+	case *CreateMigrationStmt, *AlterMigrationStmt, *DropMigrationStmt,
+		*CreateConnectionStmt, *DropConnectionStmt, *ShowConnectionsStmt:
+		return true
+	default:
+		return false
+	}
+}
+
 // RedactIfCredentialBearing reports whether stmt is a CREATE CONNECTION
 // statement, the only statement type whose raw SQL text carries a source
 // password as a literal, and if so returns a safe-to-log substitute for that
@@ -135,6 +151,28 @@ func RedactIfCredentialBearing(stmt Stmt) (redacted string, ok bool) {
 	default:
 		return "", false
 	}
+}
+
+// LogSafeQuery returns a version of queryStr safe to write to logs, redacting
+// it through RedactIfCredentialBearing if stmt carries a credential.
+func LogSafeQuery(queryStr string, stmt Stmt) string {
+	if redacted, ok := RedactIfCredentialBearing(stmt); ok {
+		return redacted
+	}
+	return queryStr
+}
+
+// LogSafeQueryMulti is LogSafeQuery for a batch of statements that share one
+// raw query string (e.g. a simple-protocol query carrying several
+// semicolon-separated statements): if any statement in stmts needs redaction,
+// the whole batch is redacted rather than logged verbatim.
+func LogSafeQueryMulti(queryStr string, stmts []Stmt) string {
+	for _, stmt := range stmts {
+		if redacted, ok := RedactIfCredentialBearing(stmt); ok {
+			return redacted
+		}
+	}
+	return queryStr
 }
 
 // ==============================================================================

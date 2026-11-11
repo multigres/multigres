@@ -42,9 +42,16 @@ var pgctldStopModes = []struct {
 	{"immediate", 5 * time.Second},
 }
 
+// Shutdown runs GracefulShutdown on the manager's own context. The
+// multipooler runs it on SIGTERM, bounded by --onterm-timeout and before the
+// OnClose hooks (topology unregister).
+func (pm *MultipoolerManager) Shutdown() {
+	pm.GracefulShutdown(pm.ctx)
+}
+
 // GracefulShutdown drains traffic, stops Postgres, and then publishes
-// COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE on the health stream. Registered as a
-// servenv OnTermSync hook so it runs on SIGTERM bounded by --onterm-timeout.
+// COHORT_ELIGIBILITY_SIGNAL_INELIGIBLE on the health stream. It runs on
+// SIGTERM (see Shutdown).
 //
 // The topology shutdown transition (Type=UNKNOWN, LifecycleStatus=SHUTDOWN)
 // happens after this returns via the existing OnClose -> mp.Shutdown ->

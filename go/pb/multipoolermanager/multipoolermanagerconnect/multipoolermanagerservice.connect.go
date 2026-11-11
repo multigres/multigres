@@ -84,6 +84,12 @@ const (
 	// MultipoolerManagerReconcileFollowersProcedure is the fully-qualified name of the
 	// MultipoolerManager's ReconcileFollowers RPC.
 	MultipoolerManagerReconcileFollowersProcedure = "/multipoolermanager.MultipoolerManager/ReconcileFollowers"
+	// MultipoolerManagerSetRoutingRulesProcedure is the fully-qualified name of the
+	// MultipoolerManager's SetRoutingRules RPC.
+	MultipoolerManagerSetRoutingRulesProcedure = "/multipoolermanager.MultipoolerManager/SetRoutingRules"
+	// MultipoolerManagerDeleteRoutingRulesProcedure is the fully-qualified name of the
+	// MultipoolerManager's DeleteRoutingRules RPC.
+	MultipoolerManagerDeleteRoutingRulesProcedure = "/multipoolermanager.MultipoolerManager/DeleteRoutingRules"
 	// MultipoolerManagerReloadConfigProcedure is the fully-qualified name of the MultipoolerManager's
 	// ReloadConfig RPC.
 	MultipoolerManagerReloadConfigProcedure = "/multipoolermanager.MultipoolerManager/ReloadConfig"
@@ -99,6 +105,9 @@ const (
 	// MultipoolerManagerListTableGroupsProcedure is the fully-qualified name of the
 	// MultipoolerManager's ListTableGroups RPC.
 	MultipoolerManagerListTableGroupsProcedure = "/multipoolermanager.MultipoolerManager/ListTableGroups"
+	// MultipoolerManagerGetRoutingSnapshotProcedure is the fully-qualified name of the
+	// MultipoolerManager's GetRoutingSnapshot RPC.
+	MultipoolerManagerGetRoutingSnapshotProcedure = "/multipoolermanager.MultipoolerManager/GetRoutingSnapshot"
 	// MultipoolerManagerManagerHealthStreamProcedure is the fully-qualified name of the
 	// MultipoolerManager's ManagerHealthStream RPC.
 	MultipoolerManagerManagerHealthStreamProcedure = "/multipoolermanager.MultipoolerManager/ManagerHealthStream"
@@ -152,6 +161,20 @@ type MultipoolerManagerClient interface {
 	// can stream); it does NOT touch synchronized_standby_slots — a follower is
 	// added there only once it is streaming and caught up, via the cohort path.
 	ReconcileFollowers(context.Context, *connect.Request[multipoolermanagerdata.ReconcileFollowersRequest]) (*connect.Response[multipoolermanagerdata.ReconcileFollowersResponse], error)
+	// SetRoutingRules replaces every routing rule of an operation and advances
+	// the database's routing version, in one catalog write. A change that is
+	// already in effect returns the current version and writes nothing.
+	// Served only by the primary of the default tablegroup, which holds the
+	// catalog; any other pooler returns UNAVAILABLE, and the caller rediscovers
+	// the primary and retries. A stale expected_routing_version or a change the
+	// catalog does not allow returns FAILED_PRECONDITION.
+	//
+	// Until the pooler admission fence exists, rules must change only while the
+	// affected application traffic is quiesced.
+	SetRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.SetRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.SetRoutingRulesResponse], error)
+	// DeleteRoutingRules deletes every routing rule of an operation, with the
+	// same rules as SetRoutingRules.
+	DeleteRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
@@ -170,18 +193,24 @@ type MultipoolerManagerClient interface {
 	GetOperation(context.Context, *connect.Request[multipoolermanagerdata.GetOperationRequest]) (*connect.Response[multipoolermanagerdata.GetOperationResponse], error)
 	// DropTableGroup records the intent to drop a tablegroup. An active
 	// tablegroup moves to dropping with a drop_tablegroup operation, in one
-	// catalog transaction; ListTableGroups then omits it so the provisioner
-	// tears it down, and the completion loop deletes the catalog rows once no
-	// pooler record carrying its id remains in topology. A tablegroup still
+	// catalog transaction; ListTableGroups then reports it DROPPING so the
+	// provisioner tears it down and releases its provision claim, and the
+	// completion loop deletes the catalog rows once no pooler record carrying
+	// its id and no claim for it remain in topology. A tablegroup still
 	// being created has that creation cancelled instead. The default tablegroup
 	// and tablegroups that contain tables cannot be dropped. Idempotent: a
 	// repeat while dropping returns the existing operation.
 	DropTableGroup(context.Context, *connect.Request[multipoolermanagerdata.DropTableGroupRequest]) (*connect.Response[multipoolermanagerdata.DropTableGroupResponse], error)
-	// ListTableGroups returns the tablegroups the provisioner should have
-	// provisioned: every non-default tablegroup that is creating or active, with
-	// its shard layout. Tablegroups being dropped are omitted, which is how the
-	// provisioner learns to remove them.
+	// ListTableGroups returns every non-default tablegroup with its shard
+	// layout: creating and active ones for the provisioner to provision,
+	// dropping ones for it to remove. See ListTableGroupsResponse for why a
+	// missing tablegroup is never a removal signal.
 	ListTableGroups(context.Context, *connect.Request[multipoolermanagerdata.ListTableGroupsRequest]) (*connect.Response[multipoolermanagerdata.ListTableGroupsResponse], error)
+	// GetRoutingSnapshot returns the whole sharding catalog, every tablegroup
+	// state included, read in one transaction, or a note that the caller's copy
+	// at since_version is still current. Gateways keep the result cached and
+	// call it again when the health stream reports a newer routing_version.
+	GetRoutingSnapshot(context.Context, *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
 	//
@@ -282,6 +311,18 @@ func NewMultipoolerManagerClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(multipoolerManagerMethods.ByName("ReconcileFollowers")),
 			connect.WithClientOptions(opts...),
 		),
+		setRoutingRules: connect.NewClient[multipoolermanagerdata.SetRoutingRulesRequest, multipoolermanagerdata.SetRoutingRulesResponse](
+			httpClient,
+			baseURL+MultipoolerManagerSetRoutingRulesProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("SetRoutingRules")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteRoutingRules: connect.NewClient[multipoolermanagerdata.DeleteRoutingRulesRequest, multipoolermanagerdata.DeleteRoutingRulesResponse](
+			httpClient,
+			baseURL+MultipoolerManagerDeleteRoutingRulesProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("DeleteRoutingRules")),
+			connect.WithClientOptions(opts...),
+		),
 		reloadConfig: connect.NewClient[multipoolermanagerdata.ReloadConfigRequest, multipoolermanagerdata.ReloadConfigResponse](
 			httpClient,
 			baseURL+MultipoolerManagerReloadConfigProcedure,
@@ -312,6 +353,12 @@ func NewMultipoolerManagerClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(multipoolerManagerMethods.ByName("ListTableGroups")),
 			connect.WithClientOptions(opts...),
 		),
+		getRoutingSnapshot: connect.NewClient[multipoolermanagerdata.GetRoutingSnapshotRequest, multipoolermanagerdata.GetRoutingSnapshotResponse](
+			httpClient,
+			baseURL+MultipoolerManagerGetRoutingSnapshotProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("GetRoutingSnapshot")),
+			connect.WithClientOptions(opts...),
+		),
 		managerHealthStream: connect.NewClient[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse](
 			httpClient,
 			baseURL+MultipoolerManagerManagerHealthStreamProcedure,
@@ -335,11 +382,14 @@ type multipoolerManagerClient struct {
 	resignLeadership           *connect.Client[multipoolermanagerdata.ResignLeadershipRequest, multipoolermanagerdata.ResignLeadershipResponse]
 	setPostgresRestartsEnabled *connect.Client[multipoolermanagerdata.SetPostgresRestartsEnabledRequest, multipoolermanagerdata.SetPostgresRestartsEnabledResponse]
 	reconcileFollowers         *connect.Client[multipoolermanagerdata.ReconcileFollowersRequest, multipoolermanagerdata.ReconcileFollowersResponse]
+	setRoutingRules            *connect.Client[multipoolermanagerdata.SetRoutingRulesRequest, multipoolermanagerdata.SetRoutingRulesResponse]
+	deleteRoutingRules         *connect.Client[multipoolermanagerdata.DeleteRoutingRulesRequest, multipoolermanagerdata.DeleteRoutingRulesResponse]
 	reloadConfig               *connect.Client[multipoolermanagerdata.ReloadConfigRequest, multipoolermanagerdata.ReloadConfigResponse]
 	createTableGroup           *connect.Client[multipoolermanagerdata.CreateTableGroupRequest, multipoolermanagerdata.CreateTableGroupResponse]
 	getOperation               *connect.Client[multipoolermanagerdata.GetOperationRequest, multipoolermanagerdata.GetOperationResponse]
 	dropTableGroup             *connect.Client[multipoolermanagerdata.DropTableGroupRequest, multipoolermanagerdata.DropTableGroupResponse]
 	listTableGroups            *connect.Client[multipoolermanagerdata.ListTableGroupsRequest, multipoolermanagerdata.ListTableGroupsResponse]
+	getRoutingSnapshot         *connect.Client[multipoolermanagerdata.GetRoutingSnapshotRequest, multipoolermanagerdata.GetRoutingSnapshotResponse]
 	managerHealthStream        *connect.Client[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]
 }
 
@@ -404,6 +454,16 @@ func (c *multipoolerManagerClient) ReconcileFollowers(ctx context.Context, req *
 	return c.reconcileFollowers.CallUnary(ctx, req)
 }
 
+// SetRoutingRules calls multipoolermanager.MultipoolerManager.SetRoutingRules.
+func (c *multipoolerManagerClient) SetRoutingRules(ctx context.Context, req *connect.Request[multipoolermanagerdata.SetRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.SetRoutingRulesResponse], error) {
+	return c.setRoutingRules.CallUnary(ctx, req)
+}
+
+// DeleteRoutingRules calls multipoolermanager.MultipoolerManager.DeleteRoutingRules.
+func (c *multipoolerManagerClient) DeleteRoutingRules(ctx context.Context, req *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error) {
+	return c.deleteRoutingRules.CallUnary(ctx, req)
+}
+
 // ReloadConfig calls multipoolermanager.MultipoolerManager.ReloadConfig.
 func (c *multipoolerManagerClient) ReloadConfig(ctx context.Context, req *connect.Request[multipoolermanagerdata.ReloadConfigRequest]) (*connect.Response[multipoolermanagerdata.ReloadConfigResponse], error) {
 	return c.reloadConfig.CallUnary(ctx, req)
@@ -427,6 +487,11 @@ func (c *multipoolerManagerClient) DropTableGroup(ctx context.Context, req *conn
 // ListTableGroups calls multipoolermanager.MultipoolerManager.ListTableGroups.
 func (c *multipoolerManagerClient) ListTableGroups(ctx context.Context, req *connect.Request[multipoolermanagerdata.ListTableGroupsRequest]) (*connect.Response[multipoolermanagerdata.ListTableGroupsResponse], error) {
 	return c.listTableGroups.CallUnary(ctx, req)
+}
+
+// GetRoutingSnapshot calls multipoolermanager.MultipoolerManager.GetRoutingSnapshot.
+func (c *multipoolerManagerClient) GetRoutingSnapshot(ctx context.Context, req *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error) {
+	return c.getRoutingSnapshot.CallUnary(ctx, req)
 }
 
 // ManagerHealthStream calls multipoolermanager.MultipoolerManager.ManagerHealthStream.
@@ -483,6 +548,20 @@ type MultipoolerManagerHandler interface {
 	// can stream); it does NOT touch synchronized_standby_slots — a follower is
 	// added there only once it is streaming and caught up, via the cohort path.
 	ReconcileFollowers(context.Context, *connect.Request[multipoolermanagerdata.ReconcileFollowersRequest]) (*connect.Response[multipoolermanagerdata.ReconcileFollowersResponse], error)
+	// SetRoutingRules replaces every routing rule of an operation and advances
+	// the database's routing version, in one catalog write. A change that is
+	// already in effect returns the current version and writes nothing.
+	// Served only by the primary of the default tablegroup, which holds the
+	// catalog; any other pooler returns UNAVAILABLE, and the caller rediscovers
+	// the primary and retries. A stale expected_routing_version or a change the
+	// catalog does not allow returns FAILED_PRECONDITION.
+	//
+	// Until the pooler admission fence exists, rules must change only while the
+	// affected application traffic is quiesced.
+	SetRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.SetRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.SetRoutingRulesResponse], error)
+	// DeleteRoutingRules deletes every routing rule of an operation, with the
+	// same rules as SetRoutingRules.
+	DeleteRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
@@ -501,18 +580,24 @@ type MultipoolerManagerHandler interface {
 	GetOperation(context.Context, *connect.Request[multipoolermanagerdata.GetOperationRequest]) (*connect.Response[multipoolermanagerdata.GetOperationResponse], error)
 	// DropTableGroup records the intent to drop a tablegroup. An active
 	// tablegroup moves to dropping with a drop_tablegroup operation, in one
-	// catalog transaction; ListTableGroups then omits it so the provisioner
-	// tears it down, and the completion loop deletes the catalog rows once no
-	// pooler record carrying its id remains in topology. A tablegroup still
+	// catalog transaction; ListTableGroups then reports it DROPPING so the
+	// provisioner tears it down and releases its provision claim, and the
+	// completion loop deletes the catalog rows once no pooler record carrying
+	// its id and no claim for it remain in topology. A tablegroup still
 	// being created has that creation cancelled instead. The default tablegroup
 	// and tablegroups that contain tables cannot be dropped. Idempotent: a
 	// repeat while dropping returns the existing operation.
 	DropTableGroup(context.Context, *connect.Request[multipoolermanagerdata.DropTableGroupRequest]) (*connect.Response[multipoolermanagerdata.DropTableGroupResponse], error)
-	// ListTableGroups returns the tablegroups the provisioner should have
-	// provisioned: every non-default tablegroup that is creating or active, with
-	// its shard layout. Tablegroups being dropped are omitted, which is how the
-	// provisioner learns to remove them.
+	// ListTableGroups returns every non-default tablegroup with its shard
+	// layout: creating and active ones for the provisioner to provision,
+	// dropping ones for it to remove. See ListTableGroupsResponse for why a
+	// missing tablegroup is never a removal signal.
 	ListTableGroups(context.Context, *connect.Request[multipoolermanagerdata.ListTableGroupsRequest]) (*connect.Response[multipoolermanagerdata.ListTableGroupsResponse], error)
+	// GetRoutingSnapshot returns the whole sharding catalog, every tablegroup
+	// state included, read in one transaction, or a note that the caller's copy
+	// at since_version is still current. Gateways keep the result cached and
+	// call it again when the health stream reports a newer routing_version.
+	GetRoutingSnapshot(context.Context, *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
 	//
@@ -609,6 +694,18 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 		connect.WithSchema(multipoolerManagerMethods.ByName("ReconcileFollowers")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multipoolerManagerSetRoutingRulesHandler := connect.NewUnaryHandler(
+		MultipoolerManagerSetRoutingRulesProcedure,
+		svc.SetRoutingRules,
+		connect.WithSchema(multipoolerManagerMethods.ByName("SetRoutingRules")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multipoolerManagerDeleteRoutingRulesHandler := connect.NewUnaryHandler(
+		MultipoolerManagerDeleteRoutingRulesProcedure,
+		svc.DeleteRoutingRules,
+		connect.WithSchema(multipoolerManagerMethods.ByName("DeleteRoutingRules")),
+		connect.WithHandlerOptions(opts...),
+	)
 	multipoolerManagerReloadConfigHandler := connect.NewUnaryHandler(
 		MultipoolerManagerReloadConfigProcedure,
 		svc.ReloadConfig,
@@ -637,6 +734,12 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 		MultipoolerManagerListTableGroupsProcedure,
 		svc.ListTableGroups,
 		connect.WithSchema(multipoolerManagerMethods.ByName("ListTableGroups")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multipoolerManagerGetRoutingSnapshotHandler := connect.NewUnaryHandler(
+		MultipoolerManagerGetRoutingSnapshotProcedure,
+		svc.GetRoutingSnapshot,
+		connect.WithSchema(multipoolerManagerMethods.ByName("GetRoutingSnapshot")),
 		connect.WithHandlerOptions(opts...),
 	)
 	multipoolerManagerManagerHealthStreamHandler := connect.NewBidiStreamHandler(
@@ -671,6 +774,10 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 			multipoolerManagerSetPostgresRestartsEnabledHandler.ServeHTTP(w, r)
 		case MultipoolerManagerReconcileFollowersProcedure:
 			multipoolerManagerReconcileFollowersHandler.ServeHTTP(w, r)
+		case MultipoolerManagerSetRoutingRulesProcedure:
+			multipoolerManagerSetRoutingRulesHandler.ServeHTTP(w, r)
+		case MultipoolerManagerDeleteRoutingRulesProcedure:
+			multipoolerManagerDeleteRoutingRulesHandler.ServeHTTP(w, r)
 		case MultipoolerManagerReloadConfigProcedure:
 			multipoolerManagerReloadConfigHandler.ServeHTTP(w, r)
 		case MultipoolerManagerCreateTableGroupProcedure:
@@ -681,6 +788,8 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 			multipoolerManagerDropTableGroupHandler.ServeHTTP(w, r)
 		case MultipoolerManagerListTableGroupsProcedure:
 			multipoolerManagerListTableGroupsHandler.ServeHTTP(w, r)
+		case MultipoolerManagerGetRoutingSnapshotProcedure:
+			multipoolerManagerGetRoutingSnapshotHandler.ServeHTTP(w, r)
 		case MultipoolerManagerManagerHealthStreamProcedure:
 			multipoolerManagerManagerHealthStreamHandler.ServeHTTP(w, r)
 		default:
@@ -740,6 +849,14 @@ func (UnimplementedMultipoolerManagerHandler) ReconcileFollowers(context.Context
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.ReconcileFollowers is not implemented"))
 }
 
+func (UnimplementedMultipoolerManagerHandler) SetRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.SetRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.SetRoutingRulesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.SetRoutingRules is not implemented"))
+}
+
+func (UnimplementedMultipoolerManagerHandler) DeleteRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.DeleteRoutingRules is not implemented"))
+}
+
 func (UnimplementedMultipoolerManagerHandler) ReloadConfig(context.Context, *connect.Request[multipoolermanagerdata.ReloadConfigRequest]) (*connect.Response[multipoolermanagerdata.ReloadConfigResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.ReloadConfig is not implemented"))
 }
@@ -758,6 +875,10 @@ func (UnimplementedMultipoolerManagerHandler) DropTableGroup(context.Context, *c
 
 func (UnimplementedMultipoolerManagerHandler) ListTableGroups(context.Context, *connect.Request[multipoolermanagerdata.ListTableGroupsRequest]) (*connect.Response[multipoolermanagerdata.ListTableGroupsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.ListTableGroups is not implemented"))
+}
+
+func (UnimplementedMultipoolerManagerHandler) GetRoutingSnapshot(context.Context, *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.GetRoutingSnapshot is not implemented"))
 }
 
 func (UnimplementedMultipoolerManagerHandler) ManagerHealthStream(context.Context, *connect.BidiStream[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]) error {

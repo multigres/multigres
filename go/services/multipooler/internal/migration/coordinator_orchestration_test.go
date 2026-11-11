@@ -67,7 +67,7 @@ func TestCreateMigration_ValidateError(t *testing.T) {
 func TestCreateMigration_ConnectionDroppedDuringValidation(t *testing.T) {
 	tc := newTestCoord(t)
 	tc.src.onValidate = func() {
-		require.NoError(t, tc.c.DropConnection(context.Background(), defaultConnID))
+		require.NoError(t, tc.c.DropConnection(context.Background(), Ref{ID: defaultConnID}, "", false))
 	}
 	_, err := tc.c.CreateMigration(context.Background(), CreateParams{
 		ConnectionName: "src", TargetDatabase: "app", Tables: []string{"public.orders"},
@@ -334,6 +334,108 @@ func TestStartMigration_SkipSchemaCopyStillChecksDropPrivilege(t *testing.T) {
 	require.Equal(t, PhaseFailed, tc.store.migs[testMigID].Phase)
 }
 
+// TestSetMigrationDirection_ConnectionOwnership is the regression test for the
+// HIGH finding this check guards against: a migration is addressed by id/name
+// alone, so a caller that merely passes the gateway's CanCreateMigration gate
+// could otherwise flip another operator's migration to EXPORT (or trigger its
+// not-yet-started IMPORT setup), reusing that migration's connection
+// credentials for replication it was never authorized to drive.
+func TestSetMigrationDirection_ConnectionOwnership(t *testing.T) {
+	t.Run("a non-owning caller is rejected before switching to EXPORT", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.c.now = time.Now // readiness gate needs a real advancing clock
+		m := tc.seed(&Migration{Phase: PhaseImporting})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipErr = errors.New("role \"mallory\" lacks privilege to use this connection")
+		tc.src.lagPresent = true
+		tc.tgt.subExists = true
+
+		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionExport,
+			ActivateOptions{CallerRole: "mallory", MaxLagBytes: 1024, WaitTimeout: time.Second})
+		require.ErrorIs(t, err, ErrNotFound, "must not leak that the migration exists but is merely unauthorized")
+		require.NotContains(t, tc.log, "target.CreatePublication", "a rejected ownership check must never reach the switch")
+		require.Equal(t, PhaseImporting, tc.store.migs[testMigID].Phase, "a rejected switch must not change phase")
+	})
+
+	t.Run("the connection's own owner may switch to EXPORT", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.c.now = time.Now
+		m := tc.seed(&Migration{Phase: PhaseImporting})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.src.lagPresent = true
+		tc.tgt.subExists = true
+
+		proj, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionExport,
+			ActivateOptions{CallerRole: "alice", MaxLagBytes: 1024, WaitTimeout: time.Second})
+		require.NoError(t, err)
+		require.Equal(t, PhaseExporting, proj.Phase)
+	})
+
+	t.Run("ownership revoked during the readiness wait is caught on re-check", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.c.now = time.Now
+		m := tc.seed(&Migration{Phase: PhaseImporting})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipAllow = map[string]bool{"alice": true}
+		tc.src.lagPresent = true
+		tc.tgt.subExists = true
+		// c.mu is released for the readiness wait; simulate the connection's
+		// ownership changing (e.g. DropConnection + re-create under a new
+		// owner) in that window, right as the wait is about to succeed.
+		tc.src.onReplicationLag = func() {
+			tc.tgt.checkConnectionOwnershipAllow = map[string]bool{}
+		}
+
+		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionExport,
+			ActivateOptions{CallerRole: "alice", MaxLagBytes: 1024, WaitTimeout: time.Second})
+		require.ErrorIs(t, err, ErrNotFound, "must not leak that the migration exists but is merely unauthorized")
+		require.NotContains(t, tc.log, "target.CreatePublication", "a rejected re-check must never reach the switch")
+		require.Equal(t, PhaseImporting, tc.store.migs[testMigID].Phase, "a rejected switch must not change phase")
+	})
+
+	t.Run("a non-owning caller is rejected before a not-yet-started IMPORT runs setup", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseCreated})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipErr = errors.New("role \"mallory\" lacks privilege to use this connection")
+
+		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: testMigID}, DirectionImport,
+			ActivateOptions{CallerRole: "mallory"})
+		require.ErrorIs(t, err, ErrNotFound, "must not leak that the migration exists but is merely unauthorized")
+		require.NotContains(t, tc.log, "target.CreateSubscription", "a rejected ownership check must never reach setup")
+		require.Equal(t, PhaseCreated, tc.store.migs[testMigID].Phase, "a rejected start must not advance or fail the phase")
+	})
+
+	t.Run("an empty CallerRole (CLI/multiadmin path) skips the check entirely", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.c.now = time.Now
+		m := tc.seed(&Migration{Phase: PhaseImporting})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipErr = errors.New("would reject if called")
+		tc.src.lagPresent = true
+		tc.tgt.subExists = true
+
+		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionExport,
+			ActivateOptions{MaxLagBytes: 1024, WaitTimeout: time.Second})
+		require.NoError(t, err)
+		require.NotContains(t, tc.log, "target.CheckConnectionOwnership")
+	})
+
+	t.Run("an empty OwnerRole (a connection predating this check) skips it too", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.c.now = time.Now
+		m := tc.seed(&Migration{Phase: PhaseImporting})
+		tc.tgt.checkConnectionOwnershipErr = errors.New("would reject if called")
+		tc.src.lagPresent = true
+		tc.tgt.subExists = true
+
+		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionExport,
+			ActivateOptions{CallerRole: "mallory", MaxLagBytes: 1024, WaitTimeout: time.Second})
+		require.NoError(t, err)
+		require.NotContains(t, tc.log, "target.CheckConnectionOwnership")
+	})
+}
+
 func TestDrop_CompletingResume(t *testing.T) {
 	tc := newTestCoord(t)
 	tc.seed(&Migration{Phase: PhaseCompleting, Direction: DirectionImport})
@@ -411,6 +513,57 @@ func TestDrop_CompletingUpdateErrorPropagates(t *testing.T) {
 	tc.store.updateErr = errors.New("update rejected") // the COMPLETING commit fails
 	_, err := tc.c.DropMigration(context.Background(), Ref{ID: testMigID}, DropOptions{})
 	require.ErrorContains(t, err, "update rejected")
+}
+
+// TestDropMigration_ConnectionOwnership is the regression test for the
+// MEDIUM finding this check guards against: DropMigrationRequest.caller_role
+// already existed and was documented as gating an ownership check, but
+// nothing actually read it, so any caller that merely passed the gateway's
+// CanCreateMigration gate could name and abort another operator's migration.
+// Migrations carry no owner of their own; ownership is derived from the
+// migration's connection, the same model CreateMigration's check uses.
+func TestDropMigration_ConnectionOwnership(t *testing.T) {
+	t.Run("a non-owning caller is rejected", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseImporting})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipErr = errors.New("role \"mallory\" lacks privilege to use this connection")
+
+		_, err := tc.c.DropMigration(context.Background(), Ref{ID: testMigID}, DropOptions{CallerRole: "mallory"})
+		require.ErrorIs(t, err, ErrNotFound, "must not leak that the migration exists but is merely unauthorized")
+		require.Empty(t, tc.store.deletes, "a rejected ownership check must not delete the migration")
+	})
+
+	t.Run("the connection's own owner may drop it", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseImporting})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+
+		_, err := tc.c.DropMigration(context.Background(), Ref{ID: testMigID}, DropOptions{CallerRole: "alice"})
+		require.NoError(t, err)
+		require.Equal(t, []int64{testMigID}, tc.store.deletes)
+	})
+
+	t.Run("an empty CallerRole (CLI/multiadmin path) skips the check entirely", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseImporting})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipErr = errors.New("would reject if called")
+
+		_, err := tc.c.DropMigration(context.Background(), Ref{ID: testMigID}, DropOptions{})
+		require.NoError(t, err)
+		require.NotContains(t, tc.log, "target.CheckConnectionOwnership")
+	})
+
+	t.Run("an empty OwnerRole (a connection predating this check) skips it too", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseImporting})
+		tc.tgt.checkConnectionOwnershipErr = errors.New("would reject if called")
+
+		_, err := tc.c.DropMigration(context.Background(), Ref{ID: testMigID}, DropOptions{CallerRole: "mallory"})
+		require.NoError(t, err)
+		require.NotContains(t, tc.log, "target.CheckConnectionOwnership")
+	})
 }
 
 func TestSetDirection_Invalid(t *testing.T) {
@@ -605,7 +758,7 @@ func TestDeactivate_StuckDrainFailsWithinCeiling(t *testing.T) {
 
 	// c.mu must be free: a read that would have queued behind the stuck drain
 	// succeeds immediately now that Deactivate has returned.
-	proj, err := tc.c.GetMigration(context.Background(), Ref{ID: m.ID})
+	proj, err := tc.c.GetMigration(context.Background(), Ref{ID: m.ID}, "")
 	require.NoError(t, err)
 	require.Equal(t, PhaseFailed, proj.Phase)
 	require.Contains(t, proj.LastError, "context deadline exceeded")
@@ -876,15 +1029,59 @@ func TestCreateConnection_ValidatesAndAssignsID(t *testing.T) {
 	require.NoError(t, tc.c.CreateConnection(context.Background(), conn))
 	require.NotZero(t, conn.ID, "CreateConnection must assign an id, not accept one from the caller")
 
-	stored, err := tc.c.GetConnection(context.Background(), Ref{ID: conn.ID})
+	stored, err := tc.c.GetConnection(context.Background(), Ref{ID: conn.ID}, "")
 	require.NoError(t, err)
 	require.Equal(t, conn.DSN, stored.DSN)
 }
 
 func TestGetConnection_NotFound(t *testing.T) {
 	tc := newTestCoord(t)
-	_, err := tc.c.GetConnection(context.Background(), Ref{ID: 999})
+	_, err := tc.c.GetConnection(context.Background(), Ref{ID: 999}, "")
 	require.ErrorIs(t, err, ErrConnectionNotFound)
+}
+
+// TestGetConnection_Ownership is the regression test for the HIGH finding
+// this check guards against: GetConnection returned a connection's full DSN
+// (host/dbname/user/password) with no ownership check at all, so any caller
+// that merely passed the gateway's CanCreateMigration gate could read
+// another operator's connection, including its password.
+func TestGetConnection_Ownership(t *testing.T) {
+	t.Run("a non-owning caller is rejected, without revealing whether the connection exists", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipErr = errors.New("role \"mallory\" lacks privilege to use this connection")
+
+		_, err := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID}, "mallory")
+		require.ErrorIs(t, err, ErrConnectionNotFound, "must not leak that the connection exists but is merely unauthorized")
+	})
+
+	t.Run("the connection's own owner may read it", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+
+		conn, err := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID}, "alice")
+		require.NoError(t, err)
+		require.Equal(t, "src", conn.Name)
+	})
+
+	t.Run("an empty CallerRole (CLI/multiadmin path) skips the check entirely", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipErr = errors.New("would reject if called")
+
+		_, err := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID}, "")
+		require.NoError(t, err)
+		require.NotContains(t, tc.log, "target.CheckConnectionOwnership")
+	})
+
+	t.Run("an empty OwnerRole (a connection predating this check) skips it too", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.tgt.checkConnectionOwnershipErr = errors.New("would reject if called")
+
+		_, err := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID}, "mallory")
+		require.NoError(t, err)
+		require.NotContains(t, tc.log, "target.CheckConnectionOwnership")
+	})
 }
 
 func TestListConnections(t *testing.T) {
@@ -892,7 +1089,7 @@ func TestListConnections(t *testing.T) {
 	tc.c.now = func() time.Time { return time.Unix(1_800_000_000, 0) }
 	require.NoError(t, tc.c.CreateConnection(context.Background(), &Connection{Name: "extra", DSN: "host=extra"}))
 
-	conns, err := tc.c.ListConnections(context.Background())
+	conns, err := tc.c.ListConnections(context.Background(), "")
 	require.NoError(t, err)
 	names := make([]string, len(conns))
 	for i, c := range conns {
@@ -902,18 +1099,164 @@ func TestListConnections(t *testing.T) {
 	require.ElementsMatch(t, []string{"src", "extra"}, names)
 }
 
+// TestListConnections_FiltersByOwnership is the regression test for the
+// MEDIUM finding this filter guards against: a named connection carries no
+// ACL of its own, so without it any caller that merely passes the gateway's
+// CanCreateMigration gate could enumerate every operator's configured source
+// host/dbname/user — metadata about credentials it does not hold.
+func TestListConnections_FiltersByOwnership(t *testing.T) {
+	tc := newTestCoord(t)
+	tc.store.conns[defaultConnID].OwnerRole = "alice" // "src"
+	tc.store.conns[2] = &Connection{ID: 2, Name: "bobs", DSN: "host=bob", OwnerRole: "bob"}
+	tc.store.conns[3] = &Connection{ID: 3, Name: "legacy", DSN: "host=legacy"} // predates ownership tracking
+	tc.tgt.checkConnectionOwnershipAllow = map[string]bool{"alice": true}
+
+	conns, err := tc.c.ListConnections(context.Background(), "alice")
+	require.NoError(t, err)
+	names := make([]string, len(conns))
+	for i, c := range conns {
+		names[i] = c.Name
+	}
+	require.ElementsMatch(t, []string{"src", "legacy"}, names,
+		"alice sees her own connection and the unowned legacy one, not bob's")
+}
+
+func TestListConnections_EmptyCallerRoleSkipsFilter(t *testing.T) {
+	tc := newTestCoord(t)
+	tc.store.conns[defaultConnID].OwnerRole = "alice"
+	tc.store.conns[2] = &Connection{ID: 2, Name: "bobs", DSN: "host=bob", OwnerRole: "bob"}
+	tc.tgt.checkConnectionOwnershipErr = errors.New("would reject if called")
+
+	conns, err := tc.c.ListConnections(context.Background(), "")
+	require.NoError(t, err)
+	require.Len(t, conns, 2, "an empty CallerRole (CLI/multiadmin path) must see every connection unfiltered")
+	require.NotContains(t, tc.log, "target.CheckConnectionOwnership")
+}
+
+// TestListConnections_BatchesOwnershipCheck is the regression test for the
+// finding this batching guards against: the filter used to call
+// CheckConnectionOwnership once per connection — N live Postgres round trips
+// for N connections. DeniedConnectionOwners must be called exactly once per
+// ListConnections call, regardless of how many connections exist.
+func TestListConnections_BatchesOwnershipCheck(t *testing.T) {
+	tc := newTestCoord(t)
+	tc.store.conns[defaultConnID].OwnerRole = "alice"
+	tc.store.conns[2] = &Connection{ID: 2, Name: "bobs", DSN: "host=bob", OwnerRole: "bob"}
+	tc.store.conns[3] = &Connection{ID: 3, Name: "carols", DSN: "host=carol", OwnerRole: "carol"}
+	tc.tgt.checkConnectionOwnershipAllow = map[string]bool{"alice": true}
+
+	_, err := tc.c.ListConnections(context.Background(), "alice")
+	require.NoError(t, err)
+	calls := 0
+	for _, e := range tc.log {
+		if e == "target.DeniedConnectionOwners" {
+			calls++
+		}
+		require.NotEqual(t, "target.CheckConnectionOwnership", e, "must not fall back to one round trip per connection")
+	}
+	require.Equal(t, 1, calls, "must check every distinct owner role in a single batched call")
+}
+
+// TestListConnections_PropagatesGenuineError is the regression test for the
+// finding this guards against: the old per-connection filter conflated a
+// genuine backend failure with an ordinary ownership denial, silently
+// omitting that connection rather than surfacing the error.
+func TestListConnections_PropagatesGenuineError(t *testing.T) {
+	tc := newTestCoord(t)
+	tc.store.conns[defaultConnID].OwnerRole = "alice"
+	tc.tgt.deniedConnectionOwnersErr = errors.New("admin pool exhausted")
+
+	_, err := tc.c.ListConnections(context.Background(), "mallory")
+	require.ErrorContains(t, err, "admin pool exhausted")
+}
+
 func TestDropConnection(t *testing.T) {
 	tc := newTestCoord(t)
-	require.NoError(t, tc.c.DropConnection(context.Background(), defaultConnID))
-	_, err := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID})
+	require.NoError(t, tc.c.DropConnection(context.Background(), Ref{ID: defaultConnID}, "", false))
+	_, err := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID}, "")
 	require.ErrorIs(t, err, ErrConnectionNotFound)
+}
+
+// TestDropConnection_Ownership is the regression test for the MEDIUM finding
+// this check guards against: DropConnectionRequest carried no caller_role
+// field at all, so there was no way to check ownership before deleting —
+// any caller that merely passed the gateway's CanCreateMigration gate could
+// drop a connection it does not own.
+func TestDropConnection_Ownership(t *testing.T) {
+	t.Run("a non-owning caller is rejected", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipErr = errors.New("role \"mallory\" lacks privilege to use this connection")
+
+		err := tc.c.DropConnection(context.Background(), Ref{ID: defaultConnID}, "mallory", false)
+		require.ErrorIs(t, err, ErrConnectionNotFound, "must not leak that the connection exists but is merely unauthorized")
+		_, getErr := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID}, "")
+		require.NoError(t, getErr, "a rejected ownership check must not delete the connection")
+	})
+
+	t.Run("the connection's own owner may drop it", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+
+		require.NoError(t, tc.c.DropConnection(context.Background(), Ref{ID: defaultConnID}, "alice", false))
+		_, err := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID}, "")
+		require.ErrorIs(t, err, ErrConnectionNotFound)
+	})
+
+	t.Run("an empty CallerRole (CLI/multiadmin path) skips the check entirely", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipErr = errors.New("would reject if called")
+
+		require.NoError(t, tc.c.DropConnection(context.Background(), Ref{ID: defaultConnID}, "", false))
+		require.NotContains(t, tc.log, "target.CheckConnectionOwnership")
+	})
+
+	t.Run("an empty OwnerRole (a connection predating this check) skips it too", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.tgt.checkConnectionOwnershipErr = errors.New("would reject if called")
+
+		require.NoError(t, tc.c.DropConnection(context.Background(), Ref{ID: defaultConnID}, "mallory", false))
+		require.NotContains(t, tc.log, "target.CheckConnectionOwnership")
+	})
+
+	t.Run("IfExists on a connection that exists but isn't owned is a silent no-op", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipErr = errors.New("role \"mallory\" lacks privilege to use this connection")
+
+		require.NoError(t, tc.c.DropConnection(context.Background(), Ref{ID: defaultConnID}, "mallory", true),
+			"the masked ownership denial must be treated the same as IfExists finding nothing")
+		_, err := tc.c.GetConnection(context.Background(), Ref{ID: defaultConnID}, "")
+		require.NoError(t, err, "IfExists must not delete a connection it merely couldn't prove ownership of")
+	})
+}
+
+// TestCheckConnectionOwnershipByID_ResolveErrors covers the two ways
+// resolving connID itself can fail, independent of the ownership check that
+// follows a successful resolve.
+func TestCheckConnectionOwnershipByID_ResolveErrors(t *testing.T) {
+	t.Run("a connection that doesn't resolve at all is masked the same as a denial", func(t *testing.T) {
+		tc := newTestCoord(t)
+		err := tc.c.checkConnectionOwnershipByID(context.Background(), 999, "mallory", ErrNotFound)
+		require.ErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("a genuine resolve failure propagates instead of being masked", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.store.connErr = errors.New("admin pool exhausted")
+
+		err := tc.c.checkConnectionOwnershipByID(context.Background(), defaultConnID, "mallory", ErrNotFound)
+		require.ErrorContains(t, err, "admin pool exhausted")
+		require.NotErrorIs(t, err, ErrNotFound)
+	})
 }
 
 func TestListMigrations(t *testing.T) {
 	tc := newTestCoord(t)
 	tc.seed(&Migration{Phase: PhaseImporting})
 
-	projs, err := tc.c.ListMigrations(context.Background())
+	projs, err := tc.c.ListMigrations(context.Background(), "")
 	require.NoError(t, err)
 	require.Len(t, projs, 1)
 	require.Equal(t, testMigID, projs[0].ID)
@@ -922,8 +1265,147 @@ func TestListMigrations(t *testing.T) {
 func TestListMigrations_PropagatesStoreError(t *testing.T) {
 	tc := newTestCoord(t)
 	tc.store.listErr = errors.New("connection lost")
-	_, err := tc.c.ListMigrations(context.Background())
+	_, err := tc.c.ListMigrations(context.Background(), "")
 	require.ErrorContains(t, err, "connection lost")
+}
+
+// TestGetMigration_Ownership is the regression test for the finding this
+// check guards against: GetMigration had no ownership check at all, so any
+// caller that merely passed the gateway's CanCreateMigration gate could read
+// another operator's migration status.
+func TestGetMigration_Ownership(t *testing.T) {
+	t.Run("a non-owning caller is rejected", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseImporting})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipErr = errors.New("role \"mallory\" lacks privilege to use this connection")
+
+		_, err := tc.c.GetMigration(context.Background(), Ref{ID: testMigID}, "mallory")
+		require.ErrorIs(t, err, ErrNotFound, "must not leak that the migration exists but is merely unauthorized")
+	})
+
+	t.Run("the connection's own owner may read it", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseImporting})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+
+		proj, err := tc.c.GetMigration(context.Background(), Ref{ID: testMigID}, "alice")
+		require.NoError(t, err)
+		require.Equal(t, testMigID, proj.ID)
+	})
+
+	t.Run("a genuine backend failure propagates instead of being masked", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseImporting})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipGenericErr = errors.New("admin pool exhausted")
+
+		_, err := tc.c.GetMigration(context.Background(), Ref{ID: testMigID}, "mallory")
+		require.ErrorContains(t, err, "admin pool exhausted")
+		require.NotErrorIs(t, err, ErrNotFound, "a real backend failure must not be indistinguishable from an ordinary denial")
+	})
+
+	t.Run("an empty CallerRole (CLI/multiadmin path) skips the check entirely", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseImporting})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipErr = errors.New("would reject if called")
+
+		_, err := tc.c.GetMigration(context.Background(), Ref{ID: testMigID}, "")
+		require.NoError(t, err)
+		require.NotContains(t, tc.log, "target.CheckConnectionOwnership")
+	})
+}
+
+// TestListMigrations_FiltersByOwnership is the regression test for the
+// finding this filter guards against: ListMigrations returned every
+// migration unfiltered, so any caller that merely passed the gateway's
+// CanCreateMigration gate could enumerate every operator's migration.
+func TestListMigrations_FiltersByOwnership(t *testing.T) {
+	t.Run("a non-owned migration is omitted, not errored", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseImporting})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipErr = errors.New("role \"mallory\" lacks privilege to use this connection")
+
+		projs, err := tc.c.ListMigrations(context.Background(), "mallory")
+		require.NoError(t, err)
+		require.Empty(t, projs)
+	})
+
+	t.Run("the connection's own owner sees it", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseImporting})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+
+		projs, err := tc.c.ListMigrations(context.Background(), "alice")
+		require.NoError(t, err)
+		require.Len(t, projs, 1)
+	})
+
+	t.Run("a genuine backend failure propagates instead of silently omitting the row", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.seed(&Migration{Phase: PhaseImporting})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipGenericErr = errors.New("admin pool exhausted")
+
+		_, err := tc.c.ListMigrations(context.Background(), "mallory")
+		require.ErrorContains(t, err, "admin pool exhausted")
+	})
+}
+
+// TestGetMigrationJournal_Ownership is the regression test for the finding
+// this check guards against: GetMigrationJournal had no ownership check at
+// all, so any caller that merely passed the gateway's CanCreateMigration
+// gate could read another operator's journal (handoff LSNs, phase/event
+// history).
+func TestGetMigrationJournal_Ownership(t *testing.T) {
+	t.Run("a non-owning caller is rejected", func(t *testing.T) {
+		tc := newTestCoord(t)
+		m := tc.seed(&Migration{Phase: PhaseImporting})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		tc.tgt.checkConnectionOwnershipErr = errors.New("role \"mallory\" lacks privilege to use this connection")
+		require.NoError(t, tc.store.InsertJournal(context.Background(), &JournalEntry{MigrationID: m.ID}))
+
+		_, err := tc.c.GetMigrationJournal(context.Background(), Ref{ID: m.ID}, "mallory")
+		require.ErrorIs(t, err, ErrNotFound, "must not leak that the migration exists but is merely unauthorized")
+	})
+
+	t.Run("the connection's own owner may read it", func(t *testing.T) {
+		tc := newTestCoord(t)
+		m := tc.seed(&Migration{Phase: PhaseImporting})
+		tc.store.conns[defaultConnID].OwnerRole = "alice"
+		require.NoError(t, tc.store.InsertJournal(context.Background(), &JournalEntry{MigrationID: m.ID}))
+
+		entries, err := tc.c.GetMigrationJournal(context.Background(), Ref{ID: m.ID}, "alice")
+		require.NoError(t, err)
+		require.Len(t, entries, 1)
+	})
+
+	t.Run("a dropped migration denies a non-empty caller by default", func(t *testing.T) {
+		tc := newTestCoord(t)
+		require.NoError(t, tc.store.InsertJournal(context.Background(), &JournalEntry{MigrationID: 999}))
+
+		_, err := tc.c.GetMigrationJournal(context.Background(), Ref{ID: 999}, "mallory")
+		require.ErrorIs(t, err, ErrNotFound, "a dropped migration's connection can no longer be resolved to prove ownership")
+	})
+
+	t.Run("a dropped migration is still readable on the CLI/multiadmin path", func(t *testing.T) {
+		tc := newTestCoord(t)
+		require.NoError(t, tc.store.InsertJournal(context.Background(), &JournalEntry{MigrationID: 999}))
+
+		entries, err := tc.c.GetMigrationJournal(context.Background(), Ref{ID: 999}, "")
+		require.NoError(t, err)
+		require.Len(t, entries, 1)
+	})
+
+	t.Run("a genuine GetByRef failure propagates instead of being treated as dropped", func(t *testing.T) {
+		tc := newTestCoord(t)
+		tc.store.getErr = errors.New("admin pool exhausted")
+
+		_, err := tc.c.GetMigrationJournal(context.Background(), Ref{ID: testMigID}, "mallory")
+		require.ErrorContains(t, err, "admin pool exhausted")
+	})
 }
 
 func TestEnsureSchema(t *testing.T) {

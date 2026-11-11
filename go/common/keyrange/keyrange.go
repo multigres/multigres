@@ -29,6 +29,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -79,6 +80,49 @@ func ShardName(kr *clustermetadatapb.KeyRange) string {
 	return start + "-" + end
 }
 
+// Equal reports whether two key ranges cover the same keys. A nil key range
+// is the full keyspace.
+func Equal(a, b *clustermetadatapb.KeyRange) bool {
+	return bytes.Equal(a.GetStart(), b.GetStart()) && bytes.Equal(a.GetEnd(), b.GetEnd())
+}
+
+// Overlaps reports whether two key ranges share at least one key. Adjacent
+// ranges, where one ends where the other starts, do not overlap. A nil key
+// range is the full keyspace.
+func Overlaps(a, b *clustermetadatapb.KeyRange) bool {
+	return startsBeforeEnd(a.GetStart(), b.GetEnd()) && startsBeforeEnd(b.GetStart(), a.GetEnd())
+}
+
+// Contiguous reports whether ranges are contiguous: ordered by start, each
+// range ends exactly where the next one starts, with no gap and no overlap.
+// If they are, it returns the single key range they cover together. It
+// reports false if ranges is empty. A nil key range is the full keyspace.
+func Contiguous(ranges []*clustermetadatapb.KeyRange) (*clustermetadatapb.KeyRange, bool) {
+	if len(ranges) == 0 {
+		return nil, false
+	}
+	sorted := slices.Clone(ranges)
+	slices.SortFunc(sorted, func(a, b *clustermetadatapb.KeyRange) int {
+		return bytes.Compare(a.GetStart(), b.GetStart())
+	})
+	for i := 0; i+1 < len(sorted); i++ {
+		end := sorted[i].GetEnd()
+		if len(end) == 0 || !bytes.Equal(end, sorted[i+1].GetStart()) {
+			return nil, false
+		}
+	}
+	return &clustermetadatapb.KeyRange{
+		Start: sorted[0].GetStart(),
+		End:   sorted[len(sorted)-1].GetEnd(),
+	}, true
+}
+
+// startsBeforeEnd reports whether start is before end, where an empty start
+// is the start of the keyspace and an empty end its end.
+func startsBeforeEnd(start, end []byte) bool {
+	return len(end) == 0 || bytes.Compare(start, end) < 0
+}
+
 // ValidateTableGroupAndShard validates a multipooler's tablegroup and shard.
 //
 // The tablegroup must be non-empty. The default tablegroup always has the single
@@ -123,4 +167,61 @@ func parseBound(s string) ([]byte, error) {
 		return nil, fmt.Errorf("bound %q must not end in a zero byte", s)
 	}
 	return b, nil
+}
+
+// ValidateShardLayout checks that shards partition the whole keyspace: every
+// name parses, no name repeats, and when the ranges are sorted by start the
+// first begins at the start of the keyspace, the last ends at the end, and
+// each range ends exactly where the next begins. It returns the ranges in
+// that sorted order, which is the canonical order for storing a layout. The
+// input may be in any order.
+func ValidateShardLayout(shards []string) ([]*clustermetadatapb.KeyRange, error) {
+	if len(shards) == 0 {
+		return nil, errors.New("shard layout must have at least one shard")
+	}
+	ranges := make([]*clustermetadatapb.KeyRange, 0, len(shards))
+	seen := make(map[string]struct{}, len(shards))
+	for _, name := range shards {
+		if _, dup := seen[name]; dup {
+			return nil, fmt.Errorf("duplicate shard %q", name)
+		}
+		seen[name] = struct{}{}
+		kr, err := ParseShardName(name)
+		if err != nil {
+			return nil, err
+		}
+		ranges = append(ranges, kr)
+	}
+	// An empty start is the start of the keyspace, and bytes.Compare already
+	// sorts the empty slice first.
+	slices.SortStableFunc(ranges, func(a, b *clustermetadatapb.KeyRange) int {
+		return bytes.Compare(a.GetStart(), b.GetStart())
+	})
+	if len(ranges[0].GetStart()) != 0 {
+		return nil, fmt.Errorf("shard layout does not cover the start of the keyspace: first shard is %q", ShardName(ranges[0]))
+	}
+	for i := 1; i < len(ranges); i++ {
+		prev, cur := ranges[i-1], ranges[i]
+		switch c := compareEndToStart(prev.GetEnd(), cur.GetStart()); {
+		case c < 0:
+			return nil, fmt.Errorf("gap in shard layout between %q and %q", ShardName(prev), ShardName(cur))
+		case c > 0:
+			return nil, fmt.Errorf("shards %q and %q overlap", ShardName(prev), ShardName(cur))
+		}
+	}
+	if len(ranges[len(ranges)-1].GetEnd()) != 0 {
+		return nil, fmt.Errorf("shard layout does not cover the end of the keyspace: last shard is %q", ShardName(ranges[len(ranges)-1]))
+	}
+	return ranges, nil
+}
+
+// compareEndToStart compares the end bound of one range with the start bound
+// of the range that follows it in sorted order. An empty end is the end of
+// the keyspace, so it is past every start; an empty start is the start of the
+// keyspace, so every end is past it.
+func compareEndToStart(end, start []byte) int {
+	if len(end) == 0 || len(start) == 0 {
+		return 1
+	}
+	return bytes.Compare(end, start)
 }

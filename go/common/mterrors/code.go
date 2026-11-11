@@ -51,6 +51,12 @@ const (
 	PgSSInternalError             = "XX000" // internal_error
 	PgSSReadOnlyTransaction       = "25006" // read_only_sql_transaction
 	PgSSSerializationFailure      = "40001" // serialization_failure
+	PgSSObjectInUse               = "55006" // object_in_use
+
+	PgSSDuplicateObject              = "42710" // duplicate_object
+	PgSSObjectNotInPrerequisiteState = "55000" // object_not_in_prerequisite_state
+	PgSSOperatorIntervention         = "57000" // operator_intervention
+	PgSSSystemError                  = "58000" // system_error
 )
 
 // PostgreSQL data exceptions raised by scalar evaluation.
@@ -118,7 +124,7 @@ func NewIdleSessionTimeout() *PgDiagnostic {
 // to buffer or auto-retry inside the cluster — only the client can replay it.
 func NewReservedConnectionTerminated(reservedConnID uint64) *PgDiagnostic {
 	return NewPgError("ERROR", PgSSSerializationFailure,
-		"reserved connection terminated; please retry",
+		reservedConnectionTerminatedMessage,
 		fmt.Sprintf("reserved connection %d was terminated", reservedConnID))
 }
 
@@ -136,6 +142,38 @@ func NewSessionStateLost(lostState string) *PgDiagnostic {
 	return NewPgError("FATAL", PgSSAdminShutdown,
 		"terminating connection because the backend holding its session state was lost",
 		"Lost session state: "+lostState+".")
+}
+
+const reservedConnectionTerminatedMessage = "reserved connection terminated; please retry"
+
+// IsReservedConnectionTerminated reports whether err is the diagnostic built by
+// NewReservedConnectionTerminated, i.e. the multipooler no longer holds the
+// reserved connection the request named. It matches the SQLSTATE together with
+// the message (which Multigres generates, so it is not localized): a bare 40001
+// is also what PostgreSQL itself raises for a real serialization failure, and
+// that one leaves the reservation intact.
+func IsReservedConnectionTerminated(err error) bool {
+	var diag *PgDiagnostic
+	return errors.As(err, &diag) &&
+		diag.Code == PgSSSerializationFailure &&
+		diag.Message == reservedConnectionTerminatedMessage
+}
+
+// NewInTransactionBlock creates the PgDiagnostic for a statement that cannot
+// run inside a transaction block, as PostgreSQL's PreventInTransactionBlock
+// raises it. SQLSTATE 25001 (active_sql_transaction).
+func NewInTransactionBlock(statement string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSActiveTransaction,
+		statement+" cannot run inside a transaction block", "")
+}
+
+// NewInPipeline creates the PgDiagnostic for a statement that cannot run
+// inside a transaction block, sent after another statement of the same
+// extended-protocol pipeline (before its Sync), as PostgreSQL's
+// PreventInTransactionBlock raises it. SQLSTATE 25001 (active_sql_transaction).
+func NewInPipeline(statement string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSActiveTransaction,
+		statement+" cannot be executed within a pipeline", "")
 }
 
 // NewAuthenticationTimeout creates a PgDiagnostic for an authentication_timeout

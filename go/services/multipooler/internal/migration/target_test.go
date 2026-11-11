@@ -422,7 +422,10 @@ func TestCheckDropPrivilege(t *testing.T) {
 // pull another operator's source data into a target table the caller does
 // own, without ever holding that source's own credentials.
 func TestCheckConnectionOwnership(t *testing.T) {
-	const checkSQL = "SELECT 1 WHERE NOT pg_has_role($1::name, $2::name, 'USAGE')"
+	const checkSQL = `SELECT 1
+FROM (VALUES ($2::name)) AS t(owner)
+LEFT JOIN pg_roles r ON r.rolname = t.owner
+WHERE r.rolname IS NULL OR NOT pg_has_role($1::name, r.rolname, 'USAGE')`
 
 	t.Run("caller has usage on the owner role: allowed", func(t *testing.T) {
 		qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{checkSQL: emptyResult()}}
@@ -446,6 +449,54 @@ func TestCheckConnectionOwnership(t *testing.T) {
 		require.Equal(t, "42501", mterrors.ExtractSQLSTATE(err))
 		require.ErrorContains(t, err, `"mallory"`)
 		require.NotContains(t, err.Error(), "alice", "must not reveal who owns the connection either")
+	})
+
+	// Regression test: a dropped ownerRole must still come back as an
+	// ordinary denial, not a propagated pg_has_role "role does not exist"
+	// error (verified against a live server; see target.go's doc comment).
+	t.Run("owner role no longer exists: denied, not a backend error", func(t *testing.T) {
+		qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{
+			checkSQL: {Rows: []*sqltypes.Row{{Values: []sqltypes.Value{sqltypes.Value("1")}}}},
+		}}
+		tg := newTarget(qs)
+
+		err := tg.CheckConnectionOwnership(context.Background(), "mallory", "dropped_role")
+
+		require.Error(t, err)
+		require.Equal(t, "42501", mterrors.ExtractSQLSTATE(err))
+	})
+}
+
+// TestDeniedConnectionOwners covers the batched form, including that one
+// dropped owner role in the VALUES list must not fail the whole batch.
+func TestDeniedConnectionOwners(t *testing.T) {
+	t.Run("empty ownerRoles is a no-op", func(t *testing.T) {
+		qs := &fakeQS{}
+		tg := newTarget(qs)
+
+		denied, err := tg.DeniedConnectionOwners(context.Background(), "app", nil)
+
+		require.NoError(t, err)
+		require.Empty(t, denied)
+		require.Empty(t, qs.adminArgs, "no query should run for an empty owner-role set")
+	})
+
+	t.Run("only the denied owners (including one whose role no longer exists) come back", func(t *testing.T) {
+		checkSQL := "SELECT t.owner FROM (VALUES ('alice'), ('mallory'), ('dropped_role')) AS t(owner)" +
+			" LEFT JOIN pg_roles r ON r.rolname = t.owner" +
+			" WHERE r.rolname IS NULL OR NOT pg_has_role($1::name, r.rolname, 'USAGE')"
+		qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{
+			checkSQL: {Rows: []*sqltypes.Row{
+				{Values: []sqltypes.Value{sqltypes.Value("mallory")}},
+				{Values: []sqltypes.Value{sqltypes.Value("dropped_role")}},
+			}},
+		}}
+		tg := newTarget(qs)
+
+		denied, err := tg.DeniedConnectionOwners(context.Background(), "app", []string{"alice", "mallory", "dropped_role"})
+
+		require.NoError(t, err)
+		require.Equal(t, map[string]bool{"mallory": true, "dropped_role": true}, denied)
 	})
 }
 
@@ -576,4 +627,91 @@ func TestCreateSubscription_UsesNoQueryTextPath(t *testing.T) {
 	require.Empty(t, qs.adminQueries, "must not go through the traced QueryAdmin path")
 	require.Len(t, qs.noQueryTextQueries, 1)
 	require.Contains(t, qs.noQueryTextQueries[0], "supersecret", "sanity check: this is indeed the statement carrying the password")
+}
+
+// TestDropLogicalSlot covers the retry-on-active-slot regression: disabling
+// the opposite side's subscription just before this runs does not guarantee
+// the walsender here has already released the slot, so an immediate drop can
+// race it (SQLSTATE 55006) and must be retried rather than failing outright.
+func TestDropLogicalSlot(t *testing.T) {
+	const existsSQL = "SELECT count(*) FROM pg_replication_slots WHERE slot_name = $1"
+	const dropSQL = "SELECT pg_drop_replication_slot($1)"
+
+	existsResult := func(n string) map[string]*sqltypes.Result {
+		return map[string]*sqltypes.Result{
+			existsSQL: {Rows: []*sqltypes.Row{{Values: []sqltypes.Value{sqltypes.Value(n)}}}},
+		}
+	}
+	dropCallCount := func(qs *fakeQS) int {
+		n := 0
+		for _, c := range qs.adminArgs {
+			if c.sql == dropSQL {
+				n++
+			}
+		}
+		return n
+	}
+	slotActiveErr := func() error {
+		return mterrors.NewPgError("ERROR", mterrors.PgSSObjectInUse,
+			`replication slot "mt_sub_1" is active for PID 4242`, "")
+	}
+
+	t.Run("missing slot is a no-op", func(t *testing.T) {
+		qs := &fakeQS{scriptedResults: existsResult("0")}
+		tg := newTarget(qs)
+
+		require.NoError(t, tg.DropLogicalSlot(context.Background(), "mt_sub_1"))
+		require.Equal(t, 0, dropCallCount(qs), "must not attempt to drop an absent slot")
+	})
+
+	t.Run("drops on the first attempt", func(t *testing.T) {
+		qs := &fakeQS{scriptedResults: existsResult("1")}
+		tg := newTarget(qs)
+
+		require.NoError(t, tg.DropLogicalSlot(context.Background(), "mt_sub_1"))
+		require.Equal(t, 1, dropCallCount(qs))
+	})
+
+	t.Run("retries past a transient active-slot error", func(t *testing.T) {
+		qs := &fakeQS{
+			scriptedResults: existsResult("1"),
+			scriptedErrSeq:  map[string][]error{dropSQL: {slotActiveErr(), slotActiveErr()}},
+		}
+		tg := newTarget(qs)
+
+		require.NoError(t, tg.DropLogicalSlot(context.Background(), "mt_sub_1"))
+		require.Equal(t, 3, dropCallCount(qs), "two failures then a success")
+	})
+
+	t.Run("gives up immediately on a non-active-slot error", func(t *testing.T) {
+		qs := &fakeQS{
+			scriptedResults: existsResult("1"),
+			scriptedErrs: map[string]error{
+				dropSQL: mterrors.NewPgError("ERROR", mterrors.PgSSInsufficientPrivilege, "permission denied", ""),
+			},
+		}
+		tg := newTarget(qs)
+
+		err := tg.DropLogicalSlot(context.Background(), "mt_sub_1")
+		require.Error(t, err)
+		require.Equal(t, mterrors.PgSSInsufficientPrivilege, mterrors.ExtractSQLSTATE(err))
+		require.Equal(t, 1, dropCallCount(qs), "must not retry a non-transient error")
+	})
+
+	t.Run("gives up once the retry budget is exhausted", func(t *testing.T) {
+		qs := &fakeQS{
+			scriptedResults: existsResult("1"),
+			scriptedErrs:    map[string]error{dropSQL: slotActiveErr()},
+		}
+		tg := newTarget(qs)
+
+		// A short deadline bounds this to a quick, deterministic test instead of
+		// waiting out the real dropSlotRetryBudget.
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+		defer cancel()
+		err := tg.DropLogicalSlot(ctx, "mt_sub_1")
+		require.Error(t, err)
+		require.True(t, mterrors.IsReplicationSlotActiveError(err), "surfaces the last active-slot error, not a bare context error")
+		require.GreaterOrEqual(t, dropCallCount(qs), 1)
+	})
 }

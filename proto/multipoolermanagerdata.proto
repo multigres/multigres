@@ -19,6 +19,7 @@ package multipoolermanagerdata;
 import "clustermetadata.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
+import "shardingcatalog.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multipoolermanagerdata";
 
@@ -772,7 +773,8 @@ message CreateTableGroupRequest {
   // means a single 0-inf shard.
   repeated string shards = 2;
   // if_not_exists makes an already-active tablegroup of this name a no-op
-  // (already_exists is set on the response) instead of an error.
+  // (already_exists is set on the response) instead of an error, and joins a
+  // creation of this name already in flight whatever its layout.
   bool if_not_exists = 3;
 }
 
@@ -852,7 +854,8 @@ message Operation {
   google.protobuf.Timestamp updated_at = 11;
   // poolers_registered is, for a drop that is not done, how many pooler
   // records carrying the tablegroup's id are still registered in topology,
-  // read at call time. The drop completes when it reaches zero. Zero for a
+  // read at call time. The drop completes when it reaches zero and the
+  // provisioner has released its claim (TableGroupProvisionClaim). Zero for a
   // creation.
   int32 poolers_registered = 12;
 }
@@ -885,32 +888,123 @@ message DropTableGroupResponse {
   bool cancelled_creation = 4;
 }
 
-// ListTableGroupsRequest lists the tablegroups the provisioner should have.
+// ListTableGroupsRequest lists the tablegroups the provisioner should have
+// and the ones it should remove.
 message ListTableGroupsRequest {
 }
 
-// ListTableGroupsResponse lists tablegroups with their shard layouts.
+// ListTableGroupsResponse lists every non-default tablegroup in the catalog
+// with its shard layout. A provisioner provisions the CREATING and ACTIVE ones
+// and removes the DROPPING ones. A tablegroup missing from the list is never a
+// reason to remove anything: a provisioner claims a tablegroup's id in
+// topology (TableGroupProvisionClaim) before it provisions anything and
+// releases the claim after it has removed everything, and the catalog deletes
+// the tablegroup only once no claim and no pooler record for the id remain, so
+// a provisioner that has started on an id always sees it DROPPING first.
 message ListTableGroupsResponse {
   repeated TableGroup table_groups = 1;
-}
-
-// TableGroupState is the lifecycle state of a listed tablegroup.
-enum TableGroupState {
-  TABLE_GROUP_STATE_UNSPECIFIED = 0;
-  // CREATING is a tablegroup whose shards are being provisioned.
-  TABLE_GROUP_STATE_CREATING = 1;
-  // ACTIVE is a tablegroup whose creation completed.
-  TABLE_GROUP_STATE_ACTIVE = 2;
 }
 
 // TableGroup is a tablegroup as recorded in the catalog.
 message TableGroup {
   // tablegroup_id is the catalog identity. Provisioners pass it to the
-  // tablegroup's poolers (see Multipooler.tablegroup_id).
+  // tablegroup's poolers (see Multipooler.tablegroup_id), claim it before
+  // provisioning, and key everything they provision by it, so acting on one
+  // incarnation of a name never touches another.
   int64 tablegroup_id = 1;
   string name = 2;
-  // state is CREATING or ACTIVE. Tablegroups being dropped are not listed.
-  TableGroupState state = 3;
+  shardingcatalog.TableGroupState state = 3;
   // shards is the shard layout in canonical order.
   repeated string shards = 4;
+}
+
+// GetRoutingSnapshotRequest asks the catalog primary for the sharding catalog.
+message GetRoutingSnapshotRequest {
+  // since_version is the routing_version of the snapshot the caller holds.
+  // When the catalog is still at that version the response says so instead of
+  // carrying the snapshot again. A caller that holds no snapshot leaves it
+  // unset.
+  optional int64 since_version = 1;
+  // since_consensus_rule is the consensus_rule of the snapshot the caller
+  // holds. The snapshot is only unchanged when both it and since_version
+  // match.
+  clustermetadata.RuleNumber since_consensus_rule = 2;
+}
+
+// GetRoutingSnapshotResponse is the catalog's current snapshot, or a note that
+// the caller's is still current.
+//
+// Snapshots are ordered by (consensus_rule, routing_version), not by version
+// alone. A version can be lost in a failover (a commit made visible on the old
+// primary without its synchronous acknowledgement) and reused by the next
+// primary with different contents; the next primary always serves under a
+// higher rule, so a snapshot from a higher rule supersedes any from a lower
+// one, whatever their versions. Within one rule, versions only grow.
+message GetRoutingSnapshotResponse {
+  // unchanged is set when the catalog's routing_version and this primary's
+  // consensus_rule equal the request's since_version and
+  // since_consensus_rule; snapshot is then unset.
+  bool unchanged = 1;
+  // routing_version and plan_epoch are the catalog's current versions, set
+  // in both cases.
+  int64 routing_version = 2;
+  int64 plan_epoch = 3;
+  // snapshot is the whole catalog, unless unchanged is set.
+  shardingcatalog.Snapshot snapshot = 4;
+  // consensus_rule is the rule under which this pooler was the catalog
+  // shard's primary for the whole read, set in both cases.
+  clustermetadata.RuleNumber consensus_rule = 5;
+}
+
+// =============================================================================
+// Routing rules
+// =============================================================================
+
+// ShardRoutingRuleSpec requests a shard rule by name: the routing identifiers
+// of from_tablegroup in to_shard's range are served by to_shard of
+// to_tablegroup.
+message ShardRoutingRuleSpec {
+  string from_tablegroup = 1;
+  string to_tablegroup = 2;
+  string to_shard = 3;
+}
+
+// SetRoutingRulesRequest replaces every routing rule of an operation.
+message SetRoutingRulesRequest {
+  // database must be the database the pooler serves.
+  string database = 1;
+  // operation_id is the operation that owns the rules (a UUID). It must exist
+  // and not have finished: its state is neither done nor failed (see
+  // OperationState).
+  string operation_id = 2;
+  // rules are the operation's new rules. Shard rules only for now. No other
+  // unfinished operation may act on a tablegroup they route from or to.
+  repeated ShardRoutingRuleSpec rules = 3;
+  // expected_routing_version is the routing version the change is based on,
+  // as GetRoutingSnapshot returned it. Every catalog write advances the
+  // version, so a change fails if anything changed since it was read. A
+  // change already in effect succeeds whatever its value.
+  int64 expected_routing_version = 4;
+}
+
+// SetRoutingRulesResponse returns the routing version after the change.
+message SetRoutingRulesResponse {
+  int64 routing_version = 1;
+}
+
+// DeleteRoutingRulesRequest deletes every routing rule of an operation.
+message DeleteRoutingRulesRequest {
+  // database must be the database the pooler serves.
+  string database = 1;
+  // operation_id is the operation that owns the rules (a UUID).
+  string operation_id = 2;
+  // expected_routing_version is the routing version the change is based on.
+  // Deleting the rules of an operation that has none succeeds whatever its
+  // value.
+  int64 expected_routing_version = 3;
+}
+
+// DeleteRoutingRulesResponse returns the routing version after the change.
+message DeleteRoutingRulesResponse {
+  int64 routing_version = 1;
 }

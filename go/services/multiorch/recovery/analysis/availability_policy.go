@@ -35,5 +35,6 @@ func DefaultAvailabilityPolicy() snapshot.AvailabilityPolicy {
 		ObservationFreshness:            snapshot.DefaultObservationFreshness,
 		QuorumCommitStaleAfter:          consensus.DefaultQuorumCommitStaleAfter,
 		PreRecheckRefreshTimeout:        5 * time.Second,
+		RecruitAbandonedAfter:           12 * time.Second,
 	}
 }

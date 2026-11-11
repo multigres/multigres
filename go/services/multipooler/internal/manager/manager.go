@@ -691,6 +691,9 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	// StartTopoRegistration) picks it up and writes to etcd. Only the serving
 	// status changes here; the role is left as the record already holds it.
 	go pm.runHealthHeartbeat(pm.ctx, timeouts.DefaultHealthHeartbeatInterval)
+	if pm.isCatalogShard() {
+		go pm.runCatalogVersionRefresh(pm.ctx, catalogVersionRefreshInterval)
+	}
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
 		s.ServingStatus = reconciledServingStatus(targetServingStatus, pm.migrationServingHold())
 	}); err != nil {
@@ -1239,6 +1242,18 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 		_, err = backupConfig.FullPath(database, pm.record.ShardRef().GetTableGroup(), pm.record.ShardRef().GetShard())
 		if err != nil {
 			pm.setStateError(fmt.Errorf("failed to compute backup path: %w", err))
+			return
+		}
+		// Give every shard but the catalog shard its own repository.
+		backupConfig, err = backupConfig.ForShard(pm.record.ShardRef().GetTableGroup(), pm.record.TableGroupID(), pm.record.ShardRef().GetShard())
+		if err != nil {
+			pm.setStateError(fmt.Errorf("failed to scope backup repository: %w", err))
+			return
+		}
+		// Refuse to serve if this pooler directory used to back up to a
+		// different shard repository (see checkBackupRepositoryScope).
+		if err := pm.checkBackupRepositoryScope(backupConfig.RepositoryScope()); err != nil {
+			pm.setStateError(err)
 			return
 		}
 
@@ -1856,13 +1871,6 @@ func (pm *MultipoolerManager) Start(senv *servenv.ServEnv) {
 	}
 	pm.Open(lockCtx)
 	pm.actionLock.Release(lockCtx)
-
-	// Register the SIGTERM-driven graceful shutdown sequence. Runs as an
-	// OnTermSync hook so it is bounded by the lameduck window and completes
-	// before OnClose hooks (topology unregister) fire.
-	senv.OnTermSync(func() {
-		pm.GracefulShutdown(pm.ctx)
-	})
 
 	// Start loading multipooler record from topology asynchronously. The load
 	// only resolves the backup location, which an unmanaged pooler does not use.

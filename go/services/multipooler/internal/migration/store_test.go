@@ -42,8 +42,14 @@ type fakeQS struct {
 	// scriptedErrs maps an exact SQL string to the error QueryAdmin and
 	// QueryAdminArgs return for it.
 	scriptedErrs map[string]error
-	adminQueries []string
-	adminArgs    []qsArgCall
+	// scriptedErrSeq maps an exact SQL string to a queue of errors returned on
+	// successive QueryAdminArgs calls for that query: each call pops the front
+	// error, and once the queue drains, later calls fall through to
+	// scriptedErrs/scriptedResults. Models a retry loop that fails N times
+	// before succeeding.
+	scriptedErrSeq map[string][]error
+	adminQueries   []string
+	adminArgs      []qsArgCall
 	// noQueryTextQueries records calls through QueryAdminNoQueryText, kept
 	// separate from adminQueries so a test can assert a query ran through the
 	// secret-safe path rather than the traced one.
@@ -85,6 +91,10 @@ func (f *fakeQS) QueryAdminNoQueryText(_ context.Context, query string) (*sqltyp
 
 func (f *fakeQS) QueryAdminArgs(_ context.Context, query string, args ...any) (*sqltypes.Result, error) {
 	f.adminArgs = append(f.adminArgs, qsArgCall{sql: query, args: args})
+	if errs, ok := f.scriptedErrSeq[query]; ok && len(errs) > 0 {
+		f.scriptedErrSeq[query] = errs[1:]
+		return nil, errs[0]
+	}
 	if err, ok := f.scriptedErrs[query]; ok {
 		return nil, err
 	}

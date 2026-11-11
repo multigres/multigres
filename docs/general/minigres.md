@@ -163,7 +163,23 @@ binaries pass none and use every pooler in the topology.
   once (a second call is fatal).
 - **One identity.** The process reports the service name `minigres` with the
   pooler's cell, service ID, database and shard, so it appears once in logs,
-  metrics and traces.
+  metrics and traces. `SELECT multigres.version()` also names it: the string
+  starts with `Minigres` instead of `Multigres`. The SQL names are the same as
+  in Multigres (see [Multigres version](../query_serving/multigres_version.md)).
+- **Ready once a query can succeed.** `/ready` runs both halves' checks, and
+  neither waits for PostgreSQL: the pooler's leaves it out, and the gateway's
+  passes once it has its pooler's record. So `main` adds one more: ready only
+  once the gateway has seen its pooler serving as the PRIMARY. It stays ready if
+  PostgreSQL goes down later, as a Multigres pooler does, so clients get an
+  error instead of no connection.
+- **A failed start behaves as in Multigres.** If a half cannot start (its
+  port is taken, or pgctld does not answer within 30 seconds), the process logs
+  the error and exits with status 1. Its gateway record is ephemeral, so etcd
+  drops it once the lease expires (`--topo-etcd-lease-ttl`). If PostgreSQL
+  cannot start, the process keeps running and retrying, and `/ready` stays
+  not ready. SIGTERM before startup finishes ends the process at once, before
+  any shutdown hook is installed: no query can succeed yet, and PostgreSQL
+  belongs to pgctld.
 - **Status pages.** `/` is an index; the halves' pages are at `/multigateway`
   and `/multipooler`, because the shared HTTP server cannot register `/` twice.
 - **Flags.** Process flags are defined once and shared flags are given once (see
@@ -203,6 +219,15 @@ binaries pass none and use every pooler in the topology.
   backend, byte tunnel, metrics and errors, joined to the gateway by Go
   channels that copy each chunk of data, as gRPC does when it marshals. At
   shutdown the pooler ends replication tunnels instead of waiting for them.
+- **Shutdown drains the gateway before the pooler stops.** On SIGTERM, clients
+  see what a standalone multigateway gives them. For `--lameduck-period` both
+  halves keep serving and new connections are still accepted. Then the gateway
+  stops accepting connections and waits for the open ones to end, for at most
+  `--onclose-timeout`, and cuts the rest, as the multigateway process exiting
+  would. Only then does the pooler stop serving and stop PostgreSQL. Until a
+  connection ends, its queries work. (`ProcessResources.SequencedShutdown`
+  stops each half from registering its own shutdown hook; `cmd/minigres` runs
+  them in this order.)
 - **Observability differs on the query path.** The direct path has no
   pooler-side operation span and no transport metrics: traces go from the
   gateway's spans straight to the pooler's internal spans, and the gateway's
@@ -228,6 +253,7 @@ can turn them on, and their flags are rejected as unknown.
 | Failover buffering (`--buffer-*`)                                                                      | There is no failover: the static leader is never switched over, and nothing promotes another pooler                                                                                                                                               |
 | Multipooler gRPC TLS (`--multipooler-grpc-*`)                                                          | The gateway calls its pooler directly, and the settings otherwise secure only cancel forwarding                                                                                                                                                   |
 | Cross-gateway cancel forwarding                                                                        | A client sends its cancel request to the address it connected to, which is this gateway. The gateway cancels its own connections and ignores a cancel request for any other, instead of forwarding it to another instance through the shared etcd |
+| Tablegroup DDL (`--enable-tablegroup-ddl`)                                                             | A database served by one pooler has one shard, and no provisioner adds others. `CREATE TABLEGROUP` and `DROP TABLEGROUP` are rejected as not supported                                                                                            |
 
 Without cancel forwarding the gateway claims no connection-ID prefix: connection
 IDs are used as they are, and the limit of 2,047 gateways per etcd and the
@@ -372,6 +398,3 @@ run daily.
 - Several Minigres instances serving the same database name under one
   topology root look like one shard to the topology. Each instance needs its
   own topology root (`--topo-global-root`), as Multigres projects have.
-- Shutdown uses the Multigres hooks, which run the halves' shutdowns
-  concurrently, so shutdown under load does not yet drain the gateway before the
-  pooler stops.

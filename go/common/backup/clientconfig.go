@@ -23,6 +23,7 @@ import (
 	"text/template"
 
 	"github.com/multigres/multigres/config"
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/tools/fileutil"
 )
 
@@ -119,6 +120,8 @@ func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config, repos []PgBackR
 		Pg1User       string
 
 		ProcessLimits ProcessLimits
+
+		RewindTaintedFile string
 	}{
 		LogPath:   logPath,
 		SpoolPath: spoolPath,
@@ -134,6 +137,8 @@ func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config, repos []PgBackR
 		Pg1User:       opts.Pg1User,
 
 		ProcessLimits: CurrentProcessLimits(),
+
+		RewindTaintedFile: constants.RewindTaintedFile,
 	}
 
 	// Execute template

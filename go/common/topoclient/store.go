@@ -100,6 +100,11 @@ const (
 	PoolerFile         = "Pooler"
 	OrchFile           = "Orch"
 	ShardInitClaimFile = "ShardInitClaim"
+	// TableGroupClaimsDir holds a database's TableGroupProvisionClaim nodes,
+	// one per catalog id. It sits beside the database's tablegroup
+	// directories; the capitals keep it clear of any tablegroup name, which
+	// is a lowercase DNS label.
+	TableGroupClaimsDir = "TableGroupClaims"
 )
 
 // Paths for all object types in the topology hierarchy.
@@ -265,6 +270,24 @@ type Store interface {
 	// RevokeBackup forcefully removes the backup lock for the specified shard.
 	// See backup_lock.go for full documentation.
 	RevokeBackup(ctx context.Context, shardRef *clustermetadatapb.ShardRef) error
+
+	// ClaimTableGroupProvisioning records that claim.Provisioner holds resources
+	// for claim.TablegroupId in database, before it provisions anything. A
+	// repeat by the same provisioner succeeds; a claim held by another
+	// provisioner is a NodeExists error. See tablegroup_claim.go.
+	ClaimTableGroupProvisioning(ctx context.Context, database string, claim *clustermetadatapb.TableGroupProvisionClaim) error
+
+	// GetTableGroupProvisionClaim returns the claim for a tablegroup id, or a
+	// NoNode error when none is held.
+	GetTableGroupProvisionClaim(ctx context.Context, database string, tableGroupID int64) (*clustermetadatapb.TableGroupProvisionClaim, error)
+
+	// ListTableGroupProvisionClaims returns every claim held in a database.
+	ListTableGroupProvisionClaims(ctx context.Context, database string) ([]*clustermetadatapb.TableGroupProvisionClaim, error)
+
+	// ReleaseTableGroupProvisioning removes the claim for a tablegroup id, after
+	// everything provisioned for it is gone. Releasing a claim that is not held
+	// is not an error.
+	ReleaseTableGroupProvisioning(ctx context.Context, database string, tableGroupID int64) error
 
 	// WithBackupLease acquires a backup lease, runs fn, and releases the lease when fn returns.
 	// See backup_lock.go for full documentation.
