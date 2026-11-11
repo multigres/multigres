@@ -86,7 +86,7 @@ func NewTermRevocation(
 	// reconciles via a leader-led no-op rule bump, the same as any other
 	// abandoned-recruit case.
 
-	// outgoingRule comes from the most advanced recorded position: the rule change's
+	// outgoingRule is the latest rule any status records: the rule change's
 	// compare-and-swap must start from a rule the recruited poolers hold in their WAL,
 	// not one that was only advertised.
 	//
@@ -229,17 +229,17 @@ func recruitAttempt(previousRecruitForDecision *clustermetadatapb.TermRevocation
 // function of the two consensus messages; callers handle storage I/O,
 // locking, and any logging.
 //
-// Comparison is two-tiered, mirroring CompareAuthority — decision
-// dominates outright, and only a tie falls through to the second tier:
+// It is an authority check (see CompareAuthority), so it is decision first,
+// and only a tie falls through to the proposal:
 //
 //   - If revocation.outgoing_rule strictly exceeds position.decision, the
-//     position is revoked outright: the revocation is anchored on a more
-//     advanced confirmed decision than this position has confirmed, and an
-//     unconfirmed proposal on the position's side cannot override that.
+//     position is revoked outright: the revocation is anchored on a later
+//     decision than this position knows, and an undecided proposal on the
+//     position's side cannot override that.
 //   - If position.decision strictly exceeds revocation.outgoing_rule, the
-//     position is never revoked (the runaway-recruit override: durable WAL
-//     already moved past the rule the revocation was authored to transition
-//     away from, so the promise is moot).
+//     position is never revoked (the runaway-recruit override: the position
+//     already knows a later decision than the rule the revocation was authored
+//     to transition away from, so the promise is moot).
 //   - If they tie, the position is revoked iff revocation.revoked_below_term
 //     exceeds position.proposal's coordinator_term — an outstanding
 //     proposal is real WAL content, so it counts against the revocation just
@@ -347,15 +347,10 @@ func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *c
 		)
 	}
 
-	// WAL position safety is exactly the question IsRuleRevoked answers —
-	// does this revocation dominate the node's own recorded position — so
-	// delegate to it rather than duplicating (and risking drifting from)
-	// its three-tier decision/proposal comparison:
-	// decision dominates outright in both directions, and only when
-	// decisions tie does the proposal break it. In particular, a position
-	// whose decision is behind outgoing_rule is revoked regardless of how
-	// advanced its own (unconfirmed) proposal is — an unconfirmed proposal
-	// never overrides a decision-level comparison.
+	// Whether the revocation covers the node's own recorded rule is an
+	// authority question, which IsRuleRevoked answers: a position whose
+	// decision is behind outgoing_rule is revoked however far its own
+	// undecided proposal goes.
 	pos := status.GetCurrentPosition()
 	if pos == nil {
 		return errors.New("cannot accept revocation: unknown WAL position")
@@ -385,7 +380,8 @@ func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *c
 		)
 	}
 
-	// Stored-revocation consistency.
+	// Stored-revocation consistency. Promises are ordered by term: a lower term
+	// is refused whatever rule it names.
 	stored := status.GetTermRevocation()
 	if stored != nil {
 		storedTerm := stored.GetRevokedBelowTerm()

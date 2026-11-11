@@ -98,8 +98,8 @@ func formatDecisionAndProposal(decision, proposal *clustermetadatapb.RuleNumber)
 // an LSN, e.g. ConsensusStatus.RecruitBlockedUntil) as "<rule>@<lsn>" (e.g.
 // "1.0@0/6000000", or "1.0 proposal=2.0@0/6000000" mid-transition). Rule
 // position leads because comparisons check it first — the LSN only matters
-// once rule numbers match (see RuleNumberPosition.Compare). A nil LsnPosition
-// renders as "none".
+// once rules match (see CompareWALProgress). A nil LsnPosition renders as
+// "none".
 func FormatLsnPosition(pos *clustermetadatapb.LsnPosition) string {
 	if pos == nil {
 		return "none"
@@ -166,11 +166,7 @@ func (p RuleNumberPosition) LatestWALRule() *clustermetadatapb.RuleNumber {
 }
 
 // CompareAuthority returns negative, zero, or positive based on whether p carries
-// less, the same, or more authority than other (see the CompareAuthority function).
-// The decision takes precedence over everything else — a confirmed rule always outranks another position's
-// unconfirmed proposal alone, even one with a higher rule number. Only when
-// both decisions agree does each side's proposal break the tie (further
-// beyond a shared decision is more advanced).
+// less, the same, or more authority than other. See the CompareAuthority function.
 func (p RuleNumberPosition) CompareAuthority(other RuleNumberPosition) int {
 	if cmp := CompareRuleNumbers(p.Decision, other.Decision); cmp != 0 {
 		return cmp
@@ -178,22 +174,31 @@ func (p RuleNumberPosition) CompareAuthority(other RuleNumberPosition) int {
 	return CompareRuleNumbers(p.Proposal, other.Proposal)
 }
 
+// Positions are compared in three ways, each answering its own question:
+//   - Promises, by term: a node promised to term T refuses a recruitment below T,
+//     whatever rule it names (ValidateRevocation).
+//   - Authority, decision first (CompareAuthority): which rule is in force. Use it
+//     to accept or refuse a request and to choose which rule to act on.
+//   - WAL, latest rule then LSN (CompareWALProgress): who holds more of what must
+//     survive. Use it to choose a leader, freeze an LSN or judge the recusal floor.
+//
+// Recruit uses all three: its promise by term, its revocation scope by authority
+// (IsRuleRevoked) and its recusal floor by WAL. A known decision must never be
+// forgotten, so authority ranks it first; it says nothing about holding the data,
+// so the WAL order ignores it.
+
 // CompareAuthority returns negative, zero, or positive based on whether a carries
-// less, the same, or more authority than b. It says which rule position is in force:
-// a decided rule outranks another position's unfinished proposal, even one with a
-// higher rule number, and only when both decisions agree does each side's proposal
-// break the tie.
+// less, the same, or more authority than b: which rule is in force. A decided rule
+// outranks another position's proposal, even one with a higher rule number; only
+// when both decisions agree does each side's proposal break the tie.
 //
-// Use it to ask which rule should be in effect: which of two rules supersedes the
-// other, whether a node's rule has been superseded, which intended rule to follow. A
-// revocation is a promise that sets a floor on authority, and a recruited quorum of
-// such promises is what authorizes a coordinator to propose a rule.
+// Use it to ask which rule should be in effect: whether a request supersedes what
+// a node holds, whether a node's rule has been superseded, which intended rule to
+// follow. Do not use it to ask which node is further along: a node can hold more
+// WAL without knowing a rule is decided. Use CompareWALProgress for that.
 //
-// Do not use it to ask which node is further along. A node can hold more WAL without
-// knowing a rule is decided; use CompareWALProgress for that.
-//
-// TODO: a proposal built on a recruited quorum could be called an "authorized
-// proposal".
+// TODO: a proposal built on a recruited quorum of promises could be called an
+// "authorized proposal".
 func CompareAuthority(a, b *clustermetadatapb.RulePosition) int {
 	return RuleNumberPositionOf(a).CompareAuthority(RuleNumberPositionOf(b))
 }
@@ -202,8 +207,8 @@ func CompareAuthority(a, b *clustermetadatapb.RulePosition) int {
 // given statuses (see CompareWALProgress). Returns nil if no status has a
 // parseable LSN.
 //
-// This is the cached-snapshot analogue of discoverMostAdvancedTimeline, which
-// runs over recruited statuses and returns the eligible-leader set. Callers
+// This is the cached-snapshot analogue of minimumLeaderPosition, which runs
+// over recruited statuses. Callers
 // that need to derive an ExternallyCertifiedRevocation from cached cohort
 // state — e.g. the bootstrap path before recruitment — use this to obtain the
 // outgoing rule number and frozen LSN.
@@ -258,8 +263,8 @@ func ReplicationPrimaryOrNil(cs *clustermetadatapb.ConsensusStatus) *clustermeta
 // replication primary holds leadership — a follower can learn of a newer
 // leader (possibly still undecided on the leader's own side) via its
 // replication primary before its own position advances. Unlike
-// MostAdvancedWALPosition, ranking is purely by position (no LSN tiebreak, no
-// LSN requirement), since leader identity is a function of the rule alone.
+// MostAdvancedWALPosition, it ranks by authority (CompareAuthority) with no
+// LSN, since which leader is intended depends on the rule alone.
 // Returns nil when no status carries a rule.
 //
 // A phantom 0/0 replication primary (see ReplicationPrimaryOrNil) is ignored so
@@ -413,16 +418,16 @@ func RuleNamesLeader(rule *clustermetadatapb.ShardRule, id *clustermetadatapb.ID
 // be decided plays no part.
 //
 // Use it to ask who holds more of the transactions that must survive: ranking
-// leader candidates, finding the most advanced WAL, setting a certificate's frozen
-// LSN, judging the recruit position floor (a promise that sets a floor on WAL). It
-// only ranks. Whether a candidate is safe is decided by the recruitment conditions,
-// the minimum leader position and a frozen cohort, not by this order.
-//
-// Do not use it to ask which rule is in force: a node can hold more WAL without
-// knowing a rule is decided. Use CompareAuthority for that.
+// leader candidates, setting a certificate's frozen LSN, judging the recusal floor
+// (recruit_blocked_until). It only ranks; whether a candidate is safe is decided by
+// the recruitment conditions, not by this order. Do not use it to ask which rule is
+// in force; use CompareAuthority for that.
 //
 // A missing or unparsable LSN counts as the lowest. That suits ranking candidates,
 // but a promise should fail closed instead.
+//
+// On a standby the rule comes from replayed WAL and the LSN from received WAL, so
+// the two agree only once replay has caught up, as Recruit waits for.
 //
 // TODO: LSNs are only comparable along one timeline, and an equal latest rule does
 // not guarantee the same timeline, for example when Promote decides a stuck rule on
