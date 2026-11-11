@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -28,18 +29,16 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
-	"github.com/multigres/multigres/go/tools/logthrottle"
 )
 
 // cancelRequestTimeout bounds sending a cancel request when a query's context
 // expires. It sits on the timeout path, so keep it short.
 const cancelRequestTimeout = time.Second
 
-// cancelFailureLogInterval bounds how often a failed cancel is logged. While a standby
-// is unreachable every timed-out write can fail the same way, once a second.
-const cancelFailureLogInterval = time.Minute
-
-var cancelFailureThrottle = logthrottle.New(cancelFailureLogInterval)
+// cancelFailures counts failed cancel requests since the last one that succeeded.
+// Only the first failure and the recovery are logged, so a persistent failure does
+// not log once per timed-out query.
+var cancelFailures atomic.Int64
 
 // DefaultCancelTimeout is the default timeout for cancel/terminate operations.
 // This is used when cancelling a backend query due to context cancellation.
@@ -318,9 +317,10 @@ func (tc *TxConn) Rollback(ctx context.Context) error {
 // context cancellation can interrupt a blocking network read.
 //
 // When the context is cancelled while a query is blocked waiting for PostgreSQL
-// (e.g. an INSERT waiting for synchronous standby acknowledgement), the underlying
-// connection is force-closed to unblock the goroutine's read. The goroutine is
-// waited on before returning to prevent goroutine leaks.
+// (e.g. an INSERT waiting for synchronous standby acknowledgement), the server is
+// asked to cancel the query, and the connection is force-closed to unblock the
+// goroutine's read. The goroutine is waited on before returning to prevent
+// goroutine leaks.
 //
 // ForceClose is used instead of Close to avoid a concurrent write race: the
 // goroutine may hold bufmu while reading from the buffered reader, and Close
@@ -343,17 +343,11 @@ func execQueryWithContextCancel(ctx context.Context, conn *client.Conn, op func(
 	select {
 	case <-ctx.Done():
 		// Ask the server to end the query first: closing the socket alone doesn't stop
-		// a backend blocked waiting for a synchronous standby ack, so each timed-out
-		// write would leave an orphaned backend (holding locks and a connection slot)
-		// until a standby acks. Best effort; the cancelled query's result is discarded.
-		cancelCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cancelRequestTimeout)
-		if err := conn.SendCancelRequest(cancelCtx); err != nil {
-			if ok, suppressed := cancelFailureThrottle.Allow(time.Now()); ok {
-				slog.WarnContext(ctx, "failed to cancel a timed-out query on the server; its backend may keep running",
-					"error", err, "suppressed_since_last_log", suppressed)
-			}
-		}
-		cancel()
+		// a backend waiting for a synchronous standby ack, so each timed-out write would
+		// leave a backend running, holding locks and a connection slot. A write cancelled
+		// in that wait has already committed locally, and becomes visible on this node
+		// without the ack, as it would after a restart.
+		cancelOnServer(ctx, conn.SendCancelRequest)
 		// Force-close the connection to unblock the goroutine's blocking network read.
 		conn.ForceClose()
 		// Wait for the goroutine to finish (it returns quickly after ForceClose).
@@ -361,6 +355,23 @@ func execQueryWithContextCancel(ctx context.Context, conn *client.Conn, op func(
 		return nil, context.Cause(ctx)
 	case res := <-ch:
 		return res.results, res.err
+	}
+}
+
+// cancelOnServer sends a cancel request with send, best effort. It logs when cancels
+// start failing and when they succeed again, not each failure.
+func cancelOnServer(ctx context.Context, send func(context.Context) error) {
+	cancelCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cancelRequestTimeout)
+	defer cancel()
+	if err := send(cancelCtx); err != nil {
+		if cancelFailures.Add(1) == 1 {
+			slog.WarnContext(ctx, "failed to cancel a timed-out query on the server; its backend may keep running; "+
+				"further failures are not logged until a cancel succeeds", "error", err)
+		}
+		return
+	}
+	if failed := cancelFailures.Swap(0); failed > 0 {
+		slog.InfoContext(ctx, "cancelling timed-out queries on the server works again", "failed_cancels", failed)
 	}
 }
 

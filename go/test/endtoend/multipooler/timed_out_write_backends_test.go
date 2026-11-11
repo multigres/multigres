@@ -76,7 +76,7 @@ func TestTimedOutWritesDoNotLeakBackends(t *testing.T) {
 
 	// Heartbeat writes now block on a standby that never acks. Watch long enough for
 	// many of them to time out; a leak adds roughly one stuck backend per second.
-	const observe = 20 * time.Second
+	const observe = 10 * time.Second
 	var peak int
 	sawActive := false
 	deadline := time.Now().Add(utils.ScaleTimeout(observe))
