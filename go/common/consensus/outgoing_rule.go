@@ -73,35 +73,44 @@ type outgoingView struct {
 // disagree on the content of a rule they share the number of: that is a data
 // inconsistency the caller cannot safely proceed past.
 func discoverOutgoing(statuses []*clustermetadatapb.ConsensusStatus) (outgoingView, error) {
-	var view outgoingView
-	var baseSource, latestSource *clustermetadatapb.ConsensusStatus
-	for _, cs := range statuses {
-		position := cs.GetCurrentPosition().GetPosition()
-		if baseSource == nil || CompareRuleNumbers(position.GetDecision().GetRuleNumber(), view.base.GetRuleNumber()) > 0 {
-			baseSource, view.base = cs, position.GetDecision()
-		}
-		if latestSource == nil || CompareRuleNumbers(PossiblyUndecidedRule(position).GetRuleNumber(), view.latest.GetRuleNumber()) > 0 {
-			latestSource, view.latest = cs, PossiblyUndecidedRule(position)
-		}
+	baseDecision, _, err := highestRule(statuses, (*clustermetadatapb.RulePosition).GetDecision)
+	if err != nil {
+		return outgoingView{}, err
 	}
-	for _, cs := range statuses {
-		position := cs.GetCurrentPosition().GetPosition()
-		if CompareRuleNumbers(position.GetDecision().GetRuleNumber(), view.base.GetRuleNumber()) == 0 &&
-			!sameRuleContent(position.GetDecision(), view.base) {
-			return outgoingView{}, disagreeError(baseSource, cs)
-		}
-		if CompareRuleNumbers(PossiblyUndecidedRule(position).GetRuleNumber(), view.latest.GetRuleNumber()) == 0 {
-			if !sameRuleContent(PossiblyUndecidedRule(position), view.latest) {
-				return outgoingView{}, disagreeError(latestSource, cs)
-			}
-			view.holders = append(view.holders, cs)
-		}
+	latest, holders, err := highestRule(statuses, PossiblyUndecidedRule)
+	if err != nil {
+		return outgoingView{}, err
 	}
-	if CompareRuleNumbers(view.base.GetRuleNumber(), view.latest.GetRuleNumber()) > 0 {
+	// Only a malformed status, whose proposal is older than its decision, gets here.
+	if CompareRuleNumbers(baseDecision.GetRuleNumber(), latest.GetRuleNumber()) > 0 {
 		return outgoingView{}, fmt.Errorf("decision %s is beyond every recorded rule %s; inconsistent discovery result",
-			FormatRuleNumber(view.base.GetRuleNumber()), FormatRuleNumber(view.latest.GetRuleNumber()))
+			FormatRuleNumber(baseDecision.GetRuleNumber()), FormatRuleNumber(latest.GetRuleNumber()))
 	}
-	return view, nil
+	return outgoingView{base: baseDecision, latest: latest, holders: holders}, nil
+}
+
+// highestRule returns the highest of the rules that rule picks from each status,
+// and the statuses that hold it. It fails if those holders disagree on its content.
+func highestRule(
+	statuses []*clustermetadatapb.ConsensusStatus,
+	rule func(*clustermetadatapb.RulePosition) *clustermetadatapb.ShardRule,
+) (*clustermetadatapb.ShardRule, []*clustermetadatapb.ConsensusStatus, error) {
+	var highest *clustermetadatapb.ShardRule
+	var holders []*clustermetadatapb.ConsensusStatus
+	for _, cs := range statuses {
+		r := rule(cs.GetCurrentPosition().GetPosition())
+		cmp := CompareRuleNumbers(r.GetRuleNumber(), highest.GetRuleNumber())
+		switch {
+		case holders == nil || cmp > 0:
+			highest, holders = r, []*clustermetadatapb.ConsensusStatus{cs}
+		case cmp == 0:
+			if !sameRuleContent(r, highest) {
+				return nil, nil, disagreeError(holders[0], cs)
+			}
+			holders = append(holders, cs)
+		}
+	}
+	return highest, holders, nil
 }
 
 func disagreeError(a, b *clustermetadatapb.ConsensusStatus) error {
