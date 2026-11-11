@@ -3434,6 +3434,15 @@ export class GetRoutingSnapshotRequest extends Message<GetRoutingSnapshotRequest
    */
   sinceVersion?: bigint;
 
+  /**
+   * since_consensus_rule is the consensus_rule of the snapshot the caller
+   * holds. The snapshot is only unchanged when both it and since_version
+   * match.
+   *
+   * @generated from field: clustermetadata.RuleNumber since_consensus_rule = 2;
+   */
+  sinceConsensusRule?: RuleNumber;
+
   constructor(data?: PartialMessage<GetRoutingSnapshotRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -3443,6 +3452,7 @@ export class GetRoutingSnapshotRequest extends Message<GetRoutingSnapshotRequest
   static readonly typeName = "multipoolermanagerdata.GetRoutingSnapshotRequest";
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "since_version", kind: "scalar", T: 3 /* ScalarType.INT64 */, opt: true },
+    { no: 2, name: "since_consensus_rule", kind: "message", T: RuleNumber },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetRoutingSnapshotRequest {
@@ -3466,12 +3476,20 @@ export class GetRoutingSnapshotRequest extends Message<GetRoutingSnapshotRequest
  * GetRoutingSnapshotResponse is the catalog's current snapshot, or a note that
  * the caller's is still current.
  *
+ * Snapshots are ordered by (consensus_rule, routing_version), not by version
+ * alone. A version can be lost in a failover (a commit made visible on the old
+ * primary without its synchronous acknowledgement) and reused by the next
+ * primary with different contents; the next primary always serves under a
+ * higher rule, so a snapshot from a higher rule supersedes any from a lower
+ * one, whatever their versions. Within one rule, versions only grow.
+ *
  * @generated from message multipoolermanagerdata.GetRoutingSnapshotResponse
  */
 export class GetRoutingSnapshotResponse extends Message<GetRoutingSnapshotResponse> {
   /**
-   * unchanged is set when the catalog's routing_version equals the request's
-   * since_version; snapshot is then unset.
+   * unchanged is set when the catalog's routing_version and this primary's
+   * consensus_rule equal the request's since_version and
+   * since_consensus_rule; snapshot is then unset.
    *
    * @generated from field: bool unchanged = 1;
    */
@@ -3497,6 +3515,14 @@ export class GetRoutingSnapshotResponse extends Message<GetRoutingSnapshotRespon
    */
   snapshot?: Snapshot;
 
+  /**
+   * consensus_rule is the rule under which this pooler was the catalog
+   * shard's primary for the whole read, set in both cases.
+   *
+   * @generated from field: clustermetadata.RuleNumber consensus_rule = 5;
+   */
+  consensusRule?: RuleNumber;
+
   constructor(data?: PartialMessage<GetRoutingSnapshotResponse>) {
     super();
     proto3.util.initPartial(data, this);
@@ -3509,6 +3535,7 @@ export class GetRoutingSnapshotResponse extends Message<GetRoutingSnapshotRespon
     { no: 2, name: "routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
     { no: 3, name: "plan_epoch", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
     { no: 4, name: "snapshot", kind: "message", T: Snapshot },
+    { no: 5, name: "consensus_rule", kind: "message", T: RuleNumber },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetRoutingSnapshotResponse {

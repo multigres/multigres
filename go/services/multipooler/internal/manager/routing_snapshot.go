@@ -19,6 +19,7 @@ import (
 	"encoding/hex"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/shardingcatalog"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -58,8 +59,10 @@ import (
 // standbys was cancelled or whose backend was terminated while waiting:
 // PostgreSQL then makes it visible locally without the acknowledgement. Such a
 // version can be lost in a failover and reused by the next primary with
-// different contents, so a gateway that cached it would not see the change
-// until the version moves past it.
+// different contents. That is why GetRoutingSnapshot stamps every answer with
+// the consensus rule it was the primary under, and gateways order snapshots
+// by (rule, version): the next primary always serves under a higher rule, so
+// its snapshot replaces a lost version whatever their version numbers.
 
 // Shard index and shard key states and roles, matching the CHECK constraints
 // in pg_catalog_schema.go.
@@ -249,7 +252,8 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 	if err := pm.checkCatalogShard(); err != nil {
 		return nil, err
 	}
-	if err := pm.checkCatalogPrimary(ctx); err != nil {
+	rule, err := pm.catalogPrimaryRule(ctx)
+	if err != nil {
 		return nil, err
 	}
 	qs, err := pm.catalogQueryService()
@@ -275,18 +279,32 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 	if err := executor.ScanSingleRow(res, &v.routingVersion, &v.planEpoch); err != nil {
 		return nil, mterrors.Wrap(err, "failed to read catalog versions")
 	}
-	out := &multipoolermanagerdatapb.GetRoutingSnapshotResponse{RoutingVersion: v.routingVersion, PlanEpoch: v.planEpoch}
-	if req.SinceVersion != nil && req.GetSinceVersion() == v.routingVersion {
+	out := &multipoolermanagerdatapb.GetRoutingSnapshotResponse{RoutingVersion: v.routingVersion, PlanEpoch: v.planEpoch, ConsensusRule: rule}
+	if req.SinceVersion != nil && req.GetSinceVersion() == v.routingVersion &&
+		commonconsensus.CompareRuleNumbers(req.GetSinceConsensusRule(), rule) == 0 {
 		out.Unchanged = true
-		return out, nil
+	} else {
+		snapshot, err := loadRoutingSnapshot(execCtx, tx)
+		if err != nil {
+			return nil, err
+		}
+		snapshot.RoutingVersion = v.routingVersion
+		snapshot.PlanEpoch = v.planEpoch
+		out.Snapshot = snapshot
 	}
-	snapshot, err := loadRoutingSnapshot(execCtx, tx)
+	// The answer is labelled with the rule checked before the read. Check
+	// again: a pooler that is no longer the primary fails as it would have
+	// before the read, and one that is the primary under another rule may have
+	// read state belonging to neither, so the caller asks again.
+	after, err := pm.catalogPrimaryRule(ctx)
 	if err != nil {
 		return nil, err
 	}
-	snapshot.RoutingVersion = v.routingVersion
-	snapshot.PlanEpoch = v.planEpoch
-	out.Snapshot = snapshot
+	if commonconsensus.CompareRuleNumbers(after, rule) != 0 {
+		return nil, mterrors.Errorf(mtrpcpb.Code_ABORTED,
+			"the catalog primary's consensus rule changed from %s to %s during the snapshot read; retry",
+			commonconsensus.FormatRuleNumber(rule), commonconsensus.FormatRuleNumber(after))
+	}
 	return out, nil
 }
 

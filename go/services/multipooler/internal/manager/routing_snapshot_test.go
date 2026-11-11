@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,6 +32,7 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	shardingcatalogpb "github.com/multigres/multigres/go/pb/shardingcatalog"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 )
 
@@ -74,13 +76,28 @@ func (env *tableGroupTestEnv) expectCatalogRows() {
 	})
 }
 
+// testLeaderRule is the rule selfLeaderConsensusStatus makes the test pooler
+// the primary under.
+var testLeaderRule = &clustermetadatapb.RuleNumber{CoordinatorTerm: 1}
+
+// sinceVersion asks for changes since version v of a snapshot served under
+// testLeaderRule.
 func sinceVersion(v int64) *multipoolermanagerdatapb.GetRoutingSnapshotRequest {
-	return &multipoolermanagerdatapb.GetRoutingSnapshotRequest{SinceVersion: &v}
+	return &multipoolermanagerdatapb.GetRoutingSnapshotRequest{SinceVersion: &v, SinceConsensusRule: testLeaderRule}
+}
+
+// leaderAtTerm is a consensus snapshot naming the test pooler the active
+// leader under the given coordinator term.
+func leaderAtTerm(term int64) *clustermetadatapb.ConsensusStatus {
+	cs := selfLeaderConsensusStatus()
+	cs.CurrentPosition.Position.Decision.RuleNumber = &clustermetadatapb.RuleNumber{CoordinatorTerm: term}
+	return cs
 }
 
 func TestGetRoutingSnapshot_Full(t *testing.T) {
 	env := newCatalogTestEnv(t)
 	env.expectPrimary()
+	env.expectPrimary() // checked again after the read
 	env.expectSnapshotRead(9, 2)
 	env.expectCatalogRows()
 
@@ -89,6 +106,7 @@ func TestGetRoutingSnapshot_Full(t *testing.T) {
 	assert.False(t, resp.GetUnchanged())
 	assert.Equal(t, int64(9), resp.GetRoutingVersion())
 	assert.Equal(t, int64(2), resp.GetPlanEpoch())
+	assert.True(t, proto.Equal(testLeaderRule, resp.GetConsensusRule()), "stamped with the rule it served under")
 
 	want := &shardingcatalogpb.Snapshot{
 		RoutingVersion: 9,
@@ -133,6 +151,7 @@ func TestGetRoutingSnapshot_Full(t *testing.T) {
 func TestGetRoutingSnapshot_Unchanged(t *testing.T) {
 	env := newCatalogTestEnv(t)
 	env.expectPrimary()
+	env.expectPrimary() // checked again after the read
 	env.expectSnapshotRead(9, 2)
 
 	resp, err := env.pm.GetRoutingSnapshot(t.Context(), sinceVersion(9))
@@ -141,13 +160,93 @@ func TestGetRoutingSnapshot_Unchanged(t *testing.T) {
 	assert.Nil(t, resp.GetSnapshot())
 	assert.Equal(t, int64(9), resp.GetRoutingVersion())
 	assert.Equal(t, int64(2), resp.GetPlanEpoch())
-	assert.Len(t, env.queries, 3, "no entity is read")
+	assert.Equal(t, []string{
+		"SELECT pg_is_in_recovery()",
+		"SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY",
+		"SELECT routing_version, plan_epoch FROM multigres.catalog_state",
+		"SELECT pg_is_in_recovery()",
+	}, env.queries, "no entity is read, and the primary is checked again after the read")
+	assert.True(t, proto.Equal(testLeaderRule, resp.GetConsensusRule()))
+}
+
+// The same version under another rule may be different contents (a version
+// lost in a failover and reused), so it is served in full.
+func TestGetRoutingSnapshot_SameVersionUnderAnotherRule(t *testing.T) {
+	for name, rule := range map[string]*clustermetadatapb.RuleNumber{
+		"an older rule": nil,
+		"a newer rule":  {CoordinatorTerm: 2},
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := newCatalogTestEnv(t)
+			env.expectPrimary()
+			env.expectPrimary() // checked again after the read
+			env.expectSnapshotRead(9, 2)
+			env.expectCatalogRows()
+
+			v := int64(9)
+			resp, err := env.pm.GetRoutingSnapshot(t.Context(), &multipoolermanagerdatapb.GetRoutingSnapshotRequest{SinceVersion: &v, SinceConsensusRule: rule})
+			require.NoError(t, err)
+			assert.False(t, resp.GetUnchanged())
+			require.NotNil(t, resp.GetSnapshot())
+		})
+	}
+}
+
+// A pooler whose rule changes while it reads must not label what it read
+// with either rule.
+func TestGetRoutingSnapshot_RuleChangesDuringRead(t *testing.T) {
+	env := newCatalogTestEnv(t)
+	var term atomic.Int64
+	term.Store(1)
+	env.pm.stateManager = NewStateManager(env.pm.logger, env.pm.record, func() *clustermetadatapb.ConsensusStatus {
+		return leaderAtTerm(term.Load())
+	})
+	env.pm.stateManager.pgMode = pgmode.Primary
+	env.expectPrimary()
+	env.expectPrimary() // checked again after the read
+	env.expect("^SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY$", nil, nil)
+	env.qs.AddQueryPatternWithCallback("^SELECT routing_version, plan_epoch FROM multigres.catalog_state$",
+		mock.MakeQueryResult([]string{"routing_version", "plan_epoch"}, [][]any{{int64(9), int64(2)}}),
+		func(string) { term.Store(2) }) // a new rule commits mid-read
+	env.expectCatalogRows()
+
+	_, err := env.pm.GetRoutingSnapshot(t.Context(), sinceVersion(8))
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_ABORTED, mterrors.Code(err))
+	assert.Contains(t, err.Error(), "consensus rule changed from 1.0 to 2.0 during the snapshot read")
+}
+
+// A pooler demoted while it reads fails as a non-primary would, rather than
+// answer with what it read.
+func TestGetRoutingSnapshot_DemotedDuringRead(t *testing.T) {
+	env := newCatalogTestEnv(t)
+	var demoted atomic.Bool
+	env.pm.stateManager = NewStateManager(env.pm.logger, env.pm.record, func() *clustermetadatapb.ConsensusStatus {
+		if demoted.Load() {
+			return nil
+		}
+		return leaderAtTerm(1)
+	})
+	env.pm.stateManager.pgMode = pgmode.Primary
+	env.expectPrimary()
+	env.expectPrimary()
+	env.expect("^SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY$", nil, nil)
+	env.qs.AddQueryPatternWithCallback("^SELECT routing_version, plan_epoch FROM multigres.catalog_state$",
+		mock.MakeQueryResult([]string{"routing_version", "plan_epoch"}, [][]any{{int64(9), int64(2)}}),
+		func(string) { demoted.Store(true) })
+	env.expectCatalogRows()
+
+	_, err := env.pm.GetRoutingSnapshot(t.Context(), sinceVersion(8))
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+	assert.Contains(t, err.Error(), "not the elected primary of the catalog shard")
 }
 
 // A caller with no snapshot gets one even from a fresh catalog at version 0.
 func TestGetRoutingSnapshot_NoSinceVersion(t *testing.T) {
 	env := newCatalogTestEnv(t)
 	env.expectPrimary()
+	env.expectPrimary() // checked again after the read
 	env.expectSnapshotRead(0, 0)
 	env.expectCatalogRows()
 
@@ -163,6 +262,7 @@ func TestGetRoutingSnapshot_NoSinceVersion(t *testing.T) {
 func TestGetRoutingSnapshot_OlderThanSince(t *testing.T) {
 	env := newCatalogTestEnv(t)
 	env.expectPrimary()
+	env.expectPrimary() // checked again after the read
 	env.expectSnapshotRead(3, 0)
 	env.expectCatalogRows()
 
@@ -175,6 +275,7 @@ func TestGetRoutingSnapshot_OlderThanSince(t *testing.T) {
 func TestGetRoutingSnapshot_ReadError(t *testing.T) {
 	env := newCatalogTestEnv(t)
 	env.expectPrimary()
+	env.expectPrimary() // checked again after the read
 	env.expectSnapshotRead(9, 2)
 	env.qs.AddQueryPatternWithError("FROM multigres.tablegroup ORDER BY", errors.New("boom"))
 

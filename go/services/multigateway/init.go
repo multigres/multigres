@@ -542,15 +542,20 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	// The sharding catalog cache follows the catalog primary's health stream
 	// and fetches through the pooler gateway, which exists by the time the
 	// first health update arrives.
-	var onCatalogShardHealth func(string, bool, int64)
+	var onCatalogShardHealth func(string, bool, *clustermetadatapb.RuleNumber, int64)
 	if mg.shardingCatalogPollInterval != nil {
 		mg.shardingCatalog = shardingcatalogcache.New(mg.shutdownCtx, logger,
-			func(ctx context.Context, database string, since *int64) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+			func(ctx context.Context, database string, since *shardingcatalogcache.Position) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
 				client, err := catalogPrimaryClient(mg.poolerGateway, database)
 				if err != nil {
 					return nil, err
 				}
-				return client.GetRoutingSnapshot(ctx, &multipoolermanagerdatapb.GetRoutingSnapshotRequest{SinceVersion: since})
+				req := &multipoolermanagerdatapb.GetRoutingSnapshotRequest{}
+				if since != nil {
+					req.SinceVersion = &since.RoutingVersion
+					req.SinceConsensusRule = since.Rule
+				}
+				return client.GetRoutingSnapshot(ctx, req)
 			},
 			mg.shardingCatalogPollInterval.Get())
 		onCatalogShardHealth = mg.shardingCatalog.ObserveCatalogShard

@@ -27,7 +27,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/shardingcatalog"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	shardingcatalogpb "github.com/multigres/multigres/go/pb/shardingcatalog"
@@ -49,6 +51,7 @@ type gatewayCatalog struct {
 		Database       string `json:"database"`
 		Installed      bool   `json:"installed"`
 		RoutingVersion int64  `json:"routing_version"`
+		ConsensusRule  string `json:"consensus_rule"`
 		TableGroups    []struct {
 			ID     int64  `json:"id"`
 			Name   string `json:"name"`
@@ -66,16 +69,24 @@ type gatewayCatalog struct {
 // ok is false until a snapshot is installed.
 func readGatewayCatalog(t *testing.T, setup *shardsetup.ShardSetup) (version int64, tableGroups map[string][]string, ok bool) {
 	t.Helper()
+	version, _, tableGroups, ok = readGatewayCatalogAt(t, setup)
+	return version, tableGroups, ok
+}
+
+// readGatewayCatalogAt is readGatewayCatalog that also returns the consensus
+// rule the installed snapshot was served under, as "term.subterm".
+func readGatewayCatalogAt(t *testing.T, setup *shardsetup.ShardSetup) (version int64, rule string, tableGroups map[string][]string, ok bool) {
+	t.Helper()
 	url := fmt.Sprintf("http://localhost:%d/debug/sharding-catalog", setup.Multigateway.HttpPort)
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, url, nil)
 	require.NoError(t, err)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return 0, nil, false
+		return 0, "", nil, false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return 0, nil, false
+		return 0, "", nil, false
 	}
 	var got gatewayCatalog
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&got))
@@ -91,14 +102,14 @@ func readGatewayCatalog(t *testing.T, setup *shardsetup.ShardSetup) (version int
 			}
 			tableGroups[tg.Name] = names
 		}
-		return db.RoutingVersion, tableGroups, true
+		return db.RoutingVersion, db.ConsensusRule, tableGroups, true
 	}
-	return 0, nil, false
+	return 0, "", nil, false
 }
 
-func getRoutingSnapshot(t *testing.T, manager multipoolermanagerpb.MultipoolerManagerClient, since *int64) *multipoolermanagerdatapb.GetRoutingSnapshotResponse {
+func getRoutingSnapshot(t *testing.T, manager multipoolermanagerpb.MultipoolerManagerClient, since *int64, sinceRule *clustermetadatapb.RuleNumber) *multipoolermanagerdatapb.GetRoutingSnapshotResponse {
 	t.Helper()
-	resp, err := manager.GetRoutingSnapshot(t.Context(), &multipoolermanagerdatapb.GetRoutingSnapshotRequest{SinceVersion: since})
+	resp, err := manager.GetRoutingSnapshot(t.Context(), &multipoolermanagerdatapb.GetRoutingSnapshotRequest{SinceVersion: since, SinceConsensusRule: sinceRule})
 	require.NoError(t, err)
 	return resp
 }
@@ -126,9 +137,12 @@ func TestRoutingSnapshot(t *testing.T) {
 	oldPrimaryName := setup.PrimaryName
 
 	var freshVersion int64
+	var firstRule *clustermetadatapb.RuleNumber
 	t.Run("a fresh catalog is the default tablegroup", func(t *testing.T) {
-		resp := getRoutingSnapshot(t, primary.Manager, nil)
+		resp := getRoutingSnapshot(t, primary.Manager, nil, nil)
 		require.False(t, resp.GetUnchanged())
+		firstRule = resp.GetConsensusRule()
+		require.NotNil(t, firstRule, "the snapshot is stamped with the primary's consensus rule")
 		snap := resp.GetSnapshot()
 		require.NotNil(t, snap)
 		freshVersion = snap.GetRoutingVersion()
@@ -142,7 +156,7 @@ func TestRoutingSnapshot(t *testing.T) {
 		_, err := shardingcatalog.New(snap)
 		require.NoError(t, err, "the served snapshot validates")
 
-		again := getRoutingSnapshot(t, primary.Manager, &freshVersion)
+		again := getRoutingSnapshot(t, primary.Manager, &freshVersion, firstRule)
 		assert.True(t, again.GetUnchanged())
 		assert.Nil(t, again.GetSnapshot())
 
@@ -189,6 +203,9 @@ func TestRoutingSnapshot(t *testing.T) {
 			return err == nil
 		}, utils.ScaleTimeout(60*time.Second), 500*time.Millisecond, "the new primary never served a snapshot")
 		assert.GreaterOrEqual(t, resp.GetRoutingVersion(), createdVersion)
+		assert.Positive(t, commonconsensus.CompareRuleNumbers(resp.GetConsensusRule(), firstRule),
+			"the new primary serves under a higher rule (%s after %s)",
+			commonconsensus.FormatRuleNumber(resp.GetConsensusRule()), commonconsensus.FormatRuleNumber(firstRule))
 		names := []string{}
 		for _, tg := range resp.GetSnapshot().GetTablegroups() {
 			names = append(names, tg.GetName())
@@ -199,9 +216,10 @@ func TestRoutingSnapshot(t *testing.T) {
 		// through its health stream.
 		createThroughGateway(t, setup, "CREATE TABLEGROUP analytics")
 		require.Eventually(t, func() bool {
-			v, groups, ok := readGatewayCatalog(t, setup)
-			return ok && v > resp.GetRoutingVersion() && groups["analytics"] != nil && groups["commerce"] != nil
-		}, catalogPickupTimeout, 200*time.Millisecond, "the gateway never saw a change on the new primary")
+			v, rule, groups, ok := readGatewayCatalogAt(t, setup)
+			return ok && v > resp.GetRoutingVersion() && rule != commonconsensus.FormatRuleNumber(firstRule) &&
+				groups["analytics"] != nil && groups["commerce"] != nil
+		}, catalogPickupTimeout, 200*time.Millisecond, "the gateway never installed a snapshot from the new primary")
 	})
 }
 

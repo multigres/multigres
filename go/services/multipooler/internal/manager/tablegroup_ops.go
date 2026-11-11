@@ -167,15 +167,23 @@ func (pm *MultipoolerManager) checkCatalogShard() error {
 // demoted. A former primary that has not yet learned of the newer rule still
 // passes, so a caller must never read an authoritative absence from an answer.
 func (pm *MultipoolerManager) checkCatalogPrimary(ctx context.Context) error {
+	_, err := pm.catalogPrimaryRule(ctx)
+	return err
+}
+
+// catalogPrimaryRule is checkCatalogPrimary that also returns the consensus
+// rule this pooler is the primary under.
+func (pm *MultipoolerManager) catalogPrimaryRule(ctx context.Context) (*clustermetadatapb.RuleNumber, error) {
 	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
-		return err
+		return nil, err
 	}
-	if role := pm.stateManager.RoutingRole(); role != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
-		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+	rs := pm.stateManager.RoutingState()
+	if role := rs.GetRole(); role != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
+		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"operation not allowed: this pooler is not the elected primary of the catalog shard (routing role %s, service_id: %s)",
 			role, pm.serviceID.String())
 	}
-	return nil
+	return rs.GetRule(), nil
 }
 
 // catalogQueryService returns the admin query service, or an error when the

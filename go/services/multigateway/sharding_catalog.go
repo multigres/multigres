@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"slices"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/services/multigateway/shardingcatalogcache"
 )
 
@@ -32,10 +33,12 @@ type shardingCatalogStatus struct {
 type shardingCatalogDatabase struct {
 	Database string `json:"database"`
 	// Installed is false until a snapshot has been fetched.
-	Installed      bool                        `json:"installed"`
-	RoutingVersion int64                       `json:"routing_version"`
-	PlanEpoch      int64                       `json:"plan_epoch"`
-	TableGroups    []shardingCatalogTableGroup `json:"tablegroups"`
+	Installed      bool  `json:"installed"`
+	RoutingVersion int64 `json:"routing_version"`
+	PlanEpoch      int64 `json:"plan_epoch"`
+	// ConsensusRule is the rule the serving primary held, "term.subterm".
+	ConsensusRule string                      `json:"consensus_rule"`
+	TableGroups   []shardingCatalogTableGroup `json:"tablegroups"`
 }
 
 type shardingCatalogTableGroup struct {
@@ -58,8 +61,9 @@ func shardingCatalogStatusOf(c *shardingcatalogcache.Cache) shardingCatalogStatu
 	slices.Sort(names)
 	for _, name := range names {
 		db := shardingCatalogDatabase{Database: name, TableGroups: []shardingCatalogTableGroup{}}
-		if snap := c.Snapshot(name); snap != nil {
+		if snap, pos := c.Installed(name); snap != nil {
 			db.Installed = true
+			db.ConsensusRule = commonconsensus.FormatRuleNumber(pos.Rule)
 			db.RoutingVersion = snap.RoutingVersion()
 			db.PlanEpoch = snap.PlanEpoch()
 			for _, g := range snap.TableGroups() {

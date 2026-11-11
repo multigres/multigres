@@ -4008,9 +4008,13 @@ type GetRoutingSnapshotRequest struct {
 	// When the catalog is still at that version the response says so instead of
 	// carrying the snapshot again. A caller that holds no snapshot leaves it
 	// unset.
-	SinceVersion  *int64 `protobuf:"varint,1,opt,name=since_version,json=sinceVersion,proto3,oneof" json:"since_version,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SinceVersion *int64 `protobuf:"varint,1,opt,name=since_version,json=sinceVersion,proto3,oneof" json:"since_version,omitempty"`
+	// since_consensus_rule is the consensus_rule of the snapshot the caller
+	// holds. The snapshot is only unchanged when both it and since_version
+	// match.
+	SinceConsensusRule *clustermetadata.RuleNumber `protobuf:"bytes,2,opt,name=since_consensus_rule,json=sinceConsensusRule,proto3" json:"since_consensus_rule,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *GetRoutingSnapshotRequest) Reset() {
@@ -4050,19 +4054,37 @@ func (x *GetRoutingSnapshotRequest) GetSinceVersion() int64 {
 	return 0
 }
 
+func (x *GetRoutingSnapshotRequest) GetSinceConsensusRule() *clustermetadata.RuleNumber {
+	if x != nil {
+		return x.SinceConsensusRule
+	}
+	return nil
+}
+
 // GetRoutingSnapshotResponse is the catalog's current snapshot, or a note that
 // the caller's is still current.
+//
+// Snapshots are ordered by (consensus_rule, routing_version), not by version
+// alone. A version can be lost in a failover (a commit made visible on the old
+// primary without its synchronous acknowledgement) and reused by the next
+// primary with different contents; the next primary always serves under a
+// higher rule, so a snapshot from a higher rule supersedes any from a lower
+// one, whatever their versions. Within one rule, versions only grow.
 type GetRoutingSnapshotResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// unchanged is set when the catalog's routing_version equals the request's
-	// since_version; snapshot is then unset.
+	// unchanged is set when the catalog's routing_version and this primary's
+	// consensus_rule equal the request's since_version and
+	// since_consensus_rule; snapshot is then unset.
 	Unchanged bool `protobuf:"varint,1,opt,name=unchanged,proto3" json:"unchanged,omitempty"`
 	// routing_version and plan_epoch are the catalog's current versions, set
 	// in both cases.
 	RoutingVersion int64 `protobuf:"varint,2,opt,name=routing_version,json=routingVersion,proto3" json:"routing_version,omitempty"`
 	PlanEpoch      int64 `protobuf:"varint,3,opt,name=plan_epoch,json=planEpoch,proto3" json:"plan_epoch,omitempty"`
 	// snapshot is the whole catalog, unless unchanged is set.
-	Snapshot      *shardingcatalog.Snapshot `protobuf:"bytes,4,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
+	Snapshot *shardingcatalog.Snapshot `protobuf:"bytes,4,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
+	// consensus_rule is the rule under which this pooler was the catalog
+	// shard's primary for the whole read, set in both cases.
+	ConsensusRule *clustermetadata.RuleNumber `protobuf:"bytes,5,opt,name=consensus_rule,json=consensusRule,proto3" json:"consensus_rule,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4121,6 +4143,13 @@ func (x *GetRoutingSnapshotResponse) GetPlanEpoch() int64 {
 func (x *GetRoutingSnapshotResponse) GetSnapshot() *shardingcatalog.Snapshot {
 	if x != nil {
 		return x.Snapshot
+	}
+	return nil
+}
+
+func (x *GetRoutingSnapshotResponse) GetConsensusRule() *clustermetadata.RuleNumber {
+	if x != nil {
+		return x.ConsensusRule
 	}
 	return nil
 }
@@ -4355,16 +4384,18 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\rtablegroup_id\x18\x01 \x01(\x03R\ftablegroupId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x126\n" +
 	"\x05state\x18\x03 \x01(\x0e2 .shardingcatalog.TableGroupStateR\x05state\x12\x16\n" +
-	"\x06shards\x18\x04 \x03(\tR\x06shards\"W\n" +
+	"\x06shards\x18\x04 \x03(\tR\x06shards\"\xa6\x01\n" +
 	"\x19GetRoutingSnapshotRequest\x12(\n" +
-	"\rsince_version\x18\x01 \x01(\x03H\x00R\fsinceVersion\x88\x01\x01B\x10\n" +
-	"\x0e_since_version\"\xb9\x01\n" +
+	"\rsince_version\x18\x01 \x01(\x03H\x00R\fsinceVersion\x88\x01\x01\x12M\n" +
+	"\x14since_consensus_rule\x18\x02 \x01(\v2\x1b.clustermetadata.RuleNumberR\x12sinceConsensusRuleB\x10\n" +
+	"\x0e_since_version\"\xfd\x01\n" +
 	"\x1aGetRoutingSnapshotResponse\x12\x1c\n" +
 	"\tunchanged\x18\x01 \x01(\bR\tunchanged\x12'\n" +
 	"\x0frouting_version\x18\x02 \x01(\x03R\x0eroutingVersion\x12\x1d\n" +
 	"\n" +
 	"plan_epoch\x18\x03 \x01(\x03R\tplanEpoch\x125\n" +
-	"\bsnapshot\x18\x04 \x01(\v2\x19.shardingcatalog.SnapshotR\bsnapshot*\xa4\x01\n" +
+	"\bsnapshot\x18\x04 \x01(\v2\x19.shardingcatalog.SnapshotR\bsnapshot\x12B\n" +
+	"\x0econsensus_rule\x18\x05 \x01(\v2\x1b.clustermetadata.RuleNumberR\rconsensusRule*\xa4\x01\n" +
 	"\x0ePostgresStatus\x12\x1b\n" +
 	"\x17POSTGRES_STATUS_UNKNOWN\x10\x00\x12\x1c\n" +
 	"\x18POSTGRES_STATUS_STARTING\x10\x01\x12\x1b\n" +
@@ -4568,12 +4599,14 @@ var file_multipoolermanagerdata_proto_depIdxs = []int32{
 	67, // 59: multipoolermanagerdata.Operation.updated_at:type_name -> google.protobuf.Timestamp
 	60, // 60: multipoolermanagerdata.ListTableGroupsResponse.table_groups:type_name -> multipoolermanagerdata.TableGroup
 	75, // 61: multipoolermanagerdata.TableGroup.state:type_name -> shardingcatalog.TableGroupState
-	76, // 62: multipoolermanagerdata.GetRoutingSnapshotResponse.snapshot:type_name -> shardingcatalog.Snapshot
-	63, // [63:63] is the sub-list for method output_type
-	63, // [63:63] is the sub-list for method input_type
-	63, // [63:63] is the sub-list for extension type_name
-	63, // [63:63] is the sub-list for extension extendee
-	0,  // [0:63] is the sub-list for field type_name
+	72, // 62: multipoolermanagerdata.GetRoutingSnapshotRequest.since_consensus_rule:type_name -> clustermetadata.RuleNumber
+	76, // 63: multipoolermanagerdata.GetRoutingSnapshotResponse.snapshot:type_name -> shardingcatalog.Snapshot
+	72, // 64: multipoolermanagerdata.GetRoutingSnapshotResponse.consensus_rule:type_name -> clustermetadata.RuleNumber
+	65, // [65:65] is the sub-list for method output_type
+	65, // [65:65] is the sub-list for method input_type
+	65, // [65:65] is the sub-list for extension type_name
+	65, // [65:65] is the sub-list for extension extendee
+	0,  // [0:65] is the sub-list for field type_name
 }
 
 func init() { file_multipoolermanagerdata_proto_init() }
