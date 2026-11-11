@@ -163,7 +163,9 @@ binaries pass none and use every pooler in the topology.
   once (a second call is fatal).
 - **One identity.** The process reports the service name `minigres` with the
   pooler's cell, service ID, database and shard, so it appears once in logs,
-  metrics and traces.
+  metrics and traces. `SELECT multigres.version()` also names it: the string
+  starts with `Minigres` instead of `Multigres`. The SQL names are the same as
+  in Multigres (see [Multigres version](../query_serving/multigres_version.md)).
 - **Ready once a query can succeed.** `/ready` runs both halves' checks, and
   neither waits for PostgreSQL: the pooler's leaves it out, and the gateway's
   passes once it has its pooler's record. So `main` adds one more: ready only
@@ -251,6 +253,7 @@ can turn them on, and their flags are rejected as unknown.
 | Failover buffering (`--buffer-*`)                                                                      | There is no failover: the static leader is never switched over, and nothing promotes another pooler                                                                                                                                               |
 | Multipooler gRPC TLS (`--multipooler-grpc-*`)                                                          | The gateway calls its pooler directly, and the settings otherwise secure only cancel forwarding                                                                                                                                                   |
 | Cross-gateway cancel forwarding                                                                        | A client sends its cancel request to the address it connected to, which is this gateway. The gateway cancels its own connections and ignores a cancel request for any other, instead of forwarding it to another instance through the shared etcd |
+| Tablegroup DDL (`--enable-tablegroup-ddl`)                                                             | A database served by one pooler has one shard, and no provisioner adds others. `CREATE TABLEGROUP` and `DROP TABLEGROUP` are rejected as not supported                                                                                            |
 
 Without cancel forwarding the gateway claims no connection-ID prefix: connection
 IDs are used as they are, and the limit of 2,047 gateways per etcd and the

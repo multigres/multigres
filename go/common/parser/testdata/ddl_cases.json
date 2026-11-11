@@ -3200,5 +3200,23 @@
   {
     "comment": "CREATE SUBSCRIPTION CONNECTION escapes embedded apostrophes",
     "query": "CREATE SUBSCRIPTION sub CONNECTION 'host=h pwd=o''brien' PUBLICATION p"
+  },
+  {
+    "comment": "CREATE TABLE with catalog-qualified name keeps all three name parts",
+    "query": "CREATE TABLE db.sch.tbl (a INT)"
+  },
+  {
+    "comment": "ALTER TABLE with catalog-qualified name keeps all three name parts",
+    "query": "ALTER TABLE db.sch.tbl ADD COLUMN b INT"
+  },
+  {
+    "comment": "CREATE TABLE with more than three name parts is rejected",
+    "query": "CREATE TABLE a.b.c.d (a INT)",
+    "error": "improper qualified name (too many dotted names): a.b.c.d"
+  },
+  {
+    "comment": "CREATE PUBLICATION with more than three name parts is rejected",
+    "query": "CREATE PUBLICATION p FOR TABLE a.b.c.d",
+    "error": "improper qualified name (too many dotted names): a.b.c.d"
   }
 ]

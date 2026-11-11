@@ -20,6 +20,7 @@
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
 import { AvailabilityStatus, ConsensusStatus, ID, PoolerPosition, PoolerType, RoutingRole, RuleNumber } from "./clustermetadata_pb";
+import { Snapshot, TableGroupState } from "./shardingcatalog_pb";
 
 /**
  * PostgresStatus is the observed state of the PostgreSQL server process.
@@ -409,38 +410,6 @@ proto3.util.setEnumType(OperationState, "multipoolermanagerdata.OperationState",
   { no: 2, name: "OPERATION_STATE_DROPPING" },
   { no: 3, name: "OPERATION_STATE_DONE" },
   { no: 4, name: "OPERATION_STATE_FAILED" },
-]);
-
-/**
- * TableGroupState is the lifecycle state of a listed tablegroup.
- *
- * @generated from enum multipoolermanagerdata.TableGroupState
- */
-export enum TableGroupState {
-  /**
-   * @generated from enum value: TABLE_GROUP_STATE_UNSPECIFIED = 0;
-   */
-  UNSPECIFIED = 0,
-
-  /**
-   * CREATING is a tablegroup whose shards are being provisioned.
-   *
-   * @generated from enum value: TABLE_GROUP_STATE_CREATING = 1;
-   */
-  CREATING = 1,
-
-  /**
-   * ACTIVE is a tablegroup whose creation completed.
-   *
-   * @generated from enum value: TABLE_GROUP_STATE_ACTIVE = 2;
-   */
-  ACTIVE = 2,
-}
-// Retrieve enum metadata with: proto3.getEnumType(TableGroupState)
-proto3.util.setEnumType(TableGroupState, "multipoolermanagerdata.TableGroupState", [
-  { no: 0, name: "TABLE_GROUP_STATE_UNSPECIFIED" },
-  { no: 1, name: "TABLE_GROUP_STATE_CREATING" },
-  { no: 2, name: "TABLE_GROUP_STATE_ACTIVE" },
 ]);
 
 /**
@@ -2874,7 +2843,8 @@ export class CreateTableGroupRequest extends Message<CreateTableGroupRequest> {
 
   /**
    * if_not_exists makes an already-active tablegroup of this name a no-op
-   * (already_exists is set on the response) instead of an error.
+   * (already_exists is set on the response) instead of an error, and joins a
+   * creation of this name already in flight whatever its layout.
    *
    * @generated from field: bool if_not_exists = 3;
    */
@@ -3135,7 +3105,8 @@ export class Operation extends Message<Operation> {
   /**
    * poolers_registered is, for a drop that is not done, how many pooler
    * records carrying the tablegroup's id are still registered in topology,
-   * read at call time. The drop completes when it reaches zero. Zero for a
+   * read at call time. The drop completes when it reaches zero and the
+   * provisioner has released its claim (TableGroupProvisionClaim). Zero for a
    * creation.
    *
    * @generated from field: int32 poolers_registered = 12;
@@ -3304,7 +3275,8 @@ export class DropTableGroupResponse extends Message<DropTableGroupResponse> {
 }
 
 /**
- * ListTableGroupsRequest lists the tablegroups the provisioner should have.
+ * ListTableGroupsRequest lists the tablegroups the provisioner should have
+ * and the ones it should remove.
  *
  * @generated from message multipoolermanagerdata.ListTableGroupsRequest
  */
@@ -3337,7 +3309,14 @@ export class ListTableGroupsRequest extends Message<ListTableGroupsRequest> {
 }
 
 /**
- * ListTableGroupsResponse lists tablegroups with their shard layouts.
+ * ListTableGroupsResponse lists every non-default tablegroup in the catalog
+ * with its shard layout. A provisioner provisions the CREATING and ACTIVE ones
+ * and removes the DROPPING ones. A tablegroup missing from the list is never a
+ * reason to remove anything: a provisioner claims a tablegroup's id in
+ * topology (TableGroupProvisionClaim) before it provisions anything and
+ * releases the claim after it has removed everything, and the catalog deletes
+ * the tablegroup only once no claim and no pooler record for the id remain, so
+ * a provisioner that has started on an id always sees it DROPPING first.
  *
  * @generated from message multipoolermanagerdata.ListTableGroupsResponse
  */
@@ -3383,7 +3362,9 @@ export class ListTableGroupsResponse extends Message<ListTableGroupsResponse> {
 export class TableGroup extends Message<TableGroup> {
   /**
    * tablegroup_id is the catalog identity. Provisioners pass it to the
-   * tablegroup's poolers (see Multipooler.tablegroup_id).
+   * tablegroup's poolers (see Multipooler.tablegroup_id), claim it before
+   * provisioning, and key everything they provision by it, so acting on one
+   * incarnation of a name never touches another.
    *
    * @generated from field: int64 tablegroup_id = 1;
    */
@@ -3395,9 +3376,7 @@ export class TableGroup extends Message<TableGroup> {
   name = "";
 
   /**
-   * state is CREATING or ACTIVE. Tablegroups being dropped are not listed.
-   *
-   * @generated from field: multipoolermanagerdata.TableGroupState state = 3;
+   * @generated from field: shardingcatalog.TableGroupState state = 3;
    */
   state = TableGroupState.UNSPECIFIED;
 
@@ -3436,6 +3415,404 @@ export class TableGroup extends Message<TableGroup> {
 
   static equals(a: TableGroup | PlainMessage<TableGroup> | undefined, b: TableGroup | PlainMessage<TableGroup> | undefined): boolean {
     return proto3.util.equals(TableGroup, a, b);
+  }
+}
+
+/**
+ * GetRoutingSnapshotRequest asks the catalog primary for the sharding catalog.
+ *
+ * @generated from message multipoolermanagerdata.GetRoutingSnapshotRequest
+ */
+export class GetRoutingSnapshotRequest extends Message<GetRoutingSnapshotRequest> {
+  /**
+   * since_version is the routing_version of the snapshot the caller holds.
+   * When the catalog is still at that version the response says so instead of
+   * carrying the snapshot again. A caller that holds no snapshot leaves it
+   * unset.
+   *
+   * @generated from field: optional int64 since_version = 1;
+   */
+  sinceVersion?: bigint;
+
+  /**
+   * since_consensus_rule is the consensus_rule of the snapshot the caller
+   * holds. The snapshot is only unchanged when both it and since_version
+   * match.
+   *
+   * @generated from field: clustermetadata.RuleNumber since_consensus_rule = 2;
+   */
+  sinceConsensusRule?: RuleNumber;
+
+  constructor(data?: PartialMessage<GetRoutingSnapshotRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.GetRoutingSnapshotRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "since_version", kind: "scalar", T: 3 /* ScalarType.INT64 */, opt: true },
+    { no: 2, name: "since_consensus_rule", kind: "message", T: RuleNumber },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetRoutingSnapshotRequest {
+    return new GetRoutingSnapshotRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetRoutingSnapshotRequest {
+    return new GetRoutingSnapshotRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetRoutingSnapshotRequest {
+    return new GetRoutingSnapshotRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetRoutingSnapshotRequest | PlainMessage<GetRoutingSnapshotRequest> | undefined, b: GetRoutingSnapshotRequest | PlainMessage<GetRoutingSnapshotRequest> | undefined): boolean {
+    return proto3.util.equals(GetRoutingSnapshotRequest, a, b);
+  }
+}
+
+/**
+ * GetRoutingSnapshotResponse is the catalog's current snapshot, or a note that
+ * the caller's is still current.
+ *
+ * Snapshots are ordered by (consensus_rule, routing_version), not by version
+ * alone. A version can be lost in a failover (a commit made visible on the old
+ * primary without its synchronous acknowledgement) and reused by the next
+ * primary with different contents; the next primary always serves under a
+ * higher rule, so a snapshot from a higher rule supersedes any from a lower
+ * one, whatever their versions. Within one rule, versions only grow.
+ *
+ * @generated from message multipoolermanagerdata.GetRoutingSnapshotResponse
+ */
+export class GetRoutingSnapshotResponse extends Message<GetRoutingSnapshotResponse> {
+  /**
+   * unchanged is set when the catalog's routing_version and this primary's
+   * consensus_rule equal the request's since_version and
+   * since_consensus_rule; snapshot is then unset.
+   *
+   * @generated from field: bool unchanged = 1;
+   */
+  unchanged = false;
+
+  /**
+   * routing_version and plan_epoch are the catalog's current versions, set
+   * in both cases.
+   *
+   * @generated from field: int64 routing_version = 2;
+   */
+  routingVersion = protoInt64.zero;
+
+  /**
+   * @generated from field: int64 plan_epoch = 3;
+   */
+  planEpoch = protoInt64.zero;
+
+  /**
+   * snapshot is the whole catalog, unless unchanged is set.
+   *
+   * @generated from field: shardingcatalog.Snapshot snapshot = 4;
+   */
+  snapshot?: Snapshot;
+
+  /**
+   * consensus_rule is the rule under which this pooler was the catalog
+   * shard's primary for the whole read, set in both cases.
+   *
+   * @generated from field: clustermetadata.RuleNumber consensus_rule = 5;
+   */
+  consensusRule?: RuleNumber;
+
+  constructor(data?: PartialMessage<GetRoutingSnapshotResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.GetRoutingSnapshotResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "unchanged", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 2, name: "routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 3, name: "plan_epoch", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 4, name: "snapshot", kind: "message", T: Snapshot },
+    { no: 5, name: "consensus_rule", kind: "message", T: RuleNumber },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetRoutingSnapshotResponse {
+    return new GetRoutingSnapshotResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetRoutingSnapshotResponse {
+    return new GetRoutingSnapshotResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetRoutingSnapshotResponse {
+    return new GetRoutingSnapshotResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetRoutingSnapshotResponse | PlainMessage<GetRoutingSnapshotResponse> | undefined, b: GetRoutingSnapshotResponse | PlainMessage<GetRoutingSnapshotResponse> | undefined): boolean {
+    return proto3.util.equals(GetRoutingSnapshotResponse, a, b);
+  }
+}
+
+/**
+ * ShardRoutingRuleSpec requests a shard rule by name: the routing identifiers
+ * of from_tablegroup in to_shard's range are served by to_shard of
+ * to_tablegroup.
+ *
+ * @generated from message multipoolermanagerdata.ShardRoutingRuleSpec
+ */
+export class ShardRoutingRuleSpec extends Message<ShardRoutingRuleSpec> {
+  /**
+   * @generated from field: string from_tablegroup = 1;
+   */
+  fromTablegroup = "";
+
+  /**
+   * @generated from field: string to_tablegroup = 2;
+   */
+  toTablegroup = "";
+
+  /**
+   * @generated from field: string to_shard = 3;
+   */
+  toShard = "";
+
+  constructor(data?: PartialMessage<ShardRoutingRuleSpec>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.ShardRoutingRuleSpec";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "from_tablegroup", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "to_tablegroup", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "to_shard", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ShardRoutingRuleSpec {
+    return new ShardRoutingRuleSpec().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ShardRoutingRuleSpec {
+    return new ShardRoutingRuleSpec().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ShardRoutingRuleSpec {
+    return new ShardRoutingRuleSpec().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ShardRoutingRuleSpec | PlainMessage<ShardRoutingRuleSpec> | undefined, b: ShardRoutingRuleSpec | PlainMessage<ShardRoutingRuleSpec> | undefined): boolean {
+    return proto3.util.equals(ShardRoutingRuleSpec, a, b);
+  }
+}
+
+/**
+ * SetRoutingRulesRequest replaces every routing rule of an operation.
+ *
+ * @generated from message multipoolermanagerdata.SetRoutingRulesRequest
+ */
+export class SetRoutingRulesRequest extends Message<SetRoutingRulesRequest> {
+  /**
+   * database must be the database the pooler serves.
+   *
+   * @generated from field: string database = 1;
+   */
+  database = "";
+
+  /**
+   * operation_id is the operation that owns the rules (a UUID). It must exist
+   * and not have finished: its state is neither done nor failed (see
+   * OperationState).
+   *
+   * @generated from field: string operation_id = 2;
+   */
+  operationId = "";
+
+  /**
+   * rules are the operation's new rules. Shard rules only for now. No other
+   * unfinished operation may act on a tablegroup they route from or to.
+   *
+   * @generated from field: repeated multipoolermanagerdata.ShardRoutingRuleSpec rules = 3;
+   */
+  rules: ShardRoutingRuleSpec[] = [];
+
+  /**
+   * expected_routing_version is the routing version the change is based on,
+   * as GetRoutingSnapshot returned it. Every catalog write advances the
+   * version, so a change fails if anything changed since it was read. A
+   * change already in effect succeeds whatever its value.
+   *
+   * @generated from field: int64 expected_routing_version = 4;
+   */
+  expectedRoutingVersion = protoInt64.zero;
+
+  constructor(data?: PartialMessage<SetRoutingRulesRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.SetRoutingRulesRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "database", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "operation_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "rules", kind: "message", T: ShardRoutingRuleSpec, repeated: true },
+    { no: 4, name: "expected_routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetRoutingRulesRequest {
+    return new SetRoutingRulesRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetRoutingRulesRequest {
+    return new SetRoutingRulesRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetRoutingRulesRequest {
+    return new SetRoutingRulesRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SetRoutingRulesRequest | PlainMessage<SetRoutingRulesRequest> | undefined, b: SetRoutingRulesRequest | PlainMessage<SetRoutingRulesRequest> | undefined): boolean {
+    return proto3.util.equals(SetRoutingRulesRequest, a, b);
+  }
+}
+
+/**
+ * SetRoutingRulesResponse returns the routing version after the change.
+ *
+ * @generated from message multipoolermanagerdata.SetRoutingRulesResponse
+ */
+export class SetRoutingRulesResponse extends Message<SetRoutingRulesResponse> {
+  /**
+   * @generated from field: int64 routing_version = 1;
+   */
+  routingVersion = protoInt64.zero;
+
+  constructor(data?: PartialMessage<SetRoutingRulesResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.SetRoutingRulesResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetRoutingRulesResponse {
+    return new SetRoutingRulesResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetRoutingRulesResponse {
+    return new SetRoutingRulesResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetRoutingRulesResponse {
+    return new SetRoutingRulesResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: SetRoutingRulesResponse | PlainMessage<SetRoutingRulesResponse> | undefined, b: SetRoutingRulesResponse | PlainMessage<SetRoutingRulesResponse> | undefined): boolean {
+    return proto3.util.equals(SetRoutingRulesResponse, a, b);
+  }
+}
+
+/**
+ * DeleteRoutingRulesRequest deletes every routing rule of an operation.
+ *
+ * @generated from message multipoolermanagerdata.DeleteRoutingRulesRequest
+ */
+export class DeleteRoutingRulesRequest extends Message<DeleteRoutingRulesRequest> {
+  /**
+   * database must be the database the pooler serves.
+   *
+   * @generated from field: string database = 1;
+   */
+  database = "";
+
+  /**
+   * operation_id is the operation that owns the rules (a UUID).
+   *
+   * @generated from field: string operation_id = 2;
+   */
+  operationId = "";
+
+  /**
+   * expected_routing_version is the routing version the change is based on.
+   * Deleting the rules of an operation that has none succeeds whatever its
+   * value.
+   *
+   * @generated from field: int64 expected_routing_version = 3;
+   */
+  expectedRoutingVersion = protoInt64.zero;
+
+  constructor(data?: PartialMessage<DeleteRoutingRulesRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.DeleteRoutingRulesRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "database", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "operation_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "expected_routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeleteRoutingRulesRequest {
+    return new DeleteRoutingRulesRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeleteRoutingRulesRequest {
+    return new DeleteRoutingRulesRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeleteRoutingRulesRequest {
+    return new DeleteRoutingRulesRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: DeleteRoutingRulesRequest | PlainMessage<DeleteRoutingRulesRequest> | undefined, b: DeleteRoutingRulesRequest | PlainMessage<DeleteRoutingRulesRequest> | undefined): boolean {
+    return proto3.util.equals(DeleteRoutingRulesRequest, a, b);
+  }
+}
+
+/**
+ * DeleteRoutingRulesResponse returns the routing version after the change.
+ *
+ * @generated from message multipoolermanagerdata.DeleteRoutingRulesResponse
+ */
+export class DeleteRoutingRulesResponse extends Message<DeleteRoutingRulesResponse> {
+  /**
+   * @generated from field: int64 routing_version = 1;
+   */
+  routingVersion = protoInt64.zero;
+
+  constructor(data?: PartialMessage<DeleteRoutingRulesResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.DeleteRoutingRulesResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DeleteRoutingRulesResponse {
+    return new DeleteRoutingRulesResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DeleteRoutingRulesResponse {
+    return new DeleteRoutingRulesResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DeleteRoutingRulesResponse {
+    return new DeleteRoutingRulesResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: DeleteRoutingRulesResponse | PlainMessage<DeleteRoutingRulesResponse> | undefined, b: DeleteRoutingRulesResponse | PlainMessage<DeleteRoutingRulesResponse> | undefined): boolean {
+    return proto3.util.equals(DeleteRoutingRulesResponse, a, b);
   }
 }
 

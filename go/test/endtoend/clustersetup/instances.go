@@ -42,6 +42,11 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, 
 	err := os.MkdirAll(filepath.Dir(logFile), 0o755)
 	require.NoError(t, err)
 
+	var extraConfFiles []string
+	if conf := writeSupautilsSuperuserOverride(t, filepath.Dir(logFile)); conf != "" {
+		extraConfFiles = append(extraConfFiles, conf)
+	}
+
 	return &ProcessInstance{
 		Name:              name,
 		PoolerDir:         dataDir,
@@ -54,7 +59,32 @@ func CreatePgctldInstance(t *testing.T, name, baseDir string, grpcPort, pgPort, 
 		PgBackRestCertDir: pgbackrestCertDir,
 		BackupLocation:    backupLocation,
 		Environment:       append(utils.BaseTestEnv(), "PGCONNECT_TIMEOUT=5", "LC_ALL=en_US.UTF-8", "POSTGRES_PASSWORD="+TestPostgresPassword, constants.PgDataDirEnvVar+"="+filepath.Join(dataDir, "pg_data")),
+
+		PgInitdbExtraConfFiles: extraConfFiles,
 	}
+}
+
+// writeSupautilsSuperuserOverride points supautils at the test cluster's
+// superuser when running on the Supabase Postgres image, returning the path of
+// the postgresql.conf snippet to live-include (or "" elsewhere).
+//
+// That image sets POSTGRES_CONFIG_TEMPLATE_PATH to a template that preloads
+// supautils with privileged_extensions_superuser = 'supabase_admin', and
+// supautils switches to that role for every CREATE EXTENSION. The role only
+// exists when initdb creates it from POSTGRES_USER, which utils.BaseTestEnv
+// replaces with "postgres", so without this override every CREATE EXTENSION
+// fails with `role "supabase_admin" does not exist`. The snippet is included
+// after the template's supautils.conf, so it wins.
+func writeSupautilsSuperuserOverride(t *testing.T, dir string) string {
+	t.Helper()
+
+	if os.Getenv(constants.PgConfigTemplateEnvVar) == "" {
+		return ""
+	}
+	path := filepath.Join(dir, "supautils-superuser.conf")
+	conf := "supautils.privileged_extensions_superuser = '" + constants.DefaultPostgresUser + "'\n"
+	require.NoError(t, os.WriteFile(path, []byte(conf), 0o644))
+	return path
 }
 
 // WaitForQueryServingOnPort waits until a write succeeds through the gateway's

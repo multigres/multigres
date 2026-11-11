@@ -52,6 +52,11 @@ const (
 	PgSSReadOnlyTransaction       = "25006" // read_only_sql_transaction
 	PgSSSerializationFailure      = "40001" // serialization_failure
 	PgSSObjectInUse               = "55006" // object_in_use
+
+	PgSSDuplicateObject              = "42710" // duplicate_object
+	PgSSObjectNotInPrerequisiteState = "55000" // object_not_in_prerequisite_state
+	PgSSOperatorIntervention         = "57000" // operator_intervention
+	PgSSSystemError                  = "58000" // system_error
 )
 
 // PostgreSQL data exceptions raised by scalar evaluation.
@@ -152,6 +157,23 @@ func IsReservedConnectionTerminated(err error) bool {
 	return errors.As(err, &diag) &&
 		diag.Code == PgSSSerializationFailure &&
 		diag.Message == reservedConnectionTerminatedMessage
+}
+
+// NewInTransactionBlock creates the PgDiagnostic for a statement that cannot
+// run inside a transaction block, as PostgreSQL's PreventInTransactionBlock
+// raises it. SQLSTATE 25001 (active_sql_transaction).
+func NewInTransactionBlock(statement string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSActiveTransaction,
+		statement+" cannot run inside a transaction block", "")
+}
+
+// NewInPipeline creates the PgDiagnostic for a statement that cannot run
+// inside a transaction block, sent after another statement of the same
+// extended-protocol pipeline (before its Sync), as PostgreSQL's
+// PreventInTransactionBlock raises it. SQLSTATE 25001 (active_sql_transaction).
+func NewInPipeline(statement string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSActiveTransaction,
+		statement+" cannot be executed within a pipeline", "")
 }
 
 // NewAuthenticationTimeout creates a PgDiagnostic for an authentication_timeout

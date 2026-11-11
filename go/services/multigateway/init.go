@@ -40,14 +40,18 @@ import (
 	"github.com/multigres/multigres/go/common/servenv/toporeg"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	migratorpb "github.com/multigres/multigres/go/pb/migrator"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	querypb "github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multigateway/auth"
 	"github.com/multigres/multigres/go/services/multigateway/buffer"
+	"github.com/multigres/multigres/go/services/multigateway/engine"
 	"github.com/multigres/multigres/go/services/multigateway/executor"
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
 	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
 	"github.com/multigres/multigres/go/services/multigateway/scatterconn"
+	"github.com/multigres/multigres/go/services/multigateway/shardingcatalogcache"
 	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
@@ -81,6 +85,18 @@ type Multigateway struct {
 	// multigres.multipoolers from this gateway. Off by default: the names are
 	// then ordinary unknown relations to the backend.
 	clusterViewsEnabled viperutil.Value[bool]
+	// tableGroupDDLEnabled executes CREATE and DROP TABLEGROUP. Off by
+	// default: only a cluster whose provisioner creates tablegroups from the
+	// catalog can complete them, so elsewhere the statements are rejected.
+	// nil with a single pooler, which has no shards to add.
+	tableGroupDDLEnabled viperutil.Value[bool]
+	// shardingCatalogPollInterval is the backstop poll of each database's
+	// sharding catalog snapshot. nil with a single pooler, which has no
+	// catalog to follow.
+	shardingCatalogPollInterval viperutil.Value[time.Duration]
+	// shardingCatalog caches each database's sharding catalog snapshot. nil
+	// with a single pooler.
+	shardingCatalog *shardingcatalogcache.Cache
 	// poolerGateway manages connections to poolers and owns the lifecycle
 	// of the underlying pooler cache (topology watch + per-pooler health
 	// streams + per-pooler connection riders).
@@ -202,8 +218,9 @@ func (mg *Multigateway) singlePooler() bool {
 // localPooler is the pooler in the same process, the only one the multigateway
 // then uses (minigres); nil uses every pooler in the topology (Multigres).
 // With a local pooler, what needs several poolers or gateways is off: replica
-// reads, failover buffering, the multipooler gRPC TLS settings and
-// cross-gateway cancel forwarding. Their flags are not registered.
+// reads, failover buffering, the multipooler gRPC TLS settings,
+// cross-gateway cancel forwarding and tablegroup DDL. Their flags are not
+// registered.
 func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources, statusPath string, localPooler *poolergateway.LocalPooler) *Multigateway {
 	if reg == nil {
 		panic("multigateway: reg is required")
@@ -337,10 +354,31 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 		mg.replicaConfig = newReplicaConfig(reg)
 		mg.bufferConfig = buffer.NewConfig(reg)
 		mg.connConfig = rpcclient.NewConnConfig(reg)
+		mg.tableGroupDDLEnabled = viperutil.Configure(reg, "enable-tablegroup-ddl", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "enable-tablegroup-ddl",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_ENABLE_TABLEGROUP_DDL"},
+		})
+		mg.shardingCatalogPollInterval = viperutil.Configure(reg, "sharding-catalog-poll-interval", viperutil.Options[time.Duration]{
+			Default:  10 * time.Second,
+			FlagName: "sharding-catalog-poll-interval",
+			Dynamic:  false,
+			EnvVars:  []string{"MT_SHARDING_CATALOG_POLL_INTERVAL"},
+		})
 	}
 	mg.shutdownOnPrefixLoss = func() { mg.senv.InitiateShutdown() }
 
 	return mg
+}
+
+// ShardingCatalog returns the per-database sharding catalog snapshots, or nil
+// with a single pooler. Nothing on the query path reads it yet.
+func (mg *Multigateway) ShardingCatalog() shardingcatalogcache.Source {
+	if mg.shardingCatalog == nil {
+		return nil
+	}
+	return mg.shardingCatalog
 }
 
 // Executor returns the query executor for this multigateway.
@@ -411,6 +449,14 @@ func (mg *Multigateway) RegisterFlags(fs *pflag.FlagSet) {
 		mg.queryLogSampleRate,
 	)
 	mg.replicaConfig.registerFlags(fs)
+	if mg.tableGroupDDLEnabled != nil {
+		fs.Bool("enable-tablegroup-ddl", mg.tableGroupDDLEnabled.Default(), "execute CREATE TABLEGROUP and DROP TABLEGROUP from this gateway. Enable only where a provisioner creates tablegroups from the sharding catalog (the Kubernetes operator); without one a creation can never complete. Default off; the statements are then rejected as not supported.")
+		viperutil.BindFlags(fs, mg.tableGroupDDLEnabled)
+	}
+	if mg.shardingCatalogPollInterval != nil {
+		fs.Duration("sharding-catalog-poll-interval", mg.shardingCatalogPollInterval.Default(), "how often to refetch each database's sharding catalog snapshot from the catalog primary when no newer version has been reported on its health stream. 0 disables the poll.")
+		viperutil.BindFlags(fs, mg.shardingCatalogPollInterval)
+	}
 	if mg.bufferConfig != nil {
 		mg.bufferConfig.RegisterFlags(fs)
 	}
@@ -493,17 +539,40 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 		notifMgr.OnLeaderServing(sk)
 	}
 
+	// The sharding catalog cache follows the catalog primary's health stream
+	// and fetches through the pooler gateway, which exists by the time the
+	// first health update arrives.
+	var onCatalogShardHealth func(string, bool, *clustermetadatapb.RuleNumber, int64)
+	if mg.shardingCatalogPollInterval != nil {
+		mg.shardingCatalog = shardingcatalogcache.New(mg.shutdownCtx, logger,
+			func(ctx context.Context, database string, since *shardingcatalogcache.Position) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+				client, err := catalogPrimaryClient(mg.poolerGateway, database)
+				if err != nil {
+					return nil, err
+				}
+				req := &multipoolermanagerdatapb.GetRoutingSnapshotRequest{}
+				if since != nil {
+					req.SinceVersion = &since.RoutingVersion
+					req.SinceConsensusRule = since.Rule
+				}
+				return client.GetRoutingSnapshot(ctx, req)
+			},
+			mg.shardingCatalogPollInterval.Get())
+		onCatalogShardHealth = mg.shardingCatalog.ObserveCatalogShard
+	}
+
 	mg.poolerGateway = poolergateway.NewPoolerGateway(poolergateway.PoolerGatewayOpts{
-		OnLeaderServing: onLeaderServing,
-		Ctx:             mg.shutdownCtx,
-		Source:          mg.ts,
-		LocalCell:       mg.cell.Get(),
-		Logger:          logger,
-		DialOpt:         poolerTransportCreds,
-		LocalPooler:     mg.localPooler,
-		Buffer:          mg.buffer,
-		LowLag:          mg.replicaConfig.LowLag(),
-		HighTolerance:   mg.replicaConfig.HighTolerance(),
+		OnLeaderServing:      onLeaderServing,
+		OnCatalogShardHealth: onCatalogShardHealth,
+		Ctx:                  mg.shutdownCtx,
+		Source:               mg.ts,
+		LocalCell:            mg.cell.Get(),
+		Logger:               logger,
+		DialOpt:              poolerTransportCreds,
+		LocalPooler:          mg.localPooler,
+		Buffer:               mg.buffer,
+		LowLag:               mg.replicaConfig.LowLag(),
+		HighTolerance:        mg.replicaConfig.HighTolerance(),
 	})
 	logger.InfoContext(ctx, "pooler cache started", "local_cell", mg.cell.Get())
 
@@ -517,6 +586,10 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	if mg.clusterViewsEnabled.Get() {
 		mg.executor.SetClusterViewSource(mg)
 		logger.InfoContext(ctx, "cluster views enabled")
+	}
+	if mg.tableGroupDDLEnabled != nil && mg.tableGroupDDLEnabled.Get() {
+		mg.executor.SetTableGroupAdmin(newTableGroupAdmin(mg.poolerGateway))
+		logger.InfoContext(ctx, "tablegroup DDL enabled")
 	}
 	// Started only now that mg.executor is assigned — see CobraPreRunE's doc
 	// comment, which subscribes mg.configReloaded, for why the consumer
@@ -608,6 +681,32 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	mg.pgHandler.SetKeepTransactionOnGatewayRejection(mg.keepTransactionOnGatewayRejection.Get)
 
 	mg.pgHandler.SetNotificationManager(notifMgr, notifMetrics.NotificationDropped)
+
+	// Wire the migration/connection DDL interface. The migrator service is
+	// hosted on the shard primary multipooler, so resolve it via the same
+	// failover-following path LISTEN/NOTIFY uses. Named connections persist in
+	// the shard's Postgres, not on the gateway, so they survive restarts and
+	// are shared across replicas.
+	mg.executor.SetMigrationBackend(&engine.MigrationBackend{
+		Client: func() migratorpb.MigratorClient {
+			conn, err := mg.poolerGateway.GetConnection(&querypb.Target{
+				ShardRef: &clustermetadatapb.ShardRef{
+					Database:   constants.DefaultPostgresDatabase,
+					TableGroup: constants.DefaultTableGroup,
+					Shard:      constants.DefaultShard,
+				},
+				Mode: querypb.Mode_MODE_WRITABLE,
+			})
+			if err != nil || conn == nil {
+				return nil
+			}
+			return conn.MigratorClient()
+		},
+		TargetDatabase:   constants.DefaultPostgresDatabase,
+		TargetShard:      constants.DefaultShard,
+		TargetTableGroup: constants.DefaultTableGroup,
+	})
+
 	pgAddr := fmt.Sprintf("%s:%d", mg.pgBindAddress.Get(), mg.pgPort.Get())
 	mg.pgListener, err = server.NewListener(server.ListenerConfig{
 		Address:               pgAddr,
@@ -731,6 +830,9 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	)
 
 	mg.senv.HTTPHandleFunc(mg.statusPath, mg.handleIndex)
+	if mg.shardingCatalog != nil {
+		mg.senv.HTTPHandleFunc("/debug/sharding-catalog", servenv.RequireBearerAuth(mg.grpcServer.AuthPlugin, mg.handleShardingCatalog))
+	}
 
 	// The gateway is ready only when all conditions are met:
 	// 1. No init errors (topology registration succeeded)

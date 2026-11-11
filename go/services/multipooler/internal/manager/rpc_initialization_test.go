@@ -351,6 +351,11 @@ type mockPgctldClient struct {
 	// pgRewindOnCall, if set, runs on every PgRewind call.
 	pgRewindOnCall func(*pgctldpb.PgRewindRequest)
 	pgRewindReqs   []*pgctldpb.PgRewindRequest
+	// pgRewindAbortError is returned by PgRewindAbort; pgRewindAbortReqs records
+	// its calls and pgRewindAbortOnCall, if set, runs on each.
+	pgRewindAbortError  error
+	pgRewindAbortReqs   []*pgctldpb.PgRewindAbortRequest
+	pgRewindAbortOnCall func(*pgctldpb.PgRewindAbortRequest)
 }
 
 func (m *mockPgctldClient) Status(ctx context.Context, req *pgctldpb.StatusRequest, opts ...grpc.CallOption) (*pgctldpb.StatusResponse, error) {
@@ -430,6 +435,17 @@ func (m *mockPgctldClient) PgRewind(ctx context.Context, req *pgctldpb.PgRewindR
 		return m.pgRewindResponse, nil
 	}
 	return &pgctldpb.PgRewindResponse{}, nil
+}
+
+func (m *mockPgctldClient) PgRewindAbort(ctx context.Context, req *pgctldpb.PgRewindAbortRequest, opts ...grpc.CallOption) (*pgctldpb.PgRewindAbortResponse, error) {
+	m.pgRewindAbortReqs = append(m.pgRewindAbortReqs, req)
+	if m.pgRewindAbortOnCall != nil {
+		m.pgRewindAbortOnCall(req)
+	}
+	if m.pgRewindAbortError != nil {
+		return nil, m.pgRewindAbortError
+	}
+	return &pgctldpb.PgRewindAbortResponse{}, nil
 }
 
 func (m *mockPgctldClient) StopRestoreCommand(ctx context.Context, req *pgctldpb.StopRestoreCommandRequest, opts ...grpc.CallOption) (*pgctldpb.StopRestoreCommandResponse, error) {

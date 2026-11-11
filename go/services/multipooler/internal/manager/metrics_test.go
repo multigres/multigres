@@ -158,6 +158,32 @@ func TestRecordRewindExecutionDuration_NilSafe(t *testing.T) {
 	(&managerMetrics{}).recordRewindExecutionDuration(t.Context(), rewindPhaseDryRun, time.Second)
 }
 
+// TestRecordRoutingRules verifies the routing rule gauge keeps the last count
+// per database, and that its guards make a nil receiver and a zero-value
+// managerMetrics no-ops.
+func TestRecordRoutingRules(t *testing.T) {
+	setup := telemetry.SetupTestTelemetry(t)
+	require.NoError(t, setup.Telemetry.InitTelemetry(t.Context(), "test-multipooler"))
+
+	m, err := newManagerMetrics()
+	require.NoError(t, err)
+	m.recordRoutingRules(t.Context(), "db1", 3)
+	m.recordRoutingRules(t.Context(), "db1", 1)
+	m.recordRoutingRules(t.Context(), "db2", 0)
+
+	gauge, ok := findMetric(t, setup.MetricReader, "mg.pooler.routing.rules").Data.(metricdata.Gauge[int64])
+	require.True(t, ok)
+	byDatabase := map[string]int64{}
+	for _, dp := range gauge.DataPoints {
+		byDatabase[attrValue(t, dp.Attributes, "db.namespace")] = dp.Value
+	}
+	assert.Equal(t, map[string]int64{"db1": 1, "db2": 0}, byDatabase)
+
+	var nilM *managerMetrics
+	nilM.recordRoutingRules(t.Context(), "db1", 1)
+	(&managerMetrics{}).recordRoutingRules(t.Context(), "db1", 1)
+}
+
 // TestRecordLogicalFailover verifies the logical-replication slot-management
 // span's duration and count are recorded per outcome.
 func TestRecordLogicalFailover(t *testing.T) {

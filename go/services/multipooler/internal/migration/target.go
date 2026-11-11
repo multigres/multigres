@@ -107,8 +107,16 @@ func (t *target) CheckDropPrivilege(ctx context.Context, tables []string, caller
 // CallerRole and Connection.OwnerRole for when that happens); the error
 // message never names the connection, so a caller cannot use it to learn
 // whether a given connection name exists.
+//
+// pg_has_role errors outright if ownerRole no longer exists as a server
+// role (e.g. dropped after the connection recorded it). The LEFT JOIN
+// feeds it NULL instead in that case, which the STRICT pg_has_role returns
+// NULL for rather than erroring, so the OR still treats it as denied.
 func (t *target) CheckConnectionOwnership(ctx context.Context, callerRole, ownerRole string) error {
-	sql := "SELECT 1 WHERE NOT pg_has_role($1::name, $2::name, 'USAGE')"
+	sql := `SELECT 1
+FROM (VALUES ($2::name)) AS t(owner)
+LEFT JOIN pg_roles r ON r.rolname = t.owner
+WHERE r.rolname IS NULL OR NOT pg_has_role($1::name, r.rolname, 'USAGE')`
 	res, err := t.qs.QueryAdminArgs(ctx, sql, callerRole, ownerRole)
 	if err != nil {
 		return fmt.Errorf("check connection ownership: %w", err)
@@ -118,6 +126,47 @@ func (t *target) CheckConnectionOwnership(ctx context.Context, callerRole, owner
 			fmt.Sprintf("role %q lacks privilege to use this connection", callerRole), "")
 	}
 	return nil
+}
+
+// DeniedConnectionOwners returns the subset of ownerRoles that callerRole
+// could NOT use, under the same privilege model CheckConnectionOwnership
+// checks — one batched query instead of one round trip per owner role, so
+// ListConnections can filter every stored connection in a single call. An
+// empty ownerRoles returns an empty set without issuing a query.
+func (t *target) DeniedConnectionOwners(ctx context.Context, callerRole string, ownerRoles []string) (map[string]bool, error) {
+	if len(ownerRoles) == 0 {
+		return nil, nil
+	}
+	sql := "SELECT t.owner FROM " + ownerRolesValuesClause(ownerRoles) +
+		" LEFT JOIN pg_roles r ON r.rolname = t.owner" +
+		" WHERE r.rolname IS NULL OR NOT pg_has_role($1::name, r.rolname, 'USAGE')"
+	res, err := t.qs.QueryAdminArgs(ctx, sql, callerRole)
+	if err != nil {
+		return nil, fmt.Errorf("check connection ownership: %w", err)
+	}
+	if res == nil || len(res.Rows) == 0 {
+		return nil, nil
+	}
+	denied := make(map[string]bool, len(res.Rows))
+	for _, row := range res.Rows {
+		var owner string
+		if err := executor.ScanRow(row, &owner); err != nil {
+			return nil, fmt.Errorf("scan denied-owner check result: %w", err)
+		}
+		denied[owner] = true
+	}
+	return denied, nil
+}
+
+// ownerRolesValuesClause builds a VALUES list of owner role names, the same
+// pattern tablesValuesClause uses, so DeniedConnectionOwners can check every
+// owner role in one query instead of one per connection.
+func ownerRolesValuesClause(ownerRoles []string) string {
+	values := make([]string, len(ownerRoles))
+	for i, r := range ownerRoles {
+		values[i] = "(" + ast.QuoteStringLiteral(r) + ")"
+	}
+	return "(VALUES " + strings.Join(values, ", ") + ") AS t(owner)"
 }
 
 // DropTables drops the migrated tables on the local Postgres before a schema

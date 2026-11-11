@@ -29,6 +29,8 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	migratorpb "github.com/multigres/multigres/go/pb/migrator"
+	multipoolermanagerpb "github.com/multigres/multigres/go/pb/multipoolermanager"
 	"github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -61,6 +63,11 @@ type poolerHealth struct {
 	// Zero on the primary or when not yet measured.
 	ReplicationLagNs int64
 
+	// RoutingVersion and PlanEpoch are the sharding catalog's versions, which
+	// only the catalog shard's primary reports. Zero from any other pooler.
+	RoutingVersion int64
+	PlanEpoch      int64
+
 	// LastError is the most recent error from the health stream.
 	LastError error
 
@@ -90,6 +97,8 @@ func (h *poolerHealth) simpleCopy() *poolerHealth {
 		ServingStatus:    h.ServingStatus,
 		RoutingState:     h.RoutingState,
 		ReplicationLagNs: h.ReplicationLagNs,
+		RoutingVersion:   h.RoutingVersion,
+		PlanEpoch:        h.PlanEpoch,
 		LastError:        h.LastError,
 		LastResponse:     h.LastResponse,
 	}
@@ -257,9 +266,27 @@ func (pc *poolerConnection) Pooler() queryservice.Pooler {
 	return pc.pooler
 }
 
+// ManagerClient returns a pooler manager client over this connection's gRPC
+// channel, which serves the manager service alongside the query service. The
+// local pooler is called in process, with no channel, and has none.
+func (pc *poolerConnection) ManagerClient() (multipoolermanagerpb.MultipoolerManagerClient, error) {
+	if pc.conn == nil {
+		return nil, fmt.Errorf("pooler %s has no gRPC connection for its manager service", pc.ID())
+	}
+	return multipoolermanagerpb.NewMultipoolerManagerClient(pc.conn), nil
+}
+
 // QueryService returns the query execution service for this connection.
 func (pc *poolerConnection) QueryService() queryservice.QueryService {
 	return pc.pooler
+}
+
+// MigratorClient returns a Migrator service client on the same gRPC
+// connection. The Migrator service is registered on the multipooler's gRPC
+// server, so this reaches the migration coordinator on the shard primary. Used
+// by the gateway's migration DDL interface.
+func (pc *poolerConnection) MigratorClient() migratorpb.MigratorClient {
+	return migratorpb.NewMigratorClient(pc.conn)
 }
 
 // Shutdown stops the health stream goroutine and closes the underlying
@@ -419,6 +446,8 @@ func (pc *poolerConnection) processHealthResponse(response *multipoolerservice.S
 		ServingStatus:    response.ServingStatus,
 		RoutingState:     response.RoutingState,
 		ReplicationLagNs: response.ReplicationLagNs,
+		RoutingVersion:   response.RoutingVersion,
+		PlanEpoch:        response.PlanEpoch,
 		LastError:        nil,
 		LastResponse:     time.Now(),
 	}

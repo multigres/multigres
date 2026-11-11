@@ -56,6 +56,28 @@ type Planner struct {
 	// Set via SetClusterViewSource; nil (the default) keeps the views off, and
 	// every statement naming one is forwarded to the backend unchanged.
 	clusterViews engine.ClusterViewSource
+
+	// tableGroups executes CREATE and DROP TABLEGROUP against the catalog
+	// primary. Set via SetTableGroupAdmin; nil (the default) means the
+	// cluster has no provisioner for tablegroups, and the statements are
+	// rejected rather than recorded and left waiting forever.
+	tableGroups engine.TableGroupAdmin
+
+	// migration backs the gateway migration/connection DDL interface. It is
+	// injected after construction via SetMigrationBackend; when nil the DDL
+	// statements still plan but fail at execution with a clear error.
+	migration *engine.MigrationBackend
+}
+
+// SetMigrationBackend wires the migration/connection DDL backend into the
+// planner.
+func (p *Planner) SetMigrationBackend(b *engine.MigrationBackend) {
+	p.migration = b
+}
+
+// planMigrationDDL plans one of the gateway migration/connection DDL statements.
+func (p *Planner) planMigrationDDL(sql string, stmt ast.Stmt) (*engine.Plan, error) {
+	return engine.NewPlan(ast.LogSafeQuery(sql, stmt), engine.NewMigrationDDL(sql, stmt, p.migration)), nil
 }
 
 // NewPlanner creates a new query planner.
@@ -82,6 +104,12 @@ func (p *Planner) SetSlotBasedReplicationEnabled(enabled func() bool) {
 // multigres.multipoolers is an ordinary unknown relation to the backend.
 func (p *Planner) SetClusterViewSource(source engine.ClusterViewSource) {
 	p.clusterViews = source
+}
+
+// SetTableGroupAdmin enables CREATE and DROP TABLEGROUP, executed through
+// admin. Must be called before connections are accepted.
+func (p *Planner) SetTableGroupAdmin(admin engine.TableGroupAdmin) {
+	p.tableGroups = admin
 }
 
 // ClusterViewsEnabled reports whether the gateway serves the cluster views.
@@ -195,7 +223,7 @@ func (p *Planner) Plan(
 	opts PlanOptions,
 ) (*engine.Plan, error) {
 	p.logger.Debug("planning query",
-		"query", sql,
+		"query", ast.LogSafeQuery(sql, stmt),
 		"user", conn.User(),
 		"database", conn.Database(),
 		"default_tablegroup", p.defaultTableGroup,
@@ -284,6 +312,11 @@ func (p *Planner) Plan(
 	case ast.T_VariableShowStmt:
 		plan, err = p.planVariableShowStmt(sql, stmt.(*ast.VariableShowStmt), conn)
 
+	case ast.T_CreateConnectionStmt, ast.T_DropConnectionStmt,
+		ast.T_ShowConnectionsStmt, ast.T_CreateMigrationStmt, ast.T_AlterMigrationStmt,
+		ast.T_DropMigrationStmt:
+		plan, err = p.planMigrationDDL(sql, stmt)
+
 	case ast.T_PrepareStmt:
 		plan, err = p.planPrepareStmt(sql, stmt.(*ast.PrepareStmt))
 
@@ -342,6 +375,20 @@ func (p *Planner) Plan(
 			}
 			return p.planTempTableCreation(sql, conn)
 		}
+		// multigres.stat_migration is a real Postgres view, so any query against it
+		// would also resolve correctly through ordinary routing; the bypass below is
+		// purely an optimization for the common "check status" shapes, not a
+		// correctness requirement. Ordinary routing is held by the serving gate like
+		// any other query, which defeats the one reason to query it: checking
+		// migration progress while the target is NOT_SERVING, exactly when an
+		// operator most wants to see it. A recognized shape answers directly via the
+		// migrator RPC instead, bypassing the gate the same way CREATE/ALTER/DROP
+		// MIGRATION already do; anything else falls through to planSelectStmt and the
+		// real view.
+		if p.migration != nil && engine.IsStatMigrationSelect(ss) {
+			plan, err = p.planMigrationDDL(sql, stmt)
+			break
+		}
 		plan, err = p.planSelectStmt(sql, ss, conn, analysis.SetConfigs, analysis.DynamicSetConfig, opts)
 
 	case ast.T_ViewStmt:
@@ -365,6 +412,15 @@ func (p *Planner) Plan(
 
 	case ast.T_ClosePortalStmt:
 		return p.planClosePortalStmt(sql, stmt.(*ast.ClosePortalStmt))
+
+	case ast.T_CreateTableGroupStmt:
+		return p.planCreateTableGroup(sql, stmt.(*ast.CreateTableGroupStmt))
+
+	case ast.T_DropStmt:
+		if ds := stmt.(*ast.DropStmt); ds.RemoveType == ast.OBJECT_TABLEGROUP {
+			return p.planDropTableGroup(sql, ds)
+		}
+		plan, err = p.planDefault(sql, stmt, conn, opts)
 
 	default:
 		// Default: simple route to PostgreSQL
@@ -521,7 +577,8 @@ func checkTempSchemaQualifiedCreate(stmt ast.Stmt) error {
 	}
 	if strings.HasPrefix(strings.ToLower(schema), "pg_temp") {
 		return mterrors.NewFeatureNotSupported(
-			"creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead")
+			"creating objects in pg_temp via schema qualification is not supported under connection pooling; use CREATE TEMP/TEMPORARY instead",
+		)
 	}
 	return nil
 }
@@ -728,6 +785,8 @@ func primitiveName(p engine.Primitive) string {
 		return engine.PlanTypeListenNotify
 	case *engine.Sequence:
 		return engine.PlanTypeSequence
+	case *engine.TableGroupDDL:
+		return engine.PlanTypeTableGroupDDL
 	default:
 		return engine.PlanTypeUnknown
 	}

@@ -92,8 +92,7 @@ func (d *DiscardAllPrimitive) StreamExecute(
 	// only ever held for temp tables, WITH HOLD cursors, or session-level
 	// advisory locks here.
 	if conn.IsInTransaction() {
-		return mterrors.NewPgError("ERROR", mterrors.PgSSActiveTransaction,
-			"DISCARD ALL cannot run inside a transaction block", "")
+		return mterrors.NewInTransactionBlock("DISCARD ALL")
 	}
 
 	// CLOSE ALL + DISCARD TEMP + pg_advisory_unlock_all + rollback of a reserved

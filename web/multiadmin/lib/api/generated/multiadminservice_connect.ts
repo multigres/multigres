@@ -17,9 +17,10 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, ListDesiredTableGroupsRequest, ListDesiredTableGroupsResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
+import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, GetRoutingRulesRequest, GetRoutingRulesResponse, ListDesiredTableGroupsRequest, ListDesiredTableGroupsResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
 import { MethodKind } from "@bufbuild/protobuf";
 import { CreateConnectionRequest, CreateConnectionResponse, CreateMigrationRequest, CreateMigrationResponse, DropConnectionRequest, DropConnectionResponse, DropMigrationRequest, DropMigrationResponse, GetConnectionRequest, GetConnectionResponse, GetMigrationJournalRequest, GetMigrationJournalResponse, GetMigrationRequest, GetMigrationResponse, ListConnectionsRequest, ListConnectionsResponse, ListMigrationsRequest, ListMigrationsResponse, SetMigrationDirectionRequest, SetMigrationDirectionResponse } from "./migratorservice_pb";
+import { DeleteRoutingRulesRequest, DeleteRoutingRulesResponse, SetRoutingRulesRequest, SetRoutingRulesResponse } from "./multipoolermanagerdata_pb";
 
 /**
  * MultiadminService provides administrative APIs for cluster metadata, backups, and shard operations.
@@ -62,12 +63,12 @@ export const MultiadminService = {
       kind: MethodKind.Unary,
     },
     /**
-     * ListDesiredTableGroups returns the tablegroups a provisioner should have
-     * provisioned for a database: every non-default tablegroup recorded in the
-     * sharding catalog that is creating or active, with its shard layout. A
-     * tablegroup being dropped is omitted, which is how a provisioner learns to
-     * remove it. The list is read from the catalog primary, so it reflects
-     * committed CREATE TABLEGROUP intent, not what is currently provisioned.
+     * ListDesiredTableGroups returns a database's tablegroups for a provisioner:
+     * every non-default tablegroup recorded in the sharding catalog, with its
+     * shard layout. It provisions the CREATING and ACTIVE ones and removes the
+     * DROPPING ones; a tablegroup missing from the list is never removed (see
+     * ListTableGroupsResponse). The list is read from the catalog primary, so it
+     * reflects committed intent, not what is currently provisioned.
      *
      * Errors and recovery:
      * InvalidArgument (3) means the database name is missing. NotFound (5) means topology has no
@@ -490,6 +491,42 @@ export const MultiadminService = {
       name: "DropConnection",
       I: DropConnectionRequest,
       O: DropConnectionResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * GetRoutingRules returns a database's routing rules by name, with the
+     * routing version a rule change is based on. It reads the catalog
+     * primary's sharding catalog snapshot.
+     *
+     * @generated from rpc multiadmin.MultiadminService.GetRoutingRules
+     */
+    getRoutingRules: {
+      name: "GetRoutingRules",
+      I: GetRoutingRulesRequest,
+      O: GetRoutingRulesResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * SetRoutingRules replaces every routing rule of an operation. A change
+     * already in effect succeeds without changing the routing version.
+     *
+     * @generated from rpc multiadmin.MultiadminService.SetRoutingRules
+     */
+    setRoutingRules: {
+      name: "SetRoutingRules",
+      I: SetRoutingRulesRequest,
+      O: SetRoutingRulesResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * DeleteRoutingRules deletes every routing rule of an operation.
+     *
+     * @generated from rpc multiadmin.MultiadminService.DeleteRoutingRules
+     */
+    deleteRoutingRules: {
+      name: "DeleteRoutingRules",
+      I: DeleteRoutingRulesRequest,
+      O: DeleteRoutingRulesResponse,
       kind: MethodKind.Unary,
     },
   }

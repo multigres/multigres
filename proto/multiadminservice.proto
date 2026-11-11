@@ -24,6 +24,7 @@ import "migratorservice.proto";
 import "multigatewaymanagerdata.proto";
 import "multipoolermanagerdata.proto";
 import "openapiv3/annotations.proto";
+import "shardingcatalog.proto";
 
 option go_package = "github.com/multigres/multigres/go/pb/multiadmin";
 
@@ -69,6 +70,10 @@ option (openapi.v3.document) = {
   tags: {name: "jobs" description: "Asynchronous backup and restore jobs."}
   tags: {name: "migrations" description: "Table migration into Multigres via logical replication."}
   tags: {name: "connections" description: "Stored source connections for table migrations."}
+  tags: {
+    name: "routing"
+    description: "Routing rules that send a database's traffic elsewhere while an operation moves its data."
+  }
   components: {
     security_schemes: {
       additional_properties: {
@@ -138,12 +143,12 @@ service MultiadminService {
     option (google.api.http) = {get: "/api/v1/databases/{name}"};
   }
 
-  // ListDesiredTableGroups returns the tablegroups a provisioner should have
-  // provisioned for a database: every non-default tablegroup recorded in the
-  // sharding catalog that is creating or active, with its shard layout. A
-  // tablegroup being dropped is omitted, which is how a provisioner learns to
-  // remove it. The list is read from the catalog primary, so it reflects
-  // committed CREATE TABLEGROUP intent, not what is currently provisioned.
+  // ListDesiredTableGroups returns a database's tablegroups for a provisioner:
+  // every non-default tablegroup recorded in the sharding catalog, with its
+  // shard layout. It provisions the CREATING and ACTIVE ones and removes the
+  // DROPPING ones; a tablegroup missing from the list is never removed (see
+  // ListTableGroupsResponse). The list is read from the catalog primary, so it
+  // reflects committed intent, not what is currently provisioned.
   //
   // Errors and recovery:
   // InvalidArgument (3) means the database name is missing. NotFound (5) means topology has no
@@ -798,6 +803,115 @@ service MultiadminService {
     };
     option (google.api.http) = {delete: "/api/v1/connections/{ref.id}"};
   }
+  //
+  // Routing rules. These forward to the primary of the database's default
+  // tablegroup, which holds its catalog.
+  //
+
+  // GetRoutingRules returns a database's routing rules by name, with the
+  // routing version a rule change is based on. It reads the catalog
+  // primary's sharding catalog snapshot.
+  rpc GetRoutingRules(GetRoutingRulesRequest) returns (GetRoutingRulesResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Get a database's routing rules"
+      tags: "routing"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {get: "/api/v1/databases/{database}/routing"};
+  }
+
+  // SetRoutingRules replaces every routing rule of an operation. A change
+  // already in effect succeeds without changing the routing version.
+  rpc SetRoutingRules(multipoolermanagerdata.SetRoutingRulesRequest)
+    returns (multipoolermanagerdata.SetRoutingRulesResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Set an operation's routing rules"
+      tags: "routing"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {
+      put: "/api/v1/databases/{database}/routing/operations/{operation_id}/rules"
+      body: "*"
+    };
+  }
+
+  // DeleteRoutingRules deletes every routing rule of an operation.
+  rpc DeleteRoutingRules(multipoolermanagerdata.DeleteRoutingRulesRequest)
+    returns (multipoolermanagerdata.DeleteRoutingRulesResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Delete an operation's routing rules"
+      tags: "routing"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {delete: "/api/v1/databases/{database}/routing/operations/{operation_id}/rules"};
+  }
+}
+
+// GetRoutingRulesRequest asks for a database's routing rules.
+message GetRoutingRulesRequest {
+  // database is the database whose catalog holds the rules.
+  string database = 1;
+}
+
+// GetRoutingRulesResponse is a database's routing rules, read from one
+// snapshot of its catalog.
+message GetRoutingRulesResponse {
+  // routing_version is the catalog's routing version. It advances with every
+  // change to the catalog's contents, rule or not, so a rule change based on
+  // it fails if anything changed since it was read.
+  int64 routing_version = 1;
+  // plan_epoch advances when the inputs of query plans change.
+  int64 plan_epoch = 2;
+  // rules are the routing rules, in rule_id order.
+  repeated RoutingRule rules = 3;
+}
+
+// RoutingRule is one routing rule, with the names a gateway routes by:
+// traffic the catalog would send to the source is served by the target while
+// the owning operation runs.
+message RoutingRule {
+  // rule_id identifies the rule within its database's catalog.
+  int64 rule_id = 1;
+  // operation_id is the operation that owns the rule (a UUID).
+  string operation_id = 2;
+  shardingcatalog.RoutingRuleScope scope = 3;
+  // from_tablegroup is the tablegroup whose traffic the rule overrides.
+  string from_tablegroup = 4;
+  // from_table is the overridden table. Set only for table rules.
+  RoutingTableName from_table = 5;
+  // to_tablegroup is the tablegroup that serves the traffic.
+  string to_tablegroup = 6;
+  // to_shard is the shard that serves the traffic. Set only for shard rules;
+  // the rule covers exactly this shard's range.
+  string to_shard = 7;
+  // to_key_range is to_shard's key range. An unset start or end is unbounded.
+  clustermetadata.KeyRange to_key_range = 8;
+  // to_shard_key is the name of the table's shard key in the target
+  // tablegroup. Set only for table rules that change the key.
+  string to_shard_key = 9;
+  // created_version is the routing version that introduced the rule.
+  int64 created_version = 10;
+}
+
+// RoutingTableName names a table by schema and name.
+message RoutingTableName {
+  string schema = 1;
+  string name = 2;
 }
 
 // GetCellRequest specifies the cell to retrieve

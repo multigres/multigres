@@ -28,12 +28,13 @@ import (
 )
 
 // severalPoolersFlags are the flags of the features that need several poolers or
-// gateways: replica reads, failover buffering and the multipooler gRPC TLS
-// settings, which also secure cancel forwarding.
+// gateways: replica reads, failover buffering, the multipooler gRPC TLS
+// settings, which also secure cancel forwarding, and tablegroup DDL.
 var severalPoolersFlags = []string{
 	"pg-replica-port", "low-replication-lag-ms", "high-replication-lag-tolerance-ms",
 	"buffer-enabled", "buffer-window",
 	"multipooler-grpc-cert", "multipooler-grpc-require-tls",
+	"enable-tablegroup-ddl",
 }
 
 // newTestMultigateway builds a multigateway, with a local pooler (a single
@@ -75,6 +76,7 @@ func TestNewMultigateway_LocalPoolerIgnoresEnvironment(t *testing.T) {
 	t.Setenv("MT_PG_REPLICA_PORT", "15433")
 	t.Setenv("MT_LOW_REPLICATION_LAG_MS", "100")
 	t.Setenv("MT_BUFFER_ENABLED", "true")
+	t.Setenv("MT_ENABLE_TABLEGROUP_DDL", "true")
 
 	mg, _ := newTestMultigateway(t, true)
 
@@ -82,6 +84,7 @@ func TestNewMultigateway_LocalPoolerIgnoresEnvironment(t *testing.T) {
 	assert.Equal(t, time.Duration(0), mg.replicaConfig.LowLag())
 	assert.Nil(t, mg.bufferConfig, "no failover buffer")
 	assert.Nil(t, mg.connConfig, "no multipooler gRPC TLS settings")
+	assert.Nil(t, mg.tableGroupDDLEnabled, "no tablegroup DDL")
 }
 
 func TestReplicaConfig(t *testing.T) {

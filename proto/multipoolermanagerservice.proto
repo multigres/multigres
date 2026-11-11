@@ -108,6 +108,28 @@ service MultipoolerManager {
       returns (multipoolermanagerdata.ReconcileFollowersResponse);
 
   //
+  // Routing rules (catalog primary only)
+  //
+
+  // SetRoutingRules replaces every routing rule of an operation and advances
+  // the database's routing version, in one catalog write. A change that is
+  // already in effect returns the current version and writes nothing.
+  // Served only by the primary of the default tablegroup, which holds the
+  // catalog; any other pooler returns UNAVAILABLE, and the caller rediscovers
+  // the primary and retries. A stale expected_routing_version or a change the
+  // catalog does not allow returns FAILED_PRECONDITION.
+  //
+  // Until the pooler admission fence exists, rules must change only while the
+  // affected application traffic is quiesced.
+  rpc SetRoutingRules(multipoolermanagerdata.SetRoutingRulesRequest)
+      returns (multipoolermanagerdata.SetRoutingRulesResponse);
+
+  // DeleteRoutingRules deletes every routing rule of an operation, with the
+  // same rules as SetRoutingRules.
+  rpc DeleteRoutingRules(multipoolermanagerdata.DeleteRoutingRulesRequest)
+      returns (multipoolermanagerdata.DeleteRoutingRulesResponse);
+
+  //
   // PostgreSQL Configuration Reload
   //
 
@@ -122,7 +144,9 @@ service MultipoolerManager {
   // Tablegroup operations
   // Served only by the pooler that is primary for the catalog shard (the
   // default tablegroup's 0-inf shard), which is the sole writer of the
-  // sharding catalog. Other poolers reject them with FAILED_PRECONDITION.
+  // sharding catalog. Other poolers reject them with FAILED_PRECONDITION; a
+  // pooler that stops being the primary while the request is in flight
+  // returns UNAVAILABLE, and the caller rediscovers the primary and retries.
   //
 
   // CreateTableGroup records the intent to create a tablegroup: the tablegroup
@@ -142,21 +166,29 @@ service MultipoolerManager {
 
   // DropTableGroup records the intent to drop a tablegroup. An active
   // tablegroup moves to dropping with a drop_tablegroup operation, in one
-  // catalog transaction; ListTableGroups then omits it so the provisioner
-  // tears it down, and the completion loop deletes the catalog rows once no
-  // pooler record carrying its id remains in topology. A tablegroup still
+  // catalog transaction; ListTableGroups then reports it DROPPING so the
+  // provisioner tears it down and releases its provision claim, and the
+  // completion loop deletes the catalog rows once no pooler record carrying
+  // its id and no claim for it remain in topology. A tablegroup still
   // being created has that creation cancelled instead. The default tablegroup
   // and tablegroups that contain tables cannot be dropped. Idempotent: a
   // repeat while dropping returns the existing operation.
   rpc DropTableGroup(multipoolermanagerdata.DropTableGroupRequest)
       returns (multipoolermanagerdata.DropTableGroupResponse);
 
-  // ListTableGroups returns the tablegroups the provisioner should have
-  // provisioned: every non-default tablegroup that is creating or active, with
-  // its shard layout. Tablegroups being dropped are omitted, which is how the
-  // provisioner learns to remove them.
+  // ListTableGroups returns every non-default tablegroup with its shard
+  // layout: creating and active ones for the provisioner to provision,
+  // dropping ones for it to remove. See ListTableGroupsResponse for why a
+  // missing tablegroup is never a removal signal.
   rpc ListTableGroups(multipoolermanagerdata.ListTableGroupsRequest)
       returns (multipoolermanagerdata.ListTableGroupsResponse);
+
+  // GetRoutingSnapshot returns the whole sharding catalog, every tablegroup
+  // state included, read in one transaction, or a note that the caller's copy
+  // at since_version is still current. Gateways keep the result cached and
+  // call it again when the health stream reports a newer routing_version.
+  rpc GetRoutingSnapshot(multipoolermanagerdata.GetRoutingSnapshotRequest)
+      returns (multipoolermanagerdata.GetRoutingSnapshotResponse);
 
   // ManagerHealthStream is a bidirectional health stream between orchestrator
   // and pooler.

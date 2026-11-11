@@ -422,7 +422,10 @@ func TestCheckDropPrivilege(t *testing.T) {
 // pull another operator's source data into a target table the caller does
 // own, without ever holding that source's own credentials.
 func TestCheckConnectionOwnership(t *testing.T) {
-	const checkSQL = "SELECT 1 WHERE NOT pg_has_role($1::name, $2::name, 'USAGE')"
+	const checkSQL = `SELECT 1
+FROM (VALUES ($2::name)) AS t(owner)
+LEFT JOIN pg_roles r ON r.rolname = t.owner
+WHERE r.rolname IS NULL OR NOT pg_has_role($1::name, r.rolname, 'USAGE')`
 
 	t.Run("caller has usage on the owner role: allowed", func(t *testing.T) {
 		qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{checkSQL: emptyResult()}}
@@ -446,6 +449,54 @@ func TestCheckConnectionOwnership(t *testing.T) {
 		require.Equal(t, "42501", mterrors.ExtractSQLSTATE(err))
 		require.ErrorContains(t, err, `"mallory"`)
 		require.NotContains(t, err.Error(), "alice", "must not reveal who owns the connection either")
+	})
+
+	// Regression test: a dropped ownerRole must still come back as an
+	// ordinary denial, not a propagated pg_has_role "role does not exist"
+	// error (verified against a live server; see target.go's doc comment).
+	t.Run("owner role no longer exists: denied, not a backend error", func(t *testing.T) {
+		qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{
+			checkSQL: {Rows: []*sqltypes.Row{{Values: []sqltypes.Value{sqltypes.Value("1")}}}},
+		}}
+		tg := newTarget(qs)
+
+		err := tg.CheckConnectionOwnership(context.Background(), "mallory", "dropped_role")
+
+		require.Error(t, err)
+		require.Equal(t, "42501", mterrors.ExtractSQLSTATE(err))
+	})
+}
+
+// TestDeniedConnectionOwners covers the batched form, including that one
+// dropped owner role in the VALUES list must not fail the whole batch.
+func TestDeniedConnectionOwners(t *testing.T) {
+	t.Run("empty ownerRoles is a no-op", func(t *testing.T) {
+		qs := &fakeQS{}
+		tg := newTarget(qs)
+
+		denied, err := tg.DeniedConnectionOwners(context.Background(), "app", nil)
+
+		require.NoError(t, err)
+		require.Empty(t, denied)
+		require.Empty(t, qs.adminArgs, "no query should run for an empty owner-role set")
+	})
+
+	t.Run("only the denied owners (including one whose role no longer exists) come back", func(t *testing.T) {
+		checkSQL := "SELECT t.owner FROM (VALUES ('alice'), ('mallory'), ('dropped_role')) AS t(owner)" +
+			" LEFT JOIN pg_roles r ON r.rolname = t.owner" +
+			" WHERE r.rolname IS NULL OR NOT pg_has_role($1::name, r.rolname, 'USAGE')"
+		qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{
+			checkSQL: {Rows: []*sqltypes.Row{
+				{Values: []sqltypes.Value{sqltypes.Value("mallory")}},
+				{Values: []sqltypes.Value{sqltypes.Value("dropped_role")}},
+			}},
+		}}
+		tg := newTarget(qs)
+
+		denied, err := tg.DeniedConnectionOwners(context.Background(), "app", []string{"alice", "mallory", "dropped_role"})
+
+		require.NoError(t, err)
+		require.Equal(t, map[string]bool{"mallory": true, "dropped_role": true}, denied)
 	})
 }
 

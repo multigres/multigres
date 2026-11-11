@@ -614,3 +614,80 @@ func TestRepoRetentionConfig(t *testing.T) {
 	assert.Equal(t, RetentionFullType, cfg["repo2-retention-full-type"])
 	assert.Equal(t, RetentionHistory, cfg["repo2-retention-history"])
 }
+
+// Every shard but the catalog shard gets its own repository below the base
+// path; the catalog shard's repository stays where it has always been.
+func TestConfig_RepositoryScope(t *testing.T) {
+	fs, err := NewConfig(utils.FilesystemBackupLocation("/var/backups"))
+	require.NoError(t, err)
+	for _, tt := range []struct {
+		tableGroup, shard string
+		tableGroupID      int64
+		want              string
+	}{
+		{"default", "0-inf", 1, ""},
+		{"commerce", "0-80", 7, "tablegroups/commerce/7/0-80"},
+		{"commerce", "0-80", 0, "tablegroups/commerce/0-80"},
+	} {
+		scoped, err := fs.ForShard(tt.tableGroup, tt.tableGroupID, tt.shard)
+		require.NoError(t, err)
+		assert.Equal(t, tt.want, scoped.RepositoryScope(), "%s/%d/%s", tt.tableGroup, tt.tableGroupID, tt.shard)
+	}
+}
+
+func TestConfig_ForShard_RepositoryPaths(t *testing.T) {
+	fs, err := NewConfig(utils.FilesystemBackupLocation("/var/backups"))
+	require.NoError(t, err)
+	s3, err := NewConfig(utils.S3BackupLocation("bucket", "us-east-1", utils.WithS3KeyPrefix("proj")))
+	require.NoError(t, err)
+
+	tests := []struct {
+		name              string
+		cfg               *Config
+		tableGroup, shard string
+		tableGroupID      int64
+		generation        int64
+		want              string
+	}{
+		{"catalog shard on a filesystem keeps the base path", fs, "default", "0-inf", 1, 1, "/var/backups"},
+		{"catalog shard on S3 keeps the base path", s3, "default", "0-inf", 1, 1, "/proj/multigres"},
+		{"another shard on a filesystem", fs, "commerce", "0-80", 7, 1, "/var/backups/tablegroups/commerce/7/0-80"},
+		{"another shard on S3", s3, "commerce", "80-inf", 7, 1, "/proj/tablegroups/commerce/7/80-inf/multigres"},
+		{"a recreated tablegroup gets a fresh repository", fs, "commerce", "0-80", 9, 1, "/var/backups/tablegroups/commerce/9/0-80"},
+		{"an unknown catalog id leaves the id out", fs, "commerce", "0-80", 0, 1, "/var/backups/tablegroups/commerce/0-80"},
+		{"later generations nest under the shard", fs, "commerce", "0-80", 7, 2, "/var/backups/tablegroups/commerce/7/0-80/gen-2"},
+		{"a tablegroup named like the catalog stanza stays out of its repository", s3, "multigres", "0-inf", 7, 1, "/proj/tablegroups/multigres/7/0-inf/multigres"},
+		{"a tablegroup named like a generation stays out of the catalog's", fs, "gen-2", "0-inf", 7, 1, "/var/backups/tablegroups/gen-2/7/0-inf"},
+		{"later generations on S3", s3, "commerce", "0-80", 7, 2, "/proj/tablegroups/commerce/7/0-80/multigres/gen-2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scoped, err := tt.cfg.ForShard(tt.tableGroup, tt.tableGroupID, tt.shard)
+			require.NoError(t, err)
+			got, err := scoped.PgBackRestConfig(1, tt.generation, "multigres")
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got["repo1-path"])
+		})
+	}
+
+	t.Run("path traversal in a name stays below the base path", func(t *testing.T) {
+		scoped, err := fs.ForShard("../evil", 3, "0-inf")
+		require.NoError(t, err)
+		got, err := scoped.PgBackRestConfig(1, 1, "multigres")
+		require.NoError(t, err)
+		assert.Regexp(t, `^/var/backups/tablegroups/[^/]+/3/0-inf$`, got["repo1-path"])
+	})
+	t.Run("unscoped config is unchanged", func(t *testing.T) {
+		got, err := fs.PgBackRestConfig(1, 1, "multigres")
+		require.NoError(t, err)
+		assert.Equal(t, "/var/backups", got["repo1-path"])
+	})
+	t.Run("both names and a valid id are required", func(t *testing.T) {
+		_, err := fs.ForShard("", 7, "0-inf")
+		require.Error(t, err)
+		_, err = fs.ForShard("commerce", 7, "")
+		require.Error(t, err)
+		_, err = fs.ForShard("commerce", -1, "0-80")
+		require.Error(t, err)
+	})
+}
