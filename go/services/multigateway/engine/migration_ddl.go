@@ -1153,11 +1153,25 @@ func applyMigrationOptions(req *migratorpb.CreateMigrationRequest, list *ast.Nod
 				return fmt.Errorf("sequence_margin must be an integer: %q", val)
 			}
 			req.Migration.SequenceMargin = n
+		case "quiesce_roles":
+			req.QuiesceRoles = parseRoleList(val)
 		default:
 			return fmt.Errorf("unknown migration option %q", d.Defname)
 		}
 	}
 	return nil
+}
+
+// parseRoleList splits a comma-separated quiesce_roles option value into
+// trimmed, non-empty role names.
+func parseRoleList(v string) []string {
+	var roles []string
+	for r := range strings.SplitSeq(v, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			roles = append(roles, r)
+		}
+	}
+	return roles
 }
 
 // parseBoolOption parses a WITH-option's string value as a boolean, using
