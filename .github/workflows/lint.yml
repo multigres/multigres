@@ -81,7 +81,9 @@ jobs:
 
   validate-generated-files:
     name: Validate Generated Files
-    runs-on: ubuntu-latest
+    # make build-all installs the protocol-pinned pgBackRest from PGDG.
+    # Ubuntu 26.04 defaults to amd64v3, which PGDG does not publish.
+    runs-on: ubuntu-24.04
 
     permissions:
       contents: read
