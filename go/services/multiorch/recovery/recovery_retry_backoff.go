@@ -17,14 +17,18 @@ package recovery
 import (
 	"context"
 	"log/slog"
-	"math"
 	"math/rand/v2"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	commontypes "github.com/multigres/multigres/go/common/types"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/tools/retry"
 )
+
+// retryBackoffCeiling caps the delay when an action leaves MaxDelay unset.
+const retryBackoffCeiling = time.Hour
 
 // retryBackoffKey identifies a problem for retry backoff tracking. entityID is
 // a pooler ID string for pooler-scoped problems or a shard string for
@@ -44,6 +48,13 @@ type retryBackoffState struct {
 	lastSeen time.Time
 	// retention is how long the state outlives the problem's last detection.
 	retention time.Duration
+	// shard and epoch record the shard and its rule when the failure was
+	// recorded; state from an earlier epoch no longer applies.
+	shard string
+	epoch string
+	// provisional marks a state whose last attempt succeeded: it is cleared once
+	// the problem is seen to be gone, and kept if the problem is still detected.
+	provisional bool
 }
 
 // RecoveryRetryBackoffTracker throttles re-execution of recovery actions that
@@ -55,18 +66,27 @@ type retryBackoffState struct {
 // Only actions that set RecoveryMetadata.RetryBackoff are tracked, and failover
 // problems are never tracked (they are gated on collective recruitment backoff).
 //
-// State is cleared by RecordSuccess, or by Reconcile once the problem has been
-// absent from the detected set for longer than the action's MaxDelay. The
-// retention window keeps a problem that flaps in and out of detection from
-// resetting its backoff on every flap.
+// State is dropped when:
+//   - the shard's rule changes (for example a new leader), because the failures
+//     were against a different target;
+//   - a successful attempt is followed by a cycle that no longer detects the
+//     problem (a success that leaves the problem detected keeps the history);
+//   - the problem has been absent for longer than the delay it was enforcing,
+//     which still lets a problem that flaps in and out of detection keep its
+//     backoff.
 //
 // Thread safety: all methods are safe for concurrent use.
 type RecoveryRetryBackoffTracker struct {
 	logger *slog.Logger
 	now    func() time.Time
 
+	// bypass counts active Bypass calls; while positive nothing is gated.
+	bypass atomic.Int32
+
 	mu     sync.Mutex
 	states map[retryBackoffKey]*retryBackoffState
+	// epochs holds each shard's current rule as of the last Reconcile.
+	epochs map[string]string
 	rng    *rand.Rand // Protected by mu
 }
 
@@ -89,21 +109,42 @@ func retryBackoffConfig(problem types.Problem) *types.RetryBackoffConfig {
 	return problem.RecoveryAction.Metadata().RetryBackoff
 }
 
-// Reconcile refreshes the last-seen time of tracked problems that are still
-// detected and drops state for problems absent for longer than their
-// retention window. Call once per recovery cycle with the full detected set.
-func (t *RecoveryRetryBackoffTracker) Reconcile(detected []types.Problem) {
+func retryBackoffKeyOf(problem types.Problem) retryBackoffKey {
+	return retryBackoffKey{code: problem.Code, entityID: problem.EntityID()}
+}
+
+func shardKeyOf(problem types.Problem) string {
+	return string(commontypes.FormatShardRef(problem.ShardRef))
+}
+
+// Reconcile applies this cycle's detected problems and each shard's current
+// rule (keyed by formatted shard ref) to the tracked state, dropping what no
+// longer applies. Call once per recovery cycle, after all analyzers, with the
+// full detected set.
+func (t *RecoveryRetryBackoffTracker) Reconcile(detected []types.Problem, epochs map[string]string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	t.epochs = epochs
 	now := t.now()
+
+	seen := make(map[retryBackoffKey]struct{}, len(detected))
 	for _, p := range detected {
-		if st, ok := t.states[retryBackoffKey{code: p.Code, entityID: p.EntityID()}]; ok {
-			st.lastSeen = now
-		}
+		seen[retryBackoffKeyOf(p)] = struct{}{}
 	}
+
 	for key, st := range t.states {
-		if now.Sub(st.lastSeen) > st.retention {
+		if st.epoch != t.epochs[st.shard] {
+			delete(t.states, key)
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			st.lastSeen = now
+			// A success that leaves the problem detected did not resolve it.
+			st.provisional = false
+			continue
+		}
+		if st.provisional || now.Sub(st.lastSeen) > st.retention {
 			delete(t.states, key)
 		}
 	}
@@ -112,14 +153,14 @@ func (t *RecoveryRetryBackoffTracker) Reconcile(detected []types.Problem) {
 // ShouldExecute reports whether the problem's action may run now, and the
 // earliest time it may (zero if immediately).
 func (t *RecoveryRetryBackoffTracker) ShouldExecute(problem types.Problem) (notBefore time.Time, ready bool) {
-	if retryBackoffConfig(problem) == nil {
+	if retryBackoffConfig(problem) == nil || t.bypass.Load() > 0 {
 		return time.Time{}, true
 	}
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	st, ok := t.states[retryBackoffKey{code: problem.Code, entityID: problem.EntityID()}]
+	st, ok := t.states[retryBackoffKeyOf(problem)]
 	if !ok || !t.now().Before(st.notBefore) {
 		return time.Time{}, true
 	}
@@ -136,17 +177,20 @@ func (t *RecoveryRetryBackoffTracker) RecordFailure(ctx context.Context, problem
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	key := retryBackoffKey{code: problem.Code, entityID: problem.EntityID()}
+	key := retryBackoffKeyOf(problem)
 	st, ok := t.states[key]
 	if !ok {
 		st = &retryBackoffState{}
 		t.states[key] = st
 	}
 	st.failures++
+	st.provisional = false
+	st.shard = shardKeyOf(problem)
+	st.epoch = t.epochs[st.shard]
 
 	maxDelay := cfg.MaxDelay
 	if maxDelay <= 0 {
-		maxDelay = math.MaxInt64
+		maxDelay = retryBackoffCeiling
 	}
 	delay := retry.ExponentialBackoffMagnitude(cfg.BaseDelay, maxDelay, st.failures-1)
 	if cfg.JitterFraction > 0 {
@@ -156,7 +200,7 @@ func (t *RecoveryRetryBackoffTracker) RecordFailure(ctx context.Context, problem
 	now := t.now()
 	st.notBefore = now.Add(delay)
 	st.lastSeen = now
-	st.retention = max(cfg.MaxDelay, delay)
+	st.retention = delay
 
 	t.logger.InfoContext(ctx, "recovery action failed, backing off before retrying",
 		"problem_code", problem.Code,
@@ -166,17 +210,42 @@ func (t *RecoveryRetryBackoffTracker) RecordFailure(ctx context.Context, problem
 	)
 }
 
-// RecordSuccess clears the problem's failure history.
+// RecordSuccess notes a successful attempt. The failure history is not cleared
+// yet: the next Reconcile drops it if the problem is gone and keeps it if the
+// problem is still detected, since a success does not by itself mean the
+// problem was resolved.
 func (t *RecoveryRetryBackoffTracker) RecordSuccess(problem types.Problem) {
+	if retryBackoffConfig(problem) == nil {
+		return
+	}
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	delete(t.states, retryBackoffKey{code: problem.Code, entityID: problem.EntityID()})
+
+	if st, ok := t.states[retryBackoffKeyOf(problem)]; ok {
+		st.provisional = true
+		st.notBefore = time.Time{}
+	}
 }
 
-// Reset clears all backoff state so the next cycle acts on every detected
-// problem immediately. Used by TriggerRecoveryNow so an explicit operator
-// request bypasses backoff.
-func (t *RecoveryRetryBackoffTracker) Reset() {
+// Bypass turns off gating until the returned release function is called, and
+// clears all state both now and on release. Used by TriggerRecoveryNow so an
+// explicit operator request acts on every cycle of the call and leaves no
+// backoff behind.
+func (t *RecoveryRetryBackoffTracker) Bypass() (release func()) {
+	t.bypass.Add(1)
+	t.reset()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			t.bypass.Add(-1)
+			t.reset()
+		})
+	}
+}
+
+func (t *RecoveryRetryBackoffTracker) reset() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	clear(t.states)

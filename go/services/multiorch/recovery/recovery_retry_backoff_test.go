@@ -20,6 +20,7 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -102,6 +103,16 @@ func poolerProblem(code types.ProblemCode, name string, action types.RecoveryAct
 
 var testRetryBackoff = &types.RetryBackoffConfig{BaseDelay: 10 * time.Second, MaxDelay: time.Minute}
 
+func retryBackoffFailures(tracker *RecoveryRetryBackoffTracker, problem types.Problem) (failures int, ok bool) {
+	tracker.mu.Lock()
+	defer tracker.mu.Unlock()
+	st, ok := tracker.states[retryBackoffKeyOf(problem)]
+	if !ok {
+		return 0, false
+	}
+	return st.failures, true
+}
+
 func TestRetryBackoff_ThrottlesRepeatedFailures(t *testing.T) {
 	tracker, clock := newTestRetryBackoffTracker()
 	problem := poolerProblem(types.ProblemReplicaNotReplicating, "replica1", backoffAction(testRetryBackoff))
@@ -141,7 +152,23 @@ func TestRetryBackoff_JitterOnlyLengthensDelay(t *testing.T) {
 	assert.LessOrEqual(t, delay, 12500*time.Millisecond)
 }
 
-func TestRetryBackoff_SuccessClearsState(t *testing.T) {
+func TestRetryBackoff_UnsetMaxDelayIsCappedAndNeverOverflows(t *testing.T) {
+	tracker, clock := newTestRetryBackoffTracker()
+	cfg := &types.RetryBackoffConfig{BaseDelay: time.Second, JitterFraction: 0.25}
+	problem := poolerProblem(types.ProblemReplicaNotReplicating, "replica1", backoffAction(cfg))
+
+	for range 200 {
+		tracker.RecordFailure(t.Context(), problem)
+	}
+
+	notBefore, ready := tracker.ShouldExecute(problem)
+	assert.False(t, ready, "a long failure run must not wrap the delay into the past")
+	delay := notBefore.Sub(clock.Now())
+	assert.GreaterOrEqual(t, delay, retryBackoffCeiling)
+	assert.LessOrEqual(t, delay, retryBackoffCeiling+retryBackoffCeiling/4)
+}
+
+func TestRetryBackoff_SuccessClearsStateOnceTheProblemIsGone(t *testing.T) {
 	tracker, _ := newTestRetryBackoffTracker()
 	problem := poolerProblem(types.ProblemReplicaNotReplicating, "replica1", backoffAction(testRetryBackoff))
 
@@ -151,15 +178,48 @@ func TestRetryBackoff_SuccessClearsState(t *testing.T) {
 	require.False(t, ready)
 
 	tracker.RecordSuccess(problem)
-
 	_, ready = tracker.ShouldExecute(problem)
-	assert.True(t, ready, "success clears the backoff")
+	assert.True(t, ready, "a success lets the next attempt run immediately")
+
+	tracker.Reconcile(nil, nil)
+	_, ok := retryBackoffFailures(tracker, problem)
+	assert.False(t, ok, "the history is dropped once the problem is no longer detected")
 
 	// The next failure starts again from the base delay, not from the old count.
 	tracker.RecordFailure(t.Context(), problem)
+	failures, _ := retryBackoffFailures(tracker, problem)
+	assert.Equal(t, 1, failures)
+}
+
+func TestRetryBackoff_SuccessThatLeavesTheProblemDetectedKeepsHistory(t *testing.T) {
+	tracker, clock := newTestRetryBackoffTracker()
+	problem := poolerProblem(types.ProblemReplicaNotReplicating, "replica1", backoffAction(testRetryBackoff))
+
+	tracker.RecordFailure(t.Context(), problem)
+	tracker.RecordFailure(t.Context(), problem)
+	tracker.RecordSuccess(problem)
+
+	// The next cycle still detects the problem, so the success did not resolve it.
+	tracker.Reconcile([]types.Problem{problem}, nil)
+	failures, ok := retryBackoffFailures(tracker, problem)
+	require.True(t, ok)
+	assert.Equal(t, 2, failures)
+
+	// The following failure continues the escalation instead of restarting it.
+	tracker.RecordFailure(t.Context(), problem)
+	notBefore, _ := tracker.ShouldExecute(problem)
+	assert.Equal(t, clock.Now().Add(40*time.Second), notBefore)
+}
+
+func TestRetryBackoff_RecordSuccessIgnoresActionsWithoutConfig(t *testing.T) {
+	tracker, _ := newTestRetryBackoffTracker()
+	problem := poolerProblem(types.ProblemReplicaNotReplicating, "replica1", backoffAction(nil))
+
+	tracker.RecordSuccess(problem)
+
 	tracker.mu.Lock()
 	defer tracker.mu.Unlock()
-	assert.Equal(t, 1, tracker.states[retryBackoffKey{code: problem.Code, entityID: problem.EntityID()}].failures)
+	assert.Empty(t, tracker.states)
 }
 
 func TestRetryBackoff_PerEntity(t *testing.T) {
@@ -193,54 +253,97 @@ func TestRetryBackoff_IgnoresActionsWithoutConfigAndFailoverProblems(t *testing.
 func TestRetryBackoff_ReconcileRetainsStateAcrossFlapsThenDropsIt(t *testing.T) {
 	tracker, clock := newTestRetryBackoffTracker()
 	problem := poolerProblem(types.ProblemReplicaNotReplicating, "replica1", backoffAction(testRetryBackoff))
-	key := retryBackoffKey{code: problem.Code, entityID: problem.EntityID()}
-	hasState := func() bool {
-		tracker.mu.Lock()
-		defer tracker.mu.Unlock()
-		_, ok := tracker.states[key]
-		return ok
-	}
 
-	tracker.RecordFailure(t.Context(), problem)
+	tracker.RecordFailure(t.Context(), problem) // 10s delay, so a 10s retention
 
-	// Absent for less than the retention window (MaxDelay): a flap keeps the state.
-	clock.Advance(30 * time.Second)
-	tracker.Reconcile(nil)
-	assert.True(t, hasState())
+	// Absent for less than the delay being enforced: a flap keeps the state.
+	clock.Advance(5 * time.Second)
+	tracker.Reconcile(nil, nil)
+	_, ok := retryBackoffFailures(tracker, problem)
+	assert.True(t, ok)
 
 	// Detected again: the retention window restarts.
-	tracker.Reconcile([]types.Problem{problem})
-	clock.Advance(45 * time.Second)
-	tracker.Reconcile(nil)
-	assert.True(t, hasState())
+	tracker.Reconcile([]types.Problem{problem}, nil)
+	clock.Advance(8 * time.Second)
+	tracker.Reconcile(nil, nil)
+	_, ok = retryBackoffFailures(tracker, problem)
+	assert.True(t, ok)
 
-	// Absent for longer than MaxDelay: the problem is treated as resolved.
-	clock.Advance(30 * time.Second)
-	tracker.Reconcile(nil)
-	assert.False(t, hasState())
+	// Absent for longer than the delay: the problem is treated as resolved.
+	clock.Advance(3 * time.Second)
+	tracker.Reconcile(nil, nil)
+	_, ok = retryBackoffFailures(tracker, problem)
+	assert.False(t, ok)
 }
 
-func TestRetryBackoff_Reset(t *testing.T) {
+func TestRetryBackoff_RuleChangeDropsState(t *testing.T) {
+	tracker, _ := newTestRetryBackoffTracker()
+	problem := poolerProblem(types.ProblemReplicaNotReplicating, "replica1", backoffAction(testRetryBackoff))
+	shard := shardKeyOf(problem)
+	detected := []types.Problem{problem}
+
+	tracker.Reconcile(detected, map[string]string{shard: "rule-1"})
+	tracker.RecordFailure(t.Context(), problem)
+	tracker.RecordFailure(t.Context(), problem)
+	_, ready := tracker.ShouldExecute(problem)
+	require.False(t, ready)
+
+	tracker.Reconcile(detected, map[string]string{shard: "rule-1"})
+	_, ready = tracker.ShouldExecute(problem)
+	assert.False(t, ready, "an unchanged rule keeps the backoff")
+
+	// A new leader means the earlier failures were against a different target.
+	tracker.Reconcile(detected, map[string]string{shard: "rule-2"})
+	_, ready = tracker.ShouldExecute(problem)
+	assert.True(t, ready, "a rule change must not delay delivering the new leader")
+	_, ok := retryBackoffFailures(tracker, problem)
+	assert.False(t, ok)
+}
+
+func TestRetryBackoff_BypassDisablesGatingAndClearsState(t *testing.T) {
 	tracker, _ := newTestRetryBackoffTracker()
 	problem := poolerProblem(types.ProblemReplicaNotReplicating, "replica1", backoffAction(testRetryBackoff))
 
 	tracker.RecordFailure(t.Context(), problem)
-	tracker.Reset()
-
 	_, ready := tracker.ShouldExecute(problem)
-	assert.True(t, ready)
+	require.False(t, ready)
+
+	release := tracker.Bypass()
+	_, ready = tracker.ShouldExecute(problem)
+	assert.True(t, ready, "bypass clears what was already backing off")
+
+	// Failures during the bypass do not gate, however many there are.
+	for range 5 {
+		tracker.RecordFailure(t.Context(), problem)
+		_, ready = tracker.ShouldExecute(problem)
+		assert.True(t, ready)
+	}
+
+	release()
+	release() // releasing twice must not unbalance the counter
+	assert.Equal(t, int32(0), tracker.bypass.Load())
+	_, ready = tracker.ShouldExecute(problem)
+	assert.True(t, ready, "backoff built up during the bypass is not left behind")
 }
 
-// newRetryBackoffEngine builds an engine with one replica whose problem is
-// always detected, and returns a counter of action executions.
-func newRetryBackoffEngine(t *testing.T, executeFn func(attempt int) error) (*Engine, *fakeClock, *mockRecoveryAction, func() int) {
+// retryBackoffHarness is an engine with one replica whose problem is detected
+// while detected is true, and a counter of action executions.
+type retryBackoffHarness struct {
+	engine      *Engine
+	clock       *fakeClock
+	attempts    func() int
+	setDetected func(bool)
+	setRule     func(term int64)
+}
+
+func newRetryBackoffHarness(t *testing.T, executeFn func(attempt int) error) *retryBackoffHarness {
 	t.Helper()
 	ctx := t.Context()
 	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
 	t.Cleanup(func() { ts.Close() })
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError}))
-	cfg := config.NewTestConfig(config.WithCell("cell1"))
+	cfg := config.NewTestConfig(config.WithCell("cell1"), config.WithRecoveryCycleInterval(20*time.Millisecond))
 	fakeClient := rpcclient.NewFakeClient()
 	engine := NewEngine(ts, logger, cfg, []config.WatchTarget{}, fakeClient, newTestCoordinator(ts, fakeClient, "cell1"))
 
@@ -248,15 +351,27 @@ func newRetryBackoffEngine(t *testing.T, executeFn func(attempt int) error) (*En
 	engine.recoveryRetryBackoffTracker.now = clock.Now
 
 	replicaID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "replica-pooler"}
-	store.SeedCache(t, engine.poolerCache, store.NewPooler(&multiorchdatapb.PoolerHealthState{
-		Multipooler: &clustermetadatapb.Multipooler{
-			Id:       replicaID,
-			ShardRef: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "0"},
-			Type:     clustermetadatapb.PoolerType_REPLICA,
-			Hostname: "replica-host",
-		},
-		LastSeen: timestamppb.Now(),
-	}, nil))
+	poolerState := func(term int64) *store.Pooler {
+		return store.NewPooler(&multiorchdatapb.PoolerHealthState{
+			Multipooler: &clustermetadatapb.Multipooler{
+				Id:       replicaID,
+				ShardRef: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "tg1", Shard: "0"},
+				Type:     clustermetadatapb.PoolerType_REPLICA,
+				Hostname: "replica-host",
+			},
+			ConsensusStatus: &clustermetadatapb.ConsensusStatus{
+				CurrentPosition: &clustermetadatapb.PoolerPosition{
+					Position: &clustermetadatapb.RulePosition{
+						Decision: &clustermetadatapb.ShardRule{
+							RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: term},
+						},
+					},
+				},
+			},
+			LastSeen: timestamppb.Now(),
+		}, nil)
+	}
+	poolerID := store.SeedCache(t, engine.poolerCache, poolerState(1))
 
 	var mu sync.Mutex
 	attempts := 0
@@ -275,9 +390,14 @@ func newRetryBackoffEngine(t *testing.T, executeFn func(attempt int) error) (*En
 		},
 	}
 
+	var detected atomic.Bool
+	detected.Store(true)
 	code := types.ProblemCode("TestRetryBackoffProblem")
 	analysis.SetTestAnalyzers([]analysis.Analyzer{&customAnalyzer{
 		analyzeFn: func(p *multiorchdatapb.PoolerHealthState) *types.Problem {
+			if !detected.Load() {
+				return nil
+			}
 			return &types.Problem{
 				Code:           code,
 				CheckName:      "TestRetryBackoffAnalyzer",
@@ -295,68 +415,141 @@ func newRetryBackoffEngine(t *testing.T, executeFn func(attempt int) error) (*En
 	}})
 	t.Cleanup(analysis.ResetAnalyzers)
 
-	return engine, clock, action, func() int {
-		mu.Lock()
-		defer mu.Unlock()
-		return attempts
+	return &retryBackoffHarness{
+		engine: engine,
+		clock:  clock,
+		attempts: func() int {
+			mu.Lock()
+			defer mu.Unlock()
+			return attempts
+		},
+		setDetected: detected.Store,
+		setRule: func(term int64) {
+			engine.poolerCache.DoUpdate(poolerID, func(*store.Pooler) *store.Pooler { return poolerState(term) })
+		},
 	}
+}
+
+func (h *retryBackoffHarness) cycle(t *testing.T) {
+	t.Helper()
+	h.engine.performRecoveryCycle(t.Context())
 }
 
 func TestRecoveryLoop_FailingActionIsThrottled(t *testing.T) {
-	engine, clock, _, attempts := newRetryBackoffEngine(t, func(int) error { return errors.New("replica will not stream") })
+	h := newRetryBackoffHarness(t, func(int) error { return errors.New("replica will not stream") })
 
 	// Without backoff this would run the action once per cycle.
 	for range 20 {
-		engine.performRecoveryCycle(t.Context())
+		h.cycle(t)
 	}
-	assert.Equal(t, 1, attempts(), "a failing action must not re-execute every cycle")
+	assert.Equal(t, 1, h.attempts(), "a failing action must not re-execute every cycle")
 
 	// Once the backoff elapses the action is retried, then throttled again with a longer delay.
-	clock.Advance(10 * time.Second)
+	h.clock.Advance(10 * time.Second)
 	for range 20 {
-		engine.performRecoveryCycle(t.Context())
+		h.cycle(t)
 	}
-	assert.Equal(t, 2, attempts())
+	assert.Equal(t, 2, h.attempts())
 
-	clock.Advance(10 * time.Second)
-	engine.performRecoveryCycle(t.Context())
-	assert.Equal(t, 2, attempts(), "second failure backs off for 20s, not 10s")
+	h.clock.Advance(10 * time.Second)
+	h.cycle(t)
+	assert.Equal(t, 2, h.attempts(), "second failure backs off for 20s, not 10s")
 
-	clock.Advance(10 * time.Second)
-	engine.performRecoveryCycle(t.Context())
-	assert.Equal(t, 3, attempts())
+	h.clock.Advance(10 * time.Second)
+	h.cycle(t)
+	assert.Equal(t, 3, h.attempts())
 }
 
-func TestRecoveryLoop_SuccessfulFixClearsBackoff(t *testing.T) {
-	engine, clock, _, attempts := newRetryBackoffEngine(t, func(attempt int) error {
-		if attempt == 1 {
-			return errors.New("transient failure")
+func TestRecoveryLoop_SuccessfulFixClearsBackoffOnceTheProblemIsGone(t *testing.T) {
+	// Attempt 1 fails, attempt 2 succeeds, later attempts fail again.
+	h := newRetryBackoffHarness(t, func(attempt int) error {
+		if attempt == 2 {
+			return nil
 		}
-		return nil
+		return errors.New("replica will not stream")
 	})
 
-	engine.performRecoveryCycle(t.Context())
-	require.Equal(t, 1, attempts())
-	engine.performRecoveryCycle(t.Context())
-	require.Equal(t, 1, attempts(), "throttled after the failure")
+	h.cycle(t)
+	require.Equal(t, 1, h.attempts())
+	h.cycle(t)
+	require.Equal(t, 1, h.attempts(), "throttled after the failure")
 
-	clock.Advance(10 * time.Second)
-	engine.performRecoveryCycle(t.Context())
-	require.Equal(t, 2, attempts(), "retried once the backoff elapsed, and succeeded")
+	h.clock.Advance(10 * time.Second)
+	h.cycle(t)
+	require.Equal(t, 2, h.attempts(), "retried once the backoff elapsed, and succeeded")
 
-	// The success cleared the state, so the problem recurring is acted on immediately.
-	engine.performRecoveryCycle(t.Context())
-	assert.Equal(t, 3, attempts(), "no backoff after a successful fix")
+	// The fix worked: the problem is gone, then recurs and fails.
+	h.setDetected(false)
+	h.cycle(t)
+	h.setDetected(true)
+	h.cycle(t)
+	require.Equal(t, 3, h.attempts(), "a recurrence is acted on immediately")
+
+	// The history was cleared, so this failure backs off for the base delay again.
+	h.clock.Advance(10 * time.Second)
+	h.cycle(t)
+	assert.Equal(t, 4, h.attempts(), "backoff restarted at 10s, not 20s")
 }
 
-func TestRecoveryLoop_TriggerRecoveryBypassesBackoff(t *testing.T) {
-	engine, _, _, attempts := newRetryBackoffEngine(t, func(int) error { return errors.New("replica will not stream") })
+func TestRecoveryLoop_SuccessThatLeavesTheProblemDetectedKeepsBackingOff(t *testing.T) {
+	h := newRetryBackoffHarness(t, func(attempt int) error {
+		if attempt == 2 {
+			return nil
+		}
+		return errors.New("replica will not stream")
+	})
 
-	engine.performRecoveryCycle(t.Context())
-	engine.performRecoveryCycle(t.Context())
-	require.Equal(t, 1, attempts())
+	h.cycle(t)
+	h.clock.Advance(10 * time.Second)
+	h.cycle(t)
+	require.Equal(t, 2, h.attempts(), "attempt 2 succeeds")
 
-	engine.recoveryRetryBackoffTracker.Reset()
-	engine.performRecoveryCycle(t.Context())
-	assert.Equal(t, 2, attempts())
+	// The problem is still detected, so the success resolved nothing and the
+	// failure count carries on.
+	h.cycle(t)
+	require.Equal(t, 3, h.attempts(), "the next attempt is not delayed by a success")
+
+	h.clock.Advance(10 * time.Second)
+	h.cycle(t)
+	assert.Equal(t, 3, h.attempts(), "the second failure backs off for 20s")
+	h.clock.Advance(10 * time.Second)
+	h.cycle(t)
+	assert.Equal(t, 4, h.attempts())
+}
+
+func TestRecoveryLoop_RuleChangeResetsBackoff(t *testing.T) {
+	h := newRetryBackoffHarness(t, func(int) error { return errors.New("replica will not stream") })
+
+	h.cycle(t)
+	h.cycle(t)
+	require.Equal(t, 1, h.attempts(), "backing off after the first failure")
+
+	// A new leader changes the shard's rule: the replica must be told promptly,
+	// not after the backoff built up against the previous leader.
+	h.setRule(2)
+	h.cycle(t)
+	assert.Equal(t, 2, h.attempts())
+}
+
+func TestTriggerRecoveryNow_BypassesBackoffForTheWholeCall(t *testing.T) {
+	h := newRetryBackoffHarness(t, func(int) error { return errors.New("replica will not stream") })
+
+	h.cycle(t)
+	h.cycle(t)
+	require.Equal(t, 1, h.attempts(), "backing off before the explicit trigger")
+
+	// The problem never resolves, so the call polls until its timeout, running a
+	// cycle every 20ms. With the fake clock frozen, any gating would hold the
+	// attempts at one.
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	_, err := h.engine.TriggerRecoveryNow(ctx, 0)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.GreaterOrEqual(t, h.attempts(), 4, "every cycle of the call acted despite the failures")
+
+	tracker := h.engine.recoveryRetryBackoffTracker
+	assert.Equal(t, int32(0), tracker.bypass.Load(), "the bypass is released on return")
+	tracker.mu.Lock()
+	defer tracker.mu.Unlock()
+	assert.Empty(t, tracker.states, "no backoff is left behind by the forced attempts")
 }

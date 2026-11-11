@@ -67,10 +67,15 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 		}
 	}
 
-	// Refresh the retry-backoff tracker against everything detected this cycle:
-	// state for problems that stay resolved is dropped, so a later recurrence
-	// starts from the base delay. Must run once per cycle, after all analyzers.
-	re.recoveryRetryBackoffTracker.Reconcile(problems)
+	// Refresh the retry-backoff tracker against everything detected this cycle
+	// and each shard's current rule: state for resolved problems, and for shards
+	// whose rule changed (a new leader), is dropped so the next attempt starts
+	// from the base delay. Must run once per cycle, after all analyzers.
+	epochs := make(map[string]string, len(snaps))
+	for _, snap := range snaps {
+		epochs[string(commontypes.FormatShardRef(snap.ShardRef))] = snap.HighestIntendedRule().String()
+	}
+	re.recoveryRetryBackoffTracker.Reconcile(problems, epochs)
 
 	// Update detected problems metric
 	re.updateDetectedProblems(problems)
