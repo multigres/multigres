@@ -77,29 +77,69 @@ func TestMultiadminRoutingForwarders(t *testing.T) {
 			RoutingVersion: 7, PlanEpoch: 2,
 			Snapshot: &shardingcatalogpb.Snapshot{
 				RoutingVersion: 7, PlanEpoch: 2,
-				Tablegroups: []*shardingcatalogpb.TableGroup{{TablegroupId: 1, Name: "default"}, {TablegroupId: 2, Name: "srctg"}},
-				Shards: []*shardingcatalogpb.Shard{
-					{ShardId: 1, TablegroupId: 1, Name: "0-inf", KeyRange: &clustermetadatapb.KeyRange{}},
-					{ShardId: 2, TablegroupId: 2, Name: "0-80", KeyRange: &clustermetadatapb.KeyRange{End: []byte{0x80}}},
+				Tablegroups: []*shardingcatalogpb.TableGroup{
+					{TablegroupId: 1, Name: "default", State: shardingcatalogpb.TableGroupState_TABLE_GROUP_STATE_ACTIVE},
+					{TablegroupId: 2, Name: "srctg", State: shardingcatalogpb.TableGroupState_TABLE_GROUP_STATE_ACTIVE},
 				},
-				RoutingRules: []*shardingcatalogpb.RoutingRule{{
-					RuleId: 3, OperationId: "op", Scope: shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLEGROUP,
-					FromTablegroupId: 1, ToTablegroupId: 2, ToShardId: proto.Int64(2), CreatedVersion: 6,
+				Shards: []*shardingcatalogpb.Shard{
+					{ShardId: 1, TablegroupId: 1, Name: "0-inf", KeyRange: &clustermetadatapb.KeyRange{}, State: shardingcatalogpb.ShardState_SHARD_STATE_ACTIVE},
+					{ShardId: 2, TablegroupId: 2, Name: "0-80", KeyRange: &clustermetadatapb.KeyRange{End: []byte{0x80}}, State: shardingcatalogpb.ShardState_SHARD_STATE_ACTIVE},
+					{ShardId: 3, TablegroupId: 2, Name: "80-inf", KeyRange: &clustermetadatapb.KeyRange{Start: []byte{0x80}}, State: shardingcatalogpb.ShardState_SHARD_STATE_ACTIVE},
+				},
+				Tables:       []*shardingcatalogpb.Table{{TableId: 10, SchemaName: "public", TableName: "orders", TablegroupId: 1}},
+				ShardIndices: []*shardingcatalogpb.ShardIndex{{ShardIndexId: 20, Name: "hash_xx", Type: "hash", Params: "{}"}},
+				// A preparing key: the one the table moves to, not yet its
+				// active primary key.
+				ShardKeys: []*shardingcatalogpb.ShardKey{{
+					ShardKeyId: 30, TableId: 10, ShardIndexId: 20, Name: "by_customer",
+					Role: shardingcatalogpb.ShardKeyRole_SHARD_KEY_ROLE_PRIMARY, State: shardingcatalogpb.ShardKeyState_SHARD_KEY_STATE_PREPARING,
 				}},
+				RoutingRules: []*shardingcatalogpb.RoutingRule{
+					{
+						RuleId: 4, OperationId: "op", Scope: shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLE,
+						FromTablegroupId: 1, FromTableId: proto.Int64(10), ToTablegroupId: 2, ToShardKeyId: proto.Int64(30), CreatedVersion: 6,
+					},
+					{
+						RuleId: 3, OperationId: "op", Scope: shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLEGROUP,
+						FromTablegroupId: 1, ToTablegroupId: 2, ToShardId: proto.Int64(2), CreatedVersion: 6,
+					},
+				},
 			},
 		}
 		resp, err := s.GetRoutingRules(ctx, &multiadminpb.GetRoutingRulesRequest{Database: "db1"})
 		require.NoError(t, err)
 		assert.Equal(t, int64(7), resp.GetRoutingVersion())
 		assert.Equal(t, int64(2), resp.GetPlanEpoch())
-		require.Len(t, resp.GetRules(), 1)
+		require.Len(t, resp.GetRules(), 2)
 		assert.True(t, proto.Equal(&multiadminpb.RoutingRule{
 			RuleId: 3, OperationId: "op", Scope: shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLEGROUP,
 			FromTablegroup: "default", ToTablegroup: "srctg", ToShard: "0-80",
 			ToKeyRange: &clustermetadatapb.KeyRange{End: []byte{0x80}}, CreatedVersion: 6,
 		}, resp.GetRules()[0]), "the rule's ids resolve to names: %v", resp.GetRules()[0])
+		assert.True(t, proto.Equal(&multiadminpb.RoutingRule{
+			RuleId: 4, OperationId: "op", Scope: shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLE,
+			FromTablegroup: "default", FromTable: &multiadminpb.RoutingTableName{Schema: "public", Name: "orders"},
+			ToTablegroup: "srctg", ToShardKey: "by_customer", CreatedVersion: 6,
+		}, resp.GetRules()[1]), "rules come in rule_id order, and a table rule names its table and shard key: %v", resp.GetRules()[1])
 		assert.Equal(t, "GetRoutingSnapshot("+string(leader)+")", fake.GetCallLog()[len(fake.GetCallLog())-1],
 			"the snapshot is read from the catalog primary")
+	})
+	t.Run("GetRoutingRules refuses an invalid snapshot", func(t *testing.T) {
+		// A rule whose target shard does not exist cannot be named.
+		fake.GetRoutingSnapshotResponses[leader] = &multipoolermanagerdatapb.GetRoutingSnapshotResponse{
+			Snapshot: &shardingcatalogpb.Snapshot{
+				Tablegroups: []*shardingcatalogpb.TableGroup{{TablegroupId: 1, Name: "default", State: shardingcatalogpb.TableGroupState_TABLE_GROUP_STATE_ACTIVE}},
+				Shards:      []*shardingcatalogpb.Shard{{ShardId: 1, TablegroupId: 1, Name: "0-inf", KeyRange: &clustermetadatapb.KeyRange{}, State: shardingcatalogpb.ShardState_SHARD_STATE_ACTIVE}},
+				RoutingRules: []*shardingcatalogpb.RoutingRule{{
+					RuleId: 3, OperationId: "op", Scope: shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLEGROUP,
+					FromTablegroupId: 1, ToTablegroupId: 1, ToShardId: proto.Int64(99),
+				}},
+			},
+		}
+		_, err := s.GetRoutingRules(ctx, &multiadminpb.GetRoutingRulesRequest{Database: "db1"})
+		require.Error(t, err)
+		assert.Equal(t, codes.Internal, status.Code(err))
+		assert.Contains(t, err.Error(), "routing rule 3 refers to shard 99")
 	})
 }
 

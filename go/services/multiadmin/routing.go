@@ -20,10 +20,10 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/shardingcatalog"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiadminpb "github.com/multigres/multigres/go/pb/multiadmin"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	shardingcatalogpb "github.com/multigres/multigres/go/pb/shardingcatalog"
 )
 
 // The routing RPCs are thin forwarders to the primary of the database's
@@ -58,51 +58,36 @@ func (s *MultiadminServer) GetRoutingRules(ctx context.Context, req *multiadminp
 	if resp.GetSnapshot() == nil {
 		return nil, status.Errorf(codes.Internal, "the catalog primary of database %q returned no snapshot", req.GetDatabase())
 	}
-	return routingRulesOf(resp.GetSnapshot()), nil
+	snap, err := shardingcatalog.New(resp.GetSnapshot())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "the catalog primary of database %q served an invalid sharding catalog snapshot: %v", req.GetDatabase(), err)
+	}
+	return routingRulesOf(snap), nil
 }
 
-// routingRulesOf returns snap's versions and rules, naming each rule's
-// tablegroups, table, shard and shard key. An id the snapshot does not
-// contain resolves to an empty name.
-func routingRulesOf(snap *shardingcatalogpb.Snapshot) *multiadminpb.GetRoutingRulesResponse {
-	tablegroups := map[int64]string{}
-	for _, tg := range snap.GetTablegroups() {
-		tablegroups[tg.GetTablegroupId()] = tg.GetName()
-	}
-	shards := map[int64]*shardingcatalogpb.Shard{}
-	for _, sh := range snap.GetShards() {
-		shards[sh.GetShardId()] = sh
-	}
-	tables := map[int64]*shardingcatalogpb.Table{}
-	for _, t := range snap.GetTables() {
-		tables[t.GetTableId()] = t
-	}
-	shardKeys := map[int64]string{}
-	for _, k := range snap.GetShardKeys() {
-		shardKeys[k.GetShardKeyId()] = k.GetName()
-	}
-
-	out := &multiadminpb.GetRoutingRulesResponse{RoutingVersion: snap.GetRoutingVersion(), PlanEpoch: snap.GetPlanEpoch()}
-	for _, r := range snap.GetRoutingRules() {
+// routingRulesOf returns snap's versions and rules, with each rule's
+// tablegroups, table, shard and shard key named as the read model resolved
+// them.
+func routingRulesOf(snap *shardingcatalog.Snapshot) *multiadminpb.GetRoutingRulesResponse {
+	out := &multiadminpb.GetRoutingRulesResponse{RoutingVersion: snap.RoutingVersion(), PlanEpoch: snap.PlanEpoch()}
+	for _, r := range snap.RoutingRules() {
 		rule := &multiadminpb.RoutingRule{
-			RuleId:         r.GetRuleId(),
-			OperationId:    r.GetOperationId(),
-			Scope:          r.GetScope(),
-			FromTablegroup: tablegroups[r.GetFromTablegroupId()],
-			ToTablegroup:   tablegroups[r.GetToTablegroupId()],
-			CreatedVersion: r.GetCreatedVersion(),
+			RuleId:         r.ID(),
+			OperationId:    r.OperationID(),
+			Scope:          r.Scope(),
+			FromTablegroup: r.FromTableGroup().Name(),
+			ToTablegroup:   r.ToTableGroup().Name(),
+			CreatedVersion: r.CreatedVersion(),
 		}
-		if r.FromTableId != nil {
-			t := tables[r.GetFromTableId()]
-			rule.FromTable = &multiadminpb.RoutingTableName{Schema: t.GetSchemaName(), Name: t.GetTableName()}
+		if t := r.FromTable(); t != nil {
+			rule.FromTable = &multiadminpb.RoutingTableName{Schema: t.Schema(), Name: t.Name()}
 		}
-		if r.ToShardId != nil {
-			sh := shards[r.GetToShardId()]
-			rule.ToShard = sh.GetName()
-			rule.ToKeyRange = sh.GetKeyRange()
+		if sh := r.ToShard(); sh != nil {
+			rule.ToShard = sh.Name()
+			rule.ToKeyRange = sh.KeyRange()
 		}
-		if r.ToShardKeyId != nil {
-			rule.ToShardKey = shardKeys[r.GetToShardKeyId()]
+		if k := r.ToShardKey(); k != nil {
+			rule.ToShardKey = k.Name()
 		}
 		out.Rules = append(out.Rules, rule)
 	}
