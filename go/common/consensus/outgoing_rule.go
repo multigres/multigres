@@ -38,6 +38,18 @@ type observedOutgoingRule struct {
 	basis revocationBasis
 }
 
+// recruitsRecordingRule returns all recruits that record the outgoing position,
+// whether or not they are members of the rule's cohort.
+func (o observedOutgoingRule) recruitsRecordingRule() []*clustermetadatapb.ConsensusStatus {
+	var recording []*clustermetadatapb.ConsensusStatus
+	for _, cs := range o.recruited {
+		if NewRuleTransition(cs.GetCurrentPosition().GetPosition()).Compare(o.transition) == 0 {
+			recording = append(recording, cs)
+		}
+	}
+	return recording
+}
+
 // discoverOutgoingRule finds the outgoing rule among recruited and checks that
 // it is the rule number the revocation expects.
 func discoverOutgoingRule(
@@ -125,10 +137,11 @@ func (o observedOutgoingRule) proveRevokedByCert() error {
 //
 // That is the cohort every competing coordinator recruits for this term,
 // whichever rule it believes is outgoing, so a recruited majority forces
-// overlap with all of them. Its leftovers also cannot commit, so no write that
-// is durable under the outgoing rule is invisible to the recruits: while a
-// proposal is undecided, a write needs the "Both" policy of the decision and the
-// proposal, and the cohort of that policy lies within the decision's.
+// overlap with all of them.
+//
+// An undecided proposal may in fact be decided elsewhere, after which writes
+// commit under its policy alone, so unless the recruits show it cannot have
+// been decided, its cohort must be frozen as well.
 func (o observedOutgoingRule) proveRevokedByRecruitment() error {
 	decision := o.transition.Decision()
 	policy, err := NewPolicyFromProto(decision.GetDurabilityPolicy())
@@ -139,7 +152,51 @@ func (o observedOutgoingRule) proveRevokedByRecruitment() error {
 	if err := CheckSufficientRecruitment(policy, cohort, statusesToIDs(filterCohortStatuses(cohort, o.recruited))); err != nil {
 		return fmt.Errorf("insufficient outgoing cohort recruitment: %w", err)
 	}
+	if o.transition.IsDecided() {
+		return nil
+	}
+	return o.proveProposalFrozen(policy)
+}
+
+// proveProposalFrozen requires the unrecruited members of the undecided
+// proposal's cohort to be unable to commit under its policy, unless the
+// proposal cannot have been decided.
+func (o observedOutgoingRule) proveProposalFrozen(decisionPolicy DurabilityPolicy) error {
+	decision := o.transition.Decision()
+	proposal := o.transition.Proposal()
+	proposalPolicy, err := NewPolicyFromProto(proposal.GetDurabilityPolicy())
+	if err != nil {
+		return fmt.Errorf("failed to parse durability policy from rule: %w", err)
+	}
+	transition, err := BuildPolicyTransition(
+		PolicyWithCohort{Policy: decisionPolicy, Cohort: decision.GetCohortMembers()},
+		PolicyWithCohort{Policy: proposalPolicy, Cohort: proposal.GetCohortMembers()},
+	)
+	if err != nil {
+		// Promote can never decide such a proposal, so nothing can commit under it.
+		// A RecruitmentResult can only be built through checkRecruitsCanFinalizeProposal,
+		// which rejects it.
+		return nil //nolint:nilerr // rejected as undecidable, not by this safety check
+	}
+	if !o.proposalMayBeDecided(transition.Both) {
+		return nil
+	}
+	cohort := proposal.GetCohortMembers()
+	recruited := statusesToIDs(filterCohortStatuses(cohort, o.recruited))
+	if err := checkUnrecruitedCannotCommit(proposalPolicy, cohort, recruited); err != nil {
+		return fmt.Errorf("insufficient undecided proposal cohort recruitment: %w", err)
+	}
 	return nil
+}
+
+// proposalMayBeDecided reports whether the proposal could have been decided
+// under both: only the recruits that record it and the unrecruited members of
+// both's cohort could have acknowledged it. Other recruits are fenced.
+func (o observedOutgoingRule) proposalMayBeDecided(both PolicyWithCohort) bool {
+	recruited := statusesToIDs(filterCohortStatuses(both.Cohort, o.recruited))
+	holders := statusesToIDs(filterCohortStatuses(both.Cohort, o.recruitsRecordingRule()))
+	possible := append(holders, unrecruitedOf(normalizeIDs(both.Cohort), normalizeIDs(recruited))...)
+	return both.Policy.SatisfiedBy(possible) == nil
 }
 
 // finalizableOutgoingRule is a revokedOutgoingRule that the recruits can also
