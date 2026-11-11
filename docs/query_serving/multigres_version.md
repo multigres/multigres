@@ -24,13 +24,10 @@ psql> SELECT multigres.version();
 (1 row)
 ```
 
-Minigres reports itself as a product of its own, under its own schema:
-`SHOW minigres.server_version` and `SELECT minigres.version()`, whose full string
-starts with `Minigres` (`Minigres 0.1.0-SNAPSHOT (...)`). Each product answers
-only its own names: in Minigres, `multigres.version()` and
-`multigres.server_version` reach PostgreSQL and fail like any unknown function
-or parameter, and the same holds for the `minigres` names in Multigres. The rest
-of this page uses the Multigres names.
+In Minigres the names are the same, and the full string starts with `Minigres`
+instead of `Multigres` (`Minigres 0.1.0-SNAPSHOT (...)`), so a client can tell
+which product it is talking to. `SHOW multigres.server_version` returns the same
+short release version in both.
 
 Both work in the simple and extended (prepared-statement) query protocols.
 `SHOW multigres.server_version` is answered entirely by the gateway;
@@ -154,8 +151,7 @@ a stable property of the commit.
 
 The **full** string (`servenv.AppVersion()`) starts with the product name
 (`Multigres`, or `Minigres` in the minigres binary, which sets it with
-`servenv.SetProductName`; the same name, lowercased, is the schema of both
-surfaces, `servenv.VersionSchema()`) and follows that release version with the binary's VCS
+`servenv.SetProductName`) and follows that release version with the binary's VCS
 identity — revision, a `modified` marker for a dirty tree, commit date, and Go
 toolchain. This is the same build snapshot already used by
 the `/version` HTTP endpoint and the OpenTelemetry `service.version` attribute.

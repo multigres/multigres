@@ -92,31 +92,23 @@ func applyBuildFallbacks(snap *buildSnapshot, revision, date string) {
 	}
 }
 
-// productName names the product in AppVersion and, lowercased, the SQL schema
-// of the gateway's version surfaces (see VersionSchema). It is "Multigres"
+// productName names the product at the start of AppVersion. It is "Multigres"
 // unless the binary sets another name with SetProductName.
 var productName = "Multigres"
 
-// SetProductName sets the product a binary reports itself as, for a binary that
-// packages Multigres as a product of its own: minigres sets "Minigres", so it
-// answers `SELECT minigres.version()` with "Minigres 0.1.0 ...". Call it once,
-// before the process serves anything.
+// SetProductName sets the product named at the start of AppVersion, for a
+// binary that packages Multigres as a product of its own: minigres sets
+// "Minigres", so `SELECT multigres.version()` returns "Minigres 0.1.0 ...". The
+// SQL names stay the same. Call it once, before the process serves anything.
 func SetProductName(name string) {
 	productName = name
 }
 
-// VersionSchema returns the SQL schema of the gateway's version surfaces,
-// `<schema>.version()` and `SHOW <schema>.server_version`: the product name in
-// lowercase, "multigres" unless SetProductName set another.
-func VersionSchema() string {
-	return strings.ToLower(productName)
-}
-
 // Version returns the short release version (versionName, e.g. "0.1.0-SNAPSHOT").
-// It is the value reported by `SHOW multigres.server_version` (see
-// VersionSchema), mirroring PostgreSQL's server_version. The full build string
-// — release version plus VCS revision, commit date, and Go toolchain — is
-// AppVersion, reported by `SELECT multigres.version()`.
+// It is the value reported by `SHOW multigres.server_version`, mirroring PostgreSQL's
+// server_version. The full build string — release version plus VCS revision,
+// commit date, and Go toolchain — is AppVersion, reported by
+// `SELECT multigres.version()`.
 func Version() string {
 	return versionName
 }

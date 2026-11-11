@@ -139,19 +139,6 @@ func TestFormatAppVersionProduct(t *testing.T) {
 	}
 }
 
-// TestVersionSchema checks the version surfaces' schema follows the product
-// name.
-func TestVersionSchema(t *testing.T) {
-	if got := VersionSchema(); got != "multigres" {
-		t.Errorf("VersionSchema() = %q, want %q", got, "multigres")
-	}
-	SetProductName("Minigres")
-	t.Cleanup(func() { SetProductName("Multigres") })
-	if got := VersionSchema(); got != "minigres" {
-		t.Errorf("VersionSchema() after SetProductName(\"Minigres\") = %q, want %q", got, "minigres")
-	}
-}
-
 // TestAppVersion smoke-tests the exported entry point against the test binary's
 // own build info: it must always start with "Multigres" and never be empty.
 func TestAppVersion(t *testing.T) {

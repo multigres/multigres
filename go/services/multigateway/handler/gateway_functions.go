@@ -26,8 +26,7 @@ import (
 
 // Gateway-provided SQL functions have no backend implementation, so the gateway
 // folds them into constants before the query reaches PostgreSQL. Currently only
-// `multigres.version()` (`minigres.version()` in Minigres: the schema is
-// servenv.VersionSchema), folded to a text constant of the version — which means it
+// `multigres.version()`, folded to a text constant of the version — which means it
 // works in ANY expression position (target list, WHERE, function argument, ...)
 // and as a FROM item, in both the simple and extended protocols, unlike a
 // standalone-only interception.
@@ -40,11 +39,11 @@ import (
 // string, uses foldGatewayFunctions.
 
 // containsGatewayFunction is a cheap pre-check: the only gateway function lives
-// in the version schema, so a query that never names it can't contain one.
+// in the `multigres` schema, so a query that never names it can't contain one.
 // It lets callers skip the AST walk (and, for foldGatewayFunctions, the parse)
 // for the overwhelming majority of queries.
 func containsGatewayFunction(sql string) bool {
-	return strings.Contains(strings.ToLower(sql), servenv.VersionSchema())
+	return strings.Contains(strings.ToLower(sql), constants.MultigresSchema)
 }
 
 // foldGatewayFunctionsInStatements folds gateway functions in the already-parsed
@@ -57,12 +56,11 @@ func containsGatewayFunction(sql string) bool {
 // a definition PostgreSQL keeps (see errVersionInStoredDefinition).
 func foldGatewayFunctionsInStatements(stmts []ast.Stmt) (bool, error) {
 	version := servenv.AppVersion()
-	schema := servenv.VersionSchema()
 	changed := false
 	for _, stmt := range stmts {
-		if foldVersion(stmt, schema, version) {
+		if foldMultigresVersion(stmt, version) {
 			if !evaluatedWhenRun(stmt) {
-				return false, errVersionInStoredDefinition(schema)
+				return false, errVersionInStoredDefinition()
 			}
 			changed = true
 		}
@@ -119,16 +117,15 @@ func evaluatedWhenRun(stmt ast.Node) bool {
 	return false
 }
 
-// errVersionInStoredDefinition rejects <schema>.version() in a statement that is
+// errVersionInStoredDefinition rejects multigres.version() in a statement that is
 // not evaluatedWhenRun. PostgreSQL would store the call and evaluate it each time
 // the definition is used; the fold would store this gateway's version instead,
 // which silently goes stale after an upgrade. A generated column or index
 // expression would also be accepted where PostgreSQL rejects version(), which is
 // not immutable.
-func errVersionInStoredDefinition(schema string) error {
-	fn := schema + "." + constants.MultigresVersionFunction + "()"
-	err := mterrors.NewFeatureNotSupported(fn + " can only be used in queries and data-modifying statements")
-	err.Detail = "The gateway replaces " + fn + " with its version string, so a definition PostgreSQL stores (a view, default, constraint, index, or function body) would keep this version after an upgrade."
+func errVersionInStoredDefinition() error {
+	err := mterrors.NewFeatureNotSupported("multigres.version() can only be used in queries and data-modifying statements")
+	err.Detail = "The gateway replaces multigres.version() with its version string, so a definition PostgreSQL stores (a view, default, constraint, index, or function body) would keep this version after an upgrade."
 	return err
 }
 
@@ -142,7 +139,7 @@ func renderStatements(stmts []ast.Stmt) string {
 	return strings.Join(parts, "; ")
 }
 
-// foldVersion replaces every `<schema>.version()` call in stmt with a
+// foldMultigresVersion replaces every `multigres.version()` call in stmt with a
 // text constant of version, returning whether it changed anything. When the call
 // is a bare top-level target with no alias it also sets the column label to
 // `version`, so the result matches what a real `version()` would be labelled
@@ -153,14 +150,14 @@ func renderStatements(stmts []ast.Stmt) string {
 // the call becomes versionFromItem instead. `CALL multigres.version()` names a
 // procedure rather than evaluating an expression, so it is left for the backend
 // to reject.
-func foldVersion(stmt ast.Stmt, schema, version string) bool {
+func foldMultigresVersion(stmt ast.Stmt, version string) bool {
 	changed := false
 	ast.Rewrite(stmt, func(cursor *ast.Cursor) bool {
 		switch n := cursor.Node().(type) {
 		case *ast.ResTarget:
 			// Label a bare call `version`, as PostgreSQL labels version(). The
 			// FuncCall case below replaces it.
-			if fc, ok := n.Val.(*ast.FuncCall); ok && n.Name == "" && isVersionFunc(fc, schema) {
+			if fc, ok := n.Val.(*ast.FuncCall); ok && n.Name == "" && isMultigresVersionFunc(fc) {
 				n.Name = constants.MultigresVersionFunction
 			}
 		case *ast.RangeFunction:
@@ -169,14 +166,14 @@ func foldVersion(stmt ast.Stmt, schema, version string) bool {
 			// expressions, folded as the walk continues.
 			for _, item := range n.Functions.Items {
 				pair := item.(*ast.NodeList)
-				if fc, _ := pair.Items[0].(*ast.FuncCall); isVersionFunc(fc, schema) {
+				if fc, _ := pair.Items[0].(*ast.FuncCall); isMultigresVersionFunc(fc) {
 					pair.Items[0] = versionFromItem(version)
 					changed = true
 				}
 			}
 		case *ast.FuncCall:
 			// Anywhere else it is an expression, except the procedure name of CALL.
-			if _, isCall := cursor.Parent().(*ast.CallStmt); !isCall && isVersionFunc(n, schema) {
+			if _, isCall := cursor.Parent().(*ast.CallStmt); !isCall && isMultigresVersionFunc(n) {
 				cursor.Replace(versionText(version))
 				changed = true
 			}
@@ -218,10 +215,11 @@ func versionFromItem(version string) ast.Node {
 	return ast.NewTypeCast(ast.NewSubLink(ast.EXPR_SUBLINK, sel), ast.NewTypeName([]string{"text"}), 0)
 }
 
-// isVersionFunc reports whether fc is a zero-argument `<schema>.version()` call
-// (case-insensitive). The schema qualification is required so a bare
-// `version()` still routes to PostgreSQL and reports the backend version.
-func isVersionFunc(fc *ast.FuncCall, schema string) bool {
+// isMultigresVersionFunc reports whether fc is a zero-argument, schema-qualified
+// `multigres.version()` call (case-insensitive). The `multigres` schema
+// qualification is required so a bare `version()` still routes to PostgreSQL and
+// reports the backend version.
+func isMultigresVersionFunc(fc *ast.FuncCall) bool {
 	if fc == nil || (fc.Args != nil && fc.Args.Len() > 0) {
 		return false
 	}
@@ -229,7 +227,7 @@ func isVersionFunc(fc *ast.FuncCall, schema string) bool {
 	if fn == nil || fn.Len() != 2 {
 		return false
 	}
-	return funcNamePart(fn.Items[0]) == schema &&
+	return funcNamePart(fn.Items[0]) == constants.MultigresSchema &&
 		funcNamePart(fn.Items[1]) == constants.MultigresVersionFunction
 }
 
