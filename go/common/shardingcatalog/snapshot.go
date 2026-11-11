@@ -43,6 +43,8 @@ type Snapshot struct {
 	tableGroupsByID   map[int64]*TableGroup
 	tableGroupsByName map[string]*TableGroup
 	tables            map[tableName]*Table
+	// routingRules is every routing rule, ordered by id.
+	routingRules []*RoutingRule
 }
 
 // tableName keys Snapshot.tables. It is unexported on purpose: callers look a
@@ -123,9 +125,9 @@ type RoutingRule struct {
 	toTableGroup *TableGroup
 	// toShard is the target of a shard rule, nil for a table rule.
 	toShard *Shard
-	// toShardKeyID is the catalog id of the shard key a table rule places
-	// its table by, 0 when there is none.
-	toShardKeyID   int64
+	// toShardKey is the shard key a table rule places its table by, nil when
+	// there is none.
+	toShardKey     *ShardKey
 	createdVersion int64
 }
 
@@ -220,12 +222,12 @@ func New(pb *shardingcatalogpb.Snapshot) (*Snapshot, error) {
 		}
 	}
 
-	keyIDs := make(map[int64]struct{}, len(pb.GetShardKeys()))
+	// keys is every shard key, in any role and state, by id.
+	keys := make(map[int64]*ShardKey, len(pb.GetShardKeys()))
 	for _, k := range pb.GetShardKeys() {
-		if _, dup := keyIDs[k.GetShardKeyId()]; dup {
+		if _, dup := keys[k.GetShardKeyId()]; dup {
 			return nil, mterrors.NewInvalidShardingCatalogSnapshot("shard key id %d is repeated", k.GetShardKeyId())
 		}
-		keyIDs[k.GetShardKeyId()] = struct{}{}
 		table, ok := tablesByID[k.GetTableId()]
 		if !ok {
 			return nil, mterrors.NewInvalidShardingCatalogSnapshot("shard key %d refers to table %d, which does not exist", k.GetShardKeyId(), k.GetTableId())
@@ -234,14 +236,7 @@ func New(pb *shardingcatalogpb.Snapshot) (*Snapshot, error) {
 		if !ok {
 			return nil, mterrors.NewInvalidShardingCatalogSnapshot("shard key %d refers to shard index %d, which does not exist", k.GetShardKeyId(), k.GetShardIndexId())
 		}
-		if k.GetRole() != shardingcatalogpb.ShardKeyRole_SHARD_KEY_ROLE_PRIMARY || k.GetState() != shardingcatalogpb.ShardKeyState_SHARD_KEY_STATE_ACTIVE {
-			continue
-		}
-		if table.primaryKey != nil {
-			return nil, mterrors.NewInvalidShardingCatalogSnapshot("table %q.%q has two active primary shard keys, %d and %d",
-				table.schema, table.name, table.primaryKey.id, k.GetShardKeyId())
-		}
-		table.primaryKey = &ShardKey{
+		key := &ShardKey{
 			id:         k.GetShardKeyId(),
 			name:       k.GetName(),
 			role:       k.GetRole(),
@@ -249,9 +244,18 @@ func New(pb *shardingcatalogpb.Snapshot) (*Snapshot, error) {
 			columns:    slices.Clone(k.GetColumns()),
 			shardIndex: index,
 		}
+		keys[key.id] = key
+		if key.role != shardingcatalogpb.ShardKeyRole_SHARD_KEY_ROLE_PRIMARY || key.state != shardingcatalogpb.ShardKeyState_SHARD_KEY_STATE_ACTIVE {
+			continue
+		}
+		if table.primaryKey != nil {
+			return nil, mterrors.NewInvalidShardingCatalogSnapshot("table %q.%q has two active primary shard keys, %d and %d",
+				table.schema, table.name, table.primaryKey.id, key.id)
+		}
+		table.primaryKey = key
 	}
 
-	if err := s.addRoutingRules(pb.GetRoutingRules(), tablesByID, keyIDs); err != nil {
+	if err := s.addRoutingRules(pb.GetRoutingRules(), tablesByID, keys); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -259,7 +263,7 @@ func New(pb *shardingcatalogpb.Snapshot) (*Snapshot, error) {
 
 // addRoutingRules attaches every routing rule to its source, checking ids,
 // references and that each rule's scope matches the fields it sets.
-func (s *Snapshot) addRoutingRules(rules []*shardingcatalogpb.RoutingRule, tablesByID map[int64]*Table, keyIDs map[int64]struct{}) error {
+func (s *Snapshot) addRoutingRules(rules []*shardingcatalogpb.RoutingRule, tablesByID map[int64]*Table, keys map[int64]*ShardKey) error {
 	shardsByID := make(map[int64]*Shard)
 	for _, g := range s.tableGroups {
 		for _, sh := range g.shards {
@@ -290,10 +294,11 @@ func (s *Snapshot) addRoutingRules(rules []*shardingcatalogpb.RoutingRule, table
 			createdVersion: r.GetCreatedVersion(),
 		}
 		if r.ToShardKeyId != nil {
-			if _, ok := keyIDs[r.GetToShardKeyId()]; !ok {
+			key, ok := keys[r.GetToShardKeyId()]
+			if !ok {
 				return mterrors.NewInvalidShardingCatalogSnapshot("routing rule %d refers to shard key %d, which does not exist", id, r.GetToShardKeyId())
 			}
-			rule.toShardKeyID = r.GetToShardKeyId()
+			rule.toShardKey = key
 		}
 
 		switch r.GetScope() {
@@ -327,7 +332,9 @@ func (s *Snapshot) addRoutingRules(rules []*shardingcatalogpb.RoutingRule, table
 		default:
 			return mterrors.NewInvalidShardingCatalogSnapshot("routing rule %d has unknown scope %s", id, r.GetScope())
 		}
+		s.routingRules = append(s.routingRules, rule)
 	}
+	slices.SortFunc(s.routingRules, func(a, b *RoutingRule) int { return cmp.Compare(a.id, b.id) })
 	for _, g := range s.tableGroups {
 		slices.SortFunc(g.shardRules, func(a, b *RoutingRule) int {
 			return bytes.Compare(a.toShard.keyRange.GetStart(), b.toShard.keyRange.GetStart())
@@ -427,6 +434,10 @@ func (s *Snapshot) PlanEpoch() int64 { return s.planEpoch }
 
 // TableGroups returns every tablegroup, in any state, ordered by id.
 func (s *Snapshot) TableGroups() []*TableGroup { return s.tableGroups }
+
+// RoutingRules returns every routing rule, shard and table rules alike,
+// ordered by id.
+func (s *Snapshot) RoutingRules() []*RoutingRule { return s.routingRules }
 
 // TableGroupByName returns the tablegroup with the given name, in any state.
 func (s *Snapshot) TableGroupByName(name string) (*TableGroup, bool) {
@@ -581,9 +592,9 @@ func (r *RoutingRule) ToTableGroup() *TableGroup { return r.toTableGroup }
 // ToShard is the shard a shard rule routes to, nil for a table rule.
 func (r *RoutingRule) ToShard() *Shard { return r.toShard }
 
-// ToShardKeyID is the catalog id of the shard key a table rule places its
-// table by, 0 when there is none.
-func (r *RoutingRule) ToShardKeyID() int64 { return r.toShardKeyID }
+// ToShardKey is the shard key a table rule places its table by, in any role
+// and state, nil when there is none.
+func (r *RoutingRule) ToShardKey() *ShardKey { return r.toShardKey }
 
 // CreatedVersion is the routing_version the rule was written at.
 func (r *RoutingRule) CreatedVersion() int64 { return r.createdVersion }
