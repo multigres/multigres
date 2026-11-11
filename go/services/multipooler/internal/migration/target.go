@@ -108,12 +108,10 @@ func (t *target) CheckDropPrivilege(ctx context.Context, tables []string, caller
 // message never names the connection, so a caller cannot use it to learn
 // whether a given connection name exists.
 //
-// pg_has_role errors outright if either role name does not exist as a
-// server role — rare but possible if ownerRole was dropped (or renamed)
-// after the connection recorded it. The LEFT JOIN turns a missing ownerRole
-// into a NULL fed to pg_has_role instead of the bare name, and pg_has_role
-// is STRICT (NULL in, NULL out, body never invoked) so it returns NULL
-// rather than erroring; the surrounding OR then still treats that as denied.
+// pg_has_role errors outright if ownerRole no longer exists as a server
+// role (e.g. dropped after the connection recorded it). The LEFT JOIN
+// feeds it NULL instead in that case, which the STRICT pg_has_role returns
+// NULL for rather than erroring, so the OR still treats it as denied.
 func (t *target) CheckConnectionOwnership(ctx context.Context, callerRole, ownerRole string) error {
 	sql := `SELECT 1
 FROM (VALUES ($2::name)) AS t(owner)
@@ -132,12 +130,9 @@ WHERE r.rolname IS NULL OR NOT pg_has_role($1::name, r.rolname, 'USAGE')`
 
 // DeniedConnectionOwners returns the subset of ownerRoles that callerRole
 // could NOT use, under the same privilege model CheckConnectionOwnership
-// checks (including its same handling of an ownerRole that no longer exists
-// as a server role) — one batched query instead of one round trip per owner
-// role, so ListConnections can filter every stored connection in a single
-// call regardless of how many distinct owners exist. Duplicate roles in
-// ownerRoles collapse naturally since the result is a set. An empty
-// ownerRoles returns an empty set without issuing a query.
+// checks — one batched query instead of one round trip per owner role, so
+// ListConnections can filter every stored connection in a single call. An
+// empty ownerRoles returns an empty set without issuing a query.
 func (t *target) DeniedConnectionOwners(ctx context.Context, callerRole string, ownerRoles []string) (map[string]bool, error) {
 	if len(ownerRoles) == 0 {
 		return nil, nil
