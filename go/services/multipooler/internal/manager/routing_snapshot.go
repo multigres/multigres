@@ -42,6 +42,8 @@ import (
 // the whole transaction serializes catalog writers, and taking it first in
 // every writer is the lock order: catalog_state, then the other catalog rows,
 // never the other way round. A writer must not begin its own transaction.
+// The one other catalog writer, ensureCatalogSchema, keeps the same lock
+// order and advances the versions as its migrations declare.
 //
 // The catalog primary also publishes the versions on its health stream (see
 // healthStreamer.observeCatalogVersions). It reads them only from committed
@@ -111,7 +113,8 @@ const catalogVersionsQuery = "SELECT routing_version, plan_epoch FROM multigres.
 
 // catalogChange is what a writeCatalog writer's change does to the catalog
 // versions. The transaction commits whichever it is; only an error from the
-// writer rolls it back.
+// writer rolls it back. Values are ordered by strength, so the max of several
+// changes is the change they make together (see ensureCatalogSchema).
 type catalogChange int
 
 const (
