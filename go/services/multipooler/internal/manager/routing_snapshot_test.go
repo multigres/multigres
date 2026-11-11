@@ -237,6 +237,7 @@ func TestCreateTableGroup_PublishesTheAdvancedVersion(t *testing.T) {
 	env.expect("INSERT INTO multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
 	env.expect("INSERT INTO multigres.shard", nil, nil)
 	env.expect("INSERT INTO multigres.operation", nil, nil)
+	env.expectCatalogRows()
 	env.expectAdvance(5)
 
 	_, err := env.pm.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "commerce"})
@@ -258,6 +259,7 @@ func TestCreateTableGroup_FailedCommitPublishesNothing(t *testing.T) {
 	env.expect("INSERT INTO multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
 	env.expect("INSERT INTO multigres.shard", nil, nil)
 	env.expect("INSERT INTO multigres.operation", nil, nil)
+	env.expectCatalogRows()
 	env.expectAdvance(5)
 	env.qs.AddQueryPatternWithError("^COMMIT$", errors.New("connection lost"))
 
@@ -351,6 +353,7 @@ func TestWriteCatalog(t *testing.T) {
 		hs := env.withHealthStreamer(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
 		env.expectLock()
 		env.expect("INSERT INTO multigres.tablegroup_table", nil, nil)
+		env.expectCatalogRows()
 		env.expectAdvance(9)
 		env.expectCommit()
 
@@ -362,6 +365,8 @@ func TestWriteCatalog(t *testing.T) {
 		assert.Equal(t, []string{
 			"SELECT routing_version FROM multigres.catalog_state FOR UPDATE",
 			"INSERT INTO multigres.tablegroup_table VALUES (1)",
+			snapshotTableGroupsQuery, snapshotShardsQuery, snapshotTablesQuery,
+			snapshotShardIndicesQuery, snapshotShardKeysQuery, snapshotShardKeyColumnsQuery,
 			"UPDATE multigres.catalog_state SET routing_version = routing_version + 1 RETURNING routing_version, plan_epoch",
 			"COMMIT",
 		}, env.queries)
@@ -372,6 +377,7 @@ func TestWriteCatalog(t *testing.T) {
 		hs := env.withHealthStreamer(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
 		env.expectLock()
 		env.expect("INSERT INTO multigres.tablegroup_table", nil, nil)
+		env.expectCatalogRows()
 		env.expect("SET routing_version = routing_version \\+ 1, plan_epoch = plan_epoch \\+ 1",
 			[]string{"routing_version", "plan_epoch"}, [][]any{{int64(9), int64(3)}})
 		env.expectCommit()
@@ -388,6 +394,7 @@ func TestWriteCatalog(t *testing.T) {
 	t.Run("a routing change leaves plan_epoch alone", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectLock()
+		env.expectCatalogRows()
 		env.expectAdvance(9)
 		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx) (catalogChange, error) {
 			return catalogRoutingChange, nil
@@ -415,6 +422,38 @@ func TestWriteCatalog(t *testing.T) {
 			"COMMIT",
 		}, env.queries, "the write is kept, and no version advances")
 		assert.Empty(t, updates, "nothing is published")
+	})
+	t.Run("a write that would leave an invalid snapshot rolls back", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		hs := env.withHealthStreamer(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+		env.expectLock()
+		env.expect("INSERT INTO multigres.shard", nil, nil)
+		// The write left commerce active with only the shard 0-80, which does
+		// not reach the end of the keyspace.
+		env.expect("FROM multigres.tablegroup ORDER BY", []string{"tablegroup_id", "name", "state"}, [][]any{
+			{int64(1), "default", "active"},
+			{int64(7), "commerce", "active"},
+		})
+		env.expect("FROM multigres.shard ORDER BY", []string{"shard_id", "tablegroup_id", "shard_name", "range_start", "range_end", "state"}, [][]any{
+			{int64(1), int64(1), "0-inf", "", "", "active"},
+			{int64(2), int64(7), "0-80", "", "80", "active"},
+		})
+		for _, table := range []string{"tablegroup_table", "shard_index", "shard_key", "shard_key_column"} {
+			env.expect("FROM multigres."+table+" ORDER BY", nil, nil)
+		}
+		env.expectCommit()
+
+		_, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx) (catalogChange, error) {
+			_, err := tx.Query(ctx, "INSERT INTO multigres.shard VALUES (2)")
+			return catalogRoutingChange, err
+		})
+		require.Error(t, err)
+		assert.Equal(t, mtrpcpb.Code_INTERNAL, mterrors.Code(err), "the writer is at fault, not its caller")
+		assert.Contains(t, err.Error(), "catalog write would leave an invalid routing snapshot")
+		assert.Contains(t, err.Error(), "does not cover the end of the keyspace")
+		assert.Empty(t, env.queriesMatching("routing_version + 1"))
+		assert.Empty(t, env.queriesMatching("COMMIT"))
+		assert.Zero(t, hs.getState().RoutingVersion)
 	})
 	t.Run("a writer error rolls back without advancing", func(t *testing.T) {
 		env := newCatalogTestEnv(t)

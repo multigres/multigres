@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/shardingcatalog"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -34,9 +35,10 @@ import (
 // transaction that changes what a snapshot contains, so two snapshots at the
 // same version are identical. Every catalog write goes through writeCatalog,
 // which owns that protocol: it locks the catalog_state row before the writer
-// touches anything else, advances the version once when the writer reports a
-// routing change (and plan_epoch with it when the change invalidates cached
-// plans), commits, and publishes the new versions. Writes outside the snapshot
+// touches anything else; when the writer reports a routing change, it checks
+// the resulting snapshot and advances the version once (and plan_epoch with it
+// when the change invalidates cached plans); then it commits and publishes the
+// new versions. Writes outside the snapshot
 // (operation rows, for instance) go through it too, and commit without
 // advancing anything. Holding the lock for
 // the whole transaction serializes catalog writers, and taking it first in
@@ -176,6 +178,9 @@ func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWri
 		return catalogVersions{}, mterrors.Errorf(mtrpcpb.Code_INTERNAL, "unknown catalog change %d", change)
 	}
 
+	if err := validateCatalogWrite(execCtx, tx); err != nil {
+		return catalogVersions{}, err
+	}
 	versions, err := advanceCatalogVersions(execCtx, tx, invalidatePlans)
 	if err != nil {
 		return catalogVersions{}, err
@@ -185,6 +190,25 @@ func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWri
 	}
 	pm.publishCatalogWrite(versions)
 	return versions, nil
+}
+
+// validateCatalogWrite reads the snapshot the writer's transaction would
+// commit, its own writes included, and checks it the way gateways do
+// (shardingcatalog.New). The catalog tables enforce none of the cross-row
+// rules (shard layouts, the default tablegroup, one active primary shard key
+// per table), so this is where a writer that breaks one fails, before its
+// change commits, rather than every gateway rejecting the snapshot after it.
+// Writes outside the snapshot skip it, so a catalog that is already invalid
+// never blocks bookkeeping.
+func validateCatalogWrite(ctx context.Context, tx executor.InternalTx) error {
+	snapshot, err := loadRoutingSnapshot(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if _, err := shardingcatalog.New(snapshot); err != nil {
+		return mterrors.WithCode(mterrors.Wrap(err, "catalog write would leave an invalid routing snapshot"), mtrpcpb.Code_INTERNAL)
+	}
+	return nil
 }
 
 // lockCatalogState locks the catalog_state row for the rest of the
@@ -266,12 +290,23 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 	return out, nil
 }
 
+// The statements loadRoutingSnapshot reads the catalog with, one per table.
+// NULL range bounds (the ends of the keyspace) read as empty text.
+const (
+	snapshotTableGroupsQuery     = "SELECT tablegroup_id, name, state FROM multigres.tablegroup ORDER BY tablegroup_id"
+	snapshotShardsQuery          = "SELECT shard_id, tablegroup_id, shard_name, coalesce(encode(range_start, 'hex'), ''), coalesce(encode(range_end, 'hex'), ''), state FROM multigres.shard ORDER BY shard_id"
+	snapshotTablesQuery          = "SELECT table_id, schema_name, table_name, tablegroup_id FROM multigres.tablegroup_table ORDER BY table_id"
+	snapshotShardIndicesQuery    = "SELECT shard_index_id, name, type, params::text, state FROM multigres.shard_index ORDER BY shard_index_id"
+	snapshotShardKeysQuery       = "SELECT shard_key_id, table_id, shard_index_id, name, role, state FROM multigres.shard_key ORDER BY shard_key_id"
+	snapshotShardKeyColumnsQuery = "SELECT shard_key_id, column_name FROM multigres.shard_key_column ORDER BY shard_key_id, position"
+)
+
 // loadRoutingSnapshot reads every catalog entity in the caller's transaction.
 // It leaves the versions for the caller to fill in.
 func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*shardingcatalogpb.Snapshot, error) {
 	s := &shardingcatalogpb.Snapshot{}
 
-	res, err := tx.Query(ctx, "SELECT tablegroup_id, name, state FROM multigres.tablegroup ORDER BY tablegroup_id")
+	res, err := tx.Query(ctx, snapshotTableGroupsQuery)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read tablegroups")
 	}
@@ -285,9 +320,7 @@ func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*sharding
 		s.Tablegroups = append(s.Tablegroups, &tg)
 	}
 
-	// NULL bounds (the ends of the keyspace) read as empty text.
-	res, err = tx.Query(ctx, "SELECT shard_id, tablegroup_id, shard_name, coalesce(encode(range_start, 'hex'), ''), coalesce(encode(range_end, 'hex'), ''), state "+
-		"FROM multigres.shard ORDER BY shard_id")
+	res, err = tx.Query(ctx, snapshotShardsQuery)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read shards")
 	}
@@ -309,7 +342,7 @@ func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*sharding
 		s.Shards = append(s.Shards, &sh)
 	}
 
-	res, err = tx.Query(ctx, "SELECT table_id, schema_name, table_name, tablegroup_id FROM multigres.tablegroup_table ORDER BY table_id")
+	res, err = tx.Query(ctx, snapshotTablesQuery)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read tables")
 	}
@@ -321,7 +354,7 @@ func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*sharding
 		s.Tables = append(s.Tables, &t)
 	}
 
-	res, err = tx.Query(ctx, "SELECT shard_index_id, name, type, params::text, state FROM multigres.shard_index ORDER BY shard_index_id")
+	res, err = tx.Query(ctx, snapshotShardIndicesQuery)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read shard indexes")
 	}
@@ -335,7 +368,7 @@ func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*sharding
 		s.ShardIndices = append(s.ShardIndices, &si)
 	}
 
-	res, err = tx.Query(ctx, "SELECT shard_key_id, table_id, shard_index_id, name, role, state FROM multigres.shard_key ORDER BY shard_key_id")
+	res, err = tx.Query(ctx, snapshotShardKeysQuery)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read shard keys")
 	}
@@ -352,7 +385,7 @@ func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*sharding
 		s.ShardKeys = append(s.ShardKeys, &k)
 	}
 
-	res, err = tx.Query(ctx, "SELECT shard_key_id, column_name FROM multigres.shard_key_column ORDER BY shard_key_id, position")
+	res, err = tx.Query(ctx, snapshotShardKeyColumnsQuery)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read shard key columns")
 	}
