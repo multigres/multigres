@@ -151,13 +151,21 @@ type catalogWriter func(ctx context.Context, tx executor.InternalTx, current cat
 
 // writeCatalog runs write in a catalog write transaction on the admin pool,
 // under tableGroupOpTimeout. See the file comment for the protocol it owns.
-// It returns the advanced versions, or for catalogNoSnapshotChange, where
-// nothing advances and nothing is published, the current versions unchanged.
+// It refuses to run unless this pooler is the elected primary of the catalog
+// shard, so no writer has to check that itself. It returns the advanced
+// versions, or for catalogNoSnapshotChange, where nothing advances and nothing
+// is published, the current versions unchanged.
 func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWriter) (catalogVersions, error) {
-	// The versions are published under the rule this pooler held when it
-	// began; a commit cannot succeed across a demotion, which makes postgres
-	// read-only.
-	rule := pm.routingRule()
+	if err := pm.checkCatalogShard(); err != nil {
+		return catalogVersions{}, err
+	}
+	// The versions are published under the rule this pooler is the primary
+	// under when it begins; a commit cannot succeed across a demotion, which
+	// makes postgres read-only.
+	rule, err := pm.catalogPrimaryRule(ctx)
+	if err != nil {
+		return catalogVersions{}, err
+	}
 	qs, err := pm.catalogQueryService()
 	if err != nil {
 		return catalogVersions{}, err

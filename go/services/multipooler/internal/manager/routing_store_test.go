@@ -249,12 +249,13 @@ func TestApplyRoutingRuleChange_WritesNothing(t *testing.T) {
 	}
 }
 
-// expectRoutingCatalog registers the catalog_state lock at
-// testRoutingCurrent, the routing store's catalog reads with the given rule
+// expectRoutingCatalog registers writeCatalog's catalog primary check, the
+// catalog_state lock at testRoutingCurrent, the routing store's catalog reads with the given rule
 // rows, its rule writes, the snapshot reads writeCatalog validates the write
 // with (the same catalog, whose rules read as the given rows), and COMMIT,
 // all recorded in env.queries.
 func (env *tableGroupTestEnv) expectRoutingCatalog(rules ...[]any) {
+	env.expectPrimary()
 	env.expect("FROM multigres.catalog_state FOR UPDATE", []string{"routing_version", "plan_epoch"},
 		[][]any{{testRoutingCurrent.routingVersion, testRoutingCurrent.planEpoch}})
 	for sql, res := range routingCatalogResults(rules...) {

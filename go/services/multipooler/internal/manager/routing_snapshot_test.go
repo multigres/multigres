@@ -516,6 +516,7 @@ func TestWriteCatalog(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, int64(9), v.routingVersion)
 		assert.Equal(t, []string{
+			"SELECT pg_is_in_recovery()",
 			"SELECT routing_version, plan_epoch FROM multigres.catalog_state FOR UPDATE",
 			"INSERT INTO multigres.tablegroup_table VALUES (1)",
 			snapshotTableGroupsQuery, snapshotShardsQuery, snapshotTablesQuery,
@@ -573,6 +574,7 @@ func TestWriteCatalog(t *testing.T) {
 		assert.Equal(t, catalogVersions{routingVersion: 4, planEpoch: 2}, got, "the writer sees the locked versions")
 		assert.Equal(t, got, v, "a write outside the snapshot returns the versions it found")
 		assert.Equal(t, []string{
+			"SELECT pg_is_in_recovery()",
 			"SELECT routing_version, plan_epoch FROM multigres.catalog_state FOR UPDATE",
 			"UPDATE multigres.operation SET last_error = 'x'",
 			"COMMIT",
@@ -637,6 +639,7 @@ func TestWriteCatalog(t *testing.T) {
 	})
 	t.Run("a failed lock runs nothing", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
+		env.expectPrimary()
 		env.qs.AddQueryPatternWithError("FROM multigres.catalog_state FOR UPDATE", errors.New("lock timeout"))
 		ran := false
 		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions) (catalogChange, error) {
@@ -645,5 +648,48 @@ func TestWriteCatalog(t *testing.T) {
 		})
 		require.ErrorContains(t, err, "failed to lock catalog state")
 		assert.False(t, ran)
+	})
+	// writeCatalog checks for the catalog primary itself, so a writer cannot
+	// skip it.
+	for _, tc := range []struct {
+		name  string
+		setup func(env *tableGroupTestEnv)
+		want  string
+	}{
+		{"standby", func(env *tableGroupTestEnv) {
+			env.expect("SELECT pg_is_in_recovery", []string{"pg_is_in_recovery"}, [][]any{{"t"}})
+		}, "standby mode"},
+		{"out of recovery but not the elected primary", func(env *tableGroupTestEnv) {
+			env.pm.stateManager = NewStateManager(env.pm.logger, env.pm.record, nilConsensusStatus)
+			env.pm.stateManager.pgMode = pgmode.Primary
+			env.expectPrimary()
+		}, "not the elected primary of the catalog shard"},
+	} {
+		t.Run("refused on a pooler that is "+tc.name, func(t *testing.T) {
+			env := newCatalogTestEnv(t)
+			tc.setup(env)
+			ran := false
+			_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions) (catalogChange, error) {
+				ran = true
+				return catalogRoutingChange, nil
+			})
+			require.Error(t, err)
+			assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+			assert.Contains(t, err.Error(), tc.want)
+			assert.False(t, ran)
+			assert.Empty(t, env.queriesMatching("catalog_state"), "nothing is locked")
+		})
+	}
+	t.Run("refused off the catalog shard", func(t *testing.T) {
+		env := newTableGroupTestEnv(t, "commerce", "0-80")
+		ran := false
+		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions) (catalogChange, error) {
+			ran = true
+			return catalogRoutingChange, nil
+		})
+		require.Error(t, err)
+		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+		assert.False(t, ran)
+		assert.Empty(t, env.queries)
 	})
 }

@@ -65,8 +65,7 @@ VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)`
 // changeRoutingRules validates change and, when it alters the operation's
 // rules, writes it through writeCatalog. It returns the versions after the
 // change; a change that is already in effect writes nothing and returns the
-// current versions. It is the only entry point for rule writes, and its
-// callers have checked that this pooler is the catalog primary.
+// current versions. It is the only entry point for rule writes.
 func (pm *MultipoolerManager) changeRoutingRules(ctx context.Context, change routingRuleChange) (catalogVersions, error) {
 	return pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, current catalogVersions) (catalogChange, error) {
 		return applyRoutingRuleChange(ctx, tx, current, change)
