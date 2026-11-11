@@ -76,6 +76,10 @@ func (f *fakeRoutingTx) writes() []fakeRoutingCall {
 // at, as writeCatalog would pass them.
 var testRoutingCurrent = catalogVersions{routingVersion: 5, planEpoch: 2}
 
+// testRoutingNext is the routing_version writeCatalog would commit a change
+// at when it found testRoutingCurrent.
+const testRoutingNext = int64(6)
+
 // newFakeRoutingTx returns the catalog reads of a catalog with the default
 // tablegroup, an import target srctg and a two-shard commerce, the import
 // operation, and the given rule rows.
@@ -159,8 +163,11 @@ func TestLoadRoutingCatalog_RejectsANonCanonicalShardName(t *testing.T) {
 }
 
 func TestApplyRoutingRuleChange_WritesRules(t *testing.T) {
+	// A next that is not current+1 shows the rules are stamped with the
+	// version writeCatalog passes, not one the store works out itself.
+	const next = int64(9)
 	tx := newFakeRoutingTx()
-	change, err := applyRoutingRuleChange(context.Background(), tx, testRoutingCurrent, routingRuleChange{
+	change, err := applyRoutingRuleChange(context.Background(), tx, testRoutingCurrent, next, routingRuleChange{
 		operationID:            importOp,
 		rules:                  []shardRuleSpec{{fromTablegroup: "default", toTablegroup: "srctg", toShard: "0-inf"}},
 		expectedRoutingVersion: 5,
@@ -172,7 +179,7 @@ func TestApplyRoutingRuleChange_WritesRules(t *testing.T) {
 	shardID := int64(2)
 	assert.Equal(t, []fakeRoutingCall{
 		{sql: deleteOperationRulesSQL, args: []any{importOp}},
-		{sql: insertRoutingRuleSQL, args: []any{importOp, routingScopeTablegroup, int64(1), nilID, int64(2), &shardID, nilID, int64(6)}},
+		{sql: insertRoutingRuleSQL, args: []any{importOp, routingScopeTablegroup, int64(1), nilID, int64(2), &shardID, nilID, next}},
 	}, tx.writes(), "rules are stamped with the version writeCatalog commits them at")
 }
 
@@ -180,7 +187,7 @@ func TestApplyRoutingRuleChange_InvalidatesPlans(t *testing.T) {
 	// default has one shard; spreading it over commerce's two changes how a
 	// query on it may be planned.
 	tx := newFakeRoutingTx()
-	change, err := applyRoutingRuleChange(context.Background(), tx, testRoutingCurrent, routingRuleChange{
+	change, err := applyRoutingRuleChange(context.Background(), tx, testRoutingCurrent, testRoutingNext, routingRuleChange{
 		operationID:            importOp,
 		rules:                  []shardRuleSpec{{"default", "commerce", "0-80"}, {"default", "commerce", "80-inf"}},
 		expectedRoutingVersion: 5,
@@ -192,7 +199,7 @@ func TestApplyRoutingRuleChange_InvalidatesPlans(t *testing.T) {
 
 func TestApplyRoutingRuleChange_Delete(t *testing.T) {
 	tx := newFakeRoutingTx([]any{7, importOp, routingScopeTablegroup, 1, nil, 2, 2, nil, 5})
-	change, err := applyRoutingRuleChange(context.Background(), tx, testRoutingCurrent, routingRuleChange{operationID: importOp, expectedRoutingVersion: 5})
+	change, err := applyRoutingRuleChange(context.Background(), tx, testRoutingCurrent, testRoutingNext, routingRuleChange{operationID: importOp, expectedRoutingVersion: 5})
 	require.NoError(t, err)
 	assert.Equal(t, catalogRoutingChange, change)
 	assert.Equal(t, []fakeRoutingCall{
@@ -231,7 +238,7 @@ func TestApplyRoutingRuleChange_WritesNothing(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tx := newFakeRoutingTx(tt.rules...)
-			change, err := applyRoutingRuleChange(context.Background(), tx, testRoutingCurrent, tt.change)
+			change, err := applyRoutingRuleChange(context.Background(), tx, testRoutingCurrent, testRoutingNext, tt.change)
 			if tt.code != mtrpcpb.Code_OK {
 				require.Error(t, err)
 				assert.Equal(t, tt.code, mterrors.Code(err), "error: %v", err)

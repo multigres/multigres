@@ -226,7 +226,7 @@ func (pm *MultipoolerManager) CreateTableGroup(ctx context.Context, req *multipo
 
 	var resp *multipoolermanagerdatapb.CreateTableGroupResponse
 	var change catalogChange
-	versions, err := pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, _ catalogVersions) (catalogChange, error) {
+	versions, err := pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {
 		var err error
 		resp, change, err = createTableGroupTx(ctx, tx, req, ranges, layout)
 		return change, err

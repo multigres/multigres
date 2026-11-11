@@ -507,14 +507,17 @@ func TestWriteCatalog(t *testing.T) {
 		env.expectLock()
 		env.expect("INSERT INTO multigres.tablegroup_table", nil, nil)
 		env.expectCatalogRows()
-		env.expectAdvance(9)
+		env.expectAdvance(5)
 		env.expectCommit()
 
-		v, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx, _ catalogVersions) (catalogChange, error) {
+		var gotNext int64
+		v, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, next int64) (catalogChange, error) {
+			gotNext = next
 			return catalogRoutingChange, writeRow(ctx, tx)
 		})
 		require.NoError(t, err)
-		assert.Equal(t, int64(9), v.routingVersion)
+		assert.Equal(t, int64(5), gotNext, "the writer is given the version its change commits at")
+		assert.Equal(t, int64(5), v.routingVersion)
 		assert.Equal(t, []string{
 			"SELECT pg_is_in_recovery()",
 			"SELECT routing_version, plan_epoch FROM multigres.catalog_state FOR UPDATE",
@@ -524,7 +527,7 @@ func TestWriteCatalog(t *testing.T) {
 			"UPDATE multigres.catalog_state SET routing_version = routing_version + 1 RETURNING routing_version, plan_epoch",
 			"COMMIT",
 		}, env.queries)
-		assert.Equal(t, int64(9), hs.getState().RoutingVersion)
+		assert.Equal(t, int64(5), hs.getState().RoutingVersion)
 	})
 	t.Run("a change that invalidates plans advances plan_epoch too", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
@@ -533,14 +536,14 @@ func TestWriteCatalog(t *testing.T) {
 		env.expect("INSERT INTO multigres.tablegroup_table", nil, nil)
 		env.expectCatalogRows()
 		env.expect("SET routing_version = routing_version \\+ 1, plan_epoch = plan_epoch \\+ 1",
-			[]string{"routing_version", "plan_epoch"}, [][]any{{int64(9), int64(3)}})
+			[]string{"routing_version", "plan_epoch"}, [][]any{{int64(5), int64(3)}})
 		env.expectCommit()
 
-		v, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx, _ catalogVersions) (catalogChange, error) {
+		v, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {
 			return catalogInvalidatesPlans, writeRow(ctx, tx)
 		})
 		require.NoError(t, err)
-		assert.Equal(t, catalogVersions{routingVersion: 9, planEpoch: 3}, v)
+		assert.Equal(t, catalogVersions{routingVersion: 5, planEpoch: 3}, v)
 		assert.Len(t, env.queriesMatching("UPDATE multigres.catalog_state"), 1, "both advance in one statement")
 		assert.Equal(t, "COMMIT", env.queries[len(env.queries)-1])
 		assert.Equal(t, int64(3), hs.getState().PlanEpoch)
@@ -549,8 +552,8 @@ func TestWriteCatalog(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectLock()
 		env.expectCatalogRows()
-		env.expectAdvance(9)
-		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions) (catalogChange, error) {
+		env.expectAdvance(5)
+		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions, int64) (catalogChange, error) {
 			return catalogRoutingChange, nil
 		})
 		require.NoError(t, err)
@@ -565,7 +568,7 @@ func TestWriteCatalog(t *testing.T) {
 		env.expectCommit()
 
 		var got catalogVersions
-		v, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx, current catalogVersions) (catalogChange, error) {
+		v, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx, current catalogVersions, _ int64) (catalogChange, error) {
 			got = current
 			_, err := tx.Query(ctx, "UPDATE multigres.operation SET last_error = 'x'")
 			return catalogNoSnapshotChange, err
@@ -601,7 +604,7 @@ func TestWriteCatalog(t *testing.T) {
 		}
 		env.expectCommit()
 
-		_, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx, _ catalogVersions) (catalogChange, error) {
+		_, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {
 			_, err := tx.Query(ctx, "INSERT INTO multigres.shard VALUES (2)")
 			return catalogRoutingChange, err
 		})
@@ -618,7 +621,7 @@ func TestWriteCatalog(t *testing.T) {
 		env.expectLock()
 		env.expectCommit()
 
-		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions) (catalogChange, error) {
+		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions, int64) (catalogChange, error) {
 			return catalogRoutingChange, errors.New("boom")
 		})
 		require.ErrorContains(t, err, "boom")
@@ -630,7 +633,7 @@ func TestWriteCatalog(t *testing.T) {
 		env.expectLock()
 		env.expectCommit()
 
-		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions) (catalogChange, error) {
+		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions, int64) (catalogChange, error) {
 			return catalogChange(99), nil
 		})
 		require.Error(t, err)
@@ -642,12 +645,26 @@ func TestWriteCatalog(t *testing.T) {
 		env.expectPrimary()
 		env.qs.AddQueryPatternWithError("FROM multigres.catalog_state FOR UPDATE", errors.New("lock timeout"))
 		ran := false
-		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions) (catalogChange, error) {
+		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions, int64) (catalogChange, error) {
 			ran = true
 			return catalogRoutingChange, nil
 		})
 		require.ErrorContains(t, err, "failed to lock catalog state")
 		assert.False(t, ran)
+	})
+	t.Run("an advance that misses the writer's version rolls back", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		env.expectLock()
+		env.expectCatalogRows()
+		env.expectAdvance(7)
+		env.expectCommit()
+		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions, int64) (catalogChange, error) {
+			return catalogRoutingChange, nil
+		})
+		require.Error(t, err)
+		assert.Equal(t, mtrpcpb.Code_INTERNAL, mterrors.Code(err))
+		assert.Contains(t, err.Error(), "advanced to 7, not the 5 the writer was given")
+		assert.Empty(t, env.queriesMatching("COMMIT"))
 	})
 	// writeCatalog checks for the catalog primary itself, so a writer cannot
 	// skip it.
@@ -669,7 +686,7 @@ func TestWriteCatalog(t *testing.T) {
 			env := newCatalogTestEnv(t)
 			tc.setup(env)
 			ran := false
-			_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions) (catalogChange, error) {
+			_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions, int64) (catalogChange, error) {
 				ran = true
 				return catalogRoutingChange, nil
 			})
@@ -683,7 +700,7 @@ func TestWriteCatalog(t *testing.T) {
 	t.Run("refused off the catalog shard", func(t *testing.T) {
 		env := newTableGroupTestEnv(t, "commerce", "0-80")
 		ran := false
-		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions) (catalogChange, error) {
+		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions, int64) (catalogChange, error) {
 			ran = true
 			return catalogRoutingChange, nil
 		})

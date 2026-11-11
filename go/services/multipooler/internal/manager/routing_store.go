@@ -67,17 +67,18 @@ VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8)`
 // change; a change that is already in effect writes nothing and returns the
 // current versions. It is the only entry point for rule writes.
 func (pm *MultipoolerManager) changeRoutingRules(ctx context.Context, change routingRuleChange) (catalogVersions, error) {
-	return pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, current catalogVersions) (catalogChange, error) {
-		return applyRoutingRuleChange(ctx, tx, current, change)
+	return pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, current catalogVersions, next int64) (catalogChange, error) {
+		return applyRoutingRuleChange(ctx, tx, current, next, change)
 	})
 }
 
 // applyRoutingRuleChange is the catalogWriter body of a rule write: it
 // validates change against the catalog at current and replaces the
-// operation's rules in tx, stamped with the version writeCatalog commits them
-// at. A change that is already in effect writes nothing and reports
-// catalogNoSnapshotChange; one whose plan requires it invalidates cached plans.
-func applyRoutingRuleChange(ctx context.Context, tx executor.InternalTx, current catalogVersions, change routingRuleChange) (catalogChange, error) {
+// operation's rules in tx, stamped with next, the routing_version
+// writeCatalog commits them at. A change that is already in effect writes
+// nothing and reports catalogNoSnapshotChange; one whose plan requires it
+// invalidates cached plans.
+func applyRoutingRuleChange(ctx context.Context, tx executor.InternalTx, current catalogVersions, next int64, change routingRuleChange) (catalogChange, error) {
 	cat, err := loadRoutingCatalog(ctx, tx, current, change.operationID)
 	if err != nil {
 		return catalogNoSnapshotChange, err
@@ -90,14 +91,13 @@ func applyRoutingRuleChange(ctx context.Context, tx executor.InternalTx, current
 		return catalogNoSnapshotChange, nil
 	}
 
-	version := current.routingVersion + 1
 	if _, err := tx.QueryArgs(ctx, deleteOperationRulesSQL, change.operationID); err != nil {
 		return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to delete routing rules")
 	}
 	for _, r := range plan.insert {
 		if _, err := tx.QueryArgs(ctx, insertRoutingRuleSQL,
 			r.operationID, r.scope, r.fromTablegroupID, nullableID(r.fromTableID),
-			r.toTablegroupID, nullableID(r.toShardID), nullableID(r.toShardKeyID), version); err != nil {
+			r.toTablegroupID, nullableID(r.toShardID), nullableID(r.toShardKeyID), next); err != nil {
 			return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to insert routing rule")
 		}
 	}

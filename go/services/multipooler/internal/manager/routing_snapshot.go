@@ -142,12 +142,12 @@ const (
 )
 
 // catalogWriter is the body of a catalog write transaction. It runs with the
-// catalog_state lock already held, and current is the versions that lock read:
-// a routing change the writer reports advances routing_version to exactly
-// current.routingVersion + 1. It must leave the transaction open: it neither
-// commits nor rolls back. What it wrote commits unless it returns an error,
-// which rolls everything back.
-type catalogWriter func(ctx context.Context, tx executor.InternalTx, current catalogVersions) (catalogChange, error)
+// catalog_state lock already held: current is the versions that lock read,
+// and nextRoutingVersion is the routing_version a routing change the writer
+// reports commits at, for a writer that records it. It must leave the
+// transaction open: it neither commits nor rolls back. What it wrote commits
+// unless it returns an error, which rolls everything back.
+type catalogWriter func(ctx context.Context, tx executor.InternalTx, current catalogVersions, nextRoutingVersion int64) (catalogChange, error)
 
 // writeCatalog runs write in a catalog write transaction on the admin pool,
 // under tableGroupOpTimeout. See the file comment for the protocol it owns.
@@ -182,7 +182,8 @@ func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWri
 		return catalogVersions{}, err
 	}
 
-	change, err := write(execCtx, tx, current)
+	next := current.routingVersion + 1
+	change, err := write(execCtx, tx, current, next)
 	if err != nil {
 		return catalogVersions{}, err
 	}
@@ -206,6 +207,12 @@ func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWri
 	versions, err := advanceCatalogVersions(execCtx, tx, invalidatePlans)
 	if err != nil {
 		return catalogVersions{}, err
+	}
+	// The lock held since lockCatalogState makes this hold; check it, since
+	// the writer may have recorded next in the rows it wrote.
+	if versions.routingVersion != next {
+		return catalogVersions{}, mterrors.Errorf(mtrpcpb.Code_INTERNAL,
+			"catalog routing_version advanced to %d, not the %d the writer was given", versions.routingVersion, next)
 	}
 	if err := tx.Commit(execCtx); err != nil {
 		return catalogVersions{}, mterrors.Wrap(err, "failed to commit catalog transaction")
