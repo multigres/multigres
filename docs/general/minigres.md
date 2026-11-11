@@ -163,7 +163,9 @@ binaries pass none and use every pooler in the topology.
   once (a second call is fatal).
 - **One identity.** The process reports the service name `minigres` with the
   pooler's cell, service ID, database and shard, so it appears once in logs,
-  metrics and traces.
+  metrics and traces. `SELECT multigres.version()` also names it: the string
+  starts with `Minigres` instead of `Multigres`. The SQL names are the same as
+  in Multigres (see [Multigres version](../query_serving/multigres_version.md)).
 - **Ready once a query can succeed.** `/ready` runs both halves' checks, and
   neither waits for PostgreSQL: the pooler's leaves it out, and the gateway's
   passes once it has its pooler's record. So `main` adds one more: ready only

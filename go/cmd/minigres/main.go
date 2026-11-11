@@ -75,6 +75,9 @@ type minigres struct {
 }
 
 func newMinigres() *minigres {
+	// SELECT multigres.version() tells a client it is talking to Minigres. The
+	// SQL names stay the same as in Multigres.
+	servenv.SetProductName("Minigres")
 	reg := viperutil.NewRegistry()
 	tel := telemetry.NewTelemetry()
 	m := &minigres{

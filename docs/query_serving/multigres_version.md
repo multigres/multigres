@@ -24,6 +24,11 @@ psql> SELECT multigres.version();
 (1 row)
 ```
 
+In Minigres the names are the same, and the full string starts with `Minigres`
+instead of `Multigres` (`Minigres 0.1.0-SNAPSHOT (...)`), so a client can tell
+which product it is talking to. `SHOW multigres.server_version` returns the same
+short release version in both.
+
 Both work in the simple and extended (prepared-statement) query protocols.
 `SHOW multigres.server_version` is answered entirely by the gateway;
 `SELECT multigres.version()` is folded to a constant and then runs on PostgreSQL
@@ -144,9 +149,11 @@ reliably infer its own release version from `git describe`, and the result would
 depend on which branch it was built from. Keeping it in source makes the version
 a stable property of the commit.
 
-The **full** string (`servenv.AppVersion()`) prefixes that release version with
-the binary's VCS identity — revision, a `modified` marker for a dirty tree,
-commit date, and Go toolchain. This is the same build snapshot already used by
+The **full** string (`servenv.AppVersion()`) starts with the product name
+(`Multigres`, or `Minigres` in the minigres binary, which sets it with
+`servenv.SetProductName`) and follows that release version with the binary's VCS
+identity — revision, a `modified` marker for a dirty tree, commit date, and Go
+toolchain. This is the same build snapshot already used by
 the `/version` HTTP endpoint and the OpenTelemetry `service.version` attribute.
 The identity is read from `runtime/debug.BuildInfo` when Go could stamp it, with
 a linker-injected fallback for builds where it can't: Docker build contexts
