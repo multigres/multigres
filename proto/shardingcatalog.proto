@@ -79,6 +79,17 @@ enum ShardKeyState {
   SHARD_KEY_STATE_RETIRED = 3;
 }
 
+// RoutingRuleScope says what a routing rule moves.
+enum RoutingRuleScope {
+  ROUTING_RULE_SCOPE_UNSPECIFIED = 0;
+  // TABLEGROUP is a shard rule: the routing identifiers of a tablegroup that
+  // fall in the target shard's range are served by that shard.
+  ROUTING_RULE_SCOPE_TABLEGROUP = 1;
+  // TABLE is a table rule: a table is served as a member of another
+  // tablegroup.
+  ROUTING_RULE_SCOPE_TABLE = 2;
+}
+
 // TableGroup is a tablegroup: a set of tables sharded the same way. It is
 // sharded exactly when it has more than one active shard.
 message TableGroup {
@@ -135,6 +146,30 @@ message ShardKey {
   repeated string columns = 7;
 }
 
+// RoutingRule overrides where the catalog sends traffic while the operation
+// that created it moves data: traffic the catalog would send to the source is
+// served by the target. It applies as a single hop: a target is never routed
+// again.
+message RoutingRule {
+  int64 rule_id = 1;
+  // operation_id is the uuid of the operation the rule belongs to.
+  string operation_id = 2;
+  RoutingRuleScope scope = 3;
+  int64 from_tablegroup_id = 4;
+  // from_table_id is the table a TABLE rule moves; it is set exactly when the
+  // scope is TABLE.
+  optional int64 from_table_id = 5;
+  int64 to_tablegroup_id = 6;
+  // to_shard_id is the shard of to_tablegroup_id a TABLEGROUP rule routes
+  // to; it is set exactly when the scope is TABLEGROUP.
+  optional int64 to_shard_id = 7;
+  // to_shard_key_id is the shard key a TABLE rule places the table by in its
+  // target tablegroup, when it has one.
+  optional int64 to_shard_key_id = 8;
+  // created_version is the routing_version the rule was written at.
+  int64 created_version = 9;
+}
+
 // Snapshot is the whole sharding catalog of one database, read in a single
 // transaction. Entities in every state are included; a reader decides which
 // ones it uses. References between entities are by id.
@@ -152,4 +187,5 @@ message Snapshot {
   repeated Table tables = 5;
   repeated ShardIndex shard_indices = 6;
   repeated ShardKey shard_keys = 7;
+  repeated RoutingRule routing_rules = 8;
 }

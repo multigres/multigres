@@ -46,7 +46,8 @@ func (env *tableGroupTestEnv) expectSnapshotRead(routingVersion, planEpoch int64
 
 // expectCatalogRows registers every entity read with a catalog holding the
 // default tablegroup, a sharded commerce tablegroup, a table with a primary
-// shard key, and rows in states the snapshot does not know.
+// shard key, rows in states the snapshot does not know, and an import's
+// routing rules: a shard rule from default and a table rule.
 func (env *tableGroupTestEnv) expectCatalogRows() {
 	env.expect("FROM multigres.tablegroup ORDER BY", []string{"tablegroup_id", "name", "state"}, [][]any{
 		{int64(1), "default", "active"},
@@ -73,6 +74,13 @@ func (env *tableGroupTestEnv) expectCatalogRows() {
 		{int64(30), "customer_id"},
 		{int64(30), "region"},
 		{int64(31), "id"},
+	})
+	env.expect("FROM multigres.routing_rule ORDER BY", []string{
+		"rule_id", "operation_id", "scope", "from_tablegroup_id", "from_table_id",
+		"to_tablegroup_id", "to_shard_id", "to_shard_key_id", "created_version",
+	}, [][]any{
+		{int64(40), importOp, "tablegroup", int64(1), nil, int64(7), int64(2), nil, int64(8)},
+		{int64(41), importOp, "table", int64(7), int64(10), int64(1), nil, int64(30), int64(9)},
 	})
 }
 
@@ -133,6 +141,16 @@ func TestGetRoutingSnapshot_Full(t *testing.T) {
 			{ShardKeyId: 30, TableId: 10, ShardIndexId: 20, Name: "by_customer", Role: shardingcatalogpb.ShardKeyRole_SHARD_KEY_ROLE_PRIMARY, State: shardingcatalogpb.ShardKeyState_SHARD_KEY_STATE_ACTIVE, Columns: []string{"customer_id", "region"}},
 			{ShardKeyId: 31, TableId: 10, ShardIndexId: 20, Name: "by_id", Role: shardingcatalogpb.ShardKeyRole_SHARD_KEY_ROLE_SECONDARY, State: shardingcatalogpb.ShardKeyState_SHARD_KEY_STATE_PREPARING, Columns: []string{"id"}},
 		},
+		RoutingRules: []*shardingcatalogpb.RoutingRule{
+			{
+				RuleId: 40, OperationId: importOp, Scope: shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLEGROUP,
+				FromTablegroupId: 1, ToTablegroupId: 7, ToShardId: proto.Int64(2), CreatedVersion: 8,
+			},
+			{
+				RuleId: 41, OperationId: importOp, Scope: shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLE,
+				FromTablegroupId: 7, FromTableId: proto.Int64(10), ToTablegroupId: 1, ToShardKeyId: proto.Int64(30), CreatedVersion: 9,
+			},
+		},
 	}
 	assert.True(t, proto.Equal(want, resp.GetSnapshot()), "got %v", resp.GetSnapshot())
 
@@ -142,6 +160,14 @@ func TestGetRoutingSnapshot_Full(t *testing.T) {
 	commerce, ok := s.TableGroupByName("commerce")
 	require.True(t, ok)
 	assert.True(t, commerce.IsSharded())
+	def, ok := s.TableGroupByName("default")
+	require.True(t, ok)
+	require.Len(t, def.ShardRules(), 1)
+	assert.Same(t, commerce, def.ShardRules()[0].ToTableGroup())
+	orders, ok := s.Table("public", "orders")
+	require.True(t, ok)
+	require.NotNil(t, orders.RoutingRule())
+	assert.Equal(t, int64(41), orders.RoutingRule().ID())
 
 	assert.Equal(t, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY", env.queries[1],
 		"the isolation is set before anything is read")
@@ -481,23 +507,27 @@ func TestWriteCatalog(t *testing.T) {
 		env.expectLock()
 		env.expect("INSERT INTO multigres.tablegroup_table", nil, nil)
 		env.expectCatalogRows()
-		env.expectAdvance(9)
+		env.expectAdvance(5)
 		env.expectCommit()
 
-		v, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx) (catalogChange, error) {
+		var gotNext int64
+		v, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, next int64) (catalogChange, error) {
+			gotNext = next
 			return catalogRoutingChange, writeRow(ctx, tx)
 		})
 		require.NoError(t, err)
-		assert.Equal(t, int64(9), v.routingVersion)
+		assert.Equal(t, int64(5), gotNext, "the writer is given the version its change commits at")
+		assert.Equal(t, int64(5), v.routingVersion)
 		assert.Equal(t, []string{
-			"SELECT routing_version FROM multigres.catalog_state FOR UPDATE",
+			"SELECT pg_is_in_recovery()",
+			"SELECT routing_version, plan_epoch FROM multigres.catalog_state FOR UPDATE",
 			"INSERT INTO multigres.tablegroup_table VALUES (1)",
 			snapshotTableGroupsQuery, snapshotShardsQuery, snapshotTablesQuery,
-			snapshotShardIndicesQuery, snapshotShardKeysQuery, snapshotShardKeyColumnsQuery,
+			snapshotShardIndicesQuery, snapshotShardKeysQuery, snapshotShardKeyColumnsQuery, selectRoutingRulesSQL,
 			"UPDATE multigres.catalog_state SET routing_version = routing_version + 1 RETURNING routing_version, plan_epoch",
 			"COMMIT",
 		}, env.queries)
-		assert.Equal(t, int64(9), hs.getState().RoutingVersion)
+		assert.Equal(t, int64(5), hs.getState().RoutingVersion)
 	})
 	t.Run("a change that invalidates plans advances plan_epoch too", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
@@ -506,14 +536,14 @@ func TestWriteCatalog(t *testing.T) {
 		env.expect("INSERT INTO multigres.tablegroup_table", nil, nil)
 		env.expectCatalogRows()
 		env.expect("SET routing_version = routing_version \\+ 1, plan_epoch = plan_epoch \\+ 1",
-			[]string{"routing_version", "plan_epoch"}, [][]any{{int64(9), int64(3)}})
+			[]string{"routing_version", "plan_epoch"}, [][]any{{int64(5), int64(3)}})
 		env.expectCommit()
 
-		v, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx) (catalogChange, error) {
+		v, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {
 			return catalogInvalidatesPlans, writeRow(ctx, tx)
 		})
 		require.NoError(t, err)
-		assert.Equal(t, catalogVersions{routingVersion: 9, planEpoch: 3}, v)
+		assert.Equal(t, catalogVersions{routingVersion: 5, planEpoch: 3}, v)
 		assert.Len(t, env.queriesMatching("UPDATE multigres.catalog_state"), 1, "both advance in one statement")
 		assert.Equal(t, "COMMIT", env.queries[len(env.queries)-1])
 		assert.Equal(t, int64(3), hs.getState().PlanEpoch)
@@ -522,8 +552,8 @@ func TestWriteCatalog(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectLock()
 		env.expectCatalogRows()
-		env.expectAdvance(9)
-		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx) (catalogChange, error) {
+		env.expectAdvance(5)
+		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions, int64) (catalogChange, error) {
 			return catalogRoutingChange, nil
 		})
 		require.NoError(t, err)
@@ -537,14 +567,18 @@ func TestWriteCatalog(t *testing.T) {
 		env.expect("UPDATE multigres.operation", nil, nil)
 		env.expectCommit()
 
-		v, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx) (catalogChange, error) {
+		var got catalogVersions
+		v, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx, current catalogVersions, _ int64) (catalogChange, error) {
+			got = current
 			_, err := tx.Query(ctx, "UPDATE multigres.operation SET last_error = 'x'")
 			return catalogNoSnapshotChange, err
 		})
 		require.NoError(t, err)
-		assert.Zero(t, v)
+		assert.Equal(t, catalogVersions{routingVersion: 4, planEpoch: 2}, got, "the writer sees the locked versions")
+		assert.Equal(t, got, v, "a write outside the snapshot returns the versions it found")
 		assert.Equal(t, []string{
-			"SELECT routing_version FROM multigres.catalog_state FOR UPDATE",
+			"SELECT pg_is_in_recovery()",
+			"SELECT routing_version, plan_epoch FROM multigres.catalog_state FOR UPDATE",
 			"UPDATE multigres.operation SET last_error = 'x'",
 			"COMMIT",
 		}, env.queries, "the write is kept, and no version advances")
@@ -565,12 +599,12 @@ func TestWriteCatalog(t *testing.T) {
 			{int64(1), int64(1), "0-inf", "", "", "active"},
 			{int64(2), int64(7), "0-80", "", "80", "active"},
 		})
-		for _, table := range []string{"tablegroup_table", "shard_index", "shard_key", "shard_key_column"} {
+		for _, table := range []string{"tablegroup_table", "shard_index", "shard_key", "shard_key_column", "routing_rule"} {
 			env.expect("FROM multigres."+table+" ORDER BY", nil, nil)
 		}
 		env.expectCommit()
 
-		_, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx) (catalogChange, error) {
+		_, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {
 			_, err := tx.Query(ctx, "INSERT INTO multigres.shard VALUES (2)")
 			return catalogRoutingChange, err
 		})
@@ -587,7 +621,7 @@ func TestWriteCatalog(t *testing.T) {
 		env.expectLock()
 		env.expectCommit()
 
-		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx) (catalogChange, error) {
+		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions, int64) (catalogChange, error) {
 			return catalogRoutingChange, errors.New("boom")
 		})
 		require.ErrorContains(t, err, "boom")
@@ -599,7 +633,7 @@ func TestWriteCatalog(t *testing.T) {
 		env.expectLock()
 		env.expectCommit()
 
-		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx) (catalogChange, error) {
+		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions, int64) (catalogChange, error) {
 			return catalogChange(99), nil
 		})
 		require.Error(t, err)
@@ -608,13 +642,71 @@ func TestWriteCatalog(t *testing.T) {
 	})
 	t.Run("a failed lock runs nothing", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
+		env.expectPrimary()
 		env.qs.AddQueryPatternWithError("FROM multigres.catalog_state FOR UPDATE", errors.New("lock timeout"))
 		ran := false
-		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx) (catalogChange, error) {
+		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions, int64) (catalogChange, error) {
 			ran = true
 			return catalogRoutingChange, nil
 		})
 		require.ErrorContains(t, err, "failed to lock catalog state")
 		assert.False(t, ran)
+	})
+	t.Run("an advance that misses the writer's version rolls back", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		env.expectLock()
+		env.expectCatalogRows()
+		env.expectAdvance(7)
+		env.expectCommit()
+		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions, int64) (catalogChange, error) {
+			return catalogRoutingChange, nil
+		})
+		require.Error(t, err)
+		assert.Equal(t, mtrpcpb.Code_INTERNAL, mterrors.Code(err))
+		assert.Contains(t, err.Error(), "advanced to 7, not the 5 the writer was given")
+		assert.Empty(t, env.queriesMatching("COMMIT"))
+	})
+	// writeCatalog checks for the catalog primary itself, so a writer cannot
+	// skip it.
+	for _, tc := range []struct {
+		name  string
+		setup func(env *tableGroupTestEnv)
+		want  string
+	}{
+		{"standby", func(env *tableGroupTestEnv) {
+			env.expect("SELECT pg_is_in_recovery", []string{"pg_is_in_recovery"}, [][]any{{"t"}})
+		}, "standby mode"},
+		{"out of recovery but not the elected primary", func(env *tableGroupTestEnv) {
+			env.pm.stateManager = NewStateManager(env.pm.logger, env.pm.record, nilConsensusStatus)
+			env.pm.stateManager.pgMode = pgmode.Primary
+			env.expectPrimary()
+		}, "not the elected primary of the catalog shard"},
+	} {
+		t.Run("refused on a pooler that is "+tc.name, func(t *testing.T) {
+			env := newCatalogTestEnv(t)
+			tc.setup(env)
+			ran := false
+			_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions, int64) (catalogChange, error) {
+				ran = true
+				return catalogRoutingChange, nil
+			})
+			require.Error(t, err)
+			assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+			assert.Contains(t, err.Error(), tc.want)
+			assert.False(t, ran)
+			assert.Empty(t, env.queriesMatching("catalog_state"), "nothing is locked")
+		})
+	}
+	t.Run("refused off the catalog shard", func(t *testing.T) {
+		env := newTableGroupTestEnv(t, "commerce", "0-80")
+		ran := false
+		_, err := env.pm.writeCatalog(t.Context(), func(context.Context, executor.InternalTx, catalogVersions, int64) (catalogChange, error) {
+			ran = true
+			return catalogRoutingChange, nil
+		})
+		require.Error(t, err)
+		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+		assert.False(t, ran)
+		assert.Empty(t, env.queries)
 	})
 }

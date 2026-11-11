@@ -214,6 +214,40 @@ proto3.util.setEnumType(ShardKeyState, "shardingcatalog.ShardKeyState", [
 ]);
 
 /**
+ * RoutingRuleScope says what a routing rule moves.
+ *
+ * @generated from enum shardingcatalog.RoutingRuleScope
+ */
+export enum RoutingRuleScope {
+  /**
+   * @generated from enum value: ROUTING_RULE_SCOPE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * TABLEGROUP is a shard rule: the routing identifiers of a tablegroup that
+   * fall in the target shard's range are served by that shard.
+   *
+   * @generated from enum value: ROUTING_RULE_SCOPE_TABLEGROUP = 1;
+   */
+  TABLEGROUP = 1,
+
+  /**
+   * TABLE is a table rule: a table is served as a member of another
+   * tablegroup.
+   *
+   * @generated from enum value: ROUTING_RULE_SCOPE_TABLE = 2;
+   */
+  TABLE = 2,
+}
+// Retrieve enum metadata with: proto3.getEnumType(RoutingRuleScope)
+proto3.util.setEnumType(RoutingRuleScope, "shardingcatalog.RoutingRuleScope", [
+  { no: 0, name: "ROUTING_RULE_SCOPE_UNSPECIFIED" },
+  { no: 1, name: "ROUTING_RULE_SCOPE_TABLEGROUP" },
+  { no: 2, name: "ROUTING_RULE_SCOPE_TABLE" },
+]);
+
+/**
  * TableGroup is a tablegroup: a set of tables sharded the same way. It is
  * sharded exactly when it has more than one active shard.
  *
@@ -540,6 +574,109 @@ export class ShardKey extends Message<ShardKey> {
 }
 
 /**
+ * RoutingRule overrides where the catalog sends traffic while the operation
+ * that created it moves data: traffic the catalog would send to the source is
+ * served by the target. It applies as a single hop: a target is never routed
+ * again.
+ *
+ * @generated from message shardingcatalog.RoutingRule
+ */
+export class RoutingRule extends Message<RoutingRule> {
+  /**
+   * @generated from field: int64 rule_id = 1;
+   */
+  ruleId = protoInt64.zero;
+
+  /**
+   * operation_id is the uuid of the operation the rule belongs to.
+   *
+   * @generated from field: string operation_id = 2;
+   */
+  operationId = "";
+
+  /**
+   * @generated from field: shardingcatalog.RoutingRuleScope scope = 3;
+   */
+  scope = RoutingRuleScope.UNSPECIFIED;
+
+  /**
+   * @generated from field: int64 from_tablegroup_id = 4;
+   */
+  fromTablegroupId = protoInt64.zero;
+
+  /**
+   * from_table_id is the table a TABLE rule moves; it is set exactly when the
+   * scope is TABLE.
+   *
+   * @generated from field: optional int64 from_table_id = 5;
+   */
+  fromTableId?: bigint;
+
+  /**
+   * @generated from field: int64 to_tablegroup_id = 6;
+   */
+  toTablegroupId = protoInt64.zero;
+
+  /**
+   * to_shard_id is the shard of to_tablegroup_id a TABLEGROUP rule routes
+   * to; it is set exactly when the scope is TABLEGROUP.
+   *
+   * @generated from field: optional int64 to_shard_id = 7;
+   */
+  toShardId?: bigint;
+
+  /**
+   * to_shard_key_id is the shard key a TABLE rule places the table by in its
+   * target tablegroup, when it has one.
+   *
+   * @generated from field: optional int64 to_shard_key_id = 8;
+   */
+  toShardKeyId?: bigint;
+
+  /**
+   * created_version is the routing_version the rule was written at.
+   *
+   * @generated from field: int64 created_version = 9;
+   */
+  createdVersion = protoInt64.zero;
+
+  constructor(data?: PartialMessage<RoutingRule>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "shardingcatalog.RoutingRule";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "rule_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 2, name: "operation_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "scope", kind: "enum", T: proto3.getEnumType(RoutingRuleScope) },
+    { no: 4, name: "from_tablegroup_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 5, name: "from_table_id", kind: "scalar", T: 3 /* ScalarType.INT64 */, opt: true },
+    { no: 6, name: "to_tablegroup_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 7, name: "to_shard_id", kind: "scalar", T: 3 /* ScalarType.INT64 */, opt: true },
+    { no: 8, name: "to_shard_key_id", kind: "scalar", T: 3 /* ScalarType.INT64 */, opt: true },
+    { no: 9, name: "created_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RoutingRule {
+    return new RoutingRule().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RoutingRule {
+    return new RoutingRule().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RoutingRule {
+    return new RoutingRule().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RoutingRule | PlainMessage<RoutingRule> | undefined, b: RoutingRule | PlainMessage<RoutingRule> | undefined): boolean {
+    return proto3.util.equals(RoutingRule, a, b);
+  }
+}
+
+/**
  * Snapshot is the whole sharding catalog of one database, read in a single
  * transaction. Entities in every state are included; a reader decides which
  * ones it uses. References between entities are by id.
@@ -590,6 +727,11 @@ export class Snapshot extends Message<Snapshot> {
    */
   shardKeys: ShardKey[] = [];
 
+  /**
+   * @generated from field: repeated shardingcatalog.RoutingRule routing_rules = 8;
+   */
+  routingRules: RoutingRule[] = [];
+
   constructor(data?: PartialMessage<Snapshot>) {
     super();
     proto3.util.initPartial(data, this);
@@ -605,6 +747,7 @@ export class Snapshot extends Message<Snapshot> {
     { no: 5, name: "tables", kind: "message", T: Table, repeated: true },
     { no: 6, name: "shard_indices", kind: "message", T: ShardIndex, repeated: true },
     { no: 7, name: "shard_keys", kind: "message", T: ShardKey, repeated: true },
+    { no: 8, name: "routing_rules", kind: "message", T: RoutingRule, repeated: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Snapshot {

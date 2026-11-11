@@ -96,10 +96,11 @@ func (env *tableGroupTestEnv) nameTaken(id int64, state string) {
 	env.expect("FROM multigres.tablegroup WHERE name = \\$1 FOR UPDATE", []string{"tablegroup_id", "state"}, [][]any{{id, state}})
 }
 
-// expectLock registers the catalog_state lock every catalog writer takes
-// first.
+// expectLock registers what writeCatalog does before its writer runs: the
+// catalog primary check and the catalog_state lock.
 func (env *tableGroupTestEnv) expectLock() {
-	env.expect("FROM multigres.catalog_state FOR UPDATE", []string{"routing_version"}, [][]any{{int64(4)}})
+	env.expectPrimary()
+	env.expect("FROM multigres.catalog_state FOR UPDATE", []string{"routing_version", "plan_epoch"}, [][]any{{int64(4), int64(2)}})
 }
 
 // expectAdvance registers the routing_version increment, returning version.
@@ -193,18 +194,20 @@ func TestCreateTableGroup_RecordsIntent(t *testing.T) {
 	_, err = uuid.Parse(resp.OperationId)
 	require.NoError(t, err, "operation id is a UUID")
 
-	// The catalog_state lock comes before any other catalog row, the snapshot
+	// The RPC checks for the catalog primary and writeCatalog checks again;
+	// the catalog_state lock comes before any other catalog row, the snapshot
 	// the write would commit is checked, and the version advances once,
 	// inside the transaction.
 	want := []string{
 		"SELECT pg_is_in_recovery()",
-		"SELECT routing_version FROM multigres.catalog_state FOR UPDATE",
+		"SELECT pg_is_in_recovery()",
+		"SELECT routing_version, plan_epoch FROM multigres.catalog_state FOR UPDATE",
 		"INSERT INTO multigres.tablegroup (name, state) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING RETURNING tablegroup_id",
 		"INSERT INTO multigres.shard (tablegroup_id, shard_name, range_start, range_end, state) VALUES ($1, $2, decode($3, 'hex'), decode($4, 'hex'), $5)",
 		"INSERT INTO multigres.shard (tablegroup_id, shard_name, range_start, range_end, state) VALUES ($1, $2, decode($3, 'hex'), decode($4, 'hex'), $5)",
 		"INSERT INTO multigres.operation (operation_id, kind, state, request) VALUES ($1, $2, $3, $4::jsonb)",
 		snapshotTableGroupsQuery, snapshotShardsQuery, snapshotTablesQuery,
-		snapshotShardIndicesQuery, snapshotShardKeysQuery, snapshotShardKeyColumnsQuery,
+		snapshotShardIndicesQuery, snapshotShardKeysQuery, snapshotShardKeyColumnsQuery, selectRoutingRulesSQL,
 		"UPDATE multigres.catalog_state SET routing_version = routing_version + 1 RETURNING routing_version, plan_epoch",
 		"COMMIT",
 	}
@@ -254,7 +257,7 @@ func TestCreateTableGroup_ExistingActive(t *testing.T) {
 		assert.True(t, resp.AlreadyExists)
 		assert.Equal(t, testTableGroupID, resp.TablegroupId)
 		assert.Empty(t, resp.OperationId)
-		assert.Len(t, env.queries, 4, "nothing written after the claim conflicts")
+		assert.Len(t, env.queries, 5, "nothing written after the claim conflicts")
 		assert.Empty(t, env.queriesMatching("routing_version + 1"), "an unchanged catalog keeps its version")
 	})
 	t.Run("the default tablegroup is always active", func(t *testing.T) {
