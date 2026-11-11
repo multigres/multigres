@@ -69,6 +69,20 @@ func (r *failureRun) succeed() int {
 
 // cancelOnServer sends a cancel request with send, best effort. Failures are logged
 // as runs (see failureRun), not each one.
+//
+// A pooler that crashes or restarts mid-query never sends one: the cancel key is lost
+// with the process, and the closed socket doesn't end a sync-rep wait, so those
+// backends keep their slots and locks until a standby acks or postgres restarts. They
+// are bounded by the queries in flight at the time.
+//
+// statement_timeout and transaction_timeout can't bound them: postgres disables both
+// before the commit's sync-rep wait.
+//
+// TODO: cancel them when the pooler starts, before its heartbeat and rule writes begin,
+// which would otherwise queue behind their locks. That needs admin connections tagged
+// with an application_name, so the pooler can find backends with that tag that started
+// before it did and pg_cancel_backend them; matching on query text could hit other
+// sessions.
 func cancelOnServer(ctx context.Context, send func(context.Context) error) {
 	cancelCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), cancelRequestTimeout)
 	defer cancel()
