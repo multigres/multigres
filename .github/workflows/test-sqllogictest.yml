@@ -72,6 +72,7 @@ jobs:
           echo "MULTIGRES_PORT_POOL_ADDR=/tmp/multigres-port-pool.sock" >> "$GITHUB_ENV"
 
       - name: Run SQLLogicTest suite
+        shell: bash
         env:
           RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
           MULTIGRES_E2E_TOPOLOGY: ${{ matrix.topology }}
