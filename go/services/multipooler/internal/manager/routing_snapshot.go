@@ -148,6 +148,10 @@ type catalogWriter func(ctx context.Context, tx executor.InternalTx) (catalogCha
 // It returns the advanced versions, or zero versions for
 // catalogNoSnapshotChange, where nothing advances and nothing is published.
 func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWriter) (catalogVersions, error) {
+	// The versions are published under the rule this pooler held when it
+	// began; a commit cannot succeed across a demotion, which makes postgres
+	// read-only.
+	rule := pm.routingRule()
 	qs, err := pm.catalogQueryService()
 	if err != nil {
 		return catalogVersions{}, err
@@ -191,7 +195,7 @@ func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWri
 	if err := tx.Commit(execCtx); err != nil {
 		return catalogVersions{}, mterrors.Wrap(err, "failed to commit catalog transaction")
 	}
-	pm.publishCatalogWrite(versions)
+	pm.publishCatalogWrite(rule, versions)
 	return versions, nil
 }
 
@@ -422,14 +426,15 @@ func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*sharding
 }
 
 // refreshCatalogVersions rereads catalog_state and publishes it on the health
-// stream when this pooler is the catalog primary, and clears what it
-// published otherwise.
+// stream, tagged with the rule this pooler is the catalog primary under. A
+// pooler that is not the routing primary reads nothing; the health stream
+// already stops publishing its versions (see healthStreamer.catalogRule).
 func (pm *MultipoolerManager) refreshCatalogVersions(ctx context.Context) {
 	if pm.healthStreamer == nil {
 		return
 	}
-	if pm.stateManager.RoutingRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
-		pm.healthStreamer.clearCatalogVersions()
+	rs := pm.stateManager.RoutingState()
+	if rs.GetRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 		return
 	}
 	qs := pm.internalQueryService()
@@ -448,7 +453,7 @@ func (pm *MultipoolerManager) refreshCatalogVersions(ctx context.Context) {
 		pm.logger.WarnContext(ctx, "failed to read catalog versions", "error", err)
 		return
 	}
-	pm.healthStreamer.observeCatalogVersions(v)
+	pm.healthStreamer.observeCatalogVersions(rs.GetRule(), v)
 }
 
 // runCatalogVersionRefresh rereads catalog_state every interval until ctx
@@ -467,10 +472,20 @@ func (pm *MultipoolerManager) runCatalogVersionRefresh(ctx context.Context, inte
 	}
 }
 
-// publishCatalogWrite publishes the versions a committed catalog write
-// produced, so gateways learn of it without waiting for the next refresh.
-func (pm *MultipoolerManager) publishCatalogWrite(v catalogVersions) {
+// publishCatalogWrite publishes the versions a catalog write committed while
+// this pooler was the primary under rule, so gateways learn of it without
+// waiting for the next refresh.
+func (pm *MultipoolerManager) publishCatalogWrite(rule *clustermetadatapb.RuleNumber, v catalogVersions) {
 	if pm.healthStreamer != nil {
-		pm.healthStreamer.observeCatalogVersions(v)
+		pm.healthStreamer.observeCatalogVersions(rule, v)
 	}
+}
+
+// routingRule returns the consensus rule this pooler currently routes under,
+// nil when it has no state manager.
+func (pm *MultipoolerManager) routingRule() *clustermetadatapb.RuleNumber {
+	if pm.stateManager == nil {
+		return nil
+	}
+	return pm.stateManager.RoutingState().GetRule()
 }

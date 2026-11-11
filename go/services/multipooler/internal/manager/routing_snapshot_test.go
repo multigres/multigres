@@ -320,11 +320,12 @@ func TestGetRoutingSnapshot_Rejects(t *testing.T) {
 }
 
 // withHealthStreamer gives the env a health streamer whose routing state is
-// the state manager's, as OnStateChange would set it.
+// the state manager's, as OnStateChange would set it: role, under
+// testLeaderRule.
 func (env *tableGroupTestEnv) withHealthStreamer(t *testing.T, role clustermetadatapb.RoutingRole) *healthStreamer {
 	t.Helper()
 	hs := newHealthStreamer(slog.New(slog.DiscardHandler), testPoolerID, "default", "0-inf")
-	hs.routingState = &clustermetadatapb.RoutingState{Role: role}
+	hs.routingState = &clustermetadatapb.RoutingState{Role: role, Rule: testLeaderRule}
 	env.pm.healthStreamer = hs
 	return hs
 }
@@ -384,30 +385,43 @@ func TestHealthStreamer_CatalogVersions(t *testing.T) {
 			}
 		}
 	}
+	setRouting := func(role clustermetadatapb.RoutingRole, rule *clustermetadatapb.RuleNumber) {
+		hs.mu.Lock()
+		hs.routingState = &clustermetadatapb.RoutingState{Role: role, Rule: rule}
+		hs.mu.Unlock()
+	}
+	primary := clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY
 
-	hs.observeCatalogVersions(catalogVersions{routingVersion: 3, planEpoch: 1})
+	hs.observeCatalogVersions(testLeaderRule, catalogVersions{routingVersion: 10, planEpoch: 1})
 	assert.Equal(t, 1, drain())
 	state := hs.getState()
-	assert.Equal(t, int64(3), state.RoutingVersion)
+	assert.Equal(t, int64(10), state.RoutingVersion)
 	assert.Equal(t, int64(1), state.PlanEpoch)
-	assert.Equal(t, int64(3), state.ToProto().GetRoutingVersion())
+	assert.Equal(t, int64(10), state.ToProto().GetRoutingVersion())
 
-	hs.observeCatalogVersions(catalogVersions{routingVersion: 3, planEpoch: 1})
+	hs.observeCatalogVersions(testLeaderRule, catalogVersions{routingVersion: 10, planEpoch: 1})
 	assert.Zero(t, drain(), "an unchanged read does not broadcast")
-	hs.observeCatalogVersions(catalogVersions{routingVersion: 2, planEpoch: 1})
-	assert.Zero(t, drain(), "an older read is ignored")
-	assert.Equal(t, int64(3), hs.getState().RoutingVersion)
+	hs.observeCatalogVersions(testLeaderRule, catalogVersions{routingVersion: 9, planEpoch: 1})
+	assert.Zero(t, drain(), "an older read under the same rule is ignored")
+	assert.Equal(t, int64(10), hs.getState().RoutingVersion)
 
 	// A demoted pooler stops reporting the versions with its role.
-	hs.mu.Lock()
-	hs.routingState = &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA}
-	hs.mu.Unlock()
+	setRouting(clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA, nil)
 	assert.Zero(t, hs.getState().RoutingVersion)
 	assert.Zero(t, hs.getState().PlanEpoch)
 
-	hs.clearCatalogVersions()
-	hs.observeCatalogVersions(catalogVersions{routingVersion: 1})
-	assert.Equal(t, int64(1), hs.catalog.routingVersion, "after a clear, a new term starts from its own read")
+	// Promoted again under rule 3, before any refresh, with its data rewound
+	// to version 9: it reports nothing from the earlier term...
+	rule3 := &clustermetadatapb.RuleNumber{CoordinatorTerm: 3}
+	setRouting(primary, rule3)
+	assert.Zero(t, hs.getState().RoutingVersion, "the version read under rule 1 is not published under rule 3")
+	// ...a late reading taken under the old rule is dropped...
+	hs.observeCatalogVersions(testLeaderRule, catalogVersions{routingVersion: 11})
+	assert.Zero(t, hs.getState().RoutingVersion, "a reading from an earlier term is dropped")
+	// ...and its first reading under the new rule is published, though lower.
+	hs.observeCatalogVersions(rule3, catalogVersions{routingVersion: 9})
+	assert.Equal(t, int64(9), hs.getState().RoutingVersion)
+	assert.Equal(t, int64(9), hs.getState().ToProto().GetRoutingVersion())
 }
 
 func TestRefreshCatalogVersions(t *testing.T) {
@@ -425,21 +439,33 @@ func TestRefreshCatalogVersions(t *testing.T) {
 	t.Run("a read error keeps the last value", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		hs := env.withHealthStreamer(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
-		hs.observeCatalogVersions(catalogVersions{routingVersion: 6})
+		hs.observeCatalogVersions(testLeaderRule, catalogVersions{routingVersion: 6})
 		env.qs.AddQueryPatternWithError("FROM multigres.catalog_state", errors.New("boom"))
 
 		env.pm.refreshCatalogVersions(t.Context())
 		assert.Equal(t, int64(6), hs.getState().RoutingVersion)
 	})
-	t.Run("a pooler that is not the routing primary clears without reading", func(t *testing.T) {
+	t.Run("a pooler that is not the routing primary reads nothing", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.pm.stateManager = NewStateManager(env.pm.logger, env.pm.record, nilConsensusStatus)
-		hs := env.withHealthStreamer(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
-		hs.observeCatalogVersions(catalogVersions{routingVersion: 6})
+		env.withHealthStreamer(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA)
 
 		env.pm.refreshCatalogVersions(t.Context())
-		assert.Zero(t, hs.catalog.routingVersion)
 		assert.Empty(t, env.queries)
+	})
+	t.Run("a reading is tagged with the rule it was taken under", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		env.pm.stateManager = NewStateManager(env.pm.logger, env.pm.record, func() *clustermetadatapb.ConsensusStatus { return leaderAtTerm(3) })
+		env.pm.stateManager.pgMode = pgmode.Primary
+		hs := env.withHealthStreamer(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+		hs.routingState = &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, Rule: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3}}
+		hs.observeCatalogVersions(hs.routingState.Rule, catalogVersions{routingVersion: 10})
+		env.expect("^SELECT routing_version, plan_epoch FROM multigres.catalog_state$",
+			[]string{"routing_version", "plan_epoch"}, [][]any{{int64(12), int64(0)}})
+
+		env.pm.refreshCatalogVersions(t.Context())
+		assert.Equal(t, int64(12), hs.getState().RoutingVersion)
+		assert.Equal(t, int64(3), hs.catalogRule.GetCoordinatorTerm())
 	})
 }
 

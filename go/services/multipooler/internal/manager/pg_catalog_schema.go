@@ -263,6 +263,7 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 
 	execCtx, cancel := context.WithTimeout(ctx, catalogSchemaTimeout)
 	defer cancel()
+	rule := pm.routingRule()
 
 	tx, err := queryService.BeginAdmin(execCtx)
 	if err != nil {
@@ -331,7 +332,7 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 		return mterrors.Wrap(err, "failed to commit catalog schema")
 	}
 	if versions != (catalogVersions{}) {
-		pm.publishCatalogWrite(versions)
+		pm.publishCatalogWrite(rule, versions)
 	}
 
 	if current < latest {
