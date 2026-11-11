@@ -901,5 +901,35 @@
   {
     "comment": "MERGE UPDATE SET quotes target column",
     "query": "MERGE INTO t USING s ON t.id = s.id WHEN MATCHED THEN UPDATE SET \"weird col\" = s.x"
+  },
+  {
+    "comment": "SELECT from catalog-qualified table keeps all three name parts",
+    "query": "SELECT * FROM db.sch.tbl"
+  },
+  {
+    "comment": "INSERT into catalog-qualified table keeps all three name parts",
+    "query": "INSERT INTO db.sch.tbl VALUES (1)"
+  },
+  {
+    "comment": "qualified name with more than three parts is rejected",
+    "query": "SELECT * FROM a.b.c.d",
+    "error": "improper qualified name (too many dotted names): a.b.c.d"
+  },
+  {
+    "comment": "qualified name with subscript indirection is a syntax error",
+    "query": "SELECT * FROM a.b[1]",
+    "error": "syntax error at end of input"
+  },
+  {
+    "comment": "UPDATE catalog-qualified table keeps all three name parts",
+    "query": "UPDATE db.sch.tbl SET a = 1"
+  },
+  {
+    "comment": "DELETE from catalog-qualified table keeps all three name parts",
+    "query": "DELETE FROM db.sch.tbl WHERE a = 1"
+  },
+  {
+    "comment": "SELECT from quoted catalog-qualified table keeps all three name parts",
+    "query": "SELECT * FROM \"Db\".\"Sch\".\"Tbl\" AS t"
   }
 ]

@@ -19,7 +19,9 @@ import (
 	"encoding/hex"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/shardingcatalog"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -34,12 +36,17 @@ import (
 // transaction that changes what a snapshot contains, so two snapshots at the
 // same version are identical. Every catalog write goes through writeCatalog,
 // which owns that protocol: it locks the catalog_state row before the writer
-// touches anything else, advances the version once when the writer reports a
-// routing change (and plan_epoch with it when the change invalidates cached
-// plans), commits, and publishes the new versions. Holding the lock for
+// touches anything else; when the writer reports a routing change, it checks
+// the resulting snapshot and advances the version once (and plan_epoch with it
+// when the change invalidates cached plans); then it commits and publishes the
+// new versions. Writes outside the snapshot
+// (operation rows, for instance) go through it too, and commit without
+// advancing anything. Holding the lock for
 // the whole transaction serializes catalog writers, and taking it first in
 // every writer is the lock order: catalog_state, then the other catalog rows,
 // never the other way round. A writer must not begin its own transaction.
+// The one other catalog writer, ensureCatalogSchema, keeps the same lock
+// order and advances the versions as its migrations declare.
 //
 // The catalog primary also publishes the versions on its health stream (see
 // healthStreamer.observeCatalogVersions). It reads them only from committed
@@ -52,8 +59,10 @@ import (
 // standbys was cancelled or whose backend was terminated while waiting:
 // PostgreSQL then makes it visible locally without the acknowledgement. Such a
 // version can be lost in a failover and reused by the next primary with
-// different contents, so a gateway that cached it would not see the change
-// until the version moves past it.
+// different contents. That is why GetRoutingSnapshot stamps every answer with
+// the consensus rule it was the primary under, and gateways order snapshots
+// by (rule, version): the next primary always serves under a higher rule, so
+// its snapshot replaces a lost version whatever their version numbers.
 
 // Shard index and shard key states and roles, matching the CHECK constraints
 // in pg_catalog_schema.go.
@@ -111,36 +120,44 @@ type catalogVersions struct {
 
 const catalogVersionsQuery = "SELECT routing_version, plan_epoch FROM multigres.catalog_state"
 
-// catalogChange is what a writeCatalog writer did to the catalog.
+// catalogChange is what a writeCatalog writer's change does to the catalog
+// versions. The transaction commits whichever it is; only an error from the
+// writer rolls it back. Values are ordered by strength, so the max of several
+// changes is the change they make together (see ensureCatalogSchema).
 type catalogChange int
 
 const (
-	// catalogUnchanged means the writer changed nothing; the transaction is
-	// rolled back and the version stays.
-	catalogUnchanged catalogChange = iota
+	// catalogNoSnapshotChange means the writer changed nothing a snapshot
+	// contains: it wrote nothing, or only rows outside the snapshot such as
+	// operation rows. No version advances.
+	catalogNoSnapshotChange catalogChange = iota
 	// catalogRoutingChange means the writer changed rows a snapshot contains;
-	// routing_version advances and the transaction commits.
+	// routing_version advances.
 	catalogRoutingChange
 	// catalogInvalidatesPlans means the writer changed rows a snapshot
 	// contains in a way that can change how an existing query is planned, so
 	// cached plans must be invalidated: routing_version and plan_epoch both
-	// advance and the transaction commits. Every such change is also a routing
-	// change.
+	// advance. Every such change is also a routing change.
 	catalogInvalidatesPlans
 )
 
 // catalogWriter is the body of a catalog write transaction. It runs with the
 // catalog_state lock already held, and current is the versions that lock read:
-// a change the writer reports advances routing_version to exactly
+// a routing change the writer reports advances routing_version to exactly
 // current.routingVersion + 1. It must leave the transaction open: it neither
-// commits nor rolls back. An error rolls back whatever it wrote.
+// commits nor rolls back. What it wrote commits unless it returns an error,
+// which rolls everything back.
 type catalogWriter func(ctx context.Context, tx executor.InternalTx, current catalogVersions) (catalogChange, error)
 
 // writeCatalog runs write in a catalog write transaction on the admin pool,
 // under tableGroupOpTimeout. See the file comment for the protocol it owns.
-// It returns the committed versions, or the current versions, unchanged, when
-// the writer changed nothing.
+// It returns the advanced versions, or for catalogNoSnapshotChange, where
+// nothing advances and nothing is published, the current versions unchanged.
 func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWriter) (catalogVersions, error) {
+	// The versions are published under the rule this pooler held when it
+	// began; a commit cannot succeed across a demotion, which makes postgres
+	// read-only.
+	rule := pm.routingRule()
 	qs, err := pm.catalogQueryService()
 	if err != nil {
 		return catalogVersions{}, err
@@ -163,7 +180,10 @@ func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWri
 	}
 	var invalidatePlans bool
 	switch change {
-	case catalogUnchanged:
+	case catalogNoSnapshotChange:
+		if err := tx.Commit(execCtx); err != nil {
+			return catalogVersions{}, mterrors.Wrap(err, "failed to commit catalog transaction")
+		}
 		return current, nil
 	case catalogRoutingChange:
 	case catalogInvalidatesPlans:
@@ -172,6 +192,9 @@ func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWri
 		return catalogVersions{}, mterrors.Errorf(mtrpcpb.Code_INTERNAL, "unknown catalog change %d", change)
 	}
 
+	if err := validateCatalogWrite(execCtx, tx); err != nil {
+		return catalogVersions{}, err
+	}
 	versions, err := advanceCatalogVersions(execCtx, tx, invalidatePlans)
 	if err != nil {
 		return catalogVersions{}, err
@@ -179,8 +202,27 @@ func (pm *MultipoolerManager) writeCatalog(ctx context.Context, write catalogWri
 	if err := tx.Commit(execCtx); err != nil {
 		return catalogVersions{}, mterrors.Wrap(err, "failed to commit catalog transaction")
 	}
-	pm.publishCatalogWrite(versions)
+	pm.publishCatalogWrite(rule, versions)
 	return versions, nil
+}
+
+// validateCatalogWrite reads the snapshot the writer's transaction would
+// commit, its own writes included, and checks it the way gateways do
+// (shardingcatalog.New). The catalog tables enforce none of the cross-row
+// rules (shard layouts, the default tablegroup, one active primary shard key
+// per table), so this is where a writer that breaks one fails, before its
+// change commits, rather than every gateway rejecting the snapshot after it.
+// Writes outside the snapshot skip it, so a catalog that is already invalid
+// never blocks bookkeeping.
+func validateCatalogWrite(ctx context.Context, tx executor.InternalTx) error {
+	snapshot, err := loadRoutingSnapshot(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if _, err := shardingcatalog.New(snapshot); err != nil {
+		return mterrors.WithCode(mterrors.Wrap(err, "catalog write would leave an invalid routing snapshot"), mtrpcpb.Code_INTERNAL)
+	}
+	return nil
 }
 
 // lockCatalogState locks the catalog_state row for the rest of the
@@ -227,7 +269,8 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 	if err := pm.checkCatalogShard(); err != nil {
 		return nil, err
 	}
-	if err := pm.checkCatalogPrimary(ctx); err != nil {
+	rule, err := pm.catalogPrimaryRule(ctx)
+	if err != nil {
 		return nil, err
 	}
 	qs, err := pm.catalogQueryService()
@@ -253,20 +296,46 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 	if err := executor.ScanSingleRow(res, &v.routingVersion, &v.planEpoch); err != nil {
 		return nil, mterrors.Wrap(err, "failed to read catalog versions")
 	}
-	out := &multipoolermanagerdatapb.GetRoutingSnapshotResponse{RoutingVersion: v.routingVersion, PlanEpoch: v.planEpoch}
-	if req.SinceVersion != nil && req.GetSinceVersion() == v.routingVersion {
+	out := &multipoolermanagerdatapb.GetRoutingSnapshotResponse{RoutingVersion: v.routingVersion, PlanEpoch: v.planEpoch, ConsensusRule: rule}
+	if req.SinceVersion != nil && req.GetSinceVersion() == v.routingVersion &&
+		commonconsensus.CompareRuleNumbers(req.GetSinceConsensusRule(), rule) == 0 {
 		out.Unchanged = true
-		return out, nil
+	} else {
+		snapshot, err := loadRoutingSnapshot(execCtx, tx)
+		if err != nil {
+			return nil, err
+		}
+		snapshot.RoutingVersion = v.routingVersion
+		snapshot.PlanEpoch = v.planEpoch
+		out.Snapshot = snapshot
 	}
-	snapshot, err := loadRoutingSnapshot(execCtx, tx)
+	// The answer is labelled with the rule checked before the read. Check
+	// again: a pooler that is no longer the primary fails as it would have
+	// before the read, and one that is the primary under another rule may have
+	// read state belonging to neither, so the caller asks again.
+	after, err := pm.catalogPrimaryRule(ctx)
 	if err != nil {
 		return nil, err
 	}
-	snapshot.RoutingVersion = v.routingVersion
-	snapshot.PlanEpoch = v.planEpoch
-	out.Snapshot = snapshot
+	if commonconsensus.CompareRuleNumbers(after, rule) != 0 {
+		return nil, mterrors.Errorf(mtrpcpb.Code_ABORTED,
+			"the catalog primary's consensus rule changed from %s to %s during the snapshot read; retry",
+			commonconsensus.FormatRuleNumber(rule), commonconsensus.FormatRuleNumber(after))
+	}
 	return out, nil
 }
+
+// The statements loadRoutingSnapshot reads the catalog with, one per table.
+// NULL range bounds (the ends of the keyspace) read as empty text. Routing
+// rules are read with readRoutingRules, as the rule store reads them.
+const (
+	snapshotTableGroupsQuery     = "SELECT tablegroup_id, name, state FROM multigres.tablegroup ORDER BY tablegroup_id"
+	snapshotShardsQuery          = "SELECT shard_id, tablegroup_id, shard_name, coalesce(encode(range_start, 'hex'), ''), coalesce(encode(range_end, 'hex'), ''), state FROM multigres.shard ORDER BY shard_id"
+	snapshotTablesQuery          = "SELECT table_id, schema_name, table_name, tablegroup_id FROM multigres.tablegroup_table ORDER BY table_id"
+	snapshotShardIndicesQuery    = "SELECT shard_index_id, name, type, params::text, state FROM multigres.shard_index ORDER BY shard_index_id"
+	snapshotShardKeysQuery       = "SELECT shard_key_id, table_id, shard_index_id, name, role, state FROM multigres.shard_key ORDER BY shard_key_id"
+	snapshotShardKeyColumnsQuery = "SELECT shard_key_id, column_name FROM multigres.shard_key_column ORDER BY shard_key_id, position"
+)
 
 // loadRoutingSnapshot reads every catalog entity, routing rules included, in
 // the caller's transaction.
@@ -274,7 +343,7 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*shardingcatalogpb.Snapshot, error) {
 	s := &shardingcatalogpb.Snapshot{}
 
-	res, err := tx.Query(ctx, "SELECT tablegroup_id, name, state FROM multigres.tablegroup ORDER BY tablegroup_id")
+	res, err := tx.Query(ctx, snapshotTableGroupsQuery)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read tablegroups")
 	}
@@ -288,9 +357,7 @@ func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*sharding
 		s.Tablegroups = append(s.Tablegroups, &tg)
 	}
 
-	// NULL bounds (the ends of the keyspace) read as empty text.
-	res, err = tx.Query(ctx, "SELECT shard_id, tablegroup_id, shard_name, coalesce(encode(range_start, 'hex'), ''), coalesce(encode(range_end, 'hex'), ''), state "+
-		"FROM multigres.shard ORDER BY shard_id")
+	res, err = tx.Query(ctx, snapshotShardsQuery)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read shards")
 	}
@@ -312,7 +379,7 @@ func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*sharding
 		s.Shards = append(s.Shards, &sh)
 	}
 
-	res, err = tx.Query(ctx, "SELECT table_id, schema_name, table_name, tablegroup_id FROM multigres.tablegroup_table ORDER BY table_id")
+	res, err = tx.Query(ctx, snapshotTablesQuery)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read tables")
 	}
@@ -324,7 +391,7 @@ func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*sharding
 		s.Tables = append(s.Tables, &t)
 	}
 
-	res, err = tx.Query(ctx, "SELECT shard_index_id, name, type, params::text, state FROM multigres.shard_index ORDER BY shard_index_id")
+	res, err = tx.Query(ctx, snapshotShardIndicesQuery)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read shard indexes")
 	}
@@ -338,7 +405,7 @@ func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*sharding
 		s.ShardIndices = append(s.ShardIndices, &si)
 	}
 
-	res, err = tx.Query(ctx, "SELECT shard_key_id, table_id, shard_index_id, name, role, state FROM multigres.shard_key ORDER BY shard_key_id")
+	res, err = tx.Query(ctx, snapshotShardKeysQuery)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read shard keys")
 	}
@@ -355,7 +422,7 @@ func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*sharding
 		s.ShardKeys = append(s.ShardKeys, &k)
 	}
 
-	res, err = tx.Query(ctx, "SELECT shard_key_id, column_name FROM multigres.shard_key_column ORDER BY shard_key_id, position")
+	res, err = tx.Query(ctx, snapshotShardKeyColumnsQuery)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read shard key columns")
 	}
@@ -392,14 +459,15 @@ func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*sharding
 }
 
 // refreshCatalogVersions rereads catalog_state and publishes it on the health
-// stream when this pooler is the catalog primary, and clears what it
-// published otherwise.
+// stream, tagged with the rule this pooler is the catalog primary under. A
+// pooler that is not the routing primary reads nothing; the health stream
+// already stops publishing its versions (see healthStreamer.catalogRule).
 func (pm *MultipoolerManager) refreshCatalogVersions(ctx context.Context) {
 	if pm.healthStreamer == nil {
 		return
 	}
-	if pm.stateManager.RoutingRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
-		pm.healthStreamer.clearCatalogVersions()
+	rs := pm.stateManager.RoutingState()
+	if rs.GetRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 		return
 	}
 	qs := pm.internalQueryService()
@@ -418,7 +486,7 @@ func (pm *MultipoolerManager) refreshCatalogVersions(ctx context.Context) {
 		pm.logger.WarnContext(ctx, "failed to read catalog versions", "error", err)
 		return
 	}
-	pm.healthStreamer.observeCatalogVersions(v)
+	pm.healthStreamer.observeCatalogVersions(rs.GetRule(), v)
 }
 
 // runCatalogVersionRefresh rereads catalog_state every interval until ctx
@@ -437,10 +505,20 @@ func (pm *MultipoolerManager) runCatalogVersionRefresh(ctx context.Context, inte
 	}
 }
 
-// publishCatalogWrite publishes the versions a committed catalog write
-// produced, so gateways learn of it without waiting for the next refresh.
-func (pm *MultipoolerManager) publishCatalogWrite(v catalogVersions) {
+// publishCatalogWrite publishes the versions a catalog write committed while
+// this pooler was the primary under rule, so gateways learn of it without
+// waiting for the next refresh.
+func (pm *MultipoolerManager) publishCatalogWrite(rule *clustermetadatapb.RuleNumber, v catalogVersions) {
 	if pm.healthStreamer != nil {
-		pm.healthStreamer.observeCatalogVersions(v)
+		pm.healthStreamer.observeCatalogVersions(rule, v)
 	}
+}
+
+// routingRule returns the consensus rule this pooler currently routes under,
+// nil when it has no state manager.
+func (pm *MultipoolerManager) routingRule() *clustermetadatapb.RuleNumber {
+	if pm.stateManager == nil {
+		return nil
+	}
+	return pm.stateManager.RoutingState().GetRule()
 }

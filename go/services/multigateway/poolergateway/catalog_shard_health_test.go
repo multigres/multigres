@@ -38,7 +38,7 @@ func healthTestConn(tableGroup, shard string) *poolerConnection {
 func reportHealth(pc *poolerConnection, role clustermetadatapb.RoutingRole, routingVersion int64) {
 	pc.processHealthResponse(&multipoolerservice.StreamPoolerHealthResponse{
 		ServingStatus:  clustermetadatapb.PoolerServingStatus_SERVING,
-		RoutingState:   &clustermetadatapb.RoutingState{Role: role},
+		RoutingState:   &clustermetadatapb.RoutingState{Role: role, Rule: &clustermetadatapb.RuleNumber{CoordinatorTerm: 3, LeaderSubterm: 1}},
 		RoutingVersion: routingVersion,
 		PlanEpoch:      2,
 	})
@@ -50,19 +50,22 @@ func TestCatalogShardHealth(t *testing.T) {
 		reportHealth(pc, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, 7)
 		assert.Equal(t, int64(2), pc.Health().PlanEpoch)
 
-		db, primary, version, ok := catalogShardHealth(pc)
+		db, primary, rule, version, ok := catalogShardHealth(pc)
 		require.True(t, ok)
 		assert.Equal(t, constants.DefaultPostgresDatabase, db)
 		assert.True(t, primary)
+		assert.Equal(t, int64(3), rule.GetCoordinatorTerm())
+		assert.Equal(t, int64(1), rule.GetLeaderSubterm())
 		assert.Equal(t, int64(7), version)
 	})
 	t.Run("a replica is seen but reports nothing", func(t *testing.T) {
 		pc := healthTestConn(constants.DefaultTableGroup, constants.DefaultShard)
 		reportHealth(pc, clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA, 7)
 
-		_, primary, version, ok := catalogShardHealth(pc)
+		_, primary, rule, version, ok := catalogShardHealth(pc)
 		require.True(t, ok)
 		assert.False(t, primary)
+		assert.Nil(t, rule)
 		assert.Zero(t, version)
 	})
 	t.Run("a stale stream is not a primary report", func(t *testing.T) {
@@ -71,15 +74,16 @@ func TestCatalogShardHealth(t *testing.T) {
 		pc.setHealthError(errors.New("stream stalled"))
 		assert.Equal(t, int64(7), pc.Health().RoutingVersion, "the error keeps the last report")
 
-		_, primary, version, ok := catalogShardHealth(pc)
+		_, primary, rule, version, ok := catalogShardHealth(pc)
 		require.True(t, ok)
 		assert.False(t, primary)
+		assert.Nil(t, rule)
 		assert.Zero(t, version)
 	})
 	t.Run("other shards are not catalog shards", func(t *testing.T) {
 		pc := healthTestConn("commerce", constants.DefaultShard)
 		reportHealth(pc, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, 7)
-		_, _, _, ok := catalogShardHealth(pc)
+		_, _, _, _, ok := catalogShardHealth(pc)
 		assert.False(t, ok)
 	})
 }

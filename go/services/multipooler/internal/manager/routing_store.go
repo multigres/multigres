@@ -77,29 +77,29 @@ func (pm *MultipoolerManager) changeRoutingRules(ctx context.Context, change rou
 // validates change against the catalog at current and replaces the
 // operation's rules in tx, stamped with the version writeCatalog commits them
 // at. A change that is already in effect writes nothing and reports
-// catalogUnchanged; one whose plan requires it invalidates cached plans.
+// catalogNoSnapshotChange; one whose plan requires it invalidates cached plans.
 func applyRoutingRuleChange(ctx context.Context, tx executor.InternalTx, current catalogVersions, change routingRuleChange) (catalogChange, error) {
 	cat, err := loadRoutingCatalog(ctx, tx, current, change.operationID)
 	if err != nil {
-		return catalogUnchanged, err
+		return catalogNoSnapshotChange, err
 	}
 	plan, err := planRoutingRuleChange(cat, change)
 	if err != nil {
-		return catalogUnchanged, err
+		return catalogNoSnapshotChange, err
 	}
 	if plan.noop {
-		return catalogUnchanged, nil
+		return catalogNoSnapshotChange, nil
 	}
 
 	version := current.routingVersion + 1
 	if _, err := tx.QueryArgs(ctx, deleteOperationRulesSQL, change.operationID); err != nil {
-		return catalogUnchanged, mterrors.Wrap(err, "failed to delete routing rules")
+		return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to delete routing rules")
 	}
 	for _, r := range plan.insert {
 		if _, err := tx.QueryArgs(ctx, insertRoutingRuleSQL,
 			r.operationID, r.scope, r.fromTablegroupID, nullableID(r.fromTableID),
 			r.toTablegroupID, nullableID(r.toShardID), nullableID(r.toShardKeyID), version); err != nil {
-			return catalogUnchanged, mterrors.Wrap(err, "failed to insert routing rule")
+			return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to insert routing rule")
 		}
 	}
 	if plan.bumpPlanEpoch {

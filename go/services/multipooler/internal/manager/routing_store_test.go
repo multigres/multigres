@@ -237,7 +237,7 @@ func TestApplyRoutingRuleChange_WritesNothing(t *testing.T) {
 				assert.Equal(t, tt.code, mterrors.Code(err), "error: %v", err)
 			} else {
 				require.NoError(t, err)
-				assert.Equal(t, catalogUnchanged, change)
+				assert.Equal(t, catalogNoSnapshotChange, change)
 			}
 			assert.Empty(t, tx.writes(), tt.name+" must not write")
 			if tt.change.operationID == "nope" {
@@ -251,7 +251,9 @@ func TestApplyRoutingRuleChange_WritesNothing(t *testing.T) {
 
 // expectRoutingCatalog registers the catalog_state lock at
 // testRoutingCurrent, the routing store's catalog reads with the given rule
-// rows, its rule writes, and COMMIT, all recorded in env.queries.
+// rows, its rule writes, the snapshot reads writeCatalog validates the write
+// with (the same catalog, whose rules read as the given rows), and COMMIT,
+// all recorded in env.queries.
 func (env *tableGroupTestEnv) expectRoutingCatalog(rules ...[]any) {
 	env.expect("FROM multigres.catalog_state FOR UPDATE", []string{"routing_version", "plan_epoch"},
 		[][]any{{testRoutingCurrent.routingVersion, testRoutingCurrent.planEpoch}})
@@ -263,6 +265,18 @@ func (env *tableGroupTestEnv) expectRoutingCatalog(rules ...[]any) {
 	env.expect("^"+regexp.QuoteMeta(selectOtherOperationsSQL)+"$", []string{"operation_id", "tablegroup_id"}, nil)
 	env.expect("^"+regexp.QuoteMeta(deleteOperationRulesSQL)+"$", nil, nil)
 	env.expect("^"+regexp.QuoteMeta(insertRoutingRuleSQL)+"$", nil, nil)
+	env.expect("^"+regexp.QuoteMeta(snapshotTableGroupsQuery)+"$", []string{"tablegroup_id", "name", "state"}, [][]any{
+		{int64(1), "default", "active"}, {int64(2), "srctg", "active"}, {int64(3), "commerce", "active"},
+	})
+	env.expect("^"+regexp.QuoteMeta(snapshotShardsQuery)+"$", []string{"shard_id", "tablegroup_id", "shard_name", "range_start", "range_end", "state"}, [][]any{
+		{int64(1), int64(1), "0-inf", "", "", "active"},
+		{int64(2), int64(2), "0-inf", "", "", "active"},
+		{int64(11), int64(3), "0-80", "", "80", "active"},
+		{int64(12), int64(3), "80-inf", "80", "", "active"},
+	})
+	for _, q := range []string{snapshotTablesQuery, snapshotShardIndicesQuery, snapshotShardKeysQuery, snapshotShardKeyColumnsQuery} {
+		env.expect("^"+regexp.QuoteMeta(q)+"$", nil, nil)
+	}
 	env.expectCommit()
 }
 
@@ -298,7 +312,7 @@ func TestChangeRoutingRules(t *testing.T) {
 		assert.Equal(t, catalogVersions{routingVersion: 6, planEpoch: 3}, v)
 		assert.Len(t, env.queriesMatching("plan_epoch = plan_epoch + 1"), 1)
 	})
-	t.Run("a no-op commits nothing and returns the current versions", func(t *testing.T) {
+	t.Run("a no-op writes nothing and returns the current versions", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectRoutingCatalog([]any{7, importOp, routingScopeTablegroup, 1, nil, 2, 2, nil, 5})
 
@@ -309,7 +323,7 @@ func TestChangeRoutingRules(t *testing.T) {
 		assert.Empty(t, env.queriesMatching("routing_rule WHERE"), "no rule deleted")
 		assert.Empty(t, env.queriesMatching("INSERT INTO"))
 		assert.Empty(t, env.queriesMatching("UPDATE multigres.catalog_state"))
-		assert.Empty(t, env.queriesMatching("COMMIT"))
+		assert.Empty(t, env.queriesMatching("ORDER BY tablegroup_id"), "nothing in the snapshot changed, so it is not revalidated")
 	})
 	t.Run("a stale expected version rolls back", func(t *testing.T) {
 		env := newCatalogTestEnv(t)

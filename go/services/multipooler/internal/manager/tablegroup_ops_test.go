@@ -179,6 +179,7 @@ func TestCreateTableGroup_RecordsIntent(t *testing.T) {
 	env.expect("INSERT INTO multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
 	env.expect("INSERT INTO multigres.shard", nil, nil)
 	env.expect("INSERT INTO multigres.operation", nil, nil)
+	env.expectCatalogRows()
 	env.expectAdvance(5)
 	env.expectCommit()
 
@@ -192,8 +193,9 @@ func TestCreateTableGroup_RecordsIntent(t *testing.T) {
 	_, err = uuid.Parse(resp.OperationId)
 	require.NoError(t, err, "operation id is a UUID")
 
-	// The catalog_state lock comes before any other catalog row, and the
-	// version advances once, inside the transaction.
+	// The catalog_state lock comes before any other catalog row, the snapshot
+	// the write would commit is checked, and the version advances once,
+	// inside the transaction.
 	want := []string{
 		"SELECT pg_is_in_recovery()",
 		"SELECT routing_version, plan_epoch FROM multigres.catalog_state FOR UPDATE",
@@ -201,6 +203,8 @@ func TestCreateTableGroup_RecordsIntent(t *testing.T) {
 		"INSERT INTO multigres.shard (tablegroup_id, shard_name, range_start, range_end, state) VALUES ($1, $2, decode($3, 'hex'), decode($4, 'hex'), $5)",
 		"INSERT INTO multigres.shard (tablegroup_id, shard_name, range_start, range_end, state) VALUES ($1, $2, decode($3, 'hex'), decode($4, 'hex'), $5)",
 		"INSERT INTO multigres.operation (operation_id, kind, state, request) VALUES ($1, $2, $3, $4::jsonb)",
+		snapshotTableGroupsQuery, snapshotShardsQuery, snapshotTablesQuery,
+		snapshotShardIndicesQuery, snapshotShardKeysQuery, snapshotShardKeyColumnsQuery, selectRoutingRulesSQL,
 		"UPDATE multigres.catalog_state SET routing_version = routing_version + 1 RETURNING routing_version, plan_epoch",
 		"COMMIT",
 	}
@@ -214,6 +218,7 @@ func TestCreateTableGroup_DefaultsToSingleShard(t *testing.T) {
 	env.expect("INSERT INTO multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
 	env.expect("INSERT INTO multigres.shard", nil, nil)
 	env.expect("INSERT INTO multigres.operation", nil, nil)
+	env.expectCatalogRows()
 	env.expectAdvance(5)
 
 	_, err := env.pm.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "commerce"})

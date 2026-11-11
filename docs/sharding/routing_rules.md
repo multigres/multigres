@@ -34,7 +34,8 @@ Every change replaces the whole rule set of one operation, in one catalog
 transaction that goes through `writeCatalog`, like every other catalog write.
 `writeCatalog` locks `multigres.catalog_state` before anything else; the rule
 write then checks the caller's expected routing version, validates the rule set
-the change leaves behind, and writes it, and `writeCatalog` advances
+the change leaves behind, and writes it; `writeCatalog` then checks the
+snapshot the write would commit, rules included, as gateways do, and advances
 `routing_version` (and `plan_epoch`, when the change can alter how a query is
 planned). A change that is already in effect writes nothing and returns the
 current version, so a retry is safe.

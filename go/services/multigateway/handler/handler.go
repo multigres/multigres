@@ -309,7 +309,6 @@ func standardConformingStringsFor(st *MultigatewayConnectionState) bool {
 // Routes the query to an appropriate multipooler instance and streams results back.
 func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn, queryStr string, callback func(ctx context.Context, result *sqltypes.Result) error) error {
 	queryStart := time.Now()
-	h.logger.DebugContext(ctx, "handling query", "query", queryStr, "user", conn.User(), "database", conn.Database())
 	st := h.getConnectionState(conn)
 	// A simple query ends any extended-protocol pipeline before it: it commits
 	// the implicit transaction it ran in, as Sync would.
@@ -340,6 +339,10 @@ func (h *MultigatewayHandler) HandleQuery(ctx context.Context, conn *server.Conn
 		h.recordQueryCompletion(ctx, conn, "UNKNOWN", "simple", parseDuration, 0, time.Since(queryStart), 0, nil, err)
 		return err
 	}
+
+	// Logged only now that the AST is available, so ast.LogSafeQueryMulti can
+	// redact CREATE CONNECTION's embedded password before anything reaches the log.
+	h.logger.DebugContext(ctx, "handling query", "query", ast.LogSafeQueryMulti(queryStr, asts), "user", conn.User(), "database", conn.Database())
 
 	// Handle empty query (e.g., just a semicolon or whitespace).
 	// Call callback with nil to signal empty query response.
@@ -516,8 +519,6 @@ func (h *MultigatewayHandler) getConnectionState(conn *server.Conn) *Multigatewa
 // HandleParse processes a Parse message ('P') for the extended query protocol.
 // Creates and stores a prepared statement.
 func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn, name, queryStr string, paramTypes []uint32) error {
-	h.logger.DebugContext(ctx, "parse", "name", name, "query", queryStr, "param_count", len(paramTypes))
-
 	// Fold gateway-provided functions (e.g. multigres.version()) into constants
 	// before storing or eagerly parsing the prepared statement, so the folded
 	// text is what Describe and Execute later forward to the backend. A no-op for
@@ -553,6 +554,12 @@ func (h *MultigatewayHandler) HandleParse(ctx context.Context, conn *server.Conn
 	if err != nil {
 		return err
 	}
+
+	// Logged only now that the AST is available, so ast.LogSafeQuery can redact a
+	// credential-bearing statement before anything reaches the log. psi.IsEmpty()
+	// leaves AstStmt() nil for an empty/comment-only query; RedactIfCredentialBearing's
+	// default case handles that the same as any other non-connection statement.
+	h.logger.DebugContext(ctx, "parse", "name", name, "query", ast.LogSafeQuery(queryStr, psi.AstStmt()), "param_count", len(paramTypes))
 
 	// The original SQL is already prepared on the transaction's backend.
 	// Only an execution-time semantic rewrite needs a separate materialization;
@@ -810,18 +817,21 @@ func (h *MultigatewayHandler) HandleSync(ctx context.Context, conn *server.Conn)
 // until Sync, run in the same implicit transaction. A statement PostgreSQL
 // commits at once (commitsAtExecute: a transaction statement, DISCARD ALL,
 // VACUUM, CREATE DATABASE and the rest) ends that transaction instead, and the
-// next statement starts clean. Tablegroup DDL is in that set too, but the
-// gateway runs it itself: on success the flag was clear already, and on a
-// refusal PostgreSQL leaves its flags alone, so the flag is left as it was.
+// next statement starts clean. Tablegroup DDL and migration/connection DDL
+// are in that set too, but the gateway runs them itself: on success the flag
+// was clear already, and on a refusal PostgreSQL leaves its flags alone, so
+// the flag is left as it was.
 //
 // PostgreSQL sets the flag only when the portal completed, not when an Execute
 // with a row limit left it suspended. The gateway does not distinguish the two
 // here and counts a suspended Execute as well, which only ever refuses a
-// tablegroup DDL that PostgreSQL would have allowed, never the reverse.
+// tablegroup or migration/connection DDL statement that PostgreSQL would have
+// allowed, never the reverse.
 func notePipelinedExecute(state *MultigatewayConnectionState, stmt ast.Stmt) {
 	switch {
 	case stmt == nil:
 	case ast.IsTableGroupDDL(stmt):
+	case ast.IsMigrationDDL(stmt):
 	default:
 		state.SetPipelining(!commitsAtExecute(stmt))
 	}

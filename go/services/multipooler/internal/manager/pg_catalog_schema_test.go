@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -91,8 +92,10 @@ func recordCatalogEnsure(t *testing.T, exists bool, format int) []string {
 	record := func(q string) { queries = append(queries, q) }
 	m.AddQueryPatternWithCallback(catalogStatePresentPattern,
 		mock.MakeQueryResult([]string{"exists"}, [][]any{{exists}}), record)
-	m.AddQueryPatternWithCallback("^SELECT format_version FROM multigres.catalog_state$",
+	m.AddQueryPatternWithCallback("^SELECT format_version FROM multigres.catalog_state FOR UPDATE$",
 		mock.MakeQueryResult([]string{"format_version"}, [][]any{{format}}), record)
+	m.AddQueryPatternWithCallback("SET routing_version",
+		mock.MakeQueryResult([]string{"routing_version", "plan_epoch"}, [][]any{{int64(1), int64(0)}}), record)
 	m.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), record)
 
 	require.NoError(t, pm.ensureCatalogSchema(context.Background()))
@@ -136,10 +139,84 @@ func TestEnsureCatalogSchema_AtLatestRunsTablesAndSeed(t *testing.T) {
 	want := []string{
 		"BEGIN", "SELECT pg_advisory_xact_lock($1)",
 		"SELECT to_regclass('multigres.catalog_state') IS NOT NULL",
-		"SELECT format_version FROM multigres.catalog_state",
+		"SELECT format_version FROM multigres.catalog_state FOR UPDATE",
 	}
 	want = append(want, catalogEnsureTail()...)
 	assert.Equal(t, want, queries)
+	assert.Empty(t, queriesContaining(queries, "SET routing_version"), "a routine open advances nothing")
+}
+
+// queriesContaining returns the queries that contain substr.
+func queriesContaining(queries []string, substr string) []string {
+	var out []string
+	for _, q := range queries {
+		if strings.Contains(q, substr) {
+			out = append(out, q)
+		}
+	}
+	return out
+}
+
+// withRewritingMigration appends a format that rewrites snapshot rows and
+// declares change, for the length of the test.
+func withRewritingMigration(t *testing.T, change catalogChange) {
+	t.Helper()
+	saved := catalogMigrations
+	catalogMigrations = append(slices.Clone(saved), catalogMigration{
+		version:    len(saved) + 1,
+		statements: []string{"UPDATE multigres.shard SET state = state"},
+		change:     change,
+	})
+	t.Cleanup(func() { catalogMigrations = saved })
+}
+
+// TestEnsureCatalogSchema_LocksCatalogStateFirst pins the lock order shared
+// with writeCatalog: the catalog_state row is locked before any statement
+// that locks another catalog table, such as CREATE INDEX IF NOT EXISTS on
+// shard_key.
+func TestEnsureCatalogSchema_LocksCatalogStateFirst(t *testing.T) {
+	queries := recordCatalogEnsure(t, true, latestCatalogFormat())
+	lock := slices.Index(queries, "SELECT format_version FROM multigres.catalog_state FOR UPDATE")
+	require.GreaterOrEqual(t, lock, 0, "the format read locks catalog_state")
+	for i, q := range queries {
+		if strings.Contains(q, "CREATE") {
+			assert.Less(t, lock, i, "catalog_state is locked before %q", q)
+		}
+	}
+}
+
+func TestEnsureCatalogSchema_MigrationAdvancesWhatItDeclares(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change catalogChange
+		want   []string
+	}{
+		{"no snapshot change", catalogNoSnapshotChange, nil},
+		{"routing change", catalogRoutingChange, []string{
+			"UPDATE multigres.catalog_state SET routing_version = routing_version + 1 RETURNING routing_version, plan_epoch",
+		}},
+		{"invalidates plans", catalogInvalidatesPlans, []string{
+			"UPDATE multigres.catalog_state SET routing_version = routing_version + 1, plan_epoch = plan_epoch + 1 RETURNING routing_version, plan_epoch",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			withRewritingMigration(t, tc.change)
+			queries := recordCatalogEnsure(t, true, latestCatalogFormat()-1)
+			assert.Equal(t, tc.want, queriesContaining(queries, "SET routing_version"))
+			if tc.want != nil {
+				assert.Less(t, slices.Index(queries, tc.want[0]), slices.Index(queries, "COMMIT"), "advanced in the same transaction")
+			}
+		})
+	}
+}
+
+// A fresh or legacy catalog has no catalog_state, so no gateway can hold a
+// snapshot of it: even a migration that declares a routing change advances
+// nothing, and a fresh catalog starts at version 0.
+func TestEnsureCatalogSchema_FreshCatalogAdvancesNothing(t *testing.T) {
+	withRewritingMigration(t, catalogRoutingChange)
+	queries := recordCatalogEnsure(t, false, 0)
+	assert.Empty(t, queriesContaining(queries, "SET routing_version"))
 }
 
 func TestEnsureCatalogSchema_NewerFormatLeftAlone(t *testing.T) {

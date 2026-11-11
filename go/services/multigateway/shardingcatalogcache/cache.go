@@ -17,11 +17,23 @@
 //
 // Each database has one fetch loop, so fetches are single-flight per
 // database. The loop fetches when the database is first seen, when the
-// catalog primary's health stream reports a routing_version above the cached
-// one, and on a backstop poll. A snapshot is installed only if it validates
-// and its routing_version is at least the cached one, so the cache never goes
-// backwards; a failed fetch keeps the old snapshot and the next trigger
-// retries.
+// catalog primary's health stream reports a newer snapshot than the cached
+// one, and on a backstop poll. A failed fetch keeps the old snapshot and the
+// next trigger retries.
+//
+// Snapshots are ordered by (consensus rule, routing_version): the rule the
+// serving primary held, then the version. A routing_version can be lost in a
+// failover and reused by the next primary with different contents, but the
+// next primary always serves under a higher rule. So a snapshot from a higher
+// rule replaces the cached one whatever its version, a lower version within
+// the same rule never does, and a snapshot from a lower rule (a former
+// primary that has not learned it was superseded) never does.
+//
+// Entries are never evicted: the cache keeps a database's last good snapshot
+// through any outage of its catalog shard. A database dropped and recreated
+// under the same name would start its rules over, which the ordering refuses;
+// that needs the database's identity, not just its name, once dropping a
+// database is supported.
 package shardingcatalogcache
 
 import (
@@ -31,7 +43,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/shardingcatalog"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -45,8 +59,29 @@ type Source interface {
 }
 
 // FetchFunc asks the catalog primary of database for its snapshot. since is
-// the routing_version of the cached snapshot, nil when there is none.
-type FetchFunc func(ctx context.Context, database string, since *int64) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error)
+// the cached snapshot's position, nil when there is none.
+type FetchFunc func(ctx context.Context, database string, since *Position) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error)
+
+// Position orders snapshots: the consensus rule the serving primary held,
+// then the routing_version.
+type Position struct {
+	Rule           *clustermetadatapb.RuleNumber
+	RoutingVersion int64
+}
+
+// Compare returns -1, 0 or 1 as p is before, equal to or after other.
+func (p Position) Compare(other Position) int {
+	if c := commonconsensus.CompareRuleNumbers(p.Rule, other.Rule); c != 0 {
+		return c
+	}
+	switch {
+	case p.RoutingVersion < other.RoutingVersion:
+		return -1
+	case p.RoutingVersion > other.RoutingVersion:
+		return 1
+	}
+	return 0
+}
 
 // fetchTimeout bounds one fetch.
 const fetchTimeout = 30 * time.Second
@@ -65,10 +100,16 @@ type Cache struct {
 
 var _ Source = (*Cache)(nil)
 
+// installed is a snapshot and the position it was served at.
+type installed struct {
+	position Position
+	snapshot *shardingcatalog.Snapshot
+}
+
 // database is one database's cached snapshot and its fetch loop.
 type database struct {
-	name     string
-	snapshot atomic.Pointer[shardingcatalog.Snapshot]
+	name    string
+	current atomic.Pointer[installed]
 	// wake asks the loop to fetch. It holds at most one request, and a trigger
 	// that finds it full is dropped: so however many triggers arrive while a
 	// fetch runs, exactly one more fetch follows, and it starts after all of
@@ -95,13 +136,29 @@ func New(ctx context.Context, logger *slog.Logger, fetch FetchFunc, pollInterval
 
 // Snapshot implements Source.
 func (c *Cache) Snapshot(name string) *shardingcatalog.Snapshot {
+	if cur := c.current(name); cur != nil {
+		return cur.snapshot
+	}
+	return nil
+}
+
+// Installed returns the database's current snapshot together with the
+// position it was served at, or nil when there is none.
+func (c *Cache) Installed(name string) (*shardingcatalog.Snapshot, Position) {
+	if cur := c.current(name); cur != nil {
+		return cur.snapshot, cur.position
+	}
+	return nil, Position{}
+}
+
+func (c *Cache) current(name string) *installed {
 	c.mu.Lock()
 	db := c.databases[name]
 	c.mu.Unlock()
 	if db == nil {
 		return nil
 	}
-	return db.snapshot.Load()
+	return db.current.Load()
 }
 
 // Databases returns the names of every database the cache has seen.
@@ -117,18 +174,18 @@ func (c *Cache) Databases() []string {
 
 // ObserveCatalogShard records a health update from a pooler of the catalog
 // shard of a database. primary is whether the pooler is the live routing
-// primary, and routingVersion what it reported (zero from anything else).
-// The first observation of a database starts its fetch loop. A fetch is
-// triggered when the primary reports a version above the cached snapshot's,
-// or when there is a primary and no snapshot yet. Cheap enough to call on
-// every health message.
-func (c *Cache) ObserveCatalogShard(name string, primary bool, routingVersion int64) {
+// primary; rule and routingVersion are what it reported (unset from anything
+// else). The first observation of a database starts its fetch loop. A fetch
+// is triggered when the primary reports a position after the cached
+// snapshot's, or when there is a primary and no snapshot yet. Cheap enough to
+// call on every health message.
+func (c *Cache) ObserveCatalogShard(name string, primary bool, rule *clustermetadatapb.RuleNumber, routingVersion int64) {
 	db := c.database(name)
 	if !primary {
 		return
 	}
-	snap := db.snapshot.Load()
-	if snap == nil || routingVersion > snap.RoutingVersion() {
+	cur := db.current.Load()
+	if cur == nil || (Position{Rule: rule, RoutingVersion: routingVersion}).Compare(cur.position) > 0 {
 		db.trigger()
 	}
 }
@@ -156,7 +213,7 @@ func (db *database) trigger() {
 	}
 }
 
-// run is the database's fetch loop.
+// run is the database's fetch loop. It ends with the cache's context.
 func (c *Cache) run(db *database) {
 	var poll <-chan time.Time
 	if c.pollInterval > 0 {
@@ -175,15 +232,15 @@ func (c *Cache) run(db *database) {
 	}
 }
 
-// refresh fetches once and installs the result if it is newer.
+// refresh fetches once and installs the result if it is after the cached
+// snapshot.
 func (c *Cache) refresh(db *database) {
 	ctx, cancel := context.WithTimeout(c.ctx, fetchTimeout)
 	defer cancel()
-	cached := db.snapshot.Load()
-	var since *int64
-	if cached != nil {
-		v := cached.RoutingVersion()
-		since = &v
+	cur := db.current.Load()
+	var since *Position
+	if cur != nil {
+		since = &cur.position
 	}
 	resp, err := c.fetch(ctx, db.name, since)
 	if err != nil {
@@ -192,7 +249,7 @@ func (c *Cache) refresh(db *database) {
 		}
 		c.metrics.fetchFailed(ctx, db.name, failureFetch)
 		c.logger.WarnContext(ctx, "failed to fetch sharding catalog snapshot; keeping the cached one",
-			"database", db.name, "cached_routing_version", versionOf(cached), "error", err)
+			append([]any{"database", db.name, "error", err}, cachedAttrs(cur)...)...)
 		return
 	}
 	if resp.GetUnchanged() {
@@ -202,16 +259,19 @@ func (c *Cache) refresh(db *database) {
 	if pb == nil {
 		c.metrics.fetchFailed(ctx, db.name, failureInvalid)
 		c.logger.WarnContext(ctx, "catalog primary returned neither a snapshot nor unchanged; keeping the cached one",
-			"database", db.name, "cached_routing_version", versionOf(cached))
+			append([]any{"database", db.name}, cachedAttrs(cur)...)...)
 		return
 	}
-	// A primary that has not caught up (a former primary not yet demoted, see
-	// the pooler's checkCatalogPrimary) can serve an older catalog. Same
-	// version means same contents, so there is nothing to install either.
-	if cached != nil && pb.GetRoutingVersion() <= cached.RoutingVersion() {
-		if pb.GetRoutingVersion() < cached.RoutingVersion() {
+	pos := Position{Rule: resp.GetConsensusRule(), RoutingVersion: pb.GetRoutingVersion()}
+	// A primary that has not learned it was superseded serves under an older
+	// rule, or one that has not caught up an older version under the same
+	// rule. The same position means the same contents, so there is nothing to
+	// install either.
+	if cur != nil && pos.Compare(cur.position) <= 0 {
+		if pos.Compare(cur.position) < 0 {
 			c.logger.WarnContext(ctx, "ignoring an older sharding catalog snapshot",
-				"database", db.name, "routing_version", pb.GetRoutingVersion(), "cached_routing_version", cached.RoutingVersion())
+				append([]any{"database", db.name, "routing_version", pos.RoutingVersion, "consensus_rule", commonconsensus.FormatRuleNumber(pos.Rule)},
+					cachedAttrs(cur)...)...)
 		}
 		return
 	}
@@ -219,21 +279,27 @@ func (c *Cache) refresh(db *database) {
 	if err != nil {
 		c.metrics.fetchFailed(ctx, db.name, failureInvalid)
 		c.logger.ErrorContext(ctx, "rejected sharding catalog snapshot; keeping the cached one",
-			"database", db.name, "routing_version", pb.GetRoutingVersion(), "cached_routing_version", versionOf(cached), "error", err)
+			append([]any{"database", db.name, "routing_version", pos.RoutingVersion, "consensus_rule", commonconsensus.FormatRuleNumber(pos.Rule), "error", err},
+				cachedAttrs(cur)...)...)
 		return
 	}
 	// The loop is the only writer, so nothing raced this install.
-	db.snapshot.Store(snap)
+	db.current.Store(&installed{position: pos, snapshot: snap})
 	c.metrics.installed(ctx, db.name, snap.RoutingVersion())
 	c.logger.InfoContext(ctx, "installed sharding catalog snapshot",
-		"database", db.name, "routing_version", snap.RoutingVersion(), "plan_epoch", snap.PlanEpoch(),
-		"previous_routing_version", versionOf(cached), "tablegroups", len(snap.TableGroups()))
+		append([]any{
+			"database", db.name, "routing_version", snap.RoutingVersion(), "plan_epoch", snap.PlanEpoch(),
+			"consensus_rule", commonconsensus.FormatRuleNumber(pos.Rule), "tablegroups", len(snap.TableGroups()),
+		}, cachedAttrs(cur)...)...)
 }
 
-// versionOf returns s's routing_version, or -1 when there is no snapshot.
-func versionOf(s *shardingcatalog.Snapshot) int64 {
-	if s == nil {
-		return -1
+// cachedAttrs describes the cached snapshot for a log line.
+func cachedAttrs(cur *installed) []any {
+	if cur == nil {
+		return []any{"cached", false}
 	}
-	return s.RoutingVersion()
+	return []any{
+		"cached_routing_version", cur.position.RoutingVersion,
+		"cached_consensus_rule", commonconsensus.FormatRuleNumber(cur.position.Rule),
+	}
 }

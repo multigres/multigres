@@ -53,9 +53,16 @@ const catalogSchemaTimeout = 10 * time.Second
 
 // catalogMigration upgrades the catalog from format version-1 to version.
 // Its statements run in order inside ensureCatalogSchema's transaction.
+//
+// change declares what the migration does to the rows a routing snapshot
+// contains, as a writeCatalog writer does: a migration that rewrites or
+// backfills them must say catalogRoutingChange (or catalogInvalidatesPlans),
+// so gateways holding a snapshot at the old routing_version refetch. The zero
+// value, catalogNoSnapshotChange, advances nothing.
 type catalogMigration struct {
 	version    int
 	statements []string
+	change     catalogChange
 }
 
 // connectionsTableSQL declares multigres.connections: named connections to a
@@ -262,6 +269,11 @@ func latestCatalogFormat() int {
 //
 // It runs under a transaction-scoped advisory lock, so concurrent callers
 // serialize and the loser sees the winner's format once it acquires the lock.
+// On an existing catalog it also locks the catalog_state row before anything
+// else, keeping writeCatalog's lock order (catalog_state, then the other
+// catalog tables; CREATE INDEX IF NOT EXISTS takes a ShareLock on shard_key),
+// and advances the versions as the applied migrations declare. A fresh or
+// legacy catalog has no snapshot to invalidate, so it advances nothing.
 func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 	queryService := pm.internalQueryService()
 	if queryService == nil {
@@ -270,6 +282,7 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 
 	execCtx, cancel := context.WithTimeout(ctx, catalogSchemaTimeout)
 	defer cancel()
+	rule := pm.routingRule()
 
 	tx, err := queryService.BeginAdmin(execCtx)
 	if err != nil {
@@ -281,7 +294,7 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 		return mterrors.Wrap(err, "failed to lock catalog schema")
 	}
 
-	current, err := readCatalogFormat(execCtx, tx)
+	current, existed, err := readCatalogFormat(execCtx, tx)
 	if err != nil {
 		return err
 	}
@@ -293,6 +306,9 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 		return nil
 	}
 
+	// change is the strongest effect any applied migration declares; the
+	// catalogChange values are ordered by strength.
+	change := catalogNoSnapshotChange
 	if current < latest {
 		pm.logger.InfoContext(ctx, "upgrading catalog schema",
 			"from_format_version", current, "to_format_version", latest)
@@ -302,6 +318,7 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 					return mterrors.Wrap(err, fmt.Sprintf("failed to apply catalog format %d migration", m.version))
 				}
 			}
+			change = max(change, m.change)
 		}
 	}
 
@@ -323,8 +340,18 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 		return mterrors.Wrap(err, "failed to record catalog format version")
 	}
 
+	var versions catalogVersions
+	if existed && change != catalogNoSnapshotChange {
+		if versions, err = advanceCatalogVersions(execCtx, tx, change == catalogInvalidatesPlans); err != nil {
+			return err
+		}
+	}
+
 	if err := tx.Commit(execCtx); err != nil {
 		return mterrors.Wrap(err, "failed to commit catalog schema")
+	}
+	if versions != (catalogVersions{}) {
+		pm.publishCatalogWrite(rule, versions)
 	}
 
 	if current < latest {
@@ -333,29 +360,31 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 	return nil
 }
 
-// readCatalogFormat returns the catalog's current format version. A missing
-// multigres.catalog_state means format 0: either a fresh shard or the legacy
-// (pre-versioning) catalog tables.
-func readCatalogFormat(ctx context.Context, tx executor.InternalTx) (int, error) {
+// readCatalogFormat returns the catalog's current format version and whether
+// multigres.catalog_state exists. A missing catalog_state means format 0:
+// either a fresh shard or the legacy (pre-versioning) catalog tables. When it
+// exists, the read locks its row for the rest of the transaction, which is
+// the first catalog lock ensureCatalogSchema takes.
+func readCatalogFormat(ctx context.Context, tx executor.InternalTx) (int, bool, error) {
 	result, err := tx.Query(ctx, "SELECT to_regclass('multigres.catalog_state') IS NOT NULL")
 	if err != nil {
-		return 0, mterrors.Wrap(err, "failed to check for catalog_state table")
+		return 0, false, mterrors.Wrap(err, "failed to check for catalog_state table")
 	}
 	var exists bool
 	if err := executor.ScanSingleRow(result, &exists); err != nil {
-		return 0, mterrors.Wrap(err, "failed to check for catalog_state table")
+		return 0, false, mterrors.Wrap(err, "failed to check for catalog_state table")
 	}
 	if !exists {
-		return 0, nil
+		return 0, false, nil
 	}
 
-	result, err = tx.Query(ctx, "SELECT format_version FROM multigres.catalog_state")
+	result, err = tx.Query(ctx, "SELECT format_version FROM multigres.catalog_state FOR UPDATE")
 	if err != nil {
-		return 0, mterrors.Wrap(err, "failed to read catalog format version")
+		return 0, true, mterrors.Wrap(err, "failed to read catalog format version")
 	}
 	var version int
 	if err := executor.ScanSingleRow(result, &version); err != nil {
-		return 0, mterrors.Wrap(err, "failed to read catalog format version")
+		return 0, true, mterrors.Wrap(err, "failed to read catalog format version")
 	}
-	return version, nil
+	return version, true, nil
 }
