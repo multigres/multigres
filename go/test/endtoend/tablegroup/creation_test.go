@@ -187,7 +187,7 @@ func TestTableGroupCreation(t *testing.T) {
 		assert.Empty(t, got.GetLastError())
 		active := prov.find(t, "commerce")
 		require.NotNil(t, active)
-		assert.Equal(t, multipoolermanagerdatapb.TableGroupState_TABLE_GROUP_STATE_ACTIVE, active.GetState())
+		assert.Equal(t, shardingcatalogpb.TableGroupState_TABLE_GROUP_STATE_ACTIVE, active.GetState())
 		assert.Equal(t, []string{"0-80", "80-inf"}, active.GetShards())
 
 		// Repeating the creation of an active tablegroup is a conflict, or a

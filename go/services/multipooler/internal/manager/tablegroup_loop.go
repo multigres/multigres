@@ -39,9 +39,12 @@ import (
 // topology watch and no wake-up on a new operation; the first pass runs
 // immediately on start.
 //
-// Only the primary runs a pass. A pooler demoted between the check and the
-// commit cannot commit, because its postgres is read-only, so the role check
-// is a courtesy rather than the fence.
+// Only the primary runs a pass, and every write goes through writeCatalog
+// (routing_snapshot.go), which checks the primary again, serializes catalog
+// writers on the catalog_state lock, advances and publishes routing_version
+// for a change the snapshot contains, and commits. A pooler demoted between
+// the check and the commit cannot commit, because its postgres is read-only,
+// so the role checks are a courtesy rather than the fence.
 const (
 	// tableGroupOpsInterval is the pass interval. A pass with nothing pending
 	// is two small queries over tiny tables and reads no topology, so the
@@ -249,69 +252,73 @@ func (pm *MultipoolerManager) reconcileCreations(ctx context.Context, ops []oper
 	return pending
 }
 
-// completeCreateTableGroup activates a tablegroup in one transaction: the
-// operation to done, its shards to active, the tablegroup to active, and the
-// routing version advanced so routing consumers learn the shard map changed.
-// The first statement is a compare-and-set on the operation's state and
-// cancellation flag, so a concurrent or repeated completion finds nothing to do
-// and commits nothing, and a cancel that landed after this pass read the
+// completeCreateTableGroup activates a tablegroup in one catalog write: the
+// operation to done, its shards to active, the tablegroup to active. The
+// first statement is a compare-and-set on the operation's state and
+// cancellation flag, so a concurrent or repeated completion finds nothing to
+// do and reports no change, and a cancel that landed after this pass read the
 // operation wins: the operation stays creating with the flag set, and the next
-// pass fails it.
+// pass fails it. writeCatalog advances routing_version and publishes it, so
+// gateways learn the shard map changed.
 func (pm *MultipoolerManager) completeCreateTableGroup(ctx context.Context, op operationRow) error {
-	return pm.inCatalogTransaction(ctx, "tablegroup activation", func(execCtx context.Context, tx executor.InternalTx) (bool, error) {
-		res, err := tx.QueryArgs(execCtx,
+	versions, err := pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {
+		res, err := tx.QueryArgs(ctx,
 			"UPDATE multigres.operation SET state = $2, last_error = NULL, updated_at = now() WHERE operation_id = $1 AND state = $3 AND NOT cancel_requested RETURNING operation_id",
 			op.id, operationStateDone, operationStateCreating)
 		if err != nil {
-			return false, mterrors.Wrap(err, "failed to complete operation")
+			return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to complete operation")
 		}
 		if len(res.Rows) == 0 {
-			return false, nil // completed, failed or cancelled by another pass or caller
+			return catalogNoSnapshotChange, nil // completed, failed or cancelled by another pass or caller
 		}
-		if _, err := tx.QueryArgs(execCtx,
+		if _, err := tx.QueryArgs(ctx,
 			"UPDATE multigres.shard SET state = $2 WHERE tablegroup_id = $1 AND state = $3",
 			op.request.TableGroupID, shardStateActive, shardStatePreparing); err != nil {
-			return false, mterrors.Wrap(err, "failed to activate shards")
+			return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to activate shards")
 		}
-		if _, err := tx.QueryArgs(execCtx,
+		if _, err := tx.QueryArgs(ctx,
 			"UPDATE multigres.tablegroup SET state = $2 WHERE tablegroup_id = $1 AND state = $3",
 			op.request.TableGroupID, tableGroupStateActive, tableGroupStateCreating); err != nil {
-			return false, mterrors.Wrap(err, "failed to activate tablegroup")
-		}
-		if err := advanceRoutingVersion(execCtx, tx); err != nil {
-			return false, err
+			return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to activate tablegroup")
 		}
 		pm.logger.InfoContext(ctx, "tablegroup is active", "tablegroup", op.request.Name, "tablegroup_id", op.request.TableGroupID, "operation_id", op.id)
-		return true, nil
+		return catalogRoutingChange, nil
 	})
+	if err != nil {
+		return err
+	}
+	pm.logger.DebugContext(ctx, "tablegroup activation committed", "operation_id", op.id, "routing_version", versions.routingVersion)
+	return nil
 }
 
-// failCreateTableGroup fails a creation in one transaction: the operation to
+// failCreateTableGroup fails a creation in one catalog write: the operation to
 // failed with the reason, and the tablegroup to dropping, which tells the
 // provisioner to remove whatever it provisioned. The rows are deleted by
 // reconcileDroppings once no pooler record and no claim remain, and that is
 // what frees the name for a retry. The operation keeps its request, so it
 // stays inspectable. The first statement is a compare-and-set, as in
-// completeCreateTableGroup.
+// completeCreateTableGroup. The tablegroup's state is in the snapshot, so
+// this is a routing change.
 func (pm *MultipoolerManager) failCreateTableGroup(ctx context.Context, op operationRow, reason string) error {
-	return pm.inCatalogTransaction(ctx, "tablegroup failure", func(execCtx context.Context, tx executor.InternalTx) (bool, error) {
-		res, err := tx.QueryArgs(execCtx,
+	_, err := pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {
+		res, err := tx.QueryArgs(ctx,
 			"UPDATE multigres.operation SET state = $2, last_error = $3, updated_at = now() WHERE operation_id = $1 AND state = $4 RETURNING operation_id",
 			op.id, operationStateFailed, reason, operationStateCreating)
 		if err != nil {
-			return false, mterrors.Wrap(err, "failed to fail operation")
+			return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to fail operation")
 		}
 		if len(res.Rows) == 0 {
-			return false, nil
+			return catalogNoSnapshotChange, nil
 		}
-		if _, err := tx.QueryArgs(execCtx,
+		if _, err := tx.QueryArgs(ctx,
 			"UPDATE multigres.tablegroup SET state = $2 WHERE tablegroup_id = $1 AND state = $3",
 			op.request.TableGroupID, tableGroupStateDropping, tableGroupStateCreating); err != nil {
-			return false, mterrors.Wrap(err, "failed to mark tablegroup dropping")
+			return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to mark tablegroup dropping")
 		}
 		pm.logger.WarnContext(ctx, "tablegroup creation failed", "tablegroup", op.request.Name, "tablegroup_id", op.request.TableGroupID, "operation_id", op.id, "reason", reason)
-		return true, nil
+		return catalogRoutingChange, nil
 	})
+	return err
 }
 
 // reconcileDroppings deletes every dropping tablegroup in groups that nothing
@@ -366,120 +373,74 @@ func (pm *MultipoolerManager) tableGroupClaimHeld(ctx context.Context, id int64)
 	return true, nil
 }
 
-// finishDropTableGroup deletes a dropping tablegroup in one transaction: its
-// shard rows, its tablegroup row, any drop operation on it to done, and the
-// routing version advanced. The tablegroup delete is conditional on the state,
-// so a concurrent or repeated pass finds nothing to delete and commits
-// nothing. A failed creation has no drop operation; its creation operation
-// already reads failed.
+// finishDropTableGroup deletes a dropping tablegroup in one catalog write:
+// its shard rows, its tablegroup row, and any drop operation on it to done.
+// The tablegroup delete is conditional on the state, so a concurrent or
+// repeated pass finds nothing to delete and reports no change. A failed
+// creation has no drop operation; its creation operation already reads
+// failed.
 func (pm *MultipoolerManager) finishDropTableGroup(ctx context.Context, name string, id int64) error {
-	return pm.inCatalogTransaction(ctx, "tablegroup deletion", func(execCtx context.Context, tx executor.InternalTx) (bool, error) {
-		if _, err := tx.QueryArgs(execCtx,
+	_, err := pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {
+		if _, err := tx.QueryArgs(ctx,
 			"DELETE FROM multigres.shard WHERE tablegroup_id = $1 AND EXISTS (SELECT 1 FROM multigres.tablegroup WHERE tablegroup_id = $1 AND state = $2)",
 			id, tableGroupStateDropping); err != nil {
-			return false, mterrors.Wrap(err, "failed to delete shards")
+			return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to delete shards")
 		}
-		res, err := tx.QueryArgs(execCtx,
+		res, err := tx.QueryArgs(ctx,
 			"DELETE FROM multigres.tablegroup WHERE tablegroup_id = $1 AND state = $2 RETURNING tablegroup_id",
 			id, tableGroupStateDropping)
 		if err != nil {
-			return false, mterrors.Wrap(err, "failed to delete tablegroup")
+			return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to delete tablegroup")
 		}
 		if len(res.Rows) == 0 {
-			return false, nil // deleted by another pass
+			return catalogNoSnapshotChange, nil // deleted by another pass
 		}
-		if _, err := tx.QueryArgs(execCtx,
+		if _, err := tx.QueryArgs(ctx,
 			"UPDATE multigres.operation SET state = $3, last_error = NULL, updated_at = now() WHERE kind = $1 AND state = $2 AND (request->>'tablegroup_id')::bigint = $4",
 			operationKindDropTableGroup, operationStateDropping, operationStateDone, id); err != nil {
-			return false, mterrors.Wrap(err, "failed to complete drop operation")
-		}
-		if err := advanceRoutingVersion(execCtx, tx); err != nil {
-			return false, err
+			return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to complete drop operation")
 		}
 		pm.logger.InfoContext(ctx, "tablegroup is gone", "tablegroup", name, "tablegroup_id", id)
-		return true, nil
+		return catalogRoutingChange, nil
 	})
+	return err
 }
 
-// inCatalogTransaction runs fn in one admin transaction on the catalog and
-// commits when fn asks to. fn returns false to roll back without error, for a
-// compare-and-set that found nothing to do.
-func (pm *MultipoolerManager) inCatalogTransaction(ctx context.Context, what string, fn func(execCtx context.Context, tx executor.InternalTx) (commit bool, err error)) error {
-	qs, err := pm.catalogQueryService()
+// writeOperationRow runs one best-effort update of operation rows through
+// writeCatalog. Operation rows are outside the snapshot, so the write commits
+// without advancing a version, but it still takes the catalog_state lock:
+// every catalog write goes through the one path (see routing_snapshot.go). A
+// failure is logged and the next pass tries again.
+func (pm *MultipoolerManager) writeOperationRow(ctx context.Context, what, query string, args ...any) {
+	_, err := pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {
+		_, err := tx.QueryArgs(ctx, query, args...)
+		return catalogNoSnapshotChange, err
+	})
 	if err != nil {
-		return err
+		pm.logger.WarnContext(ctx, "failed to "+what, "error", err)
 	}
-	execCtx, cancel := context.WithTimeout(ctx, tableGroupOpTimeout)
-	defer cancel()
-	tx, err := qs.BeginAdmin(execCtx)
-	if err != nil {
-		return mterrors.Wrap(err, "failed to begin "+what+" transaction")
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	commit, err := fn(execCtx, tx)
-	if err != nil || !commit {
-		return err
-	}
-	if err := tx.Commit(execCtx); err != nil {
-		return mterrors.Wrap(err, "failed to commit "+what)
-	}
-	return nil
-}
-
-// advanceRoutingVersion bumps catalog_state.routing_version, which tells
-// routing consumers the shard map changed.
-func advanceRoutingVersion(ctx context.Context, tx executor.InternalTx) error {
-	if _, err := tx.Query(ctx, "UPDATE multigres.catalog_state SET routing_version = routing_version + 1"); err != nil {
-		return mterrors.Wrap(err, "failed to advance routing version")
-	}
-	return nil
 }
 
 // recordOperationError stores a transient error on a pending operation so a
-// caller polling GetOperation can see why it is not progressing. Best effort:
-// a failure here is logged and the next pass tries again.
+// caller polling GetOperation can see why it is not progressing.
 func (pm *MultipoolerManager) recordOperationError(ctx context.Context, operationID, state, message string) {
-	qs, err := pm.catalogQueryService()
-	if err != nil {
-		return
-	}
-	execCtx, cancel := context.WithTimeout(ctx, tableGroupOpTimeout)
-	defer cancel()
-	if _, err := qs.QueryAdminArgs(execCtx,
+	pm.writeOperationRow(ctx, "record operation error "+operationID,
 		"UPDATE multigres.operation SET last_error = $2, updated_at = now() WHERE operation_id = $1 AND state = $3 AND last_error IS DISTINCT FROM $2",
-		operationID, message, state); err != nil {
-		pm.logger.WarnContext(ctx, "failed to record operation error", "operation_id", operationID, "error", err)
-	}
+		operationID, message, state)
 }
 
 // clearOperationError removes a recorded transient error from a pending
 // operation once the condition has passed, so GetOperation stops showing it.
 func (pm *MultipoolerManager) clearOperationError(ctx context.Context, operationID, state string) {
-	qs, err := pm.catalogQueryService()
-	if err != nil {
-		return
-	}
-	execCtx, cancel := context.WithTimeout(ctx, tableGroupOpTimeout)
-	defer cancel()
-	if _, err := qs.QueryAdminArgs(execCtx,
+	pm.writeOperationRow(ctx, "clear operation error "+operationID,
 		"UPDATE multigres.operation SET last_error = NULL, updated_at = now() WHERE operation_id = $1 AND state = $2 AND last_error IS NOT NULL",
-		operationID, state); err != nil {
-		pm.logger.WarnContext(ctx, "failed to clear operation error", "operation_id", operationID, "error", err)
-	}
+		operationID, state)
 }
 
 // recordDropError is recordOperationError for the drop operation of a
 // tablegroup, found by id. A failed creation has none, and is then only logged.
 func (pm *MultipoolerManager) recordDropError(ctx context.Context, tableGroupID int64, message string) {
-	qs, err := pm.catalogQueryService()
-	if err != nil {
-		return
-	}
-	execCtx, cancel := context.WithTimeout(ctx, tableGroupOpTimeout)
-	defer cancel()
-	if _, err := qs.QueryAdminArgs(execCtx,
+	pm.writeOperationRow(ctx, fmt.Sprintf("record drop error for tablegroup %d", tableGroupID),
 		"UPDATE multigres.operation SET last_error = $3, updated_at = now() WHERE kind = $1 AND state = $2 AND (request->>'tablegroup_id')::bigint = $4 AND last_error IS DISTINCT FROM $3",
-		operationKindDropTableGroup, operationStateDropping, message, tableGroupID); err != nil {
-		pm.logger.WarnContext(ctx, "failed to record drop error", "tablegroup_id", tableGroupID, "error", err)
-	}
+		operationKindDropTableGroup, operationStateDropping, message, tableGroupID)
 }

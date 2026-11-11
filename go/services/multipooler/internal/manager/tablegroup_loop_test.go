@@ -17,7 +17,6 @@ package manager
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -40,37 +39,42 @@ func (env *tableGroupTestEnv) expectDroppings(rows ...[]any) {
 	env.expect("FROM multigres.tablegroup WHERE state = \\$1 ORDER BY tablegroup_id", dropCols, rows)
 }
 
-// queriesMatching returns env.queries that contain substr, in order.
-func (env *tableGroupTestEnv) queriesMatching(substr string) []string {
-	var out []string
-	for _, q := range env.queries {
-		if strings.Contains(q, substr) {
-			out = append(out, q)
-		}
-	}
-	return out
+// expectRoutingChange registers what writeCatalog does around a writer that
+// reports a routing change: the primary check and catalog_state lock before,
+// the snapshot validation read and the version advance after.
+func (env *tableGroupTestEnv) expectRoutingChange() {
+	env.expectLock()
+	env.expectCatalogRows()
+	env.expectAdvance(5)
 }
+
+const advanceRoutingVersionSQL = "UPDATE multigres.catalog_state SET routing_version = routing_version + 1 RETURNING routing_version, plan_epoch"
 
 func TestReconcileTableGroups_CompletesACreation(t *testing.T) {
 	env := newCatalogTestEnv(t)
 	env.expectCreations(creatingOperationRow(time.Now().UnixMicro(), false))
 	env.addServingPrimary(t, "cell1", "commerce", "0-80", testTableGroupID)
 	env.addServingPrimary(t, "cell2", "commerce", "80-inf", testTableGroupID)
+	env.expectRoutingChange()
 	env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
 	env.expect("UPDATE multigres.shard SET state", nil, nil)
 	env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
-	env.expect("UPDATE multigres.catalog_state SET routing_version", nil, nil)
+	env.expectCommit()
 	env.expectDroppings()
 
 	pending, err := env.pm.reconcileTableGroups(t.Context())
 	require.NoError(t, err)
 	assert.Zero(t, pending)
+	// The write runs under writeCatalog: the catalog_state lock first, then the
+	// rows, then the snapshot check and one version advance, in one commit.
 	assert.Equal(t, []string{
+		"SELECT routing_version, plan_epoch FROM multigres.catalog_state FOR UPDATE",
 		"UPDATE multigres.operation SET state = $2, last_error = NULL, updated_at = now() WHERE operation_id = $1 AND state = $3 AND NOT cancel_requested RETURNING operation_id",
 		"UPDATE multigres.shard SET state = $2 WHERE tablegroup_id = $1 AND state = $3",
 		"UPDATE multigres.tablegroup SET state = $2 WHERE tablegroup_id = $1 AND state = $3",
-		"UPDATE multigres.catalog_state SET routing_version = routing_version + 1",
-	}, env.queriesMatching("UPDATE"))
+		advanceRoutingVersionSQL,
+		"COMMIT",
+	}, append(env.queriesMatching("FOR UPDATE"), append(env.queriesMatching("UPDATE multigres."), env.queriesMatching("COMMIT")...)...))
 }
 
 func TestReconcileTableGroups_WaitsForEveryShard(t *testing.T) {
@@ -98,13 +102,15 @@ func TestReconcileTableGroups_ACompletedOperationIsLeftAlone(t *testing.T) {
 	env.expectCreations(creatingOperationRow(time.Now().UnixMicro(), false))
 	env.addServingPrimary(t, "cell1", "commerce", "0-80", testTableGroupID)
 	env.addServingPrimary(t, "cell1", "commerce", "80-inf", testTableGroupID)
+	env.expectLock()
 	env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, nil)
 	env.expectDroppings()
 
 	pending, err := env.pm.reconcileTableGroups(t.Context())
 	require.NoError(t, err)
 	assert.Zero(t, pending)
-	assert.Len(t, env.queriesMatching("UPDATE"), 1)
+	assert.Len(t, env.queriesMatching("UPDATE multigres."), 1)
+	assert.Empty(t, env.queriesMatching("routing_version + 1"), "no change, no version advance")
 }
 
 func TestReconcileTableGroups_FailsACancelledCreationAndDropsIt(t *testing.T) {
@@ -113,23 +119,22 @@ func TestReconcileTableGroups_FailsACancelledCreationAndDropsIt(t *testing.T) {
 	// pooler record and no claim hold it. No drop operation exists for it.
 	env := newCatalogTestEnv(t)
 	env.expectCreations(creatingOperationRow(time.Now().UnixMicro(), true))
+	env.expectRoutingChange()
 	env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
 	env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
 	env.expectDroppings([]any{testTableGroupID, "commerce"})
 	env.expect("DELETE FROM multigres.shard", nil, nil)
 	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
 	env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
-	env.expect("UPDATE multigres.catalog_state SET routing_version", nil, nil)
 
 	pending, err := env.pm.reconcileTableGroups(t.Context())
 	require.NoError(t, err)
 	assert.Zero(t, pending)
-	writes := env.queriesMatching("UPDATE")
-	writes = append(writes, env.queriesMatching("DELETE")...)
+	writes := env.queriesMatching("UPDATE multigres.")
 	assert.Contains(t, writes[0], "state = $2, last_error = $3", "the operation fails with a reason")
 	assert.Contains(t, writes[1], "UPDATE multigres.tablegroup SET state", "the tablegroup moves to dropping")
 	assert.Contains(t, env.queries, "DELETE FROM multigres.tablegroup WHERE tablegroup_id = $1 AND state = $2 RETURNING tablegroup_id")
-	assert.Contains(t, env.queries, "UPDATE multigres.catalog_state SET routing_version = routing_version + 1")
+	assert.Len(t, env.queriesMatching("routing_version + 1"), 2, "the failure and the deletion each advance the version")
 }
 
 func TestReconcileTableGroups_ATimedOutCreationThatServesCompletes(t *testing.T) {
@@ -140,10 +145,10 @@ func TestReconcileTableGroups_ATimedOutCreationThatServesCompletes(t *testing.T)
 	env.expectCreations(creatingOperationRow(old, false))
 	env.addServingPrimary(t, "cell1", "commerce", "0-80", testTableGroupID)
 	env.addServingPrimary(t, "cell2", "commerce", "80-inf", testTableGroupID)
+	env.expectRoutingChange()
 	env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
 	env.expect("UPDATE multigres.shard SET state", nil, nil)
 	env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
-	env.expect("UPDATE multigres.catalog_state SET routing_version", nil, nil)
 	env.expectDroppings()
 
 	pending, err := env.pm.reconcileTableGroups(t.Context())
@@ -158,6 +163,7 @@ func TestReconcileTableGroups_ATopologyErrorIsRecordedThenCleared(t *testing.T) 
 	env := newCatalogTestEnv(t)
 	env.topo.SetError(errors.New("etcd unreachable"))
 	env.expectCreations(creatingOperationRow(time.Now().UnixMicro(), false))
+	env.expectLock()
 	env.expect("UPDATE multigres.operation SET last_error = \\$2", nil, nil)
 	env.expectDroppings([]any{testTableGroupID + 1, "old"})
 	env.expect("UPDATE multigres.operation SET last_error = \\$3", nil, nil)
@@ -167,6 +173,7 @@ func TestReconcileTableGroups_ATopologyErrorIsRecordedThenCleared(t *testing.T) 
 	assert.Equal(t, 2, pending, "nothing completes or is deleted on a failed topology read")
 	assert.Len(t, env.queriesMatching("SET last_error ="), 2, "the error is recorded on the creation and on the drop")
 	assert.Empty(t, env.queriesMatching("DELETE"))
+	assert.Empty(t, env.queriesMatching("routing_version + 1"), "operation rows are outside the snapshot")
 
 	// Topology is back, the shards are still not all serving: the recorded
 	// error is cleared and the creation stays pending. (A fresh environment:
@@ -175,6 +182,7 @@ func TestReconcileTableGroups_ATopologyErrorIsRecordedThenCleared(t *testing.T) 
 	row := creatingOperationRow(time.Now().UnixMicro(), false)
 	row[5] = "list cells: etcd unreachable"
 	env.expectCreations(row)
+	env.expectLock()
 	env.expect("UPDATE multigres.operation SET last_error = NULL", nil, nil)
 	env.expectDroppings()
 	pending, err = env.pm.reconcileTableGroups(t.Context())
@@ -187,6 +195,7 @@ func TestReconcileTableGroups_FailsATimedOutCreation(t *testing.T) {
 	env := newCatalogTestEnv(t)
 	old := time.Now().Add(-createTableGroupTimeout - time.Minute).UnixMicro()
 	env.expectCreations(creatingOperationRow(old, false))
+	env.expectRoutingChange()
 	env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
 	env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
 	env.expectDroppings()
@@ -227,15 +236,16 @@ func TestReconcileTableGroups_ADroppingTableGroupWaitsForTheClaim(t *testing.T) 
 	// Once released, the next pass deletes it and completes its drop operation.
 	// The listing patterns from above still answer, which is what we want.
 	require.NoError(t, env.ts.ReleaseTableGroupProvisioning(t.Context(), testTableGroupDB, testTableGroupID))
+	env.expectRoutingChange()
 	env.expect("DELETE FROM multigres.shard", nil, nil)
 	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
 	env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
-	env.expect("UPDATE multigres.catalog_state SET routing_version", nil, nil)
 	pending, err = env.pm.reconcileTableGroups(t.Context())
 	require.NoError(t, err)
 	assert.Zero(t, pending)
 	assert.Len(t, env.queriesMatching("DELETE"), 2)
 	assert.Contains(t, env.queries, "UPDATE multigres.operation SET state = $3, last_error = NULL, updated_at = now() WHERE kind = $1 AND state = $2 AND (request->>'tablegroup_id')::bigint = $4")
+	assert.Contains(t, env.queries, advanceRoutingVersionSQL)
 }
 
 func TestReconcileTableGroups_ADeletedTableGroupIsLeftAlone(t *testing.T) {
@@ -244,13 +254,14 @@ func TestReconcileTableGroups_ADeletedTableGroupIsLeftAlone(t *testing.T) {
 	env := newCatalogTestEnv(t)
 	env.expectCreations()
 	env.expectDroppings([]any{testTableGroupID, "commerce"})
+	env.expectLock()
 	env.expect("DELETE FROM multigres.shard", nil, nil)
 	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, nil)
 
 	pending, err := env.pm.reconcileTableGroups(t.Context())
 	require.NoError(t, err)
 	assert.Zero(t, pending)
-	assert.Empty(t, env.queriesMatching("routing_version"))
+	assert.Empty(t, env.queriesMatching("routing_version + 1"))
 }
 
 func TestTableGroupOperationsPass_OnlyTheElectedPrimaryRuns(t *testing.T) {
@@ -321,10 +332,10 @@ func TestReconcileTableGroups_ACommitFailureKeepsTheCreationPending(t *testing.T
 	env.expectCreations(creatingOperationRow(time.Now().UnixMicro(), false))
 	env.addServingPrimary(t, "cell1", "commerce", "0-80", testTableGroupID)
 	env.addServingPrimary(t, "cell2", "commerce", "80-inf", testTableGroupID)
+	env.expectRoutingChange()
 	env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
 	env.expect("UPDATE multigres.shard SET state", nil, nil)
 	env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
-	env.expect("UPDATE multigres.catalog_state SET routing_version", nil, nil)
 	env.qs.AddQueryPatternWithError("COMMIT", errors.New("connection lost"))
 	env.expectDroppings()
 
@@ -341,6 +352,7 @@ func TestReconcileTableGroups_AStatementFailureRollsBackAndRetries(t *testing.T)
 		env.expectCreations(creatingOperationRow(time.Now().UnixMicro(), false))
 		env.addServingPrimary(t, "cell1", "commerce", "0-80", testTableGroupID)
 		env.addServingPrimary(t, "cell2", "commerce", "80-inf", testTableGroupID)
+		env.expectLock()
 		env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
 		env.qs.AddQueryPatternWithError("UPDATE multigres.shard SET state", errors.New("lock timeout"))
 		env.expect("ROLLBACK", nil, nil)
@@ -349,13 +361,14 @@ func TestReconcileTableGroups_AStatementFailureRollsBackAndRetries(t *testing.T)
 		pending, err := env.pm.reconcileTableGroups(t.Context())
 		require.NoError(t, err)
 		assert.Equal(t, 1, pending)
-		assert.Empty(t, env.queriesMatching("routing_version"), "nothing past the failed statement ran")
+		assert.Empty(t, env.queriesMatching("routing_version + 1"), "nothing past the failed statement ran")
 		assert.Len(t, env.queriesMatching("ROLLBACK"), 1)
 	})
 	t.Run("deletion", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectCreations()
 		env.expectDroppings([]any{testTableGroupID, "commerce"})
+		env.expectLock()
 		env.qs.AddQueryPatternWithError("DELETE FROM multigres.shard", errors.New("lock timeout"))
 		env.expect("ROLLBACK", nil, nil)
 
@@ -374,6 +387,7 @@ func TestReconcileTableGroups_BestEffortWritesFailSoftly(t *testing.T) {
 		env.topo.SetError(errors.New("etcd unreachable"))
 		env.expectCreations(creatingOperationRow(time.Now().UnixMicro(), false))
 		env.expectDroppings([]any{testTableGroupID + 1, "old"})
+		env.expectLock()
 		env.qs.AddQueryPatternWithError("UPDATE multigres.operation SET last_error", errors.New("catalog read-only"))
 
 		pending, err := env.pm.reconcileTableGroups(t.Context())
@@ -386,6 +400,7 @@ func TestReconcileTableGroups_BestEffortWritesFailSoftly(t *testing.T) {
 		row[5] = "list cells: etcd unreachable"
 		env.expectCreations(row)
 		env.expectDroppings()
+		env.expectLock()
 		env.qs.AddQueryPatternWithError("UPDATE multigres.operation SET last_error = NULL", errors.New("catalog read-only"))
 
 		pending, err := env.pm.reconcileTableGroups(t.Context())
@@ -402,11 +417,13 @@ func TestReconcileTableGroups_EveryStatementOfATransactionIsChecked(t *testing.T
 		env.expectCreations(creatingOperationRow(time.Now().UnixMicro(), false))
 		env.addServingPrimary(t, "cell1", "commerce", "0-80", testTableGroupID)
 		env.addServingPrimary(t, "cell2", "commerce", "80-inf", testTableGroupID)
+		env.expectLock()
 		env.qs.AddQueryPatternWithError(failing, errors.New("lock timeout"))
 		env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
 		env.expect("UPDATE multigres.shard SET state", nil, nil)
 		env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
-		env.expect("UPDATE multigres.catalog_state SET routing_version", nil, nil)
+		env.expectCatalogRows()
+		env.expectAdvance(5)
 		env.expect("ROLLBACK", nil, nil)
 		env.expectDroppings()
 		pending, err := env.pm.reconcileTableGroups(t.Context())
@@ -424,6 +441,7 @@ func TestReconcileTableGroups_EveryStatementOfATransactionIsChecked(t *testing.T
 	t.Run("failure: marking the tablegroup dropping", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectCreations(creatingOperationRow(time.Now().UnixMicro(), true))
+		env.expectLock()
 		env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
 		env.qs.AddQueryPatternWithError("UPDATE multigres.tablegroup SET state", errors.New("lock timeout"))
 		env.expect("ROLLBACK", nil, nil)
@@ -437,11 +455,13 @@ func TestReconcileTableGroups_EveryStatementOfATransactionIsChecked(t *testing.T
 		env := newCatalogTestEnv(t)
 		env.expectCreations()
 		env.expectDroppings([]any{testTableGroupID, "commerce"})
+		env.expectLock()
 		env.qs.AddQueryPatternWithError(failing, errors.New("lock timeout"))
 		env.expect("DELETE FROM multigres.shard", nil, nil)
 		env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
 		env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
-		env.expect("UPDATE multigres.catalog_state SET routing_version", nil, nil)
+		env.expectCatalogRows()
+		env.expectAdvance(5)
 		env.expect("ROLLBACK", nil, nil)
 		pending, err := env.pm.reconcileTableGroups(t.Context())
 		require.NoError(t, err)

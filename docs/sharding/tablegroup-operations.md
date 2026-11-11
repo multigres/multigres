@@ -212,13 +212,19 @@ small queries over tiny tables and reads no topology, and a few seconds of
 latency is invisible next to provisioning. Only the elected primary runs a
 pass; any other pooler skips it.
 
-When the rule holds, one transaction finishes the change and advances
-`catalog_state.routing_version`. A creation flips the operation to `done` and
-the shards and tablegroup to `active`. A drop deletes the shard and tablegroup
-rows and flips the drop operation, if there is one, to `done`. The first
-statement is a compare-and-set on the operation's or tablegroup's state, so a
-repeated or concurrent completion finds nothing to do. A demoted primary
-cannot commit because its postgres is read-only, which is the writer fence.
+When the rule holds, one catalog write finishes the change. Like every
+catalog write it runs through `writeCatalog` (`routing_snapshot.go`), which
+locks `catalog_state` first, checks the snapshot the write would leave,
+advances `catalog_state.routing_version`, commits, and publishes the new
+version on the primary's health stream so gateways refetch their cached
+snapshot at once. A creation flips the operation to `done` and the shards and
+tablegroup to `active`. A drop deletes the shard and tablegroup rows and flips
+the drop operation, if there is one, to `done`. The first statement is a
+compare-and-set on the operation's or tablegroup's state, so a repeated or
+concurrent completion finds nothing to do and advances nothing. Recording or
+clearing a transient `last_error` goes through the same path and, touching
+only operation rows, advances nothing. A demoted primary cannot commit because
+its postgres is read-only, which is the writer fence.
 
 A creation that has not completed within an hour is failed with that reason:
 provisioning that has produced no serving shards in that long is stuck, and a

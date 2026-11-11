@@ -89,7 +89,6 @@ const (
 	tableGroupStateDropping = "dropping"
 
 	shardStatePreparing = "preparing"
-	shardStateActive    = "active"
 	shardStateRetired   = "retired"
 )
 
