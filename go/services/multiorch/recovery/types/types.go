@@ -229,7 +229,8 @@ func (p Problem) EntityID() string {
 // RetryBackoffConfig holds the failure backoff settings for recovery actions.
 // After each consecutive failed attempt against the same problem and entity,
 // the engine waits BaseDelay * 2^(failures-1), capped at MaxDelay, plus up to
-// JitterFraction of that delay, before executing the action again.
+// JitterFraction of that delay, before executing the action again. A zero
+// MaxDelay means the engine's default ceiling of one hour.
 type RetryBackoffConfig struct {
 	BaseDelay      time.Duration
 	MaxDelay       time.Duration
