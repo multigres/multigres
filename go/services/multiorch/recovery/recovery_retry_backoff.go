@@ -83,7 +83,7 @@ func NewRecoveryRetryBackoffTracker(logger *slog.Logger) *RecoveryRetryBackoffTr
 // retryBackoffConfig returns the problem's backoff config, or nil if the
 // problem is not subject to retry backoff.
 func retryBackoffConfig(problem types.Problem) *types.RetryBackoffConfig {
-	if problem.Code.IsFailoverProblem() {
+	if problem.RecoveryAction == nil || problem.Code.IsFailoverProblem() {
 		return nil
 	}
 	return problem.RecoveryAction.Metadata().RetryBackoff
