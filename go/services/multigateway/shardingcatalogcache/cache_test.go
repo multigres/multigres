@@ -414,6 +414,8 @@ func TestWaitForRoutingVersion_ReturnsOnlyPastAfter(t *testing.T) {
 	c.ObserveCatalogShard(testDB, true, nil, 5)
 	require.NoError(t, requireReturned(t, done))
 	assert.Equal(t, int64(5), c.Snapshot(testDB).RoutingVersion())
+	assert.Equal(t, int64(5), c.RoutingVersion(testDB))
+	assert.Zero(t, c.RoutingVersion("other"), "0 without a snapshot")
 }
 
 // The wait fetches at once instead of sitting until a health report or poll,

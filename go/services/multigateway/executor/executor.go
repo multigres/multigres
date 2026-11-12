@@ -53,6 +53,13 @@ type Executor struct {
 	exec      engine.IExecute
 	logger    *slog.Logger
 	planCache *plancache.PlanCache
+
+	// routingSnapshots and fenceWaitWindow drive the retry of a statement a
+	// fenced pooler refused (see runFenced and SetFenceRetry).
+	routingSnapshots RoutingSnapshots
+	fenceWaitWindow  time.Duration
+
+	metrics *executorMetrics
 }
 
 // SetSlotBasedReplicationEnabled wires the dynamic getter that gates
@@ -101,11 +108,16 @@ func NewExecutor(exec engine.IExecute, logger *slog.Logger, planCacheMemory int)
 	if err != nil {
 		logger.Warn("failed to initialise some transaction metrics", "error", err)
 	}
+	metrics, err := newExecutorMetrics()
+	if err != nil {
+		logger.Warn("failed to initialise some executor metrics", "error", err)
+	}
 	return &Executor{
 		planner:   planner.NewPlanner(DefaultTableGroup, logger, txnMetrics),
 		exec:      exec,
 		logger:    logger,
 		planCache: plancache.New(planCacheMemory),
+		metrics:   metrics,
 	}
 }
 
@@ -140,36 +152,41 @@ func (e *Executor) StreamExecute(
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
-	planStart := time.Now()
-	plan, bindVars, cacheHit, normalizedSQL, fingerprint, err := e.resolvePlan(ctx, queryStr, astStmt, conn, state)
-	planTime := time.Since(planStart)
-	if err != nil {
-		e.logger.ErrorContext(ctx, "query planning failed",
-			"query", logQueryStr,
-			"error", err)
-		return &handler.ExecuteResult{
+	var result *handler.ExecuteResult
+	err := e.runFenced(ctx, conn, callback, func(callback func(context.Context, *sqltypes.Result) error) error {
+		planStart := time.Now()
+		plan, bindVars, cacheHit, normalizedSQL, fingerprint, err := e.resolvePlan(ctx, queryStr, astStmt, conn, state)
+		planTime := time.Since(planStart)
+		if err != nil {
+			e.logger.ErrorContext(ctx, "query planning failed",
+				"query", logQueryStr,
+				"error", err)
+			result = &handler.ExecuteResult{
+				PlanTime:      planTime,
+				NormalizedSQL: normalizedSQL,
+				Fingerprint:   fingerprint,
+			}
+			return err
+		}
+
+		result = &handler.ExecuteResult{
+			TablesUsed:    plan.TablesUsed,
+			PlanType:      plan.Type,
 			PlanTime:      planTime,
+			CacheHit:      cacheHit,
 			NormalizedSQL: normalizedSQL,
 			Fingerprint:   fingerprint,
-		}, err
-	}
+		}
 
-	result := &handler.ExecuteResult{
-		TablesUsed:    plan.TablesUsed,
-		PlanType:      plan.Type,
-		PlanTime:      planTime,
-		CacheHit:      cacheHit,
-		NormalizedSQL: normalizedSQL,
-		Fingerprint:   fingerprint,
-	}
-
-	err = plan.StreamExecute(ctx, e.exec, conn, state, bindVars, callback)
-	if err != nil {
-		e.logger.ErrorContext(ctx, "query execution failed",
-			"query", logQueryStr,
-			"plan", plan.String(),
-			"error", err)
-	}
+		err = plan.StreamExecute(ctx, e.exec, conn, state, bindVars, callback)
+		if err != nil {
+			e.logger.ErrorContext(ctx, "query execution failed",
+				"query", logQueryStr,
+				"plan", plan.String(),
+				"error", err)
+		}
+		return err
+	})
 	return result, err
 }
 
@@ -292,6 +309,25 @@ func (e *Executor) PortalStreamExecute(
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
+	var result *handler.ExecuteResult
+	err := e.runFenced(ctx, conn, callback, func(callback func(context.Context, *sqltypes.Result) error) error {
+		var err error
+		result, err = e.portalAttempt(ctx, conn, state, portalInfo, maxRows, includeDescribe, callback)
+		return err
+	})
+	return result, err
+}
+
+// portalAttempt plans the portal's statement and runs the plan once.
+func (e *Executor) portalAttempt(
+	ctx context.Context,
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	portalInfo *preparedstatement.PortalInfo,
+	maxRows int32,
+	includeDescribe bool,
+	callback func(ctx context.Context, res *sqltypes.Result) error,
+) (*handler.ExecuteResult, error) {
 	planStart := time.Now()
 	plan, cacheHit, normalizedSQL, fingerprint, err := e.resolvePortalPlan(ctx, portalInfo, conn, state)
 	planTime := time.Since(planStart)

@@ -156,6 +156,15 @@ func (c *Cache) Installed(name string) (*shardingcatalog.Snapshot, Position) {
 	return nil, Position{}
 }
 
+// RoutingVersion returns the routing_version of the database's current
+// snapshot, 0 when there is none.
+func (c *Cache) RoutingVersion(name string) int64 {
+	if cur := c.current(name); cur != nil {
+		return cur.position.RoutingVersion
+	}
+	return 0
+}
+
 func (c *Cache) current(name string) *installed {
 	c.mu.Lock()
 	db := c.databases[name]
