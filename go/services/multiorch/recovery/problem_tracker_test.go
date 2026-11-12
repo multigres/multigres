@@ -15,9 +15,7 @@
 package recovery
 
 import (
-	"bytes"
 	"log/slog"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -25,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
@@ -131,17 +130,48 @@ func TestProblemTracker_ActiveProblemsAreOldestFirstWithTheLatestDescription(t *
 }
 
 func TestEngineObserveProblems_LogsTransitions(t *testing.T) {
-	var logs bytes.Buffer
-	engine := &Engine{logger: slog.New(slog.NewTextHandler(&logs, nil)), problems: newProblemTracker()}
-	problem := shardProblem(types.ProblemLeaderUnreachableByCohort, nil)
+	logs := &recordingHandler{level: slog.LevelInfo}
+	engine := &Engine{logger: slog.New(logs), problems: newProblemTracker()}
+	leader := shardProblem(types.ProblemLeaderUnreachableByCohort, nil)
+	replica := poolerProblem(types.ProblemReplicaNotReplicating, "replica-1", nil)
+	start := time.Now()
 
-	engine.observeProblems(t.Context(), []types.Problem{problem})
-	engine.observeProblems(t.Context(), []types.Problem{problem})
-	engine.observeProblems(t.Context(), nil)
+	engine.observeProblems(t.Context(), []types.Problem{leader}, start)
+	engine.observeProblems(t.Context(), []types.Problem{leader, replica}, start.Add(time.Second))
+	engine.observeProblems(t.Context(), []types.Problem{replica}, start.Add(3*time.Second))
+	engine.observeProblems(t.Context(), nil, start.Add(5*time.Second))
 
-	assert.Equal(t, 1, strings.Count(logs.String(), "problem detected"), "logged once while it persisted")
-	assert.Equal(t, 1, strings.Count(logs.String(), "problem cleared"))
-	assert.Contains(t, logs.String(), "problem_code=LeaderUnreachableByCohort")
+	shard := commontypes.ShardRefString("testdb/default/0")
+	assert.Equal(t, []loggedRecord{
+		{level: slog.LevelInfo, msg: "problem detected", attrs: map[string]any{
+			"problem_code":    types.ProblemLeaderUnreachableByCohort,
+			"entity_id":       "testdb/default/0",
+			"shard_key":       shard,
+			"description":     "",
+			"active_problems": int64(1),
+		}},
+		{level: slog.LevelInfo, msg: "problem detected", attrs: map[string]any{
+			"problem_code":    types.ProblemReplicaNotReplicating,
+			"entity_id":       "multipooler-cell1-replica-1",
+			"shard_key":       shard,
+			"description":     "",
+			"active_problems": int64(2),
+		}},
+		{level: slog.LevelInfo, msg: "problem cleared", attrs: map[string]any{
+			"problem_code":    types.ProblemLeaderUnreachableByCohort,
+			"entity_id":       "testdb/default/0",
+			"shard_key":       shard,
+			"duration":        3 * time.Second,
+			"active_problems": int64(1),
+		}},
+		{level: slog.LevelInfo, msg: "problem cleared", attrs: map[string]any{
+			"problem_code":    types.ProblemReplicaNotReplicating,
+			"entity_id":       "multipooler-cell1-replica-1",
+			"shard_key":       shard,
+			"duration":        4 * time.Second,
+			"active_problems": int64(0),
+		}},
+	}, logs.drainRecords())
 	assert.Empty(t, engine.GetDetectedProblems())
 }
 
@@ -163,31 +193,40 @@ func TestProblemTracker_ActiveSpansAreOldestFirstWithHowLongEachHasBeenDetected(
 }
 
 func TestEngineRemindPersistingProblems(t *testing.T) {
-	var logs bytes.Buffer
-	engine := &Engine{logger: slog.New(slog.NewTextHandler(&logs, nil)), problems: newProblemTracker()}
+	logs := &recordingHandler{level: slog.LevelInfo}
+	engine := &Engine{logger: slog.New(logs), problems: newProblemTracker()}
 	persisting := shardProblem(types.ProblemLeaderUnreachableByCohort, nil)
 	start := time.Now()
 	engine.problems.reconcile([]types.Problem{persisting}, start)
-	reminders := func() int { return strings.Count(logs.String(), "problem still detected") }
 
 	engine.remindPersistingProblems(t.Context(), start.Add(5*time.Minute))
-	assert.Equal(t, 0, reminders(), "a problem younger than the interval is not reminded about")
+	assert.Empty(t, logs.drainRecords(), "a problem younger than the interval is not reminded about")
+
+	reminder := func(d time.Duration) []loggedRecord {
+		return []loggedRecord{{level: slog.LevelInfo, msg: "problem still detected", attrs: map[string]any{
+			"problem_code":    types.ProblemLeaderUnreachableByCohort,
+			"entity_id":       "testdb/default/0",
+			"shard_key":       commontypes.ShardRefString("testdb/default/0"),
+			"description":     "",
+			"duration":        d,
+			"active_problems": int64(1),
+		}}}
+	}
 
 	engine.remindPersistingProblems(t.Context(), start.Add(10*time.Minute))
-	assert.Equal(t, 1, reminders(), "a check that logged nothing does not delay the first reminder")
-	assert.Contains(t, logs.String(), "problem_code=LeaderUnreachableByCohort")
-	assert.Contains(t, logs.String(), "duration=10m0s")
+	assert.Equal(t, reminder(10*time.Minute), logs.drainRecords(),
+		"a check that logged nothing does not delay the first reminder")
 
 	engine.remindPersistingProblems(t.Context(), start.Add(19*time.Minute))
-	assert.Equal(t, 1, reminders(), "reminders go out at most once per interval")
+	assert.Empty(t, logs.drainRecords(), "reminders go out at most once per interval")
 
 	engine.remindPersistingProblems(t.Context(), start.Add(20*time.Minute))
-	assert.Equal(t, 2, reminders(), "the interval runs from the last reminder")
-	assert.Contains(t, logs.String(), "duration=20m0s")
+	assert.Equal(t, reminder(20*time.Minute), logs.drainRecords(),
+		"the interval runs from the last reminder")
 
 	engine.problems.reconcile(nil, start.Add(21*time.Minute))
 	engine.remindPersistingProblems(t.Context(), start.Add(30*time.Minute))
-	assert.Equal(t, 2, reminders(), "a cleared problem is not reminded about")
+	assert.Empty(t, logs.drainRecords(), "a cleared problem is not reminded about")
 }
 
 // The recovery loop reconciles once per cycle while metrics collection and gRPC
@@ -255,9 +294,9 @@ func TestEngineObserveProblems_IsSafeAlongsideItsReaders(t *testing.T) {
 
 	for i := range 300 {
 		if i%2 == 0 {
-			engine.observeProblems(t.Context(), []types.Problem{problem})
+			engine.observeProblems(t.Context(), []types.Problem{problem}, time.Now())
 		} else {
-			engine.observeProblems(t.Context(), nil)
+			engine.observeProblems(t.Context(), nil, time.Now())
 		}
 	}
 	close(done)

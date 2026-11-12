@@ -128,6 +128,13 @@ func (t *problemTracker) activeProblems() []types.Problem {
 	return problems
 }
 
+// activeCount returns how many problems are currently detected.
+func (t *problemTracker) activeCount() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return len(t.active)
+}
+
 // activeSpans returns the currently detected problems, oldest first, with how long
 // each has been detected at now.
 func (t *problemTracker) activeSpans(now time.Time) []problemSpan {

@@ -1502,7 +1502,7 @@ func TestRecoveryLoop_PostRecoveryRefresh(t *testing.T) {
 	assert.Equal(t, types.ScopeShard, problems[0].Scope)
 
 	// Reconcile the detected problems (this would normally happen in performRecoveryCycle)
-	engine.observeProblems(t.Context(), problems)
+	engine.observeProblems(t.Context(), problems, time.Now())
 
 	// Now fix the primary in the fake client so validation will pass
 	fakeClient.SetStatusResponse("multipooler-cell1-primary-pooler", &multipoolermanagerdatapb.StatusResponse{

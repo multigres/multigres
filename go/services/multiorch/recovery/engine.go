@@ -461,10 +461,9 @@ func (re *Engine) collectStreamHealthData() []StreamHealthData {
 // observeProblems reconciles the problem tracker with the problems detected this
 // cycle, then applies and logs the transitions. Call it once per cycle, after
 // every analyzer has run, with the full detected set.
-func (re *Engine) observeProblems(ctx context.Context, problems []types.Problem) {
-	now := time.Now()
+func (re *Engine) observeProblems(ctx context.Context, problems []types.Problem, now time.Time) {
 	transitions := re.problems.reconcile(problems, now)
-	re.logProblemTransitions(ctx, transitions)
+	re.logProblemTransitions(ctx, transitions, re.problems.activeCount())
 	re.remindPersistingProblems(ctx, now)
 }
 
@@ -480,8 +479,9 @@ func (re *Engine) remindPersistingProblems(ctx context.Context, now time.Time) {
 	if now.Sub(re.lastProblemReminder) < problemReminderInterval {
 		return
 	}
+	active := re.problems.activeSpans(now)
 	var due []problemSpan
-	for _, s := range re.problems.activeSpans(now) {
+	for _, s := range active {
 		if s.duration >= problemReminderInterval {
 			due = append(due, s)
 		}
@@ -496,26 +496,29 @@ func (re *Engine) remindPersistingProblems(ctx context.Context, now time.Time) {
 			"entity_id", s.problem.EntityID(),
 			"shard_key", commontypes.FormatShardRef(s.problem.ShardRef),
 			"description", s.problem.Description,
-			"duration", s.duration)
+			"duration", s.duration,
+			"active_problems", len(active))
 	}
 }
 
 // logProblemTransitions logs each problem once when it appears and once when it
 // clears, not on every cycle it persists.
-func (re *Engine) logProblemTransitions(ctx context.Context, transitions problemTransitions) {
+func (re *Engine) logProblemTransitions(ctx context.Context, transitions problemTransitions, activeProblems int) {
 	for _, p := range transitions.appeared {
 		re.logger.InfoContext(ctx, "problem detected",
 			"problem_code", p.Code,
 			"entity_id", p.EntityID(),
 			"shard_key", commontypes.FormatShardRef(p.ShardRef),
-			"description", p.Description)
+			"description", p.Description,
+			"active_problems", activeProblems)
 	}
 	for _, c := range transitions.cleared {
 		re.logger.InfoContext(ctx, "problem cleared",
 			"problem_code", c.problem.Code,
 			"entity_id", c.problem.EntityID(),
 			"shard_key", commontypes.FormatShardRef(c.problem.ShardRef),
-			"duration", c.duration)
+			"duration", c.duration,
+			"active_problems", activeProblems)
 	}
 }
 

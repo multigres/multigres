@@ -71,7 +71,7 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 
 	// Record what appeared and cleared this cycle. This must run once per cycle,
 	// after all analyzers, with the full detected set.
-	re.observeProblems(ctx, problems)
+	re.observeProblems(ctx, problems, time.Now())
 
 	if len(problems) == 0 {
 		return // no problems detected
@@ -134,7 +134,9 @@ func (re *Engine) processShardProblems(ctx context.Context, shardRef *clustermet
 	for _, problem := range filteredProblems {
 		// Skip follower recoveries if leader is unhealthy and action requires healthy leader
 		if problem.RecoveryAction.RequiresHealthyLeader() && hasLeaderProblem {
-			re.logger.DebugContext(ctx, "skipping recovery - requires healthy leader but leader is unhealthy",
+			// TODO: once planning is separate from assessment, planning should report
+			// which actions are waiting and why, without logging every cycle.
+			re.logger.InfoContext(ctx, "skipping recovery - requires healthy leader but leader is unhealthy",
 				"problem_code", problem.Code,
 				"pooler_id", topoclient.ComponentIDString(problem.PoolerID),
 			)
