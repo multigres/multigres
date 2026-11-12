@@ -69,6 +69,11 @@ const claimAttempts = 3
 // not an error, so a provisioner that crashed after claiming can resume. A
 // claim held by another provisioner is a NodeExists error: an id has one
 // provisioner.
+//
+// A provisioner claims before it provisions anything, then reads the catalog's
+// list again: a tablegroup it listed as creating may have been dropped and, as
+// it was unclaimed, deleted in between. It provisions only if the tablegroup
+// is still listed as creating or active, and otherwise releases the claim.
 func (ts *store) ClaimTableGroupProvisioning(ctx context.Context, database string, claim *clustermetadatapb.TableGroupProvisionClaim) error {
 	if err := validateClaimArgs(database, claim.GetTablegroupId()); err != nil {
 		return err

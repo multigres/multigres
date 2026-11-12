@@ -97,10 +97,16 @@ multiadmin. For a `creating` or `active` tablegroup it has nothing for yet, it
 first writes a **provision claim** for the tablegroup's catalog id in the
 global topology (`TableGroupProvisionClaim`, at
 `databases/<database>/TableGroupClaims/<id>`,
-`topoclient.ClaimTableGroupProvisioning`), then provisions every shard: its
+`topoclient.ClaimTableGroupProvisioning`), reads the list again, and only if
+the tablegroup is still `creating` or `active` provisions every shard: its
 poolers, with `--tablegroup-id` set to the id, and a multiorch watching the
-shard. It keys everything it provisions by the id, so acting on one
-incarnation of a name never touches another.
+shard. If it is not, the provisioner releases the claim and provisions
+nothing. The second read is what closes the gap between a list and a claim: a
+tablegroup that was never claimed is deleted as soon as its drop is recorded,
+so a provisioner that listed it `creating` just before could otherwise claim
+and provision an id the catalog has already forgotten. It keys everything it
+provisions by the id, so acting on one incarnation of a name never touches
+another.
 
 For a `dropping` tablegroup it removes what it provisioned, deletes those
 poolers' records from topology and each shard's initialization claim, so a
@@ -195,21 +201,35 @@ never claimed completes as soon as its drop is recorded.
 The tablegroup id is what keeps poolers of one incarnation of a name from
 counting toward another, in both directions.
 
-The check runs in a loop on the catalog primary. It is level-triggered on
-purpose: every pass derives everything from the operation table and a
-topology read, keeps nothing in memory between passes, and so resumes after a
-failover or restart by running again. The first pass runs immediately on
-start, then every three seconds. There is no topology watch and no wake-up
-on a new operation; a pass is one query over the small operation table, and
-a few seconds of latency is invisible next to provisioning.
+The check runs in a loop on the catalog primary (`tablegroup_loop.go`),
+started by the multipooler service on the catalog shard and relaunched on
+every reopen. It is level-triggered on purpose: every pass derives everything
+from the catalog and a topology read, keeps nothing in memory between passes,
+and so resumes after a failover or restart by running again. The first pass
+runs immediately on start, then every three seconds. There is no topology
+watch and no wake-up on a new operation; a pass with nothing pending is two
+small queries over tiny tables and reads no topology, and a few seconds of
+latency is invisible next to provisioning. Only the elected primary runs a
+pass; any other pooler skips it.
 
-When the rule holds, one transaction finishes the operation and advances
-`catalog_state.routing_version`. A creation flips the operation to `done` and
-the shards and tablegroup to `active`; a drop flips the operation to `done`
-and deletes the shard and tablegroup rows. The first statement is a
-compare-and-set on the operation's state, so a repeated or concurrent
-completion finds nothing to do. A demoted primary cannot commit because its
-postgres is read-only, which is the writer fence.
+When the rule holds, one catalog write finishes the change. Like every
+catalog write it runs through `writeCatalog` (`routing_snapshot.go`), which
+locks `catalog_state` first, checks the snapshot the write would leave,
+advances `catalog_state.routing_version`, commits, and publishes the new
+version on the primary's health stream so gateways refetch their cached
+snapshot at once. A creation flips the operation to `done` and the shards and
+tablegroup to `active`. A drop deletes the shard and tablegroup rows and flips
+the drop operation, if there is one, to `done`. The first statement is a
+compare-and-set on the operation's or tablegroup's state, so a repeated or
+concurrent completion finds nothing to do and advances nothing. Recording or
+clearing a transient `last_error` goes through the same path and, touching
+only operation rows, advances nothing. A demoted primary cannot commit because
+its postgres is read-only, which is the writer fence.
+
+A creation that has not completed within an hour is failed with that reason:
+provisioning that has produced no serving shards in that long is stuck, and a
+failed operation is inspectable and frees the name, where a pending one holds
+it. Cancelling a creation sooner is `DROP TABLEGROUP` on it.
 
 ## Failure and cancellation
 
@@ -225,20 +245,22 @@ until the provisioner finishes. Backups of the dropped shards are left in
 place.
 
 A transient error while checking either rule, such as topology being
-unreachable, is recorded in the operation's `last_error` and the next pass
-tries again. It does not fail the operation.
+unreachable, is recorded in the operation's `last_error`, once, and the next
+pass tries again; the loop logs the outage when it starts and when it ends. It
+does not fail the operation. A tablegroup dropping because its creation failed
+has no drop operation to record on, and is covered by the log alone.
 
 What this looks like from each side:
 
-| Scenario                                                     | Behavior                                                                                                                     |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| Caller disconnects while waiting                             | The operation continues; `GetOperation` shows it                                                                             |
-| `DropTableGroup` while the tablegroup is still being created | The creation is cancelled and fails on the next pass. If it completed first, a repeated drop drops the now-active tablegroup |
-| Catalog primary fails over                                   | The new primary's first pass resumes every pending operation                                                                 |
-| Provisioner restarts                                         | It reconciles from the list; nothing in Multigres changes                                                                    |
-| Multiadmin or the catalog unreachable from the provisioner   | The provisioner must add nothing and remove nothing until a read succeeds                                                    |
-| Teardown never deletes the pooler records                    | The drop stays `dropping`, with `poolers_registered` showing what is left                                                    |
-| The provisioner never releases its claim                     | The drop stays `dropping` until the claim is released or an operator removes it, like a leaked Kubernetes finalizer          |
-| The list comes from a former primary that lags               | A change is delayed; nothing is removed, since absence is not a signal                                                       |
-| Duplicate `CreateTableGroup` or `DropTableGroup`             | The second caller gets the same operation                                                                                    |
-| Drop then recreate with the same name                        | The new id excludes the old poolers                                                                                          |
+| Scenario                                                     | Behavior                                                                                                                                                                                         |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Caller disconnects while waiting                             | The operation continues; `GetOperation` shows it                                                                                                                                                 |
+| `DropTableGroup` while the tablegroup is still being created | The creation is cancelled and fails on the next pass; a cancel that lands before the completing transaction commits wins. If it completed first, a repeated drop drops the now-active tablegroup |
+| Catalog primary fails over                                   | The new primary's first pass resumes every pending operation                                                                                                                                     |
+| Provisioner restarts                                         | It reconciles from the list; nothing in Multigres changes                                                                                                                                        |
+| Multiadmin or the catalog unreachable from the provisioner   | The provisioner must add nothing and remove nothing until a read succeeds                                                                                                                        |
+| Teardown never deletes the pooler records                    | The drop stays `dropping`, with `poolers_registered` showing what is left                                                                                                                        |
+| The provisioner never releases its claim                     | The drop stays `dropping` until the claim is released or an operator removes it, like a leaked Kubernetes finalizer                                                                              |
+| The list comes from a former primary that lags               | A change is delayed; nothing is removed, since absence is not a signal                                                                                                                           |
+| Duplicate `CreateTableGroup` or `DropTableGroup`             | The second caller gets the same operation                                                                                                                                                        |
+| Drop then recreate with the same name                        | The new id excludes the old poolers                                                                                                                                                              |

@@ -49,6 +49,7 @@ type tableGroupTestEnv struct {
 	pm      *MultipoolerManager
 	qs      *mock.QueryService
 	ts      topoclient.Store
+	topo    *memorytopo.Factory // SetError makes every topology read fail
 	queries []string
 }
 
@@ -58,7 +59,8 @@ type tableGroupTestEnv struct {
 func newTableGroupTestEnv(t *testing.T, tableGroup, shard string) *tableGroupTestEnv {
 	t.Helper()
 	ctx := t.Context()
-	env := &tableGroupTestEnv{qs: mock.NewQueryService(), ts: memorytopo.NewServer(ctx, "cell1", "cell2")}
+	ts, factory := memorytopo.NewServerAndFactory(ctx, "cell1", "cell2")
+	env := &tableGroupTestEnv{qs: mock.NewQueryService(), ts: ts, topo: factory}
 	logger := slog.New(slog.DiscardHandler)
 	record := newRecordFromProto(&clustermetadatapb.Multipooler{
 		ShardRef: &clustermetadatapb.ShardRef{Database: testTableGroupDB, TableGroup: tableGroup, Shard: shard},
@@ -82,7 +84,9 @@ func newCatalogTestEnv(t *testing.T) *tableGroupTestEnv {
 	return newTableGroupTestEnv(t, constants.DefaultTableGroup, constants.DefaultShard)
 }
 
-// expect registers a one-shot pattern whose match is appended to env.queries.
+// expect registers a pattern whose match is appended to env.queries. Patterns
+// are not consumed: a query is answered by the first registered pattern it
+// matches, for as long as the environment lives.
 func (env *tableGroupTestEnv) expect(pattern string, columns []string, rows [][]any) {
 	env.qs.AddQueryPatternWithCallback(pattern, mock.MakeQueryResult(columns, rows), func(q string) {
 		env.queries = append(env.queries, q)
