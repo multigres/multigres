@@ -45,6 +45,8 @@ type Snapshot struct {
 	tables            map[tableName]*Table
 	// routingRules is every routing rule, ordered by id.
 	routingRules []*RoutingRule
+	// fences is every admission fence, ordered by id.
+	fences []*Fence
 }
 
 // tableName keys Snapshot.tables. It is unexported on purpose: callers look a
@@ -69,6 +71,8 @@ type TableGroup struct {
 	// shardRules is the shard rules from the tablegroup, in target range
 	// order.
 	shardRules []*RoutingRule
+	// fence is the fence on the whole tablegroup, nil when there is none.
+	fence *Fence
 }
 
 // Shard is one key range of a tablegroup.
@@ -78,6 +82,8 @@ type Shard struct {
 	name       string
 	keyRange   *clustermetadatapb.KeyRange
 	state      shardingcatalogpb.ShardState
+	// fence is the fence on the shard, nil when there is none.
+	fence *Fence
 }
 
 // Table is a table placed in a tablegroup.
@@ -131,6 +137,18 @@ type RoutingRule struct {
 	createdVersion int64
 }
 
+// Fence is an admission fence: a whole tablegroup, or one shard of it, that
+// the owning operation closes to application work while it changes routing.
+type Fence struct {
+	id          int64
+	operationID string
+	tableGroup  *TableGroup
+	// shard is the fenced shard, nil for a fence on the whole tablegroup.
+	shard   *Shard
+	state   shardingcatalogpb.FenceState
+	version int64
+}
+
 // New validates pb and builds a Snapshot from it. It rejects a snapshot in
 // which:
 //
@@ -147,7 +165,10 @@ type RoutingRule struct {
 //     scope is unknown or does not match the fields it sets (a table rule
 //     has a from_table_id and no to_shard_id, a shard rule the reverse), a
 //     shard rule's target shard is not in its to_tablegroup_id, or a table
-//     has more than one table rule.
+//     has more than one table rule;
+//   - a fence's id is repeated, a reference does not resolve, its shard is not
+//     in its tablegroup, its state is unknown, or two fences have the same
+//     scope (the same tablegroup, and the same shard or both none).
 //
 // pb is not retained, except for the key ranges of its shards, which must not
 // be modified afterward.
@@ -258,7 +279,64 @@ func New(pb *shardingcatalogpb.Snapshot) (*Snapshot, error) {
 	if err := s.addRoutingRules(pb.GetRoutingRules(), tablesByID, keys); err != nil {
 		return nil, err
 	}
+	if err := s.addFences(pb.GetFences()); err != nil {
+		return nil, err
+	}
 	return s, nil
+}
+
+// addFences attaches every fence to its scope, checking ids, references,
+// states and that no two fences share a scope.
+func (s *Snapshot) addFences(fences []*shardingcatalogpb.Fence) error {
+	shardsByID := make(map[int64]*Shard)
+	for _, g := range s.tableGroups {
+		for _, sh := range g.shards {
+			shardsByID[sh.id] = sh
+		}
+	}
+	ids := make(map[int64]struct{}, len(fences))
+	for _, f := range fences {
+		id := f.GetFenceId()
+		if _, dup := ids[id]; dup {
+			return mterrors.NewInvalidShardingCatalogSnapshot("fence id %d is repeated", id)
+		}
+		ids[id] = struct{}{}
+		g, ok := s.tableGroupsByID[f.GetTablegroupId()]
+		if !ok {
+			return mterrors.NewInvalidShardingCatalogSnapshot("fence %d refers to tablegroup %d, which does not exist", id, f.GetTablegroupId())
+		}
+		switch f.GetState() {
+		case shardingcatalogpb.FenceState_FENCE_STATE_FENCING,
+			shardingcatalogpb.FenceState_FENCE_STATE_FENCED,
+			shardingcatalogpb.FenceState_FENCE_STATE_UNFENCED:
+		default:
+			return mterrors.NewInvalidShardingCatalogSnapshot("fence %d has unknown state %s", id, f.GetState())
+		}
+		fence := &Fence{id: id, operationID: f.GetOperationId(), tableGroup: g, state: f.GetState(), version: f.GetVersion()}
+		if f.ShardId != nil {
+			sh, ok := shardsByID[f.GetShardId()]
+			if !ok {
+				return mterrors.NewInvalidShardingCatalogSnapshot("fence %d refers to shard %d, which does not exist", id, f.GetShardId())
+			}
+			if sh.tableGroup != g {
+				return mterrors.NewInvalidShardingCatalogSnapshot("fence %d fences shard %d of tablegroup %q, not of its tablegroup %q",
+					id, sh.id, sh.tableGroup.name, g.name)
+			}
+			if sh.fence != nil {
+				return mterrors.NewInvalidShardingCatalogSnapshot("fences %d and %d have the same scope", sh.fence.id, id)
+			}
+			fence.shard = sh
+			sh.fence = fence
+		} else {
+			if g.fence != nil {
+				return mterrors.NewInvalidShardingCatalogSnapshot("fences %d and %d have the same scope", g.fence.id, id)
+			}
+			g.fence = fence
+		}
+		s.fences = append(s.fences, fence)
+	}
+	slices.SortFunc(s.fences, func(a, b *Fence) int { return cmp.Compare(a.id, b.id) })
+	return nil
 }
 
 // addRoutingRules attaches every routing rule to its source, checking ids,
@@ -439,6 +517,10 @@ func (s *Snapshot) TableGroups() []*TableGroup { return s.tableGroups }
 // ordered by id.
 func (s *Snapshot) RoutingRules() []*RoutingRule { return s.routingRules }
 
+// Fences returns every admission fence, in any state and of any scope,
+// ordered by id.
+func (s *Snapshot) Fences() []*Fence { return s.fences }
+
 // TableGroupByName returns the tablegroup with the given name, in any state.
 func (s *Snapshot) TableGroupByName(name string) (*TableGroup, bool) {
 	g, ok := s.tableGroupsByName[name]
@@ -479,6 +561,21 @@ func (g *TableGroup) ActiveShards() []*Shard { return g.activeShards }
 // of their target shards' ranges. It is empty when no rule routes the
 // tablegroup.
 func (g *TableGroup) ShardRules() []*RoutingRule { return g.shardRules }
+
+// FencesFor returns the fences, in any state, that apply to shard sh of the
+// tablegroup: the fence on the whole tablegroup, then the fence on sh, each
+// when there is one. A nil sh, or a shard of another tablegroup, returns only
+// the whole-tablegroup fence.
+func (g *TableGroup) FencesFor(sh *Shard) []*Fence {
+	var out []*Fence
+	if g.fence != nil {
+		out = append(out, g.fence)
+	}
+	if sh != nil && sh.tableGroup == g && sh.fence != nil {
+		out = append(out, sh.fence)
+	}
+	return out
+}
 
 // IsSharded reports whether the tablegroup has more than one active shard.
 // A tablegroup with no active shards yet (one being created) is not sharded.
@@ -598,3 +695,21 @@ func (r *RoutingRule) ToShardKey() *ShardKey { return r.toShardKey }
 
 // CreatedVersion is the routing_version the rule was written at.
 func (r *RoutingRule) CreatedVersion() int64 { return r.createdVersion }
+
+// ID is the fence's catalog id.
+func (f *Fence) ID() int64 { return f.id }
+
+// OperationID is the uuid of the operation that owns the fence.
+func (f *Fence) OperationID() string { return f.operationID }
+
+// TableGroup is the fenced tablegroup.
+func (f *Fence) TableGroup() *TableGroup { return f.tableGroup }
+
+// Shard is the fenced shard, nil for a fence on the whole tablegroup.
+func (f *Fence) Shard() *Shard { return f.shard }
+
+// State is the fence's state.
+func (f *Fence) State() shardingcatalogpb.FenceState { return f.state }
+
+// Version is the routing_version of the fence's last change.
+func (f *Fence) Version() int64 { return f.version }

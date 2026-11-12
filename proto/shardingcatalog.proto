@@ -90,6 +90,21 @@ enum RoutingRuleScope {
   ROUTING_RULE_SCOPE_TABLE = 2;
 }
 
+// FenceState is the state of an admission fence. A reader treats a state it
+// does not know, including UNSPECIFIED, as an invalid snapshot.
+enum FenceState {
+  FENCE_STATE_UNSPECIFIED = 0;
+  // FENCING is a fence being raised: the scope's poolers are being told to
+  // refuse application work and drained.
+  FENCE_STATE_FENCING = 1;
+  // FENCED is a raised fence: the scope is closed to application work, so
+  // routing rules on it may change.
+  FENCE_STATE_FENCED = 2;
+  // UNFENCED is a lifted fence. The row stays, so its version keeps a
+  // delayed unfence from overriding a later fence of the same scope.
+  FENCE_STATE_UNFENCED = 3;
+}
+
 // TableGroup is a tablegroup: a set of tables sharded the same way. It is
 // sharded exactly when it has more than one active shard.
 message TableGroup {
@@ -170,6 +185,22 @@ message RoutingRule {
   int64 created_version = 9;
 }
 
+// Fence is an admission fence: a scope of a tablegroup that the operation
+// owning the fence closes to application work while it changes where the
+// scope's traffic goes. A scope holds at most one fence.
+message Fence {
+  int64 fence_id = 1;
+  // operation_id is the uuid of the operation that owns the fence.
+  string operation_id = 2;
+  int64 tablegroup_id = 3;
+  // shard_id is the fenced shard of tablegroup_id; unset fences the whole
+  // tablegroup.
+  optional int64 shard_id = 4;
+  FenceState state = 5;
+  // version is the routing_version of the fence's last change.
+  int64 version = 6;
+}
+
 // Snapshot is the whole sharding catalog of one database, read in a single
 // transaction. Entities in every state are included; a reader decides which
 // ones it uses. References between entities are by id.
@@ -188,4 +219,5 @@ message Snapshot {
   repeated ShardIndex shard_indices = 6;
   repeated ShardKey shard_keys = 7;
   repeated RoutingRule routing_rules = 8;
+  repeated Fence fences = 9;
 }
