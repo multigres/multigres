@@ -264,7 +264,7 @@ func TestGetRoutingSnapshot_DemotedDuringRead(t *testing.T) {
 
 	_, err := env.pm.GetRoutingSnapshot(t.Context(), sinceVersion(8))
 	require.Error(t, err)
-	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
 	assert.Contains(t, err.Error(), "not the elected primary of the catalog shard")
 }
 
@@ -310,6 +310,9 @@ func TestGetRoutingSnapshot_ReadError(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to read tablegroups")
 }
 
+// A pooler off the catalog shard is refused for good (FAILED_PRECONDITION);
+// one on the catalog shard that is not its elected primary is refused with
+// UNAVAILABLE, for the caller to rediscover the primary and ask again.
 func TestGetRoutingSnapshot_Rejects(t *testing.T) {
 	t.Run("not the catalog shard", func(t *testing.T) {
 		env := newTableGroupTestEnv(t, "commerce", "0-80")
@@ -323,7 +326,7 @@ func TestGetRoutingSnapshot_Rejects(t *testing.T) {
 		env.expect("SELECT pg_is_in_recovery", []string{"pg_is_in_recovery"}, [][]any{{"t"}})
 		_, err := env.pm.GetRoutingSnapshot(t.Context(), sinceVersion(1))
 		require.Error(t, err)
-		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+		assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
 		assert.Empty(t, env.queriesMatching("catalog_state"))
 	})
 	t.Run("out of recovery but not the elected primary", func(t *testing.T) {
@@ -333,7 +336,7 @@ func TestGetRoutingSnapshot_Rejects(t *testing.T) {
 		env.expectPrimary()
 		_, err := env.pm.GetRoutingSnapshot(t.Context(), sinceVersion(1))
 		require.Error(t, err)
-		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+		assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
 		assert.Contains(t, err.Error(), "not the elected primary of the catalog shard")
 		assert.Equal(t, []string{"SELECT pg_is_in_recovery()"}, env.queries)
 	})

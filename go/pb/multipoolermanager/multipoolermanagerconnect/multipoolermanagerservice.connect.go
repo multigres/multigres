@@ -210,6 +210,9 @@ type MultipoolerManagerClient interface {
 	// state included, read in one transaction, or a note that the caller's copy
 	// at since_version is still current. Gateways keep the result cached and
 	// call it again when the health stream reports a newer routing_version.
+	// A pooler of the catalog shard that is not its elected primary answers
+	// UNAVAILABLE, for the caller to find the primary and ask again; a pooler
+	// off the catalog shard answers FAILED_PRECONDITION.
 	GetRoutingSnapshot(context.Context, *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
@@ -597,6 +600,9 @@ type MultipoolerManagerHandler interface {
 	// state included, read in one transaction, or a note that the caller's copy
 	// at since_version is still current. Gateways keep the result cached and
 	// call it again when the health stream reports a newer routing_version.
+	// A pooler of the catalog shard that is not its elected primary answers
+	// UNAVAILABLE, for the caller to find the primary and ask again; a pooler
+	// off the catalog shard answers FAILED_PRECONDITION.
 	GetRoutingSnapshot(context.Context, *connect.Request[multipoolermanagerdata.GetRoutingSnapshotRequest]) (*connect.Response[multipoolermanagerdata.GetRoutingSnapshotResponse], error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
