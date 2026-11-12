@@ -353,3 +353,150 @@ func TestCache_RuleOrdering(t *testing.T) {
 		assert.Same(t, installed, c.Snapshot(testDB))
 	})
 }
+
+// waitResult starts WaitForRoutingVersion in the background and returns the
+// channel its result arrives on.
+func waitResult(ctx context.Context, c *Cache, name string, after int64) <-chan error {
+	done := make(chan error, 1)
+	go func() { done <- c.WaitForRoutingVersion(ctx, name, after) }()
+	return done
+}
+
+// requireBlocked checks, after a quiet period, that no wait has returned.
+func requireBlocked(t *testing.T, dones ...<-chan error) {
+	t.Helper()
+	time.Sleep(quietPeriod)
+	for _, done := range dones {
+		select {
+		case err := <-done:
+			require.FailNow(t, "WaitForRoutingVersion returned early", "err: %v", err)
+		default:
+		}
+	}
+}
+
+// settle lets the fetches the first observation triggered finish, so a later
+// fetch count is only what the test causes.
+func settle(t *testing.T, f *fakePrimary) int {
+	t.Helper()
+	time.Sleep(quietPeriod)
+	return f.callCount()
+}
+
+func requireReturned(t *testing.T, done <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(waitFor):
+		require.FailNow(t, "WaitForRoutingVersion never returned")
+		return nil
+	}
+}
+
+// The wait returns only once a snapshot past after is installed: not for the
+// cached one, nor an install that only reaches after.
+func TestWaitForRoutingVersion_ReturnsOnlyPastAfter(t *testing.T) {
+	f := &fakePrimary{catalog: snapshotAt(3)}
+	c := newTestCache(t, f, noPoll)
+	c.ObserveCatalogShard(testDB, true, nil, 3)
+	waitForVersion(t, c, 3)
+
+	done := waitResult(t.Context(), c, testDB, 4)
+	requireBlocked(t, done)
+
+	f.set(snapshotAt(4), nil)
+	c.ObserveCatalogShard(testDB, true, nil, 4)
+	waitForVersion(t, c, 4)
+	requireBlocked(t, done)
+
+	f.set(snapshotAt(5), nil)
+	c.ObserveCatalogShard(testDB, true, nil, 5)
+	require.NoError(t, requireReturned(t, done))
+	assert.Equal(t, int64(5), c.Snapshot(testDB).RoutingVersion())
+}
+
+// The wait fetches at once instead of sitting until a health report or poll,
+// neither of which comes here.
+func TestWaitForRoutingVersion_TriggersAFetch(t *testing.T) {
+	f := &fakePrimary{catalog: snapshotAt(3)}
+	c := newTestCache(t, f, noPoll)
+	c.ObserveCatalogShard(testDB, true, nil, 3)
+	waitForVersion(t, c, 3)
+	calls := settle(t, f)
+
+	f.set(snapshotAt(4), nil)
+	require.NoError(t, requireReturned(t, waitResult(t.Context(), c, testDB, 3)))
+	assert.Equal(t, int64(4), c.Snapshot(testDB).RoutingVersion())
+	assert.Equal(t, calls+1, f.callCount())
+}
+
+// A snapshot already past after returns at once, without a fetch.
+func TestWaitForRoutingVersion_AlreadyPast(t *testing.T) {
+	f := &fakePrimary{catalog: snapshotAt(6)}
+	c := newTestCache(t, f, noPoll)
+	c.ObserveCatalogShard(testDB, true, nil, 6)
+	waitForVersion(t, c, 6)
+	calls := settle(t, f)
+
+	require.NoError(t, c.WaitForRoutingVersion(t.Context(), testDB, 5))
+	time.Sleep(quietPeriod)
+	assert.Equal(t, calls, f.callCount())
+}
+
+// A database the cache has never seen starts its fetch loop, and the wait
+// ends with its first install past after.
+func TestWaitForRoutingVersion_UnseenDatabase(t *testing.T) {
+	f := &fakePrimary{catalog: snapshotAt(2)}
+	c := newTestCache(t, f, noPoll)
+	require.NoError(t, requireReturned(t, waitResult(t.Context(), c, testDB, 1)))
+	assert.Equal(t, []string{testDB}, c.Databases())
+	assert.Equal(t, int64(2), c.Snapshot(testDB).RoutingVersion())
+}
+
+func TestWaitForRoutingVersion_HonoursItsContext(t *testing.T) {
+	f := &fakePrimary{catalog: snapshotAt(3)}
+	c := newTestCache(t, f, noPoll)
+	c.ObserveCatalogShard(testDB, true, nil, 3)
+	waitForVersion(t, c, 3)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := waitResult(ctx, c, testDB, 3)
+	requireBlocked(t, done)
+	cancel()
+	assert.ErrorIs(t, requireReturned(t, done), context.Canceled)
+
+	ctx, cancel = context.WithTimeout(t.Context(), quietPeriod)
+	defer cancel()
+	assert.ErrorIs(t, c.WaitForRoutingVersion(ctx, testDB, 3), context.DeadlineExceeded)
+}
+
+// Many waiters on one database are each released by the first install past
+// their own after.
+func TestWaitForRoutingVersion_ManyWaiters(t *testing.T) {
+	f := &fakePrimary{catalog: snapshotAt(3)}
+	c := newTestCache(t, f, noPoll)
+	c.ObserveCatalogShard(testDB, true, nil, 3)
+	waitForVersion(t, c, 3)
+
+	const n = 50
+	var early, late []<-chan error
+	for range n {
+		early = append(early, waitResult(t.Context(), c, testDB, 3))
+		late = append(late, waitResult(t.Context(), c, testDB, 4))
+	}
+	requireBlocked(t, append(early, late...)...)
+
+	f.set(snapshotAt(4), nil)
+	c.ObserveCatalogShard(testDB, true, nil, 4)
+	for _, done := range early {
+		require.NoError(t, requireReturned(t, done))
+	}
+	requireBlocked(t, late...)
+
+	f.set(snapshotAt(5), nil)
+	c.ObserveCatalogShard(testDB, true, nil, 5)
+	for _, done := range late {
+		require.NoError(t, requireReturned(t, done))
+	}
+}
