@@ -26,8 +26,24 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
-// dropCols is the column list of the loop's dropping-tablegroups query.
-var dropCols = []string{"tablegroup_id", "name"}
+// dropCols is the column list of the loop's dropping-tablegroups query: the
+// tablegroup and its drop operation's id and last_error, both "" without one.
+var dropCols = []string{"tablegroup_id", "name", "operation_id", "last_error"}
+
+// testDropOpID is the drop operation of a tablegroup dropped by DropTableGroup.
+const testDropOpID = "0f7d2a3e-5b6c-4d8e-9f0a-1b2c3d4e5f60"
+
+// droppingRow is a dropping-tablegroups row for a tablegroup without a drop
+// operation, as a failed creation leaves it.
+func droppingRow(id int64, name string) []any {
+	return []any{id, name, "", ""}
+}
+
+// droppedRow is a dropping-tablegroups row for a tablegroup dropped by
+// DropTableGroup, with its drop operation and that operation's last_error.
+func droppedRow(id int64, name, lastError string) []any {
+	return []any{id, name, testDropOpID, lastError}
+}
 
 // expectCreations answers the loop's pending-creations query with rows.
 func (env *tableGroupTestEnv) expectCreations(rows ...[]any) {
@@ -36,7 +52,7 @@ func (env *tableGroupTestEnv) expectCreations(rows ...[]any) {
 
 // expectDroppings answers the loop's dropping-tablegroups query with rows.
 func (env *tableGroupTestEnv) expectDroppings(rows ...[]any) {
-	env.expect("FROM multigres.tablegroup WHERE state = \\$1 ORDER BY tablegroup_id", dropCols, rows)
+	env.expect("FROM multigres.tablegroup t LEFT JOIN multigres.operation o", dropCols, rows)
 }
 
 // expectRoutingChange registers what writeCatalog does around a writer that
@@ -122,7 +138,7 @@ func TestReconcileTableGroups_FailsACancelledCreationAndDropsIt(t *testing.T) {
 	env.expectRoutingChange()
 	env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
 	env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
-	env.expectDroppings([]any{testTableGroupID, "commerce"})
+	env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
 	env.expect("DELETE FROM multigres.shard", nil, nil)
 	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
 	env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
@@ -165,21 +181,35 @@ func TestReconcileTableGroups_ATopologyErrorIsRecordedThenCleared(t *testing.T) 
 	env.expectCreations(creatingOperationRow(time.Now().UnixMicro(), false))
 	env.expectLock()
 	env.expect("UPDATE multigres.operation SET last_error = \\$2", nil, nil)
-	env.expectDroppings([]any{testTableGroupID + 1, "old"})
-	env.expect("UPDATE multigres.operation SET last_error = \\$3", nil, nil)
+	// Two dropping tablegroups: one dropped by DropTableGroup, with a drop
+	// operation to record on, and one left by a failed creation, without.
+	env.expectDroppings(droppedRow(testTableGroupID+1, "old", ""), droppingRow(testTableGroupID+2, "failed"))
 
 	pending, err := env.pm.reconcileTableGroups(t.Context())
-	require.NoError(t, err)
-	assert.Equal(t, 2, pending, "nothing completes or is deleted on a failed topology read")
-	assert.Len(t, env.queriesMatching("SET last_error ="), 2, "the error is recorded on the creation and on the drop")
+	require.ErrorContains(t, err, "etcd unreachable", "the pass reports the outage, so the loop logs it once")
+	assert.Equal(t, 3, pending, "nothing completes or is deleted on a failed topology read")
+	assert.Len(t, env.queriesMatching("SET last_error ="), 2, "the error is recorded on the creation and on the drop operation; a failed creation has none")
 	assert.Empty(t, env.queriesMatching("DELETE"))
 	assert.Empty(t, env.queriesMatching("routing_version + 1"), "operation rows are outside the snapshot")
+
+	// The outage goes on: the error is already recorded, so nothing is written
+	// and the catalog_state lock is not taken.
+	env = newCatalogTestEnv(t)
+	env.topo.SetError(errors.New("etcd unreachable"))
+	row := creatingOperationRow(time.Now().UnixMicro(), false)
+	row[5] = "list cells: etcd unreachable"
+	env.expectCreations(row)
+	env.expectDroppings(droppedRow(testTableGroupID+1, "old", "list cells: etcd unreachable"))
+	pending, err = env.pm.reconcileTableGroups(t.Context())
+	require.ErrorContains(t, err, "etcd unreachable")
+	assert.Equal(t, 2, pending)
+	assert.Len(t, env.queries, 2, "only the two listings ran")
 
 	// Topology is back, the shards are still not all serving: the recorded
 	// error is cleared and the creation stays pending. (A fresh environment:
 	// the mock answers a query with the first pattern registered for it.)
 	env = newCatalogTestEnv(t)
-	row := creatingOperationRow(time.Now().UnixMicro(), false)
+	row = creatingOperationRow(time.Now().UnixMicro(), false)
 	row[5] = "list cells: etcd unreachable"
 	env.expectCreations(row)
 	env.expectLock()
@@ -209,7 +239,7 @@ func TestReconcileTableGroups_FailsATimedOutCreation(t *testing.T) {
 func TestReconcileTableGroups_ADroppingTableGroupWaitsForItsPoolers(t *testing.T) {
 	env := newCatalogTestEnv(t)
 	env.expectCreations()
-	env.expectDroppings([]any{testTableGroupID, "commerce"})
+	env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
 	// A record of this incarnation, even shut down, still holds it; a record of
 	// another incarnation of the name does not count.
 	env.addPooler(t, "cell1", "commerce-old", "commerce", "0-inf", testTableGroupID,
@@ -224,7 +254,7 @@ func TestReconcileTableGroups_ADroppingTableGroupWaitsForItsPoolers(t *testing.T
 func TestReconcileTableGroups_ADroppingTableGroupWaitsForTheClaim(t *testing.T) {
 	env := newCatalogTestEnv(t)
 	env.expectCreations()
-	env.expectDroppings([]any{testTableGroupID, "commerce"})
+	env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
 	require.NoError(t, env.ts.ClaimTableGroupProvisioning(t.Context(), testTableGroupDB,
 		&clustermetadatapb.TableGroupProvisionClaim{Provisioner: "operator", TablegroupId: testTableGroupID, TablegroupName: "commerce"}))
 
@@ -253,7 +283,7 @@ func TestReconcileTableGroups_ADeletedTableGroupIsLeftAlone(t *testing.T) {
 	// the conditional delete removes nothing and nothing else is written.
 	env := newCatalogTestEnv(t)
 	env.expectCreations()
-	env.expectDroppings([]any{testTableGroupID, "commerce"})
+	env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
 	env.expectLock()
 	env.expect("DELETE FROM multigres.shard", nil, nil)
 	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, nil)
@@ -308,7 +338,7 @@ func TestReconcileTableGroups_UnreadableRowsAreSkipped(t *testing.T) {
 	bad := creatingOperationRow(time.Now().UnixMicro(), false)
 	bad[3] = "{not json"
 	env.expectCreations(bad)
-	env.expectDroppings([]any{"not-a-number", "commerce"})
+	env.expectDroppings([]any{"not-a-number", "commerce", "", ""})
 
 	pending, err := env.pm.reconcileTableGroups(t.Context())
 	require.NoError(t, err)
@@ -319,7 +349,7 @@ func TestReconcileTableGroups_UnreadableRowsAreSkipped(t *testing.T) {
 func TestReconcileTableGroups_AListingFailureEndsThePass(t *testing.T) {
 	env := newCatalogTestEnv(t)
 	env.qs.AddQueryPatternWithError("FROM multigres.operation WHERE kind", errors.New("catalog unavailable"))
-	env.expectDroppings([]any{testTableGroupID, "commerce"})
+	env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
 
 	pending, err := env.pm.reconcileTableGroups(t.Context())
 	require.ErrorContains(t, err, "failed to list pending tablegroup creations")
@@ -367,7 +397,7 @@ func TestReconcileTableGroups_AStatementFailureRollsBackAndRetries(t *testing.T)
 	t.Run("deletion", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectCreations()
-		env.expectDroppings([]any{testTableGroupID, "commerce"})
+		env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
 		env.expectLock()
 		env.qs.AddQueryPatternWithError("DELETE FROM multigres.shard", errors.New("lock timeout"))
 		env.expect("ROLLBACK", nil, nil)
@@ -386,12 +416,12 @@ func TestReconcileTableGroups_BestEffortWritesFailSoftly(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.topo.SetError(errors.New("etcd unreachable"))
 		env.expectCreations(creatingOperationRow(time.Now().UnixMicro(), false))
-		env.expectDroppings([]any{testTableGroupID + 1, "old"})
+		env.expectDroppings(droppedRow(testTableGroupID+1, "old", ""))
 		env.expectLock()
 		env.qs.AddQueryPatternWithError("UPDATE multigres.operation SET last_error", errors.New("catalog read-only"))
 
 		pending, err := env.pm.reconcileTableGroups(t.Context())
-		require.NoError(t, err)
+		require.ErrorContains(t, err, "etcd unreachable")
 		assert.Equal(t, 2, pending)
 	})
 	t.Run("clearing a recorded error", func(t *testing.T) {
@@ -454,7 +484,7 @@ func TestReconcileTableGroups_EveryStatementOfATransactionIsChecked(t *testing.T
 	drop := func(t *testing.T, failing string) {
 		env := newCatalogTestEnv(t)
 		env.expectCreations()
-		env.expectDroppings([]any{testTableGroupID, "commerce"})
+		env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
 		env.expectLock()
 		env.qs.AddQueryPatternWithError(failing, errors.New("lock timeout"))
 		env.expect("DELETE FROM multigres.shard", nil, nil)

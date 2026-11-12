@@ -245,8 +245,10 @@ until the provisioner finishes. Backups of the dropped shards are left in
 place.
 
 A transient error while checking either rule, such as topology being
-unreachable, is recorded in the operation's `last_error` and the next pass
-tries again. It does not fail the operation.
+unreachable, is recorded in the operation's `last_error`, once, and the next
+pass tries again; the loop logs the outage when it starts and when it ends. It
+does not fail the operation. A tablegroup dropping because its creation failed
+has no drop operation to record on, and is covered by the log alone.
 
 What this looks like from each side:
 

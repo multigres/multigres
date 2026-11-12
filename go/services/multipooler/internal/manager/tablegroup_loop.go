@@ -121,7 +121,8 @@ func errString(err error) string {
 }
 
 // tableGroupOperationsPass runs one pass if this pooler is the catalog primary
-// and returns the error that kept the pass from running.
+// and returns the error that kept the pass from running or from completing
+// anything.
 func (pm *MultipoolerManager) tableGroupOperationsPass(ctx context.Context) error {
 	if pm.stateManager == nil || pm.stateManager.RoutingRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
 		return nil
@@ -153,8 +154,12 @@ func (pm *MultipoolerManager) reconcileTableGroups(ctx context.Context) (int, er
 		return 0, nil
 	}
 	records, topoErr := pm.tableGroupPoolerRecords(ctx, "")
-	return pm.reconcileCreations(ctx, creations, records, topoErr) +
-		pm.reconcileDroppings(ctx, droppings, records, topoErr), nil
+	pending := pm.reconcileCreations(ctx, creations, records, topoErr) +
+		pm.reconcileDroppings(ctx, droppings, records, topoErr)
+	// Each pending item recorded the topology error for GetOperation; the
+	// pass reports it too, so the loop logs an outage once when it starts
+	// and once when it ends.
+	return pending, topoErr
 }
 
 // listPendingCreations returns every create_tablegroup operation in state
@@ -185,14 +190,21 @@ func (pm *MultipoolerManager) listPendingCreations(ctx context.Context) ([]opera
 	return ops, nil
 }
 
-// droppingTableGroup is one row of the loop's dropping-tablegroups query.
+// droppingTableGroup is one row of the loop's dropping-tablegroups query: the
+// tablegroup and, when a DropTableGroup recorded one, its drop operation. A
+// tablegroup dropping because its creation failed has none.
 type droppingTableGroup struct {
 	id   int64
 	name string
+	// dropOpID is the drop operation's id, or "" when there is none.
+	dropOpID string
+	// lastError is the drop operation's recorded last_error, or "".
+	lastError string
 }
 
-// listDroppingTableGroups returns every tablegroup in state dropping. A row
-// that cannot be read is logged and left out.
+// listDroppingTableGroups returns every tablegroup in state dropping, with its
+// drop operation when it has one. A row that cannot be read is logged and left
+// out.
 func (pm *MultipoolerManager) listDroppingTableGroups(ctx context.Context) ([]droppingTableGroup, error) {
 	qs, err := pm.catalogQueryService()
 	if err != nil {
@@ -201,14 +213,18 @@ func (pm *MultipoolerManager) listDroppingTableGroups(ctx context.Context) ([]dr
 	execCtx, cancel := context.WithTimeout(ctx, tableGroupOpTimeout)
 	defer cancel()
 	res, err := qs.QueryAdminArgs(execCtx,
-		"SELECT tablegroup_id, name FROM multigres.tablegroup WHERE state = $1 ORDER BY tablegroup_id", tableGroupStateDropping)
+		"SELECT t.tablegroup_id, t.name, coalesce(o.operation_id::text, ''), coalesce(o.last_error, '') "+
+			"FROM multigres.tablegroup t LEFT JOIN multigres.operation o "+
+			"ON o.kind = $2 AND o.state = $3 AND (o.request->>'tablegroup_id')::bigint = t.tablegroup_id "+
+			"WHERE t.state = $1 ORDER BY t.tablegroup_id",
+		tableGroupStateDropping, operationKindDropTableGroup, operationStateDropping)
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to list dropping tablegroups")
 	}
 	groups := make([]droppingTableGroup, 0, len(res.Rows))
 	for _, row := range res.Rows {
 		var tg droppingTableGroup
-		if err := executor.ScanRow(row, &tg.id, &tg.name); err != nil {
+		if err := executor.ScanRow(row, &tg.id, &tg.name, &tg.dropOpID, &tg.lastError); err != nil {
 			pm.logger.WarnContext(ctx, "skipping unreadable dropping tablegroup", "error", err)
 			continue
 		}
@@ -230,7 +246,7 @@ func (pm *MultipoolerManager) reconcileCreations(ctx context.Context, ops []oper
 		case op.cancelRequested:
 			err = pm.failCreateTableGroup(ctx, op, "cancelled")
 		case topoErr != nil:
-			pm.recordOperationError(ctx, op.id, operationStateCreating, topoErr.Error())
+			pm.recordOperationError(ctx, op.id, operationStateCreating, op.lastError, topoErr.Error())
 			pending++
 		case shardsServing(records, op.request) == len(op.request.Shards):
 			err = pm.completeCreateTableGroup(ctx, op)
@@ -332,7 +348,7 @@ func (pm *MultipoolerManager) reconcileDroppings(ctx context.Context, groups []d
 	pending := 0
 	for _, tg := range groups {
 		if topoErr != nil {
-			pm.recordDropError(ctx, tg.id, topoErr.Error())
+			pm.recordDropError(ctx, tg, topoErr.Error())
 			pending++
 			continue
 		}
@@ -342,7 +358,7 @@ func (pm *MultipoolerManager) reconcileDroppings(ctx context.Context, groups []d
 		}
 		held, err := pm.tableGroupClaimHeld(ctx, tg.id)
 		if err != nil {
-			pm.recordDropError(ctx, tg.id, err.Error())
+			pm.recordDropError(ctx, tg, err.Error())
 			pending++
 			continue
 		}
@@ -422,8 +438,14 @@ func (pm *MultipoolerManager) writeOperationRow(ctx context.Context, what, query
 }
 
 // recordOperationError stores a transient error on a pending operation so a
-// caller polling GetOperation can see why it is not progressing.
-func (pm *MultipoolerManager) recordOperationError(ctx context.Context, operationID, state, message string) {
+// caller polling GetOperation can see why it is not progressing. recorded is
+// the operation's last_error as this pass listed it: an error already recorded
+// is not written again, so a lasting outage costs one write per operation,
+// not one per pass, and takes the catalog_state lock once.
+func (pm *MultipoolerManager) recordOperationError(ctx context.Context, operationID, state, recorded, message string) {
+	if recorded == message {
+		return
+	}
 	pm.writeOperationRow(ctx, "record operation error "+operationID,
 		"UPDATE multigres.operation SET last_error = $2, updated_at = now() WHERE operation_id = $1 AND state = $3 AND last_error IS DISTINCT FROM $2",
 		operationID, message, state)
@@ -437,10 +459,12 @@ func (pm *MultipoolerManager) clearOperationError(ctx context.Context, operation
 		operationID, state)
 }
 
-// recordDropError is recordOperationError for the drop operation of a
-// tablegroup, found by id. A failed creation has none, and is then only logged.
-func (pm *MultipoolerManager) recordDropError(ctx context.Context, tableGroupID int64, message string) {
-	pm.writeOperationRow(ctx, fmt.Sprintf("record drop error for tablegroup %d", tableGroupID),
-		"UPDATE multigres.operation SET last_error = $3, updated_at = now() WHERE kind = $1 AND state = $2 AND (request->>'tablegroup_id')::bigint = $4 AND last_error IS DISTINCT FROM $3",
-		operationKindDropTableGroup, operationStateDropping, message, tableGroupID)
+// recordDropError is recordOperationError for a dropping tablegroup's drop
+// operation. A tablegroup dropping because its creation failed has none, and
+// nothing is written for it: the pass reports the error instead.
+func (pm *MultipoolerManager) recordDropError(ctx context.Context, tg droppingTableGroup, message string) {
+	if tg.dropOpID == "" {
+		return
+	}
+	pm.recordOperationError(ctx, tg.dropOpID, operationStateDropping, tg.lastError, message)
 }
