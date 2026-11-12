@@ -3816,3 +3816,270 @@ export class DeleteRoutingRulesResponse extends Message<DeleteRoutingRulesRespon
   }
 }
 
+/**
+ * FenceScopeSpec names the scope of an admission fence by name, as
+ * ShardRoutingRuleSpec names a rule: a whole tablegroup, or one shard of it.
+ *
+ * @generated from message multipoolermanagerdata.FenceScopeSpec
+ */
+export class FenceScopeSpec extends Message<FenceScopeSpec> {
+  /**
+   * @generated from field: string tablegroup = 1;
+   */
+  tablegroup = "";
+
+  /**
+   * shard is the name of a shard of tablegroup, e.g. "0-80". Empty fences the
+   * whole tablegroup.
+   *
+   * @generated from field: string shard = 2;
+   */
+  shard = "";
+
+  constructor(data?: PartialMessage<FenceScopeSpec>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.FenceScopeSpec";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "tablegroup", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "shard", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): FenceScopeSpec {
+    return new FenceScopeSpec().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): FenceScopeSpec {
+    return new FenceScopeSpec().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): FenceScopeSpec {
+    return new FenceScopeSpec().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: FenceScopeSpec | PlainMessage<FenceScopeSpec> | undefined, b: FenceScopeSpec | PlainMessage<FenceScopeSpec> | undefined): boolean {
+    return proto3.util.equals(FenceScopeSpec, a, b);
+  }
+}
+
+/**
+ * FenceScopesRequest raises an operation's fences on a list of scopes, in one
+ * catalog write.
+ *
+ * @generated from message multipoolermanagerdata.FenceScopesRequest
+ */
+export class FenceScopesRequest extends Message<FenceScopesRequest> {
+  /**
+   * database must be the database the pooler serves.
+   *
+   * @generated from field: string database = 1;
+   */
+  database = "";
+
+  /**
+   * operation_id is the operation that owns the fences (a UUID). It must
+   * exist and not have finished.
+   *
+   * @generated from field: string operation_id = 2;
+   */
+  operationId = "";
+
+  /**
+   * scopes are the scopes to fence: at least one, no two of which overlap (the
+   * same scope twice, or a whole tablegroup and one of its shards). Scopes the
+   * operation has already fenced are skipped.
+   *
+   * @generated from field: repeated multipoolermanagerdata.FenceScopeSpec scopes = 3;
+   */
+  scopes: FenceScopeSpec[] = [];
+
+  /**
+   * expected_routing_version is the routing version the change is based on,
+   * as GetRoutingSnapshot returned it. A change whose every scope is already
+   * fenced succeeds whatever its value.
+   *
+   * @generated from field: int64 expected_routing_version = 4;
+   */
+  expectedRoutingVersion = protoInt64.zero;
+
+  constructor(data?: PartialMessage<FenceScopesRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.FenceScopesRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "database", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "operation_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "scopes", kind: "message", T: FenceScopeSpec, repeated: true },
+    { no: 4, name: "expected_routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): FenceScopesRequest {
+    return new FenceScopesRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): FenceScopesRequest {
+    return new FenceScopesRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): FenceScopesRequest {
+    return new FenceScopesRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: FenceScopesRequest | PlainMessage<FenceScopesRequest> | undefined, b: FenceScopesRequest | PlainMessage<FenceScopesRequest> | undefined): boolean {
+    return proto3.util.equals(FenceScopesRequest, a, b);
+  }
+}
+
+/**
+ * FenceScopesResponse returns the routing version after the change.
+ *
+ * @generated from message multipoolermanagerdata.FenceScopesResponse
+ */
+export class FenceScopesResponse extends Message<FenceScopesResponse> {
+  /**
+   * @generated from field: int64 routing_version = 1;
+   */
+  routingVersion = protoInt64.zero;
+
+  constructor(data?: PartialMessage<FenceScopesResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.FenceScopesResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): FenceScopesResponse {
+    return new FenceScopesResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): FenceScopesResponse {
+    return new FenceScopesResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): FenceScopesResponse {
+    return new FenceScopesResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: FenceScopesResponse | PlainMessage<FenceScopesResponse> | undefined, b: FenceScopesResponse | PlainMessage<FenceScopesResponse> | undefined): boolean {
+    return proto3.util.equals(FenceScopesResponse, a, b);
+  }
+}
+
+/**
+ * UnfenceScopesRequest lifts an operation's fences on a list of scopes, in
+ * one catalog write.
+ *
+ * @generated from message multipoolermanagerdata.UnfenceScopesRequest
+ */
+export class UnfenceScopesRequest extends Message<UnfenceScopesRequest> {
+  /**
+   * database must be the database the pooler serves.
+   *
+   * @generated from field: string database = 1;
+   */
+  database = "";
+
+  /**
+   * operation_id is the operation that owns the fences (a UUID).
+   *
+   * @generated from field: string operation_id = 2;
+   */
+  operationId = "";
+
+  /**
+   * scopes are the scopes to unfence, with the same rules as in
+   * FenceScopesRequest. Scopes the operation holds no raised fence on are
+   * skipped.
+   *
+   * @generated from field: repeated multipoolermanagerdata.FenceScopeSpec scopes = 3;
+   */
+  scopes: FenceScopeSpec[] = [];
+
+  /**
+   * expected_routing_version is the routing version the change is based on.
+   * A change with no scope to unfence succeeds whatever its value.
+   *
+   * @generated from field: int64 expected_routing_version = 4;
+   */
+  expectedRoutingVersion = protoInt64.zero;
+
+  constructor(data?: PartialMessage<UnfenceScopesRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.UnfenceScopesRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "database", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "operation_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "scopes", kind: "message", T: FenceScopeSpec, repeated: true },
+    { no: 4, name: "expected_routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UnfenceScopesRequest {
+    return new UnfenceScopesRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): UnfenceScopesRequest {
+    return new UnfenceScopesRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): UnfenceScopesRequest {
+    return new UnfenceScopesRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: UnfenceScopesRequest | PlainMessage<UnfenceScopesRequest> | undefined, b: UnfenceScopesRequest | PlainMessage<UnfenceScopesRequest> | undefined): boolean {
+    return proto3.util.equals(UnfenceScopesRequest, a, b);
+  }
+}
+
+/**
+ * UnfenceScopesResponse returns the routing version after the change.
+ *
+ * @generated from message multipoolermanagerdata.UnfenceScopesResponse
+ */
+export class UnfenceScopesResponse extends Message<UnfenceScopesResponse> {
+  /**
+   * @generated from field: int64 routing_version = 1;
+   */
+  routingVersion = protoInt64.zero;
+
+  constructor(data?: PartialMessage<UnfenceScopesResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.UnfenceScopesResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UnfenceScopesResponse {
+    return new UnfenceScopesResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): UnfenceScopesResponse {
+    return new UnfenceScopesResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): UnfenceScopesResponse {
+    return new UnfenceScopesResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: UnfenceScopesResponse | PlainMessage<UnfenceScopesResponse> | undefined, b: UnfenceScopesResponse | PlainMessage<UnfenceScopesResponse> | undefined): boolean {
+    return proto3.util.equals(UnfenceScopesResponse, a, b);
+  }
+}
+

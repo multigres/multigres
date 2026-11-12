@@ -124,6 +124,9 @@ type routingCatalog struct {
 	// otherOperations maps the catalog id of each tablegroup that another
 	// unfinished operation acts on to that operation's id.
 	otherOperations map[int64]string
+
+	// fences is every admission fence, in fence_id order.
+	fences []catalogFence
 }
 
 // shardRuleSpec is a requested shard rule: the routing identifiers of
@@ -157,11 +160,13 @@ type routingRulePlan struct {
 
 // planRoutingRuleChange validates change against cat and returns what to
 // write. Malformed requests fail with INVALID_ARGUMENT; a stale
-// expectedRoutingVersion or a change the catalog does not allow fails with
+// expectedRoutingVersion, a change the catalog does not allow, or one whose
+// rules are not fenced by the operation (checkRuleFences) fails with
 // FAILED_PRECONDITION.
 //
 // A change whose result already holds returns a noop plan whatever its
-// expectedRoutingVersion, so a retry of a change that committed succeeds.
+// expectedRoutingVersion, and needs no fences, so a retry of a change that
+// committed succeeds even after the operation has unfenced.
 func planRoutingRuleChange(cat *routingCatalog, change routingRuleChange) (routingRulePlan, error) {
 	if err := checkRuleChangeRequest(change); err != nil {
 		return routingRulePlan{}, err
@@ -199,6 +204,10 @@ func planRoutingRuleChange(cat *routingCatalog, change routingRuleChange) (routi
 		}
 	}
 	if err := cat.checkRuleSet(kept, insert); err != nil {
+		return routingRulePlan{}, err
+	}
+	// Removing a rule changes where traffic goes as much as inserting one.
+	if err := cat.checkRuleFences(change.operationID, removed, insert); err != nil {
 		return routingRulePlan{}, err
 	}
 

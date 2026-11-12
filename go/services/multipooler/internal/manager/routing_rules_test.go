@@ -52,7 +52,8 @@ const (
 // testRoutingCatalog is a catalog with no rules: the default tablegroup, an
 // import target srctg, commerce (two active shards and a split of the first in
 // preparation) and orders (one active shard and a split in preparation).
-// operation is an import that may switch.
+// operation is an import that may switch, and holds FENCED fences on every
+// tablegroup, so only fence tests are concerned with fences.
 func testRoutingCatalog() *routingCatalog {
 	cat := &routingCatalog{
 		routingVersion: testRoutingV0,
@@ -64,6 +65,9 @@ func testRoutingCatalog() *routingCatalog {
 		},
 		shards:    map[int64]*catalogShard{},
 		operation: &routingOperation{kind: importOperationKind, state: "preparing"},
+	}
+	for i, tg := range []int64{tgDefault, tgSrc, tgCommerce, tgOrders} {
+		cat.fences = append(cat.fences, fenceRow(int64(100+i), importOp, tg, 0, fenceStateFenced))
 	}
 	for _, s := range []*catalogShard{
 		{id: shardDefault, tablegroupID: tgDefault, name: "0-inf", state: "active"},
@@ -84,6 +88,15 @@ func testRoutingCatalog() *routingCatalog {
 		cat.shards[s.id] = s
 	}
 	return cat
+}
+
+// fenceRow is a stored fence of op, whose operation is unfinished, on shard
+// (0 for the whole tablegroup) of tablegroup.
+func fenceRow(id int64, op string, tablegroup, shard int64, state string) catalogFence {
+	return catalogFence{
+		fenceID: id, operationID: op, scope: fenceScope{tablegroupID: tablegroup, shardID: shard},
+		state: state, version: testRoutingV0, operationState: "preparing",
+	}
 }
 
 // shardRule is a stored shard rule of op.

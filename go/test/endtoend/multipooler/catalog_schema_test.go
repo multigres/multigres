@@ -51,6 +51,7 @@ var catalogFormat1Columns = map[string][]string{
 		"rule_id", "operation_id", "scope", "from_tablegroup_id", "from_table_id", "to_tablegroup_id",
 		"to_shard_id", "to_shard_key_id", "created_at", "created_version",
 	},
+	"admission_fence": {"fence_id", "operation_id", "tablegroup_id", "shard_id", "state", "version"},
 }
 
 // legacyCatalogSQL replaces the format 1 catalog with the pre-versioning
@@ -58,7 +59,7 @@ var catalogFormat1Columns = map[string][]string{
 const legacyCatalogSQL = `BEGIN;
 DROP VIEW IF EXISTS multigres.stat_migration;
 ALTER TABLE multigres.migration DROP CONSTRAINT IF EXISTS migration_connections_fkey;
-DROP TABLE multigres.routing_rule, multigres.shard_key_column, multigres.shard_key, multigres.shard_index,
+DROP TABLE multigres.admission_fence, multigres.routing_rule, multigres.shard_key_column, multigres.shard_key, multigres.shard_index,
 	multigres.tablegroup_table, multigres.shard, multigres.tablegroup, multigres.operation,
 	multigres.connections, multigres.catalog_state;
 CREATE TABLE multigres.tablegroup (
@@ -164,7 +165,7 @@ func requireCatalogFormat1(t *testing.T, db *sql.DB) {
 		  AND pg_get_constraintdef(oid) LIKE '%type%'`).Scan(&typeChecks))
 	assert.Zero(t, typeChecks, "shard_index.type must not be limited to a fixed list")
 
-	for _, table := range []string{"tablegroup_table", "shard_index", "shard_key", "shard_key_column", "operation", "connections", "routing_rule"} {
+	for _, table := range []string{"tablegroup_table", "shard_index", "shard_key", "shard_key_column", "operation", "connections", "routing_rule", "admission_fence"} {
 		var n int
 		require.NoError(t, db.QueryRow(`SELECT count(*) FROM multigres.`+table).Scan(&n))
 		assert.Zero(t, n, "multigres.%s should start empty", table)

@@ -28,9 +28,9 @@ import (
 // Sharding Catalog Schema (catalog shard only)
 //
 // The sharding catalog (tablegroups, shards, tables, shard indexes and keys,
-// operations, named connections) lives in the multigres schema on the catalog
-// shard (see constants.IsCatalogShard). ensureCatalogSchema keeps it current on
-// every primary open from three lists:
+// operations, named connections, routing rules, admission fences) lives in the
+// multigres schema on the catalog shard (see constants.IsCatalogShard).
+// ensureCatalogSchema keeps it current on every primary open from three lists:
 //
 //   - catalogMigrations: breaking changes (drop or rename a table or column,
 //     change a type or constraint, backfill data), numbered and applied once,
@@ -219,6 +219,21 @@ var catalogTables = []string{
 	created_version    bigint NOT NULL,
 	CHECK ((scope = 'table') = (from_table_id IS NOT NULL)),
 	CHECK ((scope = 'tablegroup') = (to_shard_id IS NOT NULL))
+)`,
+	// An admission fence closes a scope to application work while its
+	// operation changes routing: a whole tablegroup (shard_id NULL) or one
+	// shard of it. version is the routing_version of the fence's last change.
+	// A scope has at most one row, enforced in Go (admission_fences.go) under
+	// the catalog_state row lock; lifting a fence sets it UNFENCED rather
+	// than deleting it, so the version keeps a delayed unfence from
+	// overriding a later fence.
+	`CREATE TABLE IF NOT EXISTS multigres.admission_fence (
+	fence_id      bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	operation_id  uuid   NOT NULL REFERENCES multigres.operation (operation_id),
+	tablegroup_id bigint NOT NULL REFERENCES multigres.tablegroup (tablegroup_id),
+	shard_id      bigint REFERENCES multigres.shard (shard_id),
+	state         text   NOT NULL CHECK (state IN ('FENCING', 'FENCED', 'UNFENCED')),
+	version       bigint NOT NULL
 )`,
 }
 
