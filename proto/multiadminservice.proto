@@ -804,8 +804,8 @@ service MultiadminService {
     option (google.api.http) = {delete: "/api/v1/connections/{ref.id}"};
   }
   //
-  // Routing rules. These forward to the primary of the database's default
-  // tablegroup, which holds its catalog.
+  // Routing rules and admission fences. These forward to the primary of the
+  // database's default tablegroup, which holds its catalog.
   //
 
   // GetRoutingRules returns a database's routing rules by name, with the
@@ -859,6 +859,47 @@ service MultiadminService {
       }
     };
     option (google.api.http) = {delete: "/api/v1/databases/{database}/routing/operations/{operation_id}/rules"};
+  }
+
+  // FenceScopes raises an operation's admission fences on a list of scopes,
+  // in one catalog write. Scopes already fenced are skipped, so a retry
+  // succeeds. It records intent only: nothing enforces fences yet.
+  rpc FenceScopes(multipoolermanagerdata.FenceScopesRequest)
+    returns (multipoolermanagerdata.FenceScopesResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Fence scopes for an operation"
+      tags: "routing"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {
+      post: "/api/v1/databases/{database}/routing/operations/{operation_id}/fence"
+      body: "*"
+    };
+  }
+
+  // UnfenceScopes lifts an operation's admission fences on a list of scopes,
+  // in one catalog write.
+  rpc UnfenceScopes(multipoolermanagerdata.UnfenceScopesRequest)
+    returns (multipoolermanagerdata.UnfenceScopesResponse) {
+    option (openapi.v3.operation) = {
+      summary: "Lift an operation's fences on scopes"
+      tags: "routing"
+      responses: {
+        response_or_reference: {name: "default" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "400" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "401" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+        response_or_reference: {name: "404" value: {reference: {_ref: "#/components/responses/RPCError"}}}
+      }
+    };
+    option (google.api.http) = {
+      post: "/api/v1/databases/{database}/routing/operations/{operation_id}/unfence"
+      body: "*"
+    };
   }
 }
 
