@@ -418,43 +418,73 @@ func RuleNamesLeader(rule *clustermetadatapb.ShardRule, id *clustermetadatapb.ID
 // be decided plays no part.
 //
 // Use it to ask who holds more of the transactions that must survive: ranking
-// leader candidates, setting a certificate's frozen LSN, judging the recusal floor
-// (recruit_blocked_until). It only ranks; whether a candidate is safe is decided by
-// the recruitment conditions, not by this order. Do not use it to ask which rule is
-// in force; use CompareAuthority for that.
+// leader candidates, setting a certificate's frozen LSN. It only ranks; whether a
+// candidate is safe is decided by the recruitment conditions, not by this order.
+// Do not use it to ask which rule is in force; use CompareAuthority for that.
 //
-// A missing or unparsable LSN counts as the lowest. That suits ranking candidates,
-// but a promise should fail closed instead.
+// A missing or unparsable LSN counts as the lowest. That suits ranking candidates;
+// CompareLsnPositions is the strict version, for a promise that must fail closed.
+func CompareWALProgress(a, b *clustermetadatapb.PoolerPosition) int {
+	if cmp, err := CompareLsnPositions(LsnPositionOf(a), LsnPositionOf(b)); err == nil {
+		return cmp
+	}
+	// The rules tie and an LSN can't be parsed: one that can't is behind.
+	_, errA := pgutil.ParseLSN(a.GetLsn())
+	_, errB := pgutil.ParseLSN(b.GetLsn())
+	switch {
+	case errA != nil && errB != nil:
+		return 0
+	case errA != nil:
+		return -1
+	default:
+		return 1
+	}
+}
+
+// LsnPositionOf reduces a PoolerPosition to the bare rule numbers and LSN an
+// LsnPosition carries.
+func LsnPositionOf(pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.LsnPosition {
+	rules := RuleNumberPositionOf(pos.GetPosition())
+	return &clustermetadatapb.LsnPosition{
+		Position: &clustermetadatapb.RuleNumberPosition{Decision: rules.Decision, Proposal: rules.Proposal},
+		Lsn:      pos.GetLsn(),
+	}
+}
+
+// CompareLsnPositions is the strict WAL order (see CompareWALProgress): the latest
+// rule, then LSN. An LSN that can't be parsed is an error rather than the lowest
+// value, so a caller holding a promise, such as the recusal floor
+// (recruit_blocked_until), can fail closed. LSNs are parsed only to break a rule tie.
 //
 // On a standby the rule comes from replayed WAL and the LSN from received WAL, so
 // the two agree only once replay has caught up, as Recruit waits for.
 //
+// TODO: callers of CompareWALProgress already drop unparsable positions first
+// (filterByValidPosition, MostAdvancedPosition), so it could be strict too.
+//
 // TODO: LSNs are only comparable along one timeline, and an equal latest rule does
 // not guarantee the same timeline, for example when Promote decides a stuck rule on
 // its own timeline first.
-func CompareWALProgress(a, b *clustermetadatapb.PoolerPosition) int {
-	latest := func(p *clustermetadatapb.PoolerPosition) *clustermetadatapb.RuleNumber {
-		return RuleNumberPositionOf(p.GetPosition()).LatestWALRule()
+func CompareLsnPositions(a, b *clustermetadatapb.LsnPosition) (int, error) {
+	latest := func(p *clustermetadatapb.LsnPosition) *clustermetadatapb.RuleNumber {
+		return RuleNumberPosition{Decision: p.GetPosition().GetDecision(), Proposal: p.GetPosition().GetProposal()}.LatestWALRule()
 	}
 	if cmp := CompareRuleNumbers(latest(a), latest(b)); cmp != 0 {
-		return cmp
+		return cmp, nil
 	}
-	lsnA, errA := pgutil.ParseLSN(a.GetLsn())
-	lsnB, errB := pgutil.ParseLSN(b.GetLsn())
-	okA := errA == nil
-	okB := errB == nil
+	lsnA, err := pgutil.ParseLSN(a.GetLsn())
+	if err != nil {
+		return 0, err
+	}
+	lsnB, err := pgutil.ParseLSN(b.GetLsn())
+	if err != nil {
+		return 0, err
+	}
 	switch {
-	case !okA && !okB:
-		return 0
-	case !okA:
-		return -1
-	case !okB:
-		return 1
 	case lsnA < lsnB:
-		return -1
+		return -1, nil
 	case lsnA > lsnB:
-		return 1
-	default:
-		return 0
+		return 1, nil
 	}
+	return 0, nil
 }

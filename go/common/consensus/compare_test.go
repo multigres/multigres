@@ -671,3 +671,63 @@ func TestReplicationPrimaryOrNil(t *testing.T) {
 		assert.Same(t, rp, ReplicationPrimaryOrNil(cs))
 	})
 }
+
+func TestCompareLsnPositions(t *testing.T) {
+	at := func(decision, proposal int64, lsn string) *clustermetadatapb.LsnPosition {
+		p := &clustermetadatapb.RuleNumberPosition{Decision: rn(decision, 0)}
+		if proposal != 0 {
+			p.Proposal = rn(proposal, 0)
+		}
+		return &clustermetadatapb.LsnPosition{Position: p, Lsn: lsn}
+	}
+	tests := []struct {
+		name string
+		a, b *clustermetadatapb.LsnPosition
+		want int
+	}{
+		{name: "higher decision wins over LSN", a: at(4, 0, "0/1000"), b: at(3, 0, "0/9000"), want: 1},
+		{name: "lower decision loses despite LSN", a: at(3, 0, "0/9000"), b: at(4, 0, "0/1000"), want: -1},
+		{name: "same decision, higher proposal", a: at(3, 5, "0/1000"), b: at(3, 4, "0/9000"), want: 1},
+		{name: "same decision, proposal vs none", a: at(3, 5, "0/1000"), b: at(3, 0, "0/9000"), want: 1},
+		{name: "an undecided later proposal outranks a known earlier decision", a: at(4, 0, "0/9000"), b: at(3, 5, "0/1000"), want: -1},
+		{name: "rules tied, higher LSN", a: at(3, 0, "0/9000"), b: at(3, 0, "0/1000"), want: 1},
+		{name: "rules tied, lower LSN", a: at(3, 0, "0/1000"), b: at(3, 0, "0/9000"), want: -1},
+		{name: "equal", a: at(3, 0, "0/5000"), b: at(3, 0, "0/5000"), want: 0},
+		// As strings "0/9000" > "0/10000" and "0/FFFFFFFF" > "1/0".
+		{name: "LSN of different width", a: at(3, 0, "0/10000"), b: at(3, 0, "0/9000"), want: 1},
+		{name: "LSN across the high word", a: at(3, 0, "1/0"), b: at(3, 0, "0/FFFFFFFF"), want: 1},
+		{name: "a rule difference needs no LSN", a: at(4, 0, "garbage"), b: at(3, 0, ""), want: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := CompareLsnPositions(tt.a, tt.b)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+
+	t.Run("unparsable LSN on a rule tie is an error", func(t *testing.T) {
+		for _, lsn := range []string{"garbage", ""} {
+			_, err := CompareLsnPositions(at(3, 0, lsn), at(3, 0, "0/1000"))
+			require.Error(t, err)
+			_, err = CompareLsnPositions(at(3, 0, "0/1000"), at(3, 0, lsn))
+			require.Error(t, err)
+		}
+	})
+}
+
+func TestLsnPositionOf(t *testing.T) {
+	got := LsnPositionOf(&clustermetadatapb.PoolerPosition{
+		Position: &clustermetadatapb.RulePosition{
+			Decision: &clustermetadatapb.ShardRule{RuleNumber: rn(3, 1)},
+			Proposal: &clustermetadatapb.ShardRule{RuleNumber: rn(4, 0)},
+		},
+		Lsn: "0/5000",
+	})
+	want := &clustermetadatapb.LsnPosition{
+		Position: &clustermetadatapb.RuleNumberPosition{Decision: rn(3, 1), Proposal: rn(4, 0)},
+		Lsn:      "0/5000",
+	}
+	assert.True(t, proto.Equal(want, got), "got %v, want %v", got, want)
+	assert.True(t, proto.Equal(&clustermetadatapb.LsnPosition{Position: &clustermetadatapb.RuleNumberPosition{}}, LsnPositionOf(nil)))
+}

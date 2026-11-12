@@ -370,9 +370,9 @@ func ValidateRevocation(status *clustermetadatapb.ConsensusStatus, revocation *c
 	// Recruit position floor: set before an operation (pg_rewind) that can
 	// silently break WAL continuity — see
 	// ConsensusStatus.recruit_blocked_until and
-	// ConsensusPromises.SetRecruitBlockedUntil. Its mere presence here means
-	// this pooler hasn't caught back up yet; already omitted from status by
-	// the builder once it has.
+	// ConsensusPromises.EnsureRecruitBlockedUntilAtLeast. Its mere presence here
+	// means this pooler hasn't caught back up yet; already omitted from status
+	// by the builder once it has.
 	if status.GetRecruitBlockedUntil() != nil {
 		return fmt.Errorf(
 			"cannot accept revocation: pooler has not caught up to its recruit position floor (floor lsn=%s)",

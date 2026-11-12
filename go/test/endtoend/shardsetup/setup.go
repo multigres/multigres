@@ -1660,6 +1660,7 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		// pg_sockets (stale Unix sockets), pgbackrest (backup state),
 		// and any other state files.
 		dataDir := inst.Pgctld.PoolerDir
+		testutil.ReleaseOrphanedSharedMemory(t.Logf, dataDir)
 		entries, err := os.ReadDir(dataDir)
 		if err != nil {
 			t.Logf("ReinitializeCluster: warning: failed to read %s: %v", dataDir, err)
