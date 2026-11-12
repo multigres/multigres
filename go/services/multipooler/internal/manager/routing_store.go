@@ -147,6 +147,9 @@ func loadRoutingCatalog(ctx context.Context, tx executor.InternalTx, current cat
 	if cat.rules, err = readRoutingRules(ctx, tx); err != nil {
 		return nil, err
 	}
+	if cat.fences, err = readFences(ctx, tx); err != nil {
+		return nil, err
+	}
 
 	result, err = tx.QueryArgs(ctx, countDefaultTablesSQL, constants.DefaultTableGroup)
 	if err != nil {

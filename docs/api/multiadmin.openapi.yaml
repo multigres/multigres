@@ -522,6 +522,77 @@ paths:
       summary: Get a database's routing rules
       tags:
         - routing
+  /api/v1/databases/{database}/routing/operations/{operation_id}/fence:
+    post:
+      description: |-
+        FenceScopes raises an operation's admission fences on a list of scopes,
+         in one catalog write. Scopes already fenced are skipped, so a retry
+         succeeds. It records intent only: nothing enforces fences yet.
+      operationId: multiadmin.MultiadminService.FenceScopes
+      parameters:
+        - description: database must be the database the pooler serves.
+          in: path
+          name: database
+          required: true
+          schema:
+            title: database
+            type: string
+        - description: |-
+            operation_id is the operation that owns the fences (a UUID). It must
+             exist and not have finished.
+          in: path
+          name: operation_id
+          required: true
+          schema:
+            title: operation_id
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              description: |-
+                FenceScopesRequest raises an operation's fences on a list of scopes, in one
+                 catalog write.
+              properties:
+                expectedRoutingVersion:
+                  description: |-
+                    expected_routing_version is the routing version the change is based on,
+                     as GetRoutingSnapshot returned it. A change whose every scope is already
+                     fenced succeeds whatever its value.
+                  pattern: ^-?[0-9]+$
+                  title: expected_routing_version
+                  type: string
+                scopes:
+                  description: |-
+                    scopes are the scopes to fence: at least one, no two of which overlap (the
+                     same scope twice, or a whole tablegroup and one of its shards). Scopes the
+                     operation has already fenced are skipped.
+                  items:
+                    $ref: '#/components/schemas/multipoolermanagerdata.FenceScopeSpec'
+                  title: scopes
+                  type: array
+              title: FenceScopesRequest
+              type: object
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/multipoolermanagerdata.FenceScopesResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Fence scopes for an operation
+      tags:
+        - routing
   /api/v1/databases/{database}/routing/operations/{operation_id}/rules:
     delete:
       description: DeleteRoutingRules deletes every routing rule of an operation.
@@ -635,6 +706,73 @@ paths:
         default:
           $ref: '#/components/responses/RPCError'
       summary: Set an operation's routing rules
+      tags:
+        - routing
+  /api/v1/databases/{database}/routing/operations/{operation_id}/unfence:
+    post:
+      description: |-
+        UnfenceScopes lifts an operation's admission fences on a list of scopes,
+         in one catalog write.
+      operationId: multiadmin.MultiadminService.UnfenceScopes
+      parameters:
+        - description: database must be the database the pooler serves.
+          in: path
+          name: database
+          required: true
+          schema:
+            title: database
+            type: string
+        - description: operation_id is the operation that owns the fences (a UUID).
+          in: path
+          name: operation_id
+          required: true
+          schema:
+            title: operation_id
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              description: |-
+                UnfenceScopesRequest lifts an operation's fences on a list of scopes, in
+                 one catalog write.
+              properties:
+                expectedRoutingVersion:
+                  description: |-
+                    expected_routing_version is the routing version the change is based on.
+                     A change with no scope to unfence succeeds whatever its value.
+                  pattern: ^-?[0-9]+$
+                  title: expected_routing_version
+                  type: string
+                scopes:
+                  description: |-
+                    scopes are the scopes to unfence, with the same rules as in
+                     FenceScopesRequest. Scopes the operation holds no raised fence on are
+                     skipped.
+                  items:
+                    $ref: '#/components/schemas/multipoolermanagerdata.FenceScopeSpec'
+                  title: scopes
+                  type: array
+              title: UnfenceScopesRequest
+              type: object
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/multipoolermanagerdata.UnfenceScopesResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Lift an operation's fences on scopes
       tags:
         - routing
   /api/v1/databases/{database}/tablegroups:
@@ -4130,6 +4268,33 @@ components:
           type: string
       title: DeleteRoutingRulesResponse
       type: object
+    multipoolermanagerdata.FenceScopeSpec:
+      additionalProperties: false
+      description: |-
+        FenceScopeSpec names the scope of an admission fence by name, as
+         ShardRoutingRuleSpec names a rule: a whole tablegroup, or one shard of it.
+      properties:
+        shard:
+          description: |-
+            shard is the name of a shard of tablegroup, e.g. "0-80". Empty fences the
+             whole tablegroup.
+          title: shard
+          type: string
+        tablegroup:
+          title: tablegroup
+          type: string
+      title: FenceScopeSpec
+      type: object
+    multipoolermanagerdata.FenceScopesResponse:
+      additionalProperties: false
+      description: FenceScopesResponse returns the routing version after the change.
+      properties:
+        routingVersion:
+          pattern: ^-?[0-9]+$
+          title: routing_version
+          type: string
+      title: FenceScopesResponse
+      type: object
     multipoolermanagerdata.PostgresAction:
       description: PostgresAction identifies a long-running postgres manager operation.
       enum:
@@ -4523,6 +4688,16 @@ components:
           title: tablegroup_id
           type: string
       title: TableGroup
+      type: object
+    multipoolermanagerdata.UnfenceScopesResponse:
+      additionalProperties: false
+      description: UnfenceScopesResponse returns the routing version after the change.
+      properties:
+        routingVersion:
+          pattern: ^-?[0-9]+$
+          title: routing_version
+          type: string
+      title: UnfenceScopesResponse
       type: object
     shardingcatalog.RoutingRuleScope:
       description: RoutingRuleScope says what a routing rule moves.

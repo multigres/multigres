@@ -372,6 +372,66 @@ func (RoutingRuleScope) EnumDescriptor() ([]byte, []int) {
 	return file_shardingcatalog_proto_rawDescGZIP(), []int{5}
 }
 
+// FenceState is the state of an admission fence. A reader treats a state it
+// does not know, including UNSPECIFIED, as an invalid snapshot.
+type FenceState int32
+
+const (
+	FenceState_FENCE_STATE_UNSPECIFIED FenceState = 0
+	// FENCING is a fence being raised: the scope's poolers are being told to
+	// refuse application work and drained.
+	FenceState_FENCE_STATE_FENCING FenceState = 1
+	// FENCED is a raised fence: the scope is closed to application work, so
+	// routing rules on it may change.
+	FenceState_FENCE_STATE_FENCED FenceState = 2
+	// UNFENCED is a lifted fence. The row stays, so its version keeps a
+	// delayed unfence from overriding a later fence of the same scope.
+	FenceState_FENCE_STATE_UNFENCED FenceState = 3
+)
+
+// Enum value maps for FenceState.
+var (
+	FenceState_name = map[int32]string{
+		0: "FENCE_STATE_UNSPECIFIED",
+		1: "FENCE_STATE_FENCING",
+		2: "FENCE_STATE_FENCED",
+		3: "FENCE_STATE_UNFENCED",
+	}
+	FenceState_value = map[string]int32{
+		"FENCE_STATE_UNSPECIFIED": 0,
+		"FENCE_STATE_FENCING":     1,
+		"FENCE_STATE_FENCED":      2,
+		"FENCE_STATE_UNFENCED":    3,
+	}
+)
+
+func (x FenceState) Enum() *FenceState {
+	p := new(FenceState)
+	*p = x
+	return p
+}
+
+func (x FenceState) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (FenceState) Descriptor() protoreflect.EnumDescriptor {
+	return file_shardingcatalog_proto_enumTypes[6].Descriptor()
+}
+
+func (FenceState) Type() protoreflect.EnumType {
+	return &file_shardingcatalog_proto_enumTypes[6]
+}
+
+func (x FenceState) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use FenceState.Descriptor instead.
+func (FenceState) EnumDescriptor() ([]byte, []int) {
+	return file_shardingcatalog_proto_rawDescGZIP(), []int{6}
+}
+
 // TableGroup is a tablegroup: a set of tables sharded the same way. It is
 // sharded exactly when it has more than one active shard.
 type TableGroup struct {
@@ -881,6 +941,97 @@ func (x *RoutingRule) GetCreatedVersion() int64 {
 	return 0
 }
 
+// Fence is an admission fence: a scope of a tablegroup that the operation
+// owning the fence closes to application work while it changes where the
+// scope's traffic goes. A scope holds at most one fence.
+type Fence struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	FenceId int64                  `protobuf:"varint,1,opt,name=fence_id,json=fenceId,proto3" json:"fence_id,omitempty"`
+	// operation_id is the uuid of the operation that owns the fence.
+	OperationId  string `protobuf:"bytes,2,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	TablegroupId int64  `protobuf:"varint,3,opt,name=tablegroup_id,json=tablegroupId,proto3" json:"tablegroup_id,omitempty"`
+	// shard_id is the fenced shard of tablegroup_id; unset fences the whole
+	// tablegroup.
+	ShardId *int64     `protobuf:"varint,4,opt,name=shard_id,json=shardId,proto3,oneof" json:"shard_id,omitempty"`
+	State   FenceState `protobuf:"varint,5,opt,name=state,proto3,enum=shardingcatalog.FenceState" json:"state,omitempty"`
+	// version is the routing_version of the fence's last change.
+	Version       int64 `protobuf:"varint,6,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Fence) Reset() {
+	*x = Fence{}
+	mi := &file_shardingcatalog_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Fence) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Fence) ProtoMessage() {}
+
+func (x *Fence) ProtoReflect() protoreflect.Message {
+	mi := &file_shardingcatalog_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Fence.ProtoReflect.Descriptor instead.
+func (*Fence) Descriptor() ([]byte, []int) {
+	return file_shardingcatalog_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *Fence) GetFenceId() int64 {
+	if x != nil {
+		return x.FenceId
+	}
+	return 0
+}
+
+func (x *Fence) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *Fence) GetTablegroupId() int64 {
+	if x != nil {
+		return x.TablegroupId
+	}
+	return 0
+}
+
+func (x *Fence) GetShardId() int64 {
+	if x != nil && x.ShardId != nil {
+		return *x.ShardId
+	}
+	return 0
+}
+
+func (x *Fence) GetState() FenceState {
+	if x != nil {
+		return x.State
+	}
+	return FenceState_FENCE_STATE_UNSPECIFIED
+}
+
+func (x *Fence) GetVersion() int64 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
 // Snapshot is the whole sharding catalog of one database, read in a single
 // transaction. Entities in every state are included; a reader decides which
 // ones it uses. References between entities are by id.
@@ -900,13 +1051,14 @@ type Snapshot struct {
 	ShardIndices  []*ShardIndex  `protobuf:"bytes,6,rep,name=shard_indices,json=shardIndices,proto3" json:"shard_indices,omitempty"`
 	ShardKeys     []*ShardKey    `protobuf:"bytes,7,rep,name=shard_keys,json=shardKeys,proto3" json:"shard_keys,omitempty"`
 	RoutingRules  []*RoutingRule `protobuf:"bytes,8,rep,name=routing_rules,json=routingRules,proto3" json:"routing_rules,omitempty"`
+	Fences        []*Fence       `protobuf:"bytes,9,rep,name=fences,proto3" json:"fences,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Snapshot) Reset() {
 	*x = Snapshot{}
-	mi := &file_shardingcatalog_proto_msgTypes[6]
+	mi := &file_shardingcatalog_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -918,7 +1070,7 @@ func (x *Snapshot) String() string {
 func (*Snapshot) ProtoMessage() {}
 
 func (x *Snapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_shardingcatalog_proto_msgTypes[6]
+	mi := &file_shardingcatalog_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -931,7 +1083,7 @@ func (x *Snapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Snapshot.ProtoReflect.Descriptor instead.
 func (*Snapshot) Descriptor() ([]byte, []int) {
-	return file_shardingcatalog_proto_rawDescGZIP(), []int{6}
+	return file_shardingcatalog_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Snapshot) GetRoutingVersion() int64 {
@@ -990,6 +1142,13 @@ func (x *Snapshot) GetRoutingRules() []*RoutingRule {
 	return nil
 }
 
+func (x *Snapshot) GetFences() []*Fence {
+	if x != nil {
+		return x.Fences
+	}
+	return nil
+}
+
 var File_shardingcatalog_proto protoreflect.FileDescriptor
 
 const file_shardingcatalog_proto_rawDesc = "" +
@@ -1041,7 +1200,15 @@ const file_shardingcatalog_proto_rawDesc = "" +
 	"\x0fcreated_version\x18\t \x01(\x03R\x0ecreatedVersionB\x10\n" +
 	"\x0e_from_table_idB\x0e\n" +
 	"\f_to_shard_idB\x12\n" +
-	"\x10_to_shard_key_id\"\xb0\x03\n" +
+	"\x10_to_shard_key_id\"\xe4\x01\n" +
+	"\x05Fence\x12\x19\n" +
+	"\bfence_id\x18\x01 \x01(\x03R\afenceId\x12!\n" +
+	"\foperation_id\x18\x02 \x01(\tR\voperationId\x12#\n" +
+	"\rtablegroup_id\x18\x03 \x01(\x03R\ftablegroupId\x12\x1e\n" +
+	"\bshard_id\x18\x04 \x01(\x03H\x00R\ashardId\x88\x01\x01\x121\n" +
+	"\x05state\x18\x05 \x01(\x0e2\x1b.shardingcatalog.FenceStateR\x05state\x12\x18\n" +
+	"\aversion\x18\x06 \x01(\x03R\aversionB\v\n" +
+	"\t_shard_id\"\xe0\x03\n" +
 	"\bSnapshot\x12'\n" +
 	"\x0frouting_version\x18\x01 \x01(\x03R\x0eroutingVersion\x12\x1d\n" +
 	"\n" +
@@ -1052,7 +1219,8 @@ const file_shardingcatalog_proto_rawDesc = "" +
 	"\rshard_indices\x18\x06 \x03(\v2\x1b.shardingcatalog.ShardIndexR\fshardIndices\x128\n" +
 	"\n" +
 	"shard_keys\x18\a \x03(\v2\x19.shardingcatalog.ShardKeyR\tshardKeys\x12A\n" +
-	"\rrouting_rules\x18\b \x03(\v2\x1c.shardingcatalog.RoutingRuleR\froutingRules*\x92\x01\n" +
+	"\rrouting_rules\x18\b \x03(\v2\x1c.shardingcatalog.RoutingRuleR\froutingRules\x12.\n" +
+	"\x06fences\x18\t \x03(\v2\x16.shardingcatalog.FenceR\x06fences*\x92\x01\n" +
 	"\x0fTableGroupState\x12!\n" +
 	"\x1dTABLE_GROUP_STATE_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aTABLE_GROUP_STATE_CREATING\x10\x01\x12\x1c\n" +
@@ -1081,7 +1249,13 @@ const file_shardingcatalog_proto_rawDesc = "" +
 	"\x10RoutingRuleScope\x12\"\n" +
 	"\x1eROUTING_RULE_SCOPE_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dROUTING_RULE_SCOPE_TABLEGROUP\x10\x01\x12\x1c\n" +
-	"\x18ROUTING_RULE_SCOPE_TABLE\x10\x02B6Z4github.com/multigres/multigres/go/pb/shardingcatalogb\x06proto3"
+	"\x18ROUTING_RULE_SCOPE_TABLE\x10\x02*t\n" +
+	"\n" +
+	"FenceState\x12\x1b\n" +
+	"\x17FENCE_STATE_UNSPECIFIED\x10\x00\x12\x17\n" +
+	"\x13FENCE_STATE_FENCING\x10\x01\x12\x16\n" +
+	"\x12FENCE_STATE_FENCED\x10\x02\x12\x18\n" +
+	"\x14FENCE_STATE_UNFENCED\x10\x03B6Z4github.com/multigres/multigres/go/pb/shardingcatalogb\x06proto3"
 
 var (
 	file_shardingcatalog_proto_rawDescOnce sync.Once
@@ -1095,8 +1269,8 @@ func file_shardingcatalog_proto_rawDescGZIP() []byte {
 	return file_shardingcatalog_proto_rawDescData
 }
 
-var file_shardingcatalog_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_shardingcatalog_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_shardingcatalog_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
+var file_shardingcatalog_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_shardingcatalog_proto_goTypes = []any{
 	(TableGroupState)(0),             // 0: shardingcatalog.TableGroupState
 	(ShardState)(0),                  // 1: shardingcatalog.ShardState
@@ -1104,34 +1278,38 @@ var file_shardingcatalog_proto_goTypes = []any{
 	(ShardKeyRole)(0),                // 3: shardingcatalog.ShardKeyRole
 	(ShardKeyState)(0),               // 4: shardingcatalog.ShardKeyState
 	(RoutingRuleScope)(0),            // 5: shardingcatalog.RoutingRuleScope
-	(*TableGroup)(nil),               // 6: shardingcatalog.TableGroup
-	(*Shard)(nil),                    // 7: shardingcatalog.Shard
-	(*Table)(nil),                    // 8: shardingcatalog.Table
-	(*ShardIndex)(nil),               // 9: shardingcatalog.ShardIndex
-	(*ShardKey)(nil),                 // 10: shardingcatalog.ShardKey
-	(*RoutingRule)(nil),              // 11: shardingcatalog.RoutingRule
-	(*Snapshot)(nil),                 // 12: shardingcatalog.Snapshot
-	(*clustermetadata.KeyRange)(nil), // 13: clustermetadata.KeyRange
+	(FenceState)(0),                  // 6: shardingcatalog.FenceState
+	(*TableGroup)(nil),               // 7: shardingcatalog.TableGroup
+	(*Shard)(nil),                    // 8: shardingcatalog.Shard
+	(*Table)(nil),                    // 9: shardingcatalog.Table
+	(*ShardIndex)(nil),               // 10: shardingcatalog.ShardIndex
+	(*ShardKey)(nil),                 // 11: shardingcatalog.ShardKey
+	(*RoutingRule)(nil),              // 12: shardingcatalog.RoutingRule
+	(*Fence)(nil),                    // 13: shardingcatalog.Fence
+	(*Snapshot)(nil),                 // 14: shardingcatalog.Snapshot
+	(*clustermetadata.KeyRange)(nil), // 15: clustermetadata.KeyRange
 }
 var file_shardingcatalog_proto_depIdxs = []int32{
 	0,  // 0: shardingcatalog.TableGroup.state:type_name -> shardingcatalog.TableGroupState
-	13, // 1: shardingcatalog.Shard.key_range:type_name -> clustermetadata.KeyRange
+	15, // 1: shardingcatalog.Shard.key_range:type_name -> clustermetadata.KeyRange
 	1,  // 2: shardingcatalog.Shard.state:type_name -> shardingcatalog.ShardState
 	2,  // 3: shardingcatalog.ShardIndex.state:type_name -> shardingcatalog.ShardIndexState
 	3,  // 4: shardingcatalog.ShardKey.role:type_name -> shardingcatalog.ShardKeyRole
 	4,  // 5: shardingcatalog.ShardKey.state:type_name -> shardingcatalog.ShardKeyState
 	5,  // 6: shardingcatalog.RoutingRule.scope:type_name -> shardingcatalog.RoutingRuleScope
-	6,  // 7: shardingcatalog.Snapshot.tablegroups:type_name -> shardingcatalog.TableGroup
-	7,  // 8: shardingcatalog.Snapshot.shards:type_name -> shardingcatalog.Shard
-	8,  // 9: shardingcatalog.Snapshot.tables:type_name -> shardingcatalog.Table
-	9,  // 10: shardingcatalog.Snapshot.shard_indices:type_name -> shardingcatalog.ShardIndex
-	10, // 11: shardingcatalog.Snapshot.shard_keys:type_name -> shardingcatalog.ShardKey
-	11, // 12: shardingcatalog.Snapshot.routing_rules:type_name -> shardingcatalog.RoutingRule
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	6,  // 7: shardingcatalog.Fence.state:type_name -> shardingcatalog.FenceState
+	7,  // 8: shardingcatalog.Snapshot.tablegroups:type_name -> shardingcatalog.TableGroup
+	8,  // 9: shardingcatalog.Snapshot.shards:type_name -> shardingcatalog.Shard
+	9,  // 10: shardingcatalog.Snapshot.tables:type_name -> shardingcatalog.Table
+	10, // 11: shardingcatalog.Snapshot.shard_indices:type_name -> shardingcatalog.ShardIndex
+	11, // 12: shardingcatalog.Snapshot.shard_keys:type_name -> shardingcatalog.ShardKey
+	12, // 13: shardingcatalog.Snapshot.routing_rules:type_name -> shardingcatalog.RoutingRule
+	13, // 14: shardingcatalog.Snapshot.fences:type_name -> shardingcatalog.Fence
+	15, // [15:15] is the sub-list for method output_type
+	15, // [15:15] is the sub-list for method input_type
+	15, // [15:15] is the sub-list for extension type_name
+	15, // [15:15] is the sub-list for extension extendee
+	0,  // [0:15] is the sub-list for field type_name
 }
 
 func init() { file_shardingcatalog_proto_init() }
@@ -1140,13 +1318,14 @@ func file_shardingcatalog_proto_init() {
 		return
 	}
 	file_shardingcatalog_proto_msgTypes[5].OneofWrappers = []any{}
+	file_shardingcatalog_proto_msgTypes[6].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_shardingcatalog_proto_rawDesc), len(file_shardingcatalog_proto_rawDesc)),
-			NumEnums:      6,
-			NumMessages:   7,
+			NumEnums:      7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

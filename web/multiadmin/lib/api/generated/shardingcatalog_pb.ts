@@ -248,6 +248,50 @@ proto3.util.setEnumType(RoutingRuleScope, "shardingcatalog.RoutingRuleScope", [
 ]);
 
 /**
+ * FenceState is the state of an admission fence. A reader treats a state it
+ * does not know, including UNSPECIFIED, as an invalid snapshot.
+ *
+ * @generated from enum shardingcatalog.FenceState
+ */
+export enum FenceState {
+  /**
+   * @generated from enum value: FENCE_STATE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * FENCING is a fence being raised: the scope's poolers are being told to
+   * refuse application work and drained.
+   *
+   * @generated from enum value: FENCE_STATE_FENCING = 1;
+   */
+  FENCING = 1,
+
+  /**
+   * FENCED is a raised fence: the scope is closed to application work, so
+   * routing rules on it may change.
+   *
+   * @generated from enum value: FENCE_STATE_FENCED = 2;
+   */
+  FENCED = 2,
+
+  /**
+   * UNFENCED is a lifted fence. The row stays, so its version keeps a
+   * delayed unfence from overriding a later fence of the same scope.
+   *
+   * @generated from enum value: FENCE_STATE_UNFENCED = 3;
+   */
+  UNFENCED = 3,
+}
+// Retrieve enum metadata with: proto3.getEnumType(FenceState)
+proto3.util.setEnumType(FenceState, "shardingcatalog.FenceState", [
+  { no: 0, name: "FENCE_STATE_UNSPECIFIED" },
+  { no: 1, name: "FENCE_STATE_FENCING" },
+  { no: 2, name: "FENCE_STATE_FENCED" },
+  { no: 3, name: "FENCE_STATE_UNFENCED" },
+]);
+
+/**
  * TableGroup is a tablegroup: a set of tables sharded the same way. It is
  * sharded exactly when it has more than one active shard.
  *
@@ -677,6 +721,84 @@ export class RoutingRule extends Message<RoutingRule> {
 }
 
 /**
+ * Fence is an admission fence: a scope of a tablegroup that the operation
+ * owning the fence closes to application work while it changes where the
+ * scope's traffic goes. A scope holds at most one fence.
+ *
+ * @generated from message shardingcatalog.Fence
+ */
+export class Fence extends Message<Fence> {
+  /**
+   * @generated from field: int64 fence_id = 1;
+   */
+  fenceId = protoInt64.zero;
+
+  /**
+   * operation_id is the uuid of the operation that owns the fence.
+   *
+   * @generated from field: string operation_id = 2;
+   */
+  operationId = "";
+
+  /**
+   * @generated from field: int64 tablegroup_id = 3;
+   */
+  tablegroupId = protoInt64.zero;
+
+  /**
+   * shard_id is the fenced shard of tablegroup_id; unset fences the whole
+   * tablegroup.
+   *
+   * @generated from field: optional int64 shard_id = 4;
+   */
+  shardId?: bigint;
+
+  /**
+   * @generated from field: shardingcatalog.FenceState state = 5;
+   */
+  state = FenceState.UNSPECIFIED;
+
+  /**
+   * version is the routing_version of the fence's last change.
+   *
+   * @generated from field: int64 version = 6;
+   */
+  version = protoInt64.zero;
+
+  constructor(data?: PartialMessage<Fence>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "shardingcatalog.Fence";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "fence_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 2, name: "operation_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "tablegroup_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 4, name: "shard_id", kind: "scalar", T: 3 /* ScalarType.INT64 */, opt: true },
+    { no: 5, name: "state", kind: "enum", T: proto3.getEnumType(FenceState) },
+    { no: 6, name: "version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Fence {
+    return new Fence().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): Fence {
+    return new Fence().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): Fence {
+    return new Fence().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: Fence | PlainMessage<Fence> | undefined, b: Fence | PlainMessage<Fence> | undefined): boolean {
+    return proto3.util.equals(Fence, a, b);
+  }
+}
+
+/**
  * Snapshot is the whole sharding catalog of one database, read in a single
  * transaction. Entities in every state are included; a reader decides which
  * ones it uses. References between entities are by id.
@@ -732,6 +854,11 @@ export class Snapshot extends Message<Snapshot> {
    */
   routingRules: RoutingRule[] = [];
 
+  /**
+   * @generated from field: repeated shardingcatalog.Fence fences = 9;
+   */
+  fences: Fence[] = [];
+
   constructor(data?: PartialMessage<Snapshot>) {
     super();
     proto3.util.initPartial(data, this);
@@ -748,6 +875,7 @@ export class Snapshot extends Message<Snapshot> {
     { no: 6, name: "shard_indices", kind: "message", T: ShardIndex, repeated: true },
     { no: 7, name: "shard_keys", kind: "message", T: ShardKey, repeated: true },
     { no: 8, name: "routing_rules", kind: "message", T: RoutingRule, repeated: true },
+    { no: 9, name: "fences", kind: "message", T: Fence, repeated: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Snapshot {

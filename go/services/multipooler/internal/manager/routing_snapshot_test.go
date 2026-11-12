@@ -46,8 +46,9 @@ func (env *tableGroupTestEnv) expectSnapshotRead(routingVersion, planEpoch int64
 
 // expectCatalogRows registers every entity read with a catalog holding the
 // default tablegroup, a sharded commerce tablegroup, a table with a primary
-// shard key, rows in states the snapshot does not know, and an import's
-// routing rules: a shard rule from default and a table rule.
+// shard key, rows in states the snapshot does not know, an import's
+// routing rules (a shard rule from default and a table rule), and its fences:
+// one on the whole default tablegroup and a lifted one on commerce's 0-80.
 func (env *tableGroupTestEnv) expectCatalogRows() {
 	env.expect("FROM multigres.tablegroup ORDER BY", []string{"tablegroup_id", "name", "state"}, [][]any{
 		{int64(1), "default", "active"},
@@ -81,6 +82,12 @@ func (env *tableGroupTestEnv) expectCatalogRows() {
 	}, [][]any{
 		{int64(40), importOp, "tablegroup", int64(1), nil, int64(7), int64(2), nil, int64(8)},
 		{int64(41), importOp, "table", int64(7), int64(10), int64(1), nil, int64(30), int64(9)},
+	})
+	env.expect("FROM multigres.admission_fence f", []string{
+		"fence_id", "operation_id", "tablegroup_id", "shard_id", "state", "version", "operation_state",
+	}, [][]any{
+		{int64(50), importOp, int64(1), nil, "FENCED", int64(7), "preparing"},
+		{int64(51), importOp, int64(7), int64(2), "UNFENCED", int64(9), "preparing"},
 	})
 }
 
@@ -151,6 +158,10 @@ func TestGetRoutingSnapshot_Full(t *testing.T) {
 				FromTablegroupId: 7, FromTableId: proto.Int64(10), ToTablegroupId: 1, ToShardKeyId: proto.Int64(30), CreatedVersion: 9,
 			},
 		},
+		Fences: []*shardingcatalogpb.Fence{
+			{FenceId: 50, OperationId: importOp, TablegroupId: 1, State: shardingcatalogpb.FenceState_FENCE_STATE_FENCED, Version: 7},
+			{FenceId: 51, OperationId: importOp, TablegroupId: 7, ShardId: proto.Int64(2), State: shardingcatalogpb.FenceState_FENCE_STATE_UNFENCED, Version: 9},
+		},
 	}
 	assert.True(t, proto.Equal(want, resp.GetSnapshot()), "got %v", resp.GetSnapshot())
 
@@ -168,6 +179,8 @@ func TestGetRoutingSnapshot_Full(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, orders.RoutingRule())
 	assert.Equal(t, int64(41), orders.RoutingRule().ID())
+	require.Len(t, def.FencesFor(nil), 1)
+	assert.Equal(t, int64(50), def.FencesFor(nil)[0].ID())
 
 	assert.Equal(t, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY", env.queries[1],
 		"the isolation is set before anything is read")
@@ -523,7 +536,7 @@ func TestWriteCatalog(t *testing.T) {
 			"SELECT routing_version, plan_epoch FROM multigres.catalog_state FOR UPDATE",
 			"INSERT INTO multigres.tablegroup_table VALUES (1)",
 			snapshotTableGroupsQuery, snapshotShardsQuery, snapshotTablesQuery,
-			snapshotShardIndicesQuery, snapshotShardKeysQuery, snapshotShardKeyColumnsQuery, selectRoutingRulesSQL,
+			snapshotShardIndicesQuery, snapshotShardKeysQuery, snapshotShardKeyColumnsQuery, selectRoutingRulesSQL, selectFencesSQL,
 			"UPDATE multigres.catalog_state SET routing_version = routing_version + 1 RETURNING routing_version, plan_epoch",
 			"COMMIT",
 		}, env.queries)
@@ -602,6 +615,7 @@ func TestWriteCatalog(t *testing.T) {
 		for _, table := range []string{"tablegroup_table", "shard_index", "shard_key", "shard_key_column", "routing_rule"} {
 			env.expect("FROM multigres."+table+" ORDER BY", nil, nil)
 		}
+		env.expect("FROM multigres.admission_fence f", nil, nil)
 		env.expectCommit()
 
 		_, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {

@@ -48,6 +48,8 @@ const (
 	MultipoolerManager_ReconcileFollowers_FullMethodName         = "/multipoolermanager.MultipoolerManager/ReconcileFollowers"
 	MultipoolerManager_SetRoutingRules_FullMethodName            = "/multipoolermanager.MultipoolerManager/SetRoutingRules"
 	MultipoolerManager_DeleteRoutingRules_FullMethodName         = "/multipoolermanager.MultipoolerManager/DeleteRoutingRules"
+	MultipoolerManager_FenceScopes_FullMethodName                = "/multipoolermanager.MultipoolerManager/FenceScopes"
+	MultipoolerManager_UnfenceScopes_FullMethodName              = "/multipoolermanager.MultipoolerManager/UnfenceScopes"
 	MultipoolerManager_ReloadConfig_FullMethodName               = "/multipoolermanager.MultipoolerManager/ReloadConfig"
 	MultipoolerManager_CreateTableGroup_FullMethodName           = "/multipoolermanager.MultipoolerManager/CreateTableGroup"
 	MultipoolerManager_GetOperation_FullMethodName               = "/multipoolermanager.MultipoolerManager/GetOperation"
@@ -117,12 +119,36 @@ type MultipoolerManagerClient interface {
 	// the primary and retries. A stale expected_routing_version or a change the
 	// catalog does not allow returns FAILED_PRECONDITION.
 	//
-	// Until the pooler admission fence exists, rules must change only while the
-	// affected application traffic is quiesced.
+	// Every rule the change inserts or removes needs a FENCED admission fence
+	// of the same operation on both sides (see FenceScopes); a missing fence
+	// returns FAILED_PRECONDITION. A change already in effect needs none.
 	SetRoutingRules(ctx context.Context, in *multipoolermanagerdata.SetRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetRoutingRulesResponse, error)
 	// DeleteRoutingRules deletes every routing rule of an operation, with the
 	// same rules as SetRoutingRules.
 	DeleteRoutingRules(ctx context.Context, in *multipoolermanagerdata.DeleteRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error)
+	// FenceScopes raises an operation's admission fences on a list of scopes
+	// (whole tablegroups or shards) and advances the database's routing
+	// version, in one catalog write: every fence the call writes takes the same
+	// version, and a call it refuses writes none. Served, refused and retried
+	// like SetRoutingRules: scopes the operation has already fenced are
+	// skipped, and a call whose every scope is already fenced returns the
+	// current version and writes nothing. A malformed list (empty, or with two
+	// overlapping scopes) returns INVALID_ARGUMENT; a stale
+	// expected_routing_version, a finished operation, a tablegroup being
+	// dropped, or a raised fence of another unfinished operation on an
+	// overlapping scope (a whole-tablegroup fence overlaps every shard fence of
+	// the tablegroup) returns FAILED_PRECONDITION.
+	//
+	// In this version FenceScopes records the fences as FENCED directly: it
+	// records intent and guarantees nothing. No pooler reads fences yet, so
+	// the scopes' application traffic is neither refused nor drained, and the
+	// caller must still quiesce it before changing routing rules.
+	FenceScopes(ctx context.Context, in *multipoolermanagerdata.FenceScopesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.FenceScopesResponse, error)
+	// UnfenceScopes lifts an operation's admission fences on a list of scopes,
+	// in one catalog write: each becomes UNFENCED at the same new routing
+	// version. Scopes the operation holds no raised fence on are skipped, and
+	// a call with none to lift returns the current version and writes nothing.
+	UnfenceScopes(ctx context.Context, in *multipoolermanagerdata.UnfenceScopesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UnfenceScopesResponse, error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
@@ -324,6 +350,26 @@ func (c *multipoolerManagerClient) DeleteRoutingRules(ctx context.Context, in *m
 	return out, nil
 }
 
+func (c *multipoolerManagerClient) FenceScopes(ctx context.Context, in *multipoolermanagerdata.FenceScopesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.FenceScopesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.FenceScopesResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_FenceScopes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multipoolerManagerClient) UnfenceScopes(ctx context.Context, in *multipoolermanagerdata.UnfenceScopesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UnfenceScopesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.UnfenceScopesResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_UnfenceScopes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multipoolerManagerClient) ReloadConfig(ctx context.Context, in *multipoolermanagerdata.ReloadConfigRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ReloadConfigResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.ReloadConfigResponse)
@@ -457,12 +503,36 @@ type MultipoolerManagerServer interface {
 	// the primary and retries. A stale expected_routing_version or a change the
 	// catalog does not allow returns FAILED_PRECONDITION.
 	//
-	// Until the pooler admission fence exists, rules must change only while the
-	// affected application traffic is quiesced.
+	// Every rule the change inserts or removes needs a FENCED admission fence
+	// of the same operation on both sides (see FenceScopes); a missing fence
+	// returns FAILED_PRECONDITION. A change already in effect needs none.
 	SetRoutingRules(context.Context, *multipoolermanagerdata.SetRoutingRulesRequest) (*multipoolermanagerdata.SetRoutingRulesResponse, error)
 	// DeleteRoutingRules deletes every routing rule of an operation, with the
 	// same rules as SetRoutingRules.
 	DeleteRoutingRules(context.Context, *multipoolermanagerdata.DeleteRoutingRulesRequest) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error)
+	// FenceScopes raises an operation's admission fences on a list of scopes
+	// (whole tablegroups or shards) and advances the database's routing
+	// version, in one catalog write: every fence the call writes takes the same
+	// version, and a call it refuses writes none. Served, refused and retried
+	// like SetRoutingRules: scopes the operation has already fenced are
+	// skipped, and a call whose every scope is already fenced returns the
+	// current version and writes nothing. A malformed list (empty, or with two
+	// overlapping scopes) returns INVALID_ARGUMENT; a stale
+	// expected_routing_version, a finished operation, a tablegroup being
+	// dropped, or a raised fence of another unfinished operation on an
+	// overlapping scope (a whole-tablegroup fence overlaps every shard fence of
+	// the tablegroup) returns FAILED_PRECONDITION.
+	//
+	// In this version FenceScopes records the fences as FENCED directly: it
+	// records intent and guarantees nothing. No pooler reads fences yet, so
+	// the scopes' application traffic is neither refused nor drained, and the
+	// caller must still quiesce it before changing routing rules.
+	FenceScopes(context.Context, *multipoolermanagerdata.FenceScopesRequest) (*multipoolermanagerdata.FenceScopesResponse, error)
+	// UnfenceScopes lifts an operation's admission fences on a list of scopes,
+	// in one catalog write: each becomes UNFENCED at the same new routing
+	// version. Scopes the operation holds no raised fence on are skipped, and
+	// a call with none to lift returns the current version and writes nothing.
+	UnfenceScopes(context.Context, *multipoolermanagerdata.UnfenceScopesRequest) (*multipoolermanagerdata.UnfenceScopesResponse, error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
@@ -565,6 +635,12 @@ func (UnimplementedMultipoolerManagerServer) SetRoutingRules(context.Context, *m
 }
 func (UnimplementedMultipoolerManagerServer) DeleteRoutingRules(context.Context, *multipoolermanagerdata.DeleteRoutingRulesRequest) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteRoutingRules not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) FenceScopes(context.Context, *multipoolermanagerdata.FenceScopesRequest) (*multipoolermanagerdata.FenceScopesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FenceScopes not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) UnfenceScopes(context.Context, *multipoolermanagerdata.UnfenceScopesRequest) (*multipoolermanagerdata.UnfenceScopesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UnfenceScopes not implemented")
 }
 func (UnimplementedMultipoolerManagerServer) ReloadConfig(context.Context, *multipoolermanagerdata.ReloadConfigRequest) (*multipoolermanagerdata.ReloadConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReloadConfig not implemented")
@@ -860,6 +936,42 @@ func _MultipoolerManager_DeleteRoutingRules_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultipoolerManager_FenceScopes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.FenceScopesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).FenceScopes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_FenceScopes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).FenceScopes(ctx, req.(*multipoolermanagerdata.FenceScopesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultipoolerManager_UnfenceScopes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.UnfenceScopesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).UnfenceScopes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_UnfenceScopes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).UnfenceScopes(ctx, req.(*multipoolermanagerdata.UnfenceScopesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultipoolerManager_ReloadConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.ReloadConfigRequest)
 	if err := dec(in); err != nil {
@@ -1037,6 +1149,14 @@ var MultipoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteRoutingRules",
 			Handler:    _MultipoolerManager_DeleteRoutingRules_Handler,
+		},
+		{
+			MethodName: "FenceScopes",
+			Handler:    _MultipoolerManager_FenceScopes_Handler,
+		},
+		{
+			MethodName: "UnfenceScopes",
+			Handler:    _MultipoolerManager_UnfenceScopes_Handler,
 		},
 		{
 			MethodName: "ReloadConfig",

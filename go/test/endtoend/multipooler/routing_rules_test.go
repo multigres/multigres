@@ -95,6 +95,34 @@ func (c routingClients) snapshot(t *testing.T) *multiadminpb.GetRoutingRulesResp
 	return out
 }
 
+// fence raises op's fences on scopes in one call at expected, and returns
+// the routing version it leaves.
+func (c routingClients) fence(t *testing.T, op string, expected int64, scopes ...*mdpb.FenceScopeSpec) int64 {
+	t.Helper()
+	resp, err := c.manager.FenceScopes(t.Context(), &mdpb.FenceScopesRequest{
+		Database: routingE2EDatabase, OperationId: op, ExpectedRoutingVersion: expected, Scopes: scopes,
+	})
+	require.NoError(t, err, "fence %v for %s", scopes, op)
+	return resp.GetRoutingVersion()
+}
+
+// unfence lifts op's fences on scopes in one call at expected, and returns
+// the routing version it leaves.
+func (c routingClients) unfence(t *testing.T, op string, expected int64, scopes ...*mdpb.FenceScopeSpec) int64 {
+	t.Helper()
+	resp, err := c.manager.UnfenceScopes(t.Context(), &mdpb.UnfenceScopesRequest{
+		Database: routingE2EDatabase, OperationId: op, ExpectedRoutingVersion: expected, Scopes: scopes,
+	})
+	require.NoError(t, err, "unfence %v for %s", scopes, op)
+	return resp.GetRoutingVersion()
+}
+
+// fenceSpec names shard of tablegroup, or the whole tablegroup when shard is
+// empty.
+func fenceSpec(tablegroup, shard string) *mdpb.FenceScopeSpec {
+	return &mdpb.FenceScopeSpec{Tablegroup: tablegroup, Shard: shard}
+}
+
 func shardSpec(from, to, shard string) *mdpb.ShardRoutingRuleSpec {
 	return &mdpb.ShardRoutingRuleSpec{FromTablegroup: from, ToTablegroup: to, ToShard: shard}
 }
@@ -131,6 +159,7 @@ WHERE tg.name IN ('commerce', 'orders')`
 // poolers serve them, setting, retrying and deleting rules, a race of two
 // writers on the routing version, shard ranges in the snapshot, an unfinished
 // operation blocking a tablegroup's routing, and the default tablegroup guard.
+// Every operation fences the tablegroups it routes before changing rules.
 //
 // Uses an isolated shard: it writes catalog rows.
 func TestRoutingRules_RPCs(t *testing.T) {
@@ -166,6 +195,10 @@ func TestRoutingRules_RPCs(t *testing.T) {
 			Database: routingE2EDatabase, OperationId: routingImportOp, Rules: []*mdpb.ShardRoutingRuleSpec{shardSpec("default", "srctg", "0-inf")},
 		})
 		assert.Equal(t, codes.Unavailable, status.Code(err), "standby set: %v", err)
+		_, err = sc.manager.FenceScopes(ctx, &mdpb.FenceScopesRequest{
+			Database: routingE2EDatabase, OperationId: routingImportOp, Scopes: []*mdpb.FenceScopeSpec{fenceSpec("default", "")},
+		})
+		assert.Equal(t, codes.Unavailable, status.Code(err), "standby fence: %v", err)
 		_, err = pc.manager.SetRoutingRules(ctx, &mdpb.SetRoutingRulesRequest{
 			Database: "otherdb", OperationId: routingImportOp, Rules: []*mdpb.ShardRoutingRuleSpec{shardSpec("default", "srctg", "0-inf")},
 		})
@@ -187,18 +220,27 @@ func TestRoutingRules_RPCs(t *testing.T) {
 			Database: routingE2EDatabase, OperationId: routingImportOp,
 			Rules: []*mdpb.ShardRoutingRuleSpec{shardSpec("default", "srctg", "0-inf")}, ExpectedRoutingVersion: 0,
 		}
+		// Neither side is fenced yet.
+		_, err = pc.manager.SetRoutingRules(ctx, req)
+		require.Error(t, err)
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+		assert.Contains(t, err.Error(), `shard "0-inf" of tablegroup "default" is not fenced by operation `+routingImportOp)
+
+		version := pc.fence(t, routingImportOp, 0, fenceSpec("default", ""), fenceSpec("srctg", ""))
+		require.Equal(t, int64(1), version, "one call fences both sides at one version")
+		req.ExpectedRoutingVersion = version
 		resp, err := pc.manager.SetRoutingRules(ctx, req)
 		require.NoError(t, err)
-		assert.Equal(t, int64(1), resp.GetRoutingVersion())
+		assert.Equal(t, int64(2), resp.GetRoutingVersion())
 
 		// A retry with the same, now stale, expected version succeeds and
 		// changes nothing.
 		resp, err = pc.manager.SetRoutingRules(ctx, req)
 		require.NoError(t, err)
-		assert.Equal(t, int64(1), resp.GetRoutingVersion())
+		assert.Equal(t, int64(2), resp.GetRoutingVersion())
 
 		snap := pc.snapshot(t)
-		assert.Equal(t, int64(1), snap.GetRoutingVersion())
+		assert.Equal(t, int64(2), snap.GetRoutingVersion())
 		assert.Zero(t, snap.GetPlanEpoch(), "a rule from one shard to one shard keeps plans valid")
 		require.Len(t, snap.GetRules(), 1)
 		rule := snap.GetRules()[0]
@@ -209,16 +251,23 @@ func TestRoutingRules_RPCs(t *testing.T) {
 		assert.Equal(t, "0-inf", rule.GetToShard())
 		assert.Empty(t, rule.GetToKeyRange().GetStart())
 		assert.Empty(t, rule.GetToKeyRange().GetEnd())
-		assert.Equal(t, int64(1), rule.GetCreatedVersion())
+		assert.Equal(t, int64(2), rule.GetCreatedVersion())
 	})
 
 	t.Run("two writers race on the routing version", func(t *testing.T) {
 		_, err := db.ExecContext(ctx, splitFixture)
 		require.NoError(t, err)
+		// Each split fences the shard it splits and the two halves, in one
+		// call.
+		version := pc.snapshot(t).GetRoutingVersion()
+		for _, tc := range []struct{ op, tg string }{{routingSplitOpA, "commerce"}, {routingSplitOpB, "orders"}} {
+			version = pc.fence(t, tc.op, version, fenceSpec(tc.tg, "0-80"), fenceSpec(tc.tg, "0-40"), fenceSpec(tc.tg, "40-80"))
+		}
+		require.Equal(t, int64(4), version)
 
 		// Hold the catalog_state lock so both writers block on it, then let
-		// them go: the first to get it commits version 2, the second then
-		// reads version 2 and must fail its expected version of 1.
+		// them go: the first to get it commits version 5, the second then
+		// reads version 5 and must fail its expected version of 4.
 		lockTx, err := db.BeginTx(ctx, nil)
 		require.NoError(t, err)
 		defer func() { _ = lockTx.Rollback() }()
@@ -230,7 +279,7 @@ func TestRoutingRules_RPCs(t *testing.T) {
 		for i, tc := range []struct{ op, tg string }{{routingSplitOpA, "commerce"}, {routingSplitOpB, "orders"}} {
 			wg.Go(func() {
 				_, errs[i] = pc.manager.SetRoutingRules(ctx, &mdpb.SetRoutingRulesRequest{
-					Database: routingE2EDatabase, OperationId: tc.op, ExpectedRoutingVersion: 1,
+					Database: routingE2EDatabase, OperationId: tc.op, ExpectedRoutingVersion: version,
 					Rules: []*mdpb.ShardRoutingRuleSpec{shardSpec(tc.tg, tc.tg, "0-40"), shardSpec(tc.tg, tc.tg, "40-80")},
 				})
 			})
@@ -247,13 +296,13 @@ func TestRoutingRules_RPCs(t *testing.T) {
 			}
 			lost++
 			assert.Equal(t, codes.FailedPrecondition, status.Code(err))
-			assert.Contains(t, err.Error(), "routing version is 2, expected 1")
+			assert.Contains(t, err.Error(), "routing version is 5, expected 4")
 		}
 		assert.Equal(t, 1, won, "exactly one writer commits: %v", errs)
 		assert.Equal(t, 1, lost)
 
 		snap := pc.snapshot(t)
-		assert.Equal(t, int64(2), snap.GetRoutingVersion())
+		assert.Equal(t, int64(5), snap.GetRoutingVersion())
 		require.Len(t, snap.GetRules(), 3)
 		ranges := map[string][2][]byte{}
 		for _, r := range snap.GetRules()[1:] {
@@ -276,7 +325,7 @@ func TestRoutingRules_RPCs(t *testing.T) {
 		}
 		snap := pc.snapshot(t)
 		assert.Empty(t, snap.GetRules())
-		assert.Equal(t, int64(4), snap.GetRoutingVersion(), "two deletes changed routing; the losing writer's had nothing to delete")
+		assert.Equal(t, int64(7), snap.GetRoutingVersion(), "two deletes changed routing; the losing writer's had nothing to delete")
 	})
 
 	t.Run("an unfinished operation on a tablegroup blocks routing it", func(t *testing.T) {
@@ -297,7 +346,8 @@ func TestRoutingRules_RPCs(t *testing.T) {
 		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 		assert.Contains(t, err.Error(), `tablegroup "srctg" is the subject of operation `+routingCreateOp)
 
-		// Once that operation is done, the import may route the tablegroup.
+		// Once that operation is done, the import, which still holds its
+		// fences, may route the tablegroup.
 		_, err = db.ExecContext(ctx, `UPDATE multigres.operation SET state = 'done' WHERE operation_id = $1::uuid`, routingCreateOp)
 		require.NoError(t, err)
 		resp, err := pc.manager.SetRoutingRules(ctx, req)

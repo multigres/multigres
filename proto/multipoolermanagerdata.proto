@@ -1008,3 +1008,60 @@ message DeleteRoutingRulesRequest {
 message DeleteRoutingRulesResponse {
   int64 routing_version = 1;
 }
+
+// =============================================================================
+// Admission fences
+// =============================================================================
+
+// FenceScopeSpec names the scope of an admission fence by name, as
+// ShardRoutingRuleSpec names a rule: a whole tablegroup, or one shard of it.
+message FenceScopeSpec {
+  string tablegroup = 1;
+  // shard is the name of a shard of tablegroup, e.g. "0-80". Empty fences the
+  // whole tablegroup.
+  string shard = 2;
+}
+
+// FenceScopesRequest raises an operation's fences on a list of scopes, in one
+// catalog write.
+message FenceScopesRequest {
+  // database must be the database the pooler serves.
+  string database = 1;
+  // operation_id is the operation that owns the fences (a UUID). It must
+  // exist and not have finished.
+  string operation_id = 2;
+  // scopes are the scopes to fence: at least one, no two of which overlap (the
+  // same scope twice, or a whole tablegroup and one of its shards). Scopes the
+  // operation has already fenced are skipped.
+  repeated FenceScopeSpec scopes = 3;
+  // expected_routing_version is the routing version the change is based on,
+  // as GetRoutingSnapshot returned it. A change whose every scope is already
+  // fenced succeeds whatever its value.
+  int64 expected_routing_version = 4;
+}
+
+// FenceScopesResponse returns the routing version after the change.
+message FenceScopesResponse {
+  int64 routing_version = 1;
+}
+
+// UnfenceScopesRequest lifts an operation's fences on a list of scopes, in
+// one catalog write.
+message UnfenceScopesRequest {
+  // database must be the database the pooler serves.
+  string database = 1;
+  // operation_id is the operation that owns the fences (a UUID).
+  string operation_id = 2;
+  // scopes are the scopes to unfence, with the same rules as in
+  // FenceScopesRequest. Scopes the operation holds no raised fence on are
+  // skipped.
+  repeated FenceScopeSpec scopes = 3;
+  // expected_routing_version is the routing version the change is based on.
+  // A change with no scope to unfence succeeds whatever its value.
+  int64 expected_routing_version = 4;
+}
+
+// UnfenceScopesResponse returns the routing version after the change.
+message UnfenceScopesResponse {
+  int64 routing_version = 1;
+}
