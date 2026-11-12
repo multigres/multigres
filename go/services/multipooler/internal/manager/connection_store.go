@@ -80,35 +80,18 @@ func errInvalidBackingDSN(format string, args ...any) error {
 	return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "backing connection dsn is not usable: "+format, args...)
 }
 
-// parseBackingDSN decodes a stored libpq connection string, in either form, with the strict
-// parser of backingconn (see backingconn.ParseDSN for what it refuses and why), and checks that
-// it names one server by the rules the pooler applies to the connection it receives
-// (backingconn.Endpoint, backingconn.Validate), so that the default primary never serves a
-// connection that the pooler refuses.
+// parseBackingDSN decodes a stored libpq connection string, in either form, into the connection
+// a pooler fronts: the strict parser of backingconn (see backingconn.ParseDSN for what it refuses
+// and why), the defaults of Conn.Complete, and the rules a pooler applies to the connection it
+// receives (Conn.Validate, Conn.ForPooler), so that the default primary never serves a connection
+// that the pooler refuses.
 func parseBackingDSN(raw string) (*multipoolerservicepb.BackingConnection, error) {
-	conn, err := backingconn.ParseDSN(raw)
-	if err != nil {
-		return nil, errInvalidBackingDSN("%s", err)
-	}
-	host, port, err := backingconn.Endpoint(conn.Hosts, conn.Ports)
+	conn, err := backingconn.FromDSN(raw)
 	if err == nil {
-		err = backingconn.Validate(host, port, conn.Database, conn.User)
+		err = conn.ForPooler()
 	}
 	if err != nil {
 		return nil, errInvalidBackingDSN("%s", err)
 	}
-	ports := make([]int32, len(conn.Ports))
-	for i, p := range conn.Ports {
-		ports[i] = int32(p)
-	}
-	return &multipoolerservicepb.BackingConnection{
-		Hosts:          conn.Hosts,
-		Ports:          ports,
-		Database:       conn.Database,
-		User:           conn.User,
-		Password:       conn.Password,
-		SslMode:        conn.SSLMode,
-		SslRootCert:    conn.SSLRootCert,
-		SslNegotiation: conn.SSLNegotiation,
-	}, nil
+	return conn.ToProto(), nil
 }

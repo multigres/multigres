@@ -1,0 +1,435 @@
+[
+  {
+    "dsn": "postgres://u@h:5432/app?application_name=a=b",
+    "accepted": false,
+    "source": "review",
+    "why": "libpq: extra key/value separator \"=\" in URI query parameter"
+  },
+  {
+    "dsn": "postgres://u@h:5432/app?application_name=a b",
+    "accepted": false,
+    "source": "review",
+    "why": "libpq 18: unexpected spaces found, use percent-encoded spaces (%20)"
+  },
+  {
+    "dsn": "postgres://u@h:5432/app?application_name=%00",
+    "accepted": false,
+    "source": "review",
+    "why": "libpq: forbidden value %00 in percent-encoded value"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u connect_timeout=abc",
+    "accepted": false,
+    "source": "review",
+    "why": "libpq: invalid integer value \"abc\" for connection option \"connect_timeout\""
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u keepalives_idle=99999999999",
+    "accepted": false,
+    "source": "review",
+    "why": "libpq: invalid integer value \"99999999999\" for connection option \"keepalives_idle\""
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u tcp_user_timeout=",
+    "accepted": false,
+    "source": "review",
+    "why": "libpq: invalid integer value \"\" for connection option \"tcp_user_timeout\""
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u channel_binding=bogus",
+    "accepted": false,
+    "source": "review",
+    "why": "libpq: invalid channel_binding value: \"bogus\""
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u gssencmode=allow",
+    "accepted": false,
+    "source": "review",
+    "why": "libpq: invalid gssencmode value: \"allow\""
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u min_protocol_version=3.2 max_protocol_version=3.0",
+    "accepted": false,
+    "source": "review",
+    "why": "libpq 18: \"min_protocol_version\" is greater than \"max_protocol_version\""
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u hostaddr=notanip",
+    "accepted": false,
+    "source": "review",
+    "why": "libpq: could not parse network address \"notanip\""
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u hostaddr=1.1.1.1,2.2.2.2",
+    "accepted": false,
+    "source": "review",
+    "why": "libpq: could not match 1 host names to 2 hostaddr values"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u sslmode=",
+    "accepted": false,
+    "source": "review",
+    "why": "libpq: invalid sslmode value: \"\""
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u sslnegotiation=",
+    "accepted": false,
+    "source": "review",
+    "why": "libpq: invalid sslnegotiation value: \"\""
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u service=nosuchservice",
+    "accepted": false,
+    "source": "review",
+    "why": "libpq: definition of service \"nosuchservice\" not found"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u sslmode=verify-full",
+    "accepted": false,
+    "source": "review",
+    "why": "libpq: root certificate file \"~/.postgresql/root.crt\" does not exist"
+  },
+  {
+    "dsn": "postgres://u@h:5432/app?sslmode=verify-ca",
+    "accepted": false,
+    "source": "review",
+    "why": "libpq: root certificate file \"~/.postgresql/root.crt\" does not exist"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u sslcertmode=require",
+    "accepted": false,
+    "source": "review",
+    "why": "libpq: server did not request an SSL certificate"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u sslkeylogfile=/nonexistent/dir/log",
+    "accepted": false,
+    "source": "review",
+    "why": "connects anyway in libpq 18; refused because it writes TLS secrets to a file"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u replication=true",
+    "accepted": false,
+    "source": "review",
+    "why": "connects, as a walsender"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u password= sslmode=require",
+    "accepted": false,
+    "source": "review",
+    "why": "the password becomes sslmode=require and sslmode is lost"
+  },
+  {
+    "dsn": "host= port=5432 dbname=app",
+    "accepted": false,
+    "source": "review",
+    "why": "the host becomes port=5432"
+  },
+  {
+    "dsn": "postgres://u@h:5432/app?application_name=a%3Db",
+    "accepted": true,
+    "source": "review",
+    "why": "an escaped ="
+  },
+  {
+    "dsn": "postgres://u@h:5432/app?application_name=a%20b",
+    "accepted": true,
+    "source": "review",
+    "why": "an escaped space"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u connect_timeout=5 keepalives=0 gssencmode=prefer",
+    "accepted": true,
+    "source": "review",
+    "why": "valid values",
+    "libpq17": "connects"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u sslmode=verify-full sslrootcert=/ca.pem",
+    "accepted": true,
+    "source": "review",
+    "why": "verify-full with a root certificate"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u hostaddr=10.0.0.1",
+    "accepted": true,
+    "source": "review",
+    "why": "one hostaddr for one host"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u hostaddr=localhost",
+    "accepted": false,
+    "source": "ours",
+    "why": "hostaddr is an IP address, not a name"
+  },
+  {
+    "dsn": "postgres://u@h:5432/app?hostaddr=notanip",
+    "accepted": false,
+    "source": "ours",
+    "why": "hostaddr, URI form"
+  },
+  {
+    "dsn": "host=h,h2 port=5432 dbname=app user=u hostaddr=1.1.1.1",
+    "accepted": false,
+    "source": "ours",
+    "why": "fewer addresses than hosts"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u connect_timeout=1.5",
+    "accepted": false,
+    "source": "ours",
+    "why": "not an integer"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u connect_timeout=",
+    "accepted": false,
+    "source": "ours",
+    "why": "an empty integer"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u keepalives=maybe",
+    "accepted": false,
+    "source": "ours",
+    "why": "not an integer"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u tcp_user_timeout=abc",
+    "accepted": false,
+    "source": "ours",
+    "why": "not an integer"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u target_session_attrs=bogus",
+    "accepted": false,
+    "source": "ours",
+    "why": "not a target_session_attrs"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u load_balance_hosts=bogus",
+    "accepted": false,
+    "source": "ours",
+    "why": "not a load_balance_hosts"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u gssencmode=require",
+    "accepted": false,
+    "source": "ours",
+    "why": "GSS encryption cannot be required"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u channel_binding=",
+    "accepted": false,
+    "source": "ours",
+    "why": "an empty enum"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u sslcertmode=bogus",
+    "accepted": false,
+    "source": "ours",
+    "why": "not an sslcertmode, and not carried anyway"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u options='-c search_path=x'",
+    "accepted": false,
+    "source": "ours",
+    "why": "options are not carried"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u sslpassword=x",
+    "accepted": false,
+    "source": "ours",
+    "why": "reads a secret"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u passfile=/etc/pgpass",
+    "accepted": false,
+    "source": "ours",
+    "why": "reads a file"
+  },
+  {
+    "dsn": "postgres://u@h:5432/app?options=-c search_path=public",
+    "accepted": false,
+    "source": "ours",
+    "why": "options, raw = and space"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u ssl_min_protocol_version=TLSv1.3 ssl_max_protocol_version=TLSv1.2",
+    "accepted": false,
+    "source": "ours",
+    "why": "not carried"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u min_protocol_version=bogus",
+    "accepted": false,
+    "source": "ours",
+    "why": "not carried"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u sslnegotiation=direct sslmode=prefer",
+    "accepted": false,
+    "source": "ours",
+    "why": "direct negotiation needs sslmode require or stronger"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u password=",
+    "accepted": false,
+    "source": "ours",
+    "why": "an empty value is written ''"
+  },
+  {
+    "dsn": "host=h port=0 dbname=app user=u",
+    "accepted": false,
+    "source": "ours",
+    "why": "port 0"
+  },
+  {
+    "dsn": "host=h port=65536 dbname=app user=u",
+    "accepted": false,
+    "source": "ours",
+    "why": "port too large"
+  },
+  {
+    "dsn": "host=h,,h2 port=5432 dbname=app user=u",
+    "accepted": false,
+    "source": "ours",
+    "why": "an empty host in a list"
+  },
+  {
+    "dsn": "host=h,h2,h3 port=1,2 dbname=app user=u",
+    "accepted": false,
+    "source": "ours",
+    "why": "ports that do not fit the hosts"
+  },
+  {
+    "dsn": "hostaddr=1.1.1.1 port=5432 dbname=app user=u sslmode=verify-full sslrootcert=/ca.pem",
+    "accepted": false,
+    "source": "ours",
+    "why": "a hostaddr with no host cannot be verified"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u sslrootcert=system sslmode=require",
+    "accepted": false,
+    "source": "ours",
+    "why": "system roots need verify-full"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u application_name=a\u0000b",
+    "accepted": false,
+    "source": "ours",
+    "why": "NUL in a value"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u sslkey=/k.pem",
+    "accepted": false,
+    "source": "ours",
+    "why": "a client key"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u",
+    "accepted": true,
+    "source": "ours",
+    "why": "the plain connection"
+  },
+  {
+    "dsn": "host=h dbname=app user=u",
+    "accepted": true,
+    "source": "ours",
+    "why": "the port is decided"
+  },
+  {
+    "dsn": "postgres://u@h/app",
+    "accepted": true,
+    "source": "ours",
+    "why": "a URI without a port"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u sslmode=require sslnegotiation=direct",
+    "accepted": true,
+    "source": "ours",
+    "why": "direct negotiation"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u sslmode=disable",
+    "accepted": true,
+    "source": "ours",
+    "why": "no TLS"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u sslmode=allow",
+    "accepted": false,
+    "source": "ours",
+    "why": "libpq accepts allow; we refuse it, since it retries in plaintext after TLS is declined, which the pooler's TLS client does not do"
+  },
+  {
+    "dsn": "host=/var/run/postgresql port=5432 dbname=app user=u",
+    "accepted": false,
+    "source": "ours",
+    "why": "libpq accepts a socket directory; we refuse it, since a client would follow it to a postgres on the machine that dials, with the credentials of the connection"
+  },
+  {
+    "dsn": "postgres://u@%2Fvar%2Frun%2Fpostgresql/app",
+    "accepted": false,
+    "source": "ours",
+    "why": "a socket directory in a URI"
+  },
+  {
+    "dsn": "host=h1,h2 port=5432,5433 dbname=app user=u target_session_attrs=read-write",
+    "accepted": true,
+    "source": "ours",
+    "why": "a list of servers"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u hostaddr=127.0.0.1",
+    "accepted": true,
+    "source": "ours",
+    "why": "hostaddr"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u keepalives_idle=60 keepalives_interval=10 keepalives_count=3",
+    "accepted": true,
+    "source": "ours",
+    "why": "keepalives"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u channel_binding=require gssencmode=disable",
+    "accepted": true,
+    "source": "ours",
+    "why": "channel binding"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u application_name='a b'",
+    "accepted": true,
+    "source": "ours",
+    "why": "a name with a space"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u application_name=''",
+    "accepted": true,
+    "source": "ours",
+    "why": "an empty name"
+  },
+  {
+    "dsn": "host=h port=5432 dbname='we ird' user='al ice'",
+    "accepted": true,
+    "source": "ours",
+    "why": "hard values"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u tcp_user_timeout=5000",
+    "accepted": false,
+    "source": "ours",
+    "why": "libpq honors it and the migrator's pgx cannot, so it is refused when the connection is created"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u load_balance_hosts=random",
+    "accepted": false,
+    "source": "ours",
+    "why": "pgx cannot honor it"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u load_balance_hosts=disable",
+    "accepted": true,
+    "source": "ours",
+    "why": "the only load_balance_hosts a connection carries"
+  }
+]

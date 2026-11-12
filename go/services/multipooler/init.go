@@ -583,7 +583,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		// The endpoint of an unmanaged pooler is set here and nowhere else: the record
 		// publishes its port, the TLS validation below checks its host, and the manager
 		// dials, probes and serves from it, so they can never disagree.
-		externalBackend = &manager.ExternalBackend{Host: backing.Host, Port: backing.Port, Database: backing.Database}
+		externalBackend = &manager.ExternalBackend{Host: backing.Host(), Port: backing.Port(), Database: backing.Database}
 		if err := checkBackingDatabase(mp.backingConnection.Get(), externalBackend, mp.database.Get()); err != nil {
 			return err
 		}
