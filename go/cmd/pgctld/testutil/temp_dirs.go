@@ -46,6 +46,7 @@ func TempDir(t *testing.T, prefix string) (string, func()) {
 	cleanup := func() {
 		// Clean up any leftover PostgreSQL mock processes
 		cleanupMockProcesses(t, dir)
+		ReleaseOrphanedSharedMemory(t.Logf, dir)
 
 		if err := os.RemoveAll(dir); err != nil {
 			t.Errorf("Failed to remove temp dir %s: %v", dir, err)

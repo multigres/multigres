@@ -26,6 +26,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -496,6 +497,12 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 	// Close topology server (can do this immediately since context cancellation is async)
 	if s.TopoServer != nil {
 		s.TopoServer.Close()
+	}
+
+	// Release segments of postmasters that died uncleanly, even when the temp
+	// directory is preserved: nothing restarts postgres there afterwards.
+	if s.TempDir != "" {
+		testutil.ReleaseOrphanedSharedMemory(logf, s.TempDir)
 	}
 
 	// Clean up temp directory only if tests passed
