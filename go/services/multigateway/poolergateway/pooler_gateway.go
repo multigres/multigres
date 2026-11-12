@@ -86,6 +86,8 @@ const (
 const transactionReadOnlyOptionName = "transaction_read_only"
 
 // classifyError determines whether an error is eligible for failover buffering.
+// MTF02 (a fenced target) never is: no new leader ends a fence, so the
+// scatterconn waits for newer routing and retries it instead, in every mode.
 // Only PRIMARY traffic is buffered, and only for:
 //   - no writable primary in the gateway's current routing view
 //   - MTF01: multipooler signals planned failover (SERVING_RDONLY)
@@ -496,9 +498,10 @@ func isClientDrivenFailure(err error) bool {
 // recordUnbufferedFailure feeds the buffer's classification-gap alarm: an
 // error classifyError passed through as actionFail while the shard's buffer
 // was active. The buffer itself checks the shard state so idle-shard failures
-// (ordinary query errors) cost one map lookup and record nothing.
+// (ordinary query errors) cost one map lookup and record nothing. MTF02 is no
+// gap: a fence is not a failover, and the scatterconn retries it.
 func (pg *PoolerGateway) recordUnbufferedFailure(ctx context.Context, sk *clustermetadatapb.ShardRef, err error) {
-	if pg.buffer == nil || isClientDrivenFailure(err) {
+	if pg.buffer == nil || isClientDrivenFailure(err) || mterrors.IsErrorCode(err, mterrors.MTF02.ID) {
 		return
 	}
 	pg.buffer.RecordUnbufferedFailure(ctx, sk, mterrors.Code(err).String())
