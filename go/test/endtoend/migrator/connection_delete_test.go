@@ -60,7 +60,7 @@ func TestDropConnectionAgainstPostgres(t *testing.T) {
 	create := func(name string) int64 {
 		t.Helper()
 		resp, err := mt.CreateConnection(ctx, &migratorpb.CreateConnectionRequest{
-			Connection: &migratorpb.Connection{Name: name, Dsn: "host=127.0.0.1 port=1 dbname=app"},
+			Connection: &migratorpb.Connection{Name: name, Dsn: "host=127.0.0.1 port=1 dbname=app user=u password=p"},
 		})
 		require.NoError(t, err)
 		return resp.GetConnection().GetId()

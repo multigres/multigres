@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/mterrors"
 )
 
@@ -201,6 +202,8 @@ type fakeTarget struct {
 	dropGeneratedColsErr    error
 	checkDropPrivilegeErr   error
 	lastCallerRole          string
+	// subscribedWith is the conninfo of every CREATE SUBSCRIPTION handed to the local postgres.
+	subscribedWith []string
 	// checkConnectionOwnershipErr, when set, is wrapped as a stock
 	// insufficient-privilege PgDiagnostic (the same shape the real target
 	// returns for an ordinary denial) — not returned verbatim — so the
@@ -358,8 +361,9 @@ func (t *fakeTarget) DropPublication(context.Context, string) error {
 	return t.dropPubErr
 }
 
-func (t *fakeTarget) CreateSubscription(context.Context, string, string, string, bool) error {
+func (t *fakeTarget) CreateSubscription(_ context.Context, _, conninfo, _ string, _ bool) error {
 	t.record("CreateSubscription")
+	t.subscribedWith = append(t.subscribedWith, conninfo)
 	return t.createSubErr
 }
 
@@ -593,6 +597,20 @@ type testCoord struct {
 
 	// srcErr, when set, makes the source factory fail (source unreachable).
 	srcErr error
+
+	// dialed is the canonical rendering of every source the coordinator opened.
+	dialed []string
+}
+
+// infoOf is the conninfo of a test connection written as a libpq string: parsed and completed,
+// and not validated, so that a fixture can be invalid on purpose.
+func infoOf(dsn string) *backingconn.Conn {
+	conn, err := backingconn.ParseDSN(dsn)
+	if err != nil {
+		panic(err)
+	}
+	conn.Complete()
+	return conn
 }
 
 // defaultConnID is the id of the connection newTestCoord seeds by default
@@ -613,7 +631,7 @@ func newTestCoord(t *testing.T) *testCoord {
 	// that explicitly set slotReady/subExists to exercise the degraded path).
 	tc.tgt = &fakeTarget{log: &tc.log, slotReady: true}
 	tc.src = &fakeSource{log: &tc.log}
-	tc.store.conns[defaultConnID] = &Connection{ID: defaultConnID, Name: "src", DSN: "host=src dbname=app"}
+	tc.store.conns[defaultConnID] = &Connection{ID: defaultConnID, Name: "src", ConnInfo: infoOf("host=src port=5432 dbname=app user=u password=pw")}
 	c := &Coordinator{
 		store:            tc.store,
 		target:           tc.tgt,
@@ -623,7 +641,8 @@ func newTestCoord(t *testing.T) *testCoord {
 		releaseForExport: func(context.Context) error { return nil },
 		now:              func() time.Time { return time.Unix(1_700_000_000, 0) },
 	}
-	c.newSource = func(context.Context, string) (migrationSource, error) {
+	c.newSource = func(_ context.Context, src *backingconn.Conn) (migrationSource, error) {
+		tc.dialed = append(tc.dialed, src.DSN())
 		if tc.srcErr != nil {
 			return nil, tc.srcErr
 		}

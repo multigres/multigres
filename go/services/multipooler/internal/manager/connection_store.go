@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerservicepb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -38,14 +37,16 @@ func newConnectionStore(pm *MultipoolerManager) *connectionStore {
 	return &connectionStore{queryService: pm.internalQueryService}
 }
 
-// BackingConnection reads the named connection and decodes its stored form, a
-// libpq connection string in the dsn column (a postgres:// URI or keyword=value
-// pairs, the form the migrator stores), into the structured connection the
-// contract carries. A dsn that does not name exactly one server is refused.
+// BackingConnection reads the named connection and returns it as the structured connection the
+// contract carries. The catalog stores it structured (the conninfo column, validated when the
+// connection was created), and that is served as it is; the dsn column is never read. A connection
+// with no conninfo cannot be read, and one that a pooler cannot front, one that does not name
+// exactly one server for example, is refused.
 //
 // A failure to read the row is UNAVAILABLE when the query service is missing or the connection
 // to the database is lost, which the caller retries; a catalog without the connections table is
-// FAILED_PRECONDITION, a fact about where the call was made; anything else is passed on.
+// FAILED_PRECONDITION, a fact about where the call was made; so is a stored connection that
+// cannot be read; anything else is passed on.
 func (s *connectionStore) BackingConnection(ctx context.Context, name string) (*multipoolerservicepb.BackingConnection, bool, error) {
 	qs := s.queryService()
 	if qs == nil {
@@ -61,37 +62,35 @@ func (s *connectionStore) BackingConnection(ctx context.Context, name string) (*
 		// Not the catalog shard, or the catalog's table is not created yet: a fact about the
 		// state this call expects, as for the migrator's own connection RPCs.
 		return nil, false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, migration.NoConnectionsTableMessage)
+	case errors.Is(err, migration.ErrConnectionUnreadable):
+		return nil, false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
 	case err != nil:
 		return nil, false, err
 	}
-	conn, err := parseBackingDSN(stored.DSN)
+	reply, err := backingFromStored(stored)
 	if err != nil {
 		return nil, false, mterrors.Wrap(err, fmt.Sprintf("connection %q", name))
 	}
-	conn.Name = name
-	return conn, true, nil
+	return reply, true, nil
 }
 
-// errInvalidBackingDSN is a stored dsn that cannot name the one server a backing connection
-// must. It is a fact about the persisted connection, not a transient failure, so it is
-// FAILED_PRECONDITION. The message never carries a value of the dsn, which holds the password:
-// the errors of backingconn.ParseDSN name at most a libpq parameter, and the rest are fixed text.
-func errInvalidBackingDSN(format string, args ...any) error {
-	return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "backing connection dsn is not usable: "+format, args...)
+// errUnusableConnection is a stored connection that cannot be a backing connection. It is a fact
+// about the persisted connection, not a transient failure, so it is FAILED_PRECONDITION. The
+// message never carries a value of the connection, which holds the password: the errors of
+// backingconn name at most a libpq parameter, and the rest are fixed text.
+func errUnusableConnection(format string, args ...any) error {
+	return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "backing connection is not usable: "+format, args...)
 }
 
-// parseBackingDSN decodes a stored libpq connection string, in either form, into the connection
-// a pooler fronts: the strict parser of backingconn (see backingconn.ParseDSN for what it refuses
-// and why), the defaults of Conn.Complete, and the rules a pooler applies to the connection it
-// receives (Conn.Validate, Conn.ForPooler), so that the default primary never serves a connection
-// that the pooler refuses.
-func parseBackingDSN(raw string) (*multipoolerservicepb.BackingConnection, error) {
-	conn, err := backingconn.FromDSN(raw)
+// backingFromStored returns a stored connection as the reply, refused unless a pooler can front it
+// (Conn.ForPooler), so that the default primary never serves a connection that the pooler refuses.
+func backingFromStored(c *migration.Connection) (*multipoolerservicepb.BackingConnection, error) {
+	conn, err := c.Conn()
 	if err == nil {
 		err = conn.ForPooler()
 	}
 	if err != nil {
-		return nil, errInvalidBackingDSN("%s", err)
+		return nil, errUnusableConnection("%s", err)
 	}
 	return conn.ToProto(), nil
 }

@@ -46,11 +46,11 @@ var catalogFormat1Columns = map[string][]string{
 		"operation_id", "kind", "state", "request", "initiating_role", "cancel_requested",
 		"last_error", "created_at", "updated_at",
 	},
-	"connections": {"connection_id", "name", "dsn", "owner_role", "created_at"},
 	"routing_rule": {
 		"rule_id", "operation_id", "scope", "from_tablegroup_id", "from_table_id", "to_tablegroup_id",
 		"to_shard_id", "to_shard_key_id", "created_at", "created_version",
 	},
+	"connections": {"connection_id", "name", "dsn", "owner_role", "created_at", "conninfo"},
 }
 
 // legacyCatalogSQL replaces the format 1 catalog with the pre-versioning

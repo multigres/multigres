@@ -16,6 +16,7 @@ package migration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
@@ -494,36 +496,53 @@ func TestEnsureSchemaCreatesJournal(t *testing.T) {
 		"journal must have no FK so it is retained after the migration row is dropped")
 }
 
+// connectionRow is a row of a connection, its conninfo being the rendering of dsn.
 func connectionRow(id int64, name, dsn string) *sqltypes.Row {
+	data, err := json.Marshal(infoOf(dsn))
+	if err != nil {
+		panic(err)
+	}
+	return connectionRowWithConnInfo(id, name, dsn, string(data))
+}
+
+func connectionRowWithConnInfo(id int64, name, dsn, conninfo string) *sqltypes.Row {
 	return &sqltypes.Row{Values: []sqltypes.Value{
 		sqltypes.Value(strconv.FormatInt(id, 10)), // connection_id
 		sqltypes.Value(name),                      // name
 		sqltypes.Value(dsn),                       // dsn
 		sqltypes.Value(""),                        // owner_role
 		sqltypes.Value("2026-01-01T00:00:00Z"),    // created_at
+		sqltypes.Value(conninfo),                  // coalesce(conninfo::text, '')
 	}}
 }
 
 func TestStoreConnectionsUseTheSharedTable(t *testing.T) {
 	ctx := context.Background()
+	conninfo := &backingconn.Conn{
+		Hosts: []string{"db.example.com"}, Ports: []int{5432}, Database: "app", User: "alice", Password: "pw",
+		Params: map[string]string{"sslcert": "/c.pem"},
+	}
+	const stored = `{"host":["db.example.com"],"port":[5432],"dbname":"app","user":"alice","password":"pw","params":{"sslcert":"/c.pem"}}`
 
 	qs := &fakeQS{scriptedResults: map[string]*sqltypes.Result{
-		selectConnectionByIDSQL:   {Rows: []*sqltypes.Row{connectionRow(7, "src", "host=h dbname=app")}},
-		selectConnectionByNameSQL: {Rows: []*sqltypes.Row{connectionRow(7, "src", "host=h dbname=app")}},
+		selectConnectionByIDSQL:   {Rows: []*sqltypes.Row{connectionRowWithConnInfo(7, "src", conninfo.DSN(), stored)}},
+		selectConnectionByNameSQL: {Rows: []*sqltypes.Row{connectionRowWithConnInfo(7, "src", conninfo.DSN(), stored)}},
 		selectConnectionsSQL:      {Rows: []*sqltypes.Row{connectionRow(9, "b", "host=b"), connectionRow(7, "a", "host=a")}},
 	}}
 	s := NewStore(qs)
 
 	// The id is assigned by the caller, not by the table: the migrator keeps
-	// its own id scheme.
-	require.NoError(t, s.InsertConnection(ctx, &Connection{ID: 7, Name: "src", DSN: "host=h", OwnerRole: "alice"}))
+	// its own id scheme. The conninfo is written as JSON, in a column of its own.
+	require.NoError(t, s.InsertConnection(ctx, &Connection{ID: 7, Name: "src", DSN: conninfo.DSN(), ConnInfo: conninfo, OwnerRole: "alice"}))
 	require.Len(t, qs.adminArgs, 1)
 	require.Contains(t, qs.adminArgs[0].sql, "INSERT INTO multigres.connections")
-	require.Equal(t, []any{int64(7), "src", "host=h", "alice"}, qs.adminArgs[0].args)
+	require.Contains(t, qs.adminArgs[0].sql, "$5::jsonb")
+	require.Equal(t, []any{int64(7), "src", conninfo.DSN(), "alice", stored}, qs.adminArgs[0].args)
 
 	c, err := s.GetConnectionByRef(ctx, Ref{ID: 7})
 	require.NoError(t, err)
 	require.Equal(t, "src", c.Name)
+	require.Equal(t, conninfo, c.ConnInfo, "the row is read back with its conninfo")
 	c, err = s.GetConnectionByRef(ctx, Ref{Name: "src"})
 	require.NoError(t, err)
 	require.Equal(t, int64(7), c.ID)
