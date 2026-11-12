@@ -138,11 +138,16 @@
     "why": "an escaped space"
   },
   {
-    "dsn": "host=h port=5432 dbname=app user=u connect_timeout=5 keepalives=0 gssencmode=prefer",
+    "dsn": "host=h port=5432 dbname=app user=u connect_timeout=5 keepalives=0 gssencmode=disable",
     "accepted": true,
     "source": "review",
-    "why": "valid values",
-    "libpq17": "connects"
+    "why": "valid values"
+  },
+  {
+    "dsn": "host=h port=5432 dbname=app user=u connect_timeout=5 keepalives=0 gssencmode=prefer",
+    "accepted": false,
+    "source": "ours",
+    "why": "libpq accepts prefer; we refuse it, since it would use our Kerberos credential cache toward the host the string names"
   },
   {
     "dsn": "host=h port=5432 dbname=app user=u sslmode=verify-full sslrootcert=/ca.pem",

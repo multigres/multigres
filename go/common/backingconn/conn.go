@@ -17,9 +17,9 @@
 //
 // A connection is self-contained: it names the host, port, database, user, password and sslmode
 // that a client would otherwise take from its own environment, and carries only the parameters of
-// a closed table (params.go), each checked as libpq checks it. It is rendered per client
-// (LibpqString, PgxString) as a string that also pins what our environment must not decide for the
-// host the connection names (params.go), so that what is dialed is what was validated.
+// a closed table (params.go), each checked as libpq checks it. It is rendered (LibpqString) as the
+// one string every client is dialed with, which also pins what our environment must not decide for
+// the host the connection names (params.go), so that what is dialed is what was validated.
 package backingconn
 
 import (
@@ -95,8 +95,7 @@ func (c *Conn) Port() int {
 
 // DSN renders the connection as a libpq keyword=value string, every value quoted, in a fixed
 // order, with exactly the parameters the connection carries (ParseDSN reads it back). It is for
-// display and the dsn column: a client dials LibpqString or PgxString, which add the pins of
-// params.go.
+// display and the dsn column: a client dials LibpqString, which adds the pins of params.go.
 func (c *Conn) DSN() string {
 	return pgutil.ConnInfoString(c.values())
 }
@@ -230,7 +229,7 @@ func (c *Conn) Validate() error {
 	for _, key := range slices.Sorted(maps.Keys(c.Params)) {
 		def, known := params[key]
 		switch {
-		case !known || def.carried:
+		case !known || def.class == classCarried:
 			return errUnrecognized
 		case !def.allowed:
 			return fmt.Errorf("parameter %s is not supported: a connection carries only %s", key, strings.Join(namesWhere(func(p param) bool { return p.allowed }), ", "))
@@ -267,7 +266,7 @@ func (c *Conn) ForPooler() error {
 		// Every key is a libpq parameter name (Validate), never text of the string, so it is
 		// safe to name.
 		return fmt.Errorf("parameter %s is not supported; a backing connection carries only %s", slices.Sorted(maps.Keys(c.Params))[0],
-			strings.Join(namesWhere(func(p param) bool { return p.carried }), ", "))
+			strings.Join(namesWhere(func(p param) bool { return p.class == classCarried }), ", "))
 	}
 	if len(c.Hosts) > 1 {
 		return errors.New("host names more than one server; a single server is required")
