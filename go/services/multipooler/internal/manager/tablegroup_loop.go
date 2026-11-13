@@ -398,18 +398,23 @@ func (pm *MultipoolerManager) tableGroupClaimHeld(ctx context.Context, id int64)
 }
 
 // finishDropTableGroup deletes a dropping tablegroup in one catalog write:
-// its shard rows, its tablegroup row, and any drop operation on it to done.
-// Once that has committed it deletes each shard's initialization claim in
-// topology, which is keyed by name and would otherwise stop the next
-// tablegroup of that name from bootstrapping. The claims go after the commit
-// because the commit is the fence: a former primary that has not learned it
-// was demoted cannot commit, so it must not touch topology for a tablegroup
-// the real primary may have recreated under the name. The tablegroup delete
-// is conditional on the state, so a concurrent or repeated pass finds nothing
-// to delete and reports no change. A failed creation has no drop operation;
-// its creation operation already reads failed.
+// its shard rows, its tablegroup row, any drop operation on it to done, and,
+// before that commits, each shard's initialization claim in topology, which
+// is keyed by name and would otherwise stop the next tablegroup of that name
+// from bootstrapping. Deleting the claims inside the write makes them part of
+// the retry: a claim that cannot be deleted rolls the write back, the
+// tablegroup stays dropping, and the next pass tries again. Doing it after
+// the commit would leave nothing to retry from once the rows are gone. Until
+// the commit the dropping row keeps the name from being reused, so no claim
+// deleted here can belong to a newer tablegroup of the name; the residual case
+// is a former primary that still passes writeCatalog's primary check while the
+// real primary has finished this drop and a recreated tablegroup has already
+// bootstrapped, which needs a split brain lasting through a whole
+// provisioning. The tablegroup delete is conditional on the state, so a
+// concurrent or repeated pass finds nothing to delete, touches no claim, and
+// reports no change. A failed creation has no drop operation; its creation
+// operation already reads failed.
 func (pm *MultipoolerManager) finishDropTableGroup(ctx context.Context, name string, id int64) error {
-	var shards []string
 	_, err := pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {
 		// Every shard the tablegroup ever had, retired ones included: each
 		// may have bootstrapped and left a claim.
@@ -417,12 +422,11 @@ func (pm *MultipoolerManager) finishDropTableGroup(ctx context.Context, name str
 		if err != nil {
 			return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to read shards")
 		}
-		for _, row := range res.Rows {
-			var shard string
-			if err := executor.ScanRow(row, &shard); err != nil {
+		shards := make([]string, len(res.Rows))
+		for i, row := range res.Rows {
+			if err := executor.ScanRow(row, &shards[i]); err != nil {
 				return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to read shard name")
 			}
-			shards = append(shards, shard)
 		}
 		if _, err := tx.QueryArgs(ctx,
 			"DELETE FROM multigres.shard WHERE tablegroup_id = $1 AND EXISTS (SELECT 1 FROM multigres.tablegroup WHERE tablegroup_id = $1 AND state = $2)",
@@ -436,34 +440,24 @@ func (pm *MultipoolerManager) finishDropTableGroup(ctx context.Context, name str
 			return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to delete tablegroup")
 		}
 		if len(res.Rows) == 0 {
-			shards = nil // deleted by another pass
-			return catalogNoSnapshotChange, nil
+			return catalogNoSnapshotChange, nil // deleted by another pass
 		}
 		if _, err := tx.QueryArgs(ctx,
 			"UPDATE multigres.operation SET state = $3, last_error = NULL, updated_at = now() WHERE kind = $1 AND state = $2 AND (request->>'tablegroup_id')::bigint = $4",
 			operationKindDropTableGroup, operationStateDropping, operationStateDone, id); err != nil {
 			return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to complete drop operation")
 		}
+		database := pm.record.ShardRef().GetDatabase()
+		for _, shard := range shards {
+			ref := &clustermetadatapb.ShardRef{Database: database, TableGroup: name, Shard: shard}
+			if err := pm.topoClient.DeleteShardInitClaim(ctx, ref); err != nil {
+				return catalogNoSnapshotChange, mterrors.Wrapf(err, "failed to delete the initialization claim of shard %s", shard)
+			}
+		}
 		pm.logger.InfoContext(ctx, "tablegroup is gone", "tablegroup", name, "tablegroup_id", id)
 		return catalogRoutingChange, nil
 	})
-	if err != nil {
-		return err
-	}
-	// The rows are gone, so nothing lists this tablegroup again: a failure
-	// here is not retried by the loop, and the stale claim blocks the next
-	// tablegroup of the name until deleted by hand.
-	database := pm.record.ShardRef().GetDatabase()
-	claimCtx, cancel := context.WithTimeout(ctx, tableGroupOpTimeout)
-	defer cancel()
-	for _, shard := range shards {
-		ref := &clustermetadatapb.ShardRef{Database: database, TableGroup: name, Shard: shard}
-		if err := pm.topoClient.DeleteShardInitClaim(claimCtx, ref); err != nil {
-			pm.logger.ErrorContext(ctx, "tablegroup deleted but its shard's initialization claim was not; delete it by hand",
-				"tablegroup", name, "tablegroup_id", id, "shard", shard, "error", err)
-		}
-	}
-	return nil
+	return err
 }
 
 // writeOperationRow runs one best-effort update of operation rows through

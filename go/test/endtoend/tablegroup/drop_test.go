@@ -27,6 +27,7 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	shardingcatalogpb "github.com/multigres/multigres/go/pb/shardingcatalog"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
+	"github.com/multigres/multigres/go/test/utils"
 )
 
 // TestTableGroupDrop drives a tablegroup through DropTableGroup on real poolers:
@@ -34,6 +35,12 @@ import (
 // down, the operations view, and cancellation of a creation through SQL and
 // through DropTableGroup.
 func TestTableGroupDrop(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping end-to-end tablegroup test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("skipping: PostgreSQL binaries not found")
+	}
 	setup, cleanup := shardsetup.NewIsolated(t, shardsetup.WithMultiadmin())
 	defer cleanup()
 	primary := setup.NewPrimaryClient(t)

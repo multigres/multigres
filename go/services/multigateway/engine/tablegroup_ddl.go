@@ -240,35 +240,25 @@ func (t *TableGroupDDL) runDrop(ctx context.Context, database string, callback f
 		// what makes success mean the name is free. It is pinned to the
 		// incarnation the first one acted on, so a tablegroup another session
 		// created under the name in between reads as not found rather than
-		// being dropped. A cancelled creation ends failed and leaves the
-		// tablegroup dropping, or already gone, and a drop of that cannot be
-		// refused, so a transient error there is retried: the first drop
-		// already took effect. A creation that completed first leaves the
-		// tablegroup active, and that drop is a plain one, refusable like any
-		// other.
-		again := &multipoolermanagerdatapb.DropTableGroupRequest{Name: t.name, TablegroupId: resp.GetTablegroupId()}
-		cancelled := op.GetState() == multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED
-		if cancelled {
-			// The rows may already be gone; that is the drop having happened.
-			again.IfExists = true
-			resp, err = t.dropAgain(ctx, database, again)
-		} else {
-			// The creation completed first and the tablegroup is active, so
-			// this is the user's drop of it, IF EXISTS as they wrote it.
-			again.IfExists = t.ifExists
-			resp, err = t.admin.DropTableGroup(ctx, database, again)
+		// being dropped. A cancelled creation can only end failed: the
+		// completing write checks cancel_requested, and a creation that
+		// completed before the cancel leaves an active tablegroup, which the
+		// first drop would have dropped rather than cancelled. Failed leaves
+		// the tablegroup dropping, or already gone, and a drop of that cannot
+		// be refused, so a transient error there is retried: the first drop
+		// already took effect.
+		if op.GetState() != multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED {
+			return changedStateError(t.name)
 		}
+		// The rows may already be gone; that is the drop having happened.
+		resp, err = t.dropAgain(ctx, database, &multipoolermanagerdatapb.DropTableGroupRequest{
+			Name: t.name, TablegroupId: resp.GetTablegroupId(), IfExists: true,
+		})
 		if err != nil {
 			return t.recordError(ctx, err, callback)
 		}
 		if resp.GetNotFound() {
-			if cancelled {
-				return callback(ctx, &sqltypes.Result{CommandTag: t.statementName()})
-			}
-			return callback(ctx, &sqltypes.Result{
-				Notices:    []*mterrors.PgDiagnostic{doesNotExistNotice(t.name)},
-				CommandTag: t.statementName(),
-			})
+			return callback(ctx, &sqltypes.Result{CommandTag: t.statementName()})
 		}
 		if resp.GetCancelledCreation() {
 			return changedStateError(t.name)
@@ -402,9 +392,10 @@ func droppingNotice(name, opID string, cancelledCreation bool) *mterrors.PgDiagn
 }
 
 // changedStateError reports a drop that cancelled a creation and cannot finish
-// the job: the second drop answered with a cancelled creation, which the
-// pooler never does (a cancelled creation ends dropping or gone, a completed
-// one active, and neither is creating again).
+// the job because the pooler broke its contract: the cancelled creation ended
+// done, or the second drop answered with a cancelled creation. A cancelled
+// creation always ends failed, leaving the tablegroup dropping or gone, and
+// never creating again.
 func changedStateError(name string) *mterrors.PgDiagnostic {
 	return mterrors.NewPgError("ERROR", mterrors.PgSSObjectNotInPrerequisiteState,
 		fmt.Sprintf("tablegroup %q changed state while being dropped", name), "")

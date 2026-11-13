@@ -15,6 +15,7 @@
 package manager
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -259,4 +260,59 @@ func TestCatalogObjects_OperationsViewAndCancel(t *testing.T) {
 	assert.Contains(t, fn, "SET cancel_requested = true")
 	assert.Contains(t, fn, "kind = 'create_tablegroup' AND state = 'creating'", "only a pending creation can be cancelled")
 	assert.Contains(t, fn, "RETURNS boolean")
+}
+
+func TestDropTableGroup_EveryStatementIsChecked(t *testing.T) {
+	// Each statement of the drop transaction can fail; the failure is
+	// returned and nothing commits.
+	cases := []struct {
+		name, state, failing string
+	}{
+		{"lookup", tableGroupStateActive, "FROM multigres.tablegroup WHERE name"},
+		{"table count", tableGroupStateActive, "SELECT count"},
+		{"marking dropping", tableGroupStateActive, "UPDATE multigres.tablegroup SET state"},
+		{"recording the drop", tableGroupStateActive, "INSERT INTO multigres.operation"},
+		{"cancelling the creation", tableGroupStateCreating, "SET cancel_requested = true"},
+		{"finding the drop operation", tableGroupStateDropping, "SELECT operation_id FROM multigres.operation"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			env := newCatalogTestEnv(t)
+			env.expectLock()
+			env.qs.AddQueryPatternWithError(c.failing, errors.New("lock timeout"))
+			env.dropLookup([]any{testTableGroupID, c.state})
+			env.expect("SELECT count\\(\\*\\) FROM multigres.tablegroup_table", []string{"count"}, [][]any{{int64(0)}})
+			env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
+			env.expect("INSERT INTO multigres.operation", nil, nil)
+			_, err := env.pm.DropTableGroup(t.Context(), &multipoolermanagerdatapb.DropTableGroupRequest{Name: "commerce"})
+			require.ErrorContains(t, err, "lock timeout")
+			assert.Empty(t, env.queriesMatching("COMMIT"))
+		})
+	}
+}
+
+func TestDropTableGroup_ACorruptCatalogIsAnInternalError(t *testing.T) {
+	t.Run("a creating tablegroup without its creation", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		env.expectLock()
+		env.dropLookup([]any{testTableGroupID, tableGroupStateCreating})
+		env.expect("UPDATE multigres.operation SET cancel_requested = true", []string{"operation_id"}, nil)
+		_, err := env.pm.DropTableGroup(t.Context(), &multipoolermanagerdatapb.DropTableGroupRequest{Name: "commerce"})
+		assert.Equal(t, mtrpcpb.Code_INTERNAL, mterrors.Code(err))
+	})
+	t.Run("a dropping tablegroup with two drops", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		env.expectLock()
+		env.dropLookup([]any{testTableGroupID, tableGroupStateDropping})
+		env.expect("SELECT operation_id FROM multigres.operation", []string{"operation_id"}, [][]any{{testOpID}, {testDropOpID}})
+		_, err := env.pm.DropTableGroup(t.Context(), &multipoolermanagerdatapb.DropTableGroupRequest{Name: "commerce"})
+		assert.Equal(t, mtrpcpb.Code_INTERNAL, mterrors.Code(err))
+	})
+	t.Run("an unknown state", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		env.expectLock()
+		env.dropLookup([]any{testTableGroupID, "hibernating"})
+		_, err := env.pm.DropTableGroup(t.Context(), &multipoolermanagerdatapb.DropTableGroupRequest{Name: "commerce"})
+		assert.Equal(t, mtrpcpb.Code_INTERNAL, mterrors.Code(err))
+	})
 }
