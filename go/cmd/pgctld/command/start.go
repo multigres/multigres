@@ -16,6 +16,7 @@ package command
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -31,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/services/pgctld"
+	"github.com/multigres/multigres/go/tools/retry"
 )
 
 // StartResult contains the result of starting PostgreSQL
@@ -184,7 +186,7 @@ func (s *PgCtldService) StartPostgreSQLWithResult(ctx context.Context) (*StartRe
 
 	// Wait for server to be ready
 	logger.InfoContext(ctx, "waiting for Postgres to be ready")
-	if err := waitForPostgreSQLWithConfig(logger, config); err != nil {
+	if err := waitForPostgreSQLWithConfig(ctx, logger, config); err != nil {
 		return nil, fmt.Errorf("PostgreSQL failed to become ready: %w", err)
 	}
 
@@ -423,84 +425,98 @@ func readLogTail(logPath string, lines int) string {
 	return strings.Join(allLines[len(allLines)-lines:], "\n")
 }
 
-func waitForPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
+const (
+	// readyPollBaseDelay and readyPollMaxDelay bound the wait between pg_isready checks:
+	// the first check runs at once and a slow start backs off to one check a second.
+	readyPollBaseDelay = 50 * time.Millisecond
+	readyPollMaxDelay  = time.Second
+
+	// startupGrace is how long a starting postgres has to write postmaster.pid before its
+	// absence, or a pid naming a dead process, counts as a crash.
+	startupGrace = time.Second
+
+	// readyProgressLogInterval is how often to log that postgres is still not ready.
+	readyProgressLogInterval = 5 * time.Second
+)
+
+// waitForPostgreSQLWithConfig waits until pg_isready reports postgres ready, for at
+// most config.Timeout seconds.
+func waitForPostgreSQLWithConfig(ctx context.Context, logger *slog.Logger, config *pgctld.PostgresCtlConfig) error {
 	socketDir := pgctld.PostgresSocketDir(config.PoolerDir)
 	logPath := filepath.Join(config.PostgresDataDir, "postgresql.log")
 	var lastOutput string
 
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(config.Timeout)*time.Second)
+	defer cancel()
 
-	timeout := time.After(time.Duration(config.Timeout) * time.Second)
-	attempt := 0
-
-	for {
-		select {
-		case <-timeout:
+	start := time.Now()
+	nextProgressLog := start.Add(readyProgressLogInterval)
+	r := retry.New(readyPollBaseDelay, readyPollMaxDelay)
+	for i, err := range r.Attempts(ctx) {
+		attempt := i + 1
+		if err != nil {
 			// On timeout, include diagnostic information
 			logTail := readLogTail(logPath, 20)
 			logger.Error("Postgres startup timeout", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 				"timeout_seconds", config.Timeout,
-				"attempts", attempt,
+				"attempts", attempt-1,
 				"last_pg_isready_output", lastOutput,
 				"postgresql_log_tail", logTail,
 			)
 			return fmt.Errorf("PostgreSQL did not become ready within %d seconds (pg_isready: %s)",
 				config.Timeout, lastOutput)
+		}
 
-		case <-ticker.C:
-			attempt++
-
-			// Check if PostgreSQL process is still running (after first second)
-			if attempt > 1 {
-				pid, err := readPostmasterPID(config.PostgresDataDir)
-				if err != nil {
-					// No PID file means PostgreSQL never started or crashed immediately
-					logTail := readLogTail(logPath, 20)
-					logger.Error("Postgres process not running during startup", //nolint:sloglint // message intentionally starts with an operation name or proper noun
-						"attempt", attempt,
-						"error", err,
-						"postgresql_log_tail", logTail,
-					)
-					return fmt.Errorf("PostgreSQL process not running: %w (check postgresql.log)", err)
-				}
-
-				if !isProcessRunning(pid) {
-					// PID file exists but process is gone - crashed
-					logTail := readLogTail(logPath, 20)
-					logger.Error("Postgres process crashed during startup", //nolint:sloglint // message intentionally starts with an operation name or proper noun
-						"pid", pid,
-						"attempt", attempt,
-						"postgresql_log_tail", logTail,
-					)
-					return fmt.Errorf("PostgreSQL process (PID %d) crashed during startup (check postgresql.log)", pid)
-				}
-			}
-
-			cmd := exec.Command("pg_isready",
-				"-h", socketDir,
-				"-p", strconv.Itoa(config.Port),
-				"-U", config.User,
-				"-d", config.Database,
-			)
-
-			output, err := cmd.CombinedOutput()
-			lastOutput = strings.TrimSpace(string(output))
-			if err == nil {
-				logger.Info("Postgres is ready", "attempts", attempt) //nolint:sloglint // message intentionally starts with an operation name or proper noun
-				return nil
-			}
-
-			// Log progress every 5 seconds
-			if attempt > 0 && attempt%5 == 0 {
-				logger.Info("still waiting for Postgres to be ready",
+		// Check if PostgreSQL process is still running, once it has had time to start
+		if time.Since(start) >= startupGrace {
+			pid, err := readPostmasterPID(config.PostgresDataDir)
+			if err != nil {
+				// No PID file means PostgreSQL never started or crashed immediately
+				logTail := readLogTail(logPath, 20)
+				logger.Error("Postgres process not running during startup", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 					"attempt", attempt,
-					"timeout", config.Timeout,
-					"pg_isready_output", lastOutput,
+					"error", err,
+					"postgresql_log_tail", logTail,
 				)
+				return fmt.Errorf("PostgreSQL process not running: %w (check postgresql.log)", err)
+			}
+
+			if !isProcessRunning(pid) {
+				// PID file exists but process is gone - crashed
+				logTail := readLogTail(logPath, 20)
+				logger.Error("Postgres process crashed during startup", //nolint:sloglint // message intentionally starts with an operation name or proper noun
+					"pid", pid,
+					"attempt", attempt,
+					"postgresql_log_tail", logTail,
+				)
+				return fmt.Errorf("PostgreSQL process (PID %d) crashed during startup (check postgresql.log)", pid)
 			}
 		}
+
+		cmd := exec.Command("pg_isready",
+			"-h", socketDir,
+			"-p", strconv.Itoa(config.Port),
+			"-U", config.User,
+			"-d", config.Database,
+		)
+
+		output, err := cmd.CombinedOutput()
+		lastOutput = strings.TrimSpace(string(output))
+		if err == nil {
+			logger.Info("Postgres is ready", "attempts", attempt) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			return nil
+		}
+
+		if now := time.Now(); !now.Before(nextProgressLog) {
+			nextProgressLog = now.Add(readyProgressLogInterval)
+			logger.InfoContext(ctx, "still waiting for Postgres to be ready",
+				"attempt", attempt,
+				"timeout", config.Timeout,
+				"pg_isready_output", lastOutput,
+			)
+		}
 	}
+	return errors.New("readiness wait ended without a result")
 }
 
 // readPostmasterPID returns just the PID recorded in postmaster.pid (line
