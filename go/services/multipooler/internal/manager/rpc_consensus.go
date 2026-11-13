@@ -837,7 +837,7 @@ func (pm *MultipoolerManager) SetPrimary(ctx context.Context, req *consensusdata
 
 	// Compare by rule position only — LSN is intentionally not part of the
 	// gate. See SetPrimaryRequest's proto comment for the reasoning.
-	if commonconsensus.CompareRulePosition(rp.GetPosition(), selfPos.GetPosition()) <= 0 {
+	if commonconsensus.CompareAuthority(rp.GetPosition(), selfPos.GetPosition()) <= 0 {
 		pm.logger.InfoContext(ctx, "SetPrimary: incoming position not higher, no-op", //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			"incoming_position", commonconsensus.FormatRulePosition(rp.GetPosition()),
 			"incoming_rule_coordinator", undecidedRule.GetCoordinatorId().GetName(),

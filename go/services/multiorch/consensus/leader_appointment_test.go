@@ -175,7 +175,7 @@ func TestAppointLeader(t *testing.T) {
 	}
 }
 
-// TestAppointLeader_PropagatesUndecidedMostAdvancedPosition confirms that
+// TestAppointLeader_PropagatesUndecidedMostAdvancedWALPosition confirms that
 // normal failover (requireOutgoingQuorum) trusts the cohort's most-advanced
 // position as the outgoing baseline even when it's an undecided proposal —
 // no separate quorum-verification step is needed, since the fresh write
@@ -184,7 +184,7 @@ func TestAppointLeader(t *testing.T) {
 // member and the only node reporting the undecided proposal, so recruitment
 // trivially succeeds; the resulting rule keeps mp1 as leader (propagation
 // never changes cohort or durability policy — see validateProposal).
-func TestAppointLeader_PropagatesUndecidedMostAdvancedPosition(t *testing.T) {
+func TestAppointLeader_PropagatesUndecidedMostAdvancedWALPosition(t *testing.T) {
 	ctx := context.Background()
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	coordID := &clustermetadatapb.ID{
@@ -294,7 +294,7 @@ func TestAppointInitialLeader(t *testing.T) {
 		mp.Status.PostgresReady = true
 		mp.Status.PostgresRunning = true
 		// Cached cohort statuses populate Id and CurrentPosition (with sentinel
-		// rule) so MostAdvancedPosition can derive the cert and pre-vote can
+		// rule) so MostAdvancedWALPosition can derive the cert and pre-vote can
 		// run on real positions. Fresh nodes carry no prior term revocation.
 		mp.ConsensusStatus = &clustermetadatapb.ConsensusStatus{
 			Id: id,

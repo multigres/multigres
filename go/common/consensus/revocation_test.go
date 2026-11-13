@@ -1037,3 +1037,16 @@ func TestIsRuleRevoked(t *testing.T) {
 		})
 	}
 }
+
+func TestNewTermRevocation_InconsistentCohortRefused(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	rev := revocation(5, ruleNum(3, 0))
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatus(zone1.a, makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c), rev),
+		makeStatus(zone1.b, makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b), rev),
+	}
+
+	_, err := NewTermRevocation(statuses, coordA, ts1, 0)
+
+	require.EqualError(t, err, "NewTermRevocation: recruits zone1_pooler-a and zone1_pooler-b agree on rule number but disagree on content; inconsistent discovery result")
+}

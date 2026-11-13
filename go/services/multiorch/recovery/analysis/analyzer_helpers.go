@@ -137,12 +137,12 @@ func walReceiverStreaming(p *multiorchdatapb.PoolerHealthState) bool {
 }
 
 // compareLeaderTimeline compares two leader snapshots by rule position. LSN is
-// intentionally excluded from the comparison (CompareRulePosition already
+// intentionally excluded from the comparison (CompareAuthority already
 // stops at decision-then-proposal): for leaders, the coordinator term must be
 // unique per promotion, so equal terms indicate a consensus bug rather than a
 // resolvable tie.
 func compareLeaderTimeline(a, b *multiorchdatapb.PoolerHealthState) int {
-	return commonconsensus.CompareRulePosition(
+	return commonconsensus.CompareAuthority(
 		a.GetConsensusStatus().GetCurrentPosition().GetPosition(),
 		b.GetConsensusStatus().GetCurrentPosition().GetPosition(),
 	)
