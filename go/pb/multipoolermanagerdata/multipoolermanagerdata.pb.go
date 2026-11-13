@@ -3583,8 +3583,13 @@ type Operation struct {
 	// provisioner has released its claim (TableGroupProvisionClaim). Zero for a
 	// creation.
 	PoolersRegistered int32 `protobuf:"varint,12,opt,name=poolers_registered,json=poolersRegistered,proto3" json:"poolers_registered,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// claim_held is, for a drop that is not done, whether a provisioner still
+	// holds its claim on the tablegroup (TableGroupProvisionClaim), read at call
+	// time. A drop with no pooler records and the claim held is waiting for the
+	// provisioner to finish removing what it provisioned. False for a creation.
+	ClaimHeld     bool `protobuf:"varint,13,opt,name=claim_held,json=claimHeld,proto3" json:"claim_held,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Operation) Reset() {
@@ -3701,6 +3706,13 @@ func (x *Operation) GetPoolersRegistered() int32 {
 	return 0
 }
 
+func (x *Operation) GetClaimHeld() bool {
+	if x != nil {
+		return x.ClaimHeld
+	}
+	return false
+}
+
 // DropTableGroupRequest records the intent to drop a tablegroup.
 type DropTableGroupRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -3708,7 +3720,13 @@ type DropTableGroupRequest struct {
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// if_exists makes a missing tablegroup a no-op (not_found is set on the
 	// response) instead of an error.
-	IfExists      bool `protobuf:"varint,2,opt,name=if_exists,json=ifExists,proto3" json:"if_exists,omitempty"`
+	IfExists bool `protobuf:"varint,2,opt,name=if_exists,json=ifExists,proto3" json:"if_exists,omitempty"`
+	// tablegroup_id, when set, pins the drop to that incarnation of the name:
+	// a tablegroup of the name with another id is treated as missing. A caller
+	// repeating a drop (the gateway after cancelling a creation) sets it from
+	// the first response, so it never acts on a tablegroup another session
+	// created under the same name in between.
+	TablegroupId  int64 `protobuf:"varint,3,opt,name=tablegroup_id,json=tablegroupId,proto3" json:"tablegroup_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3755,6 +3773,13 @@ func (x *DropTableGroupRequest) GetIfExists() bool {
 		return x.IfExists
 	}
 	return false
+}
+
+func (x *DropTableGroupRequest) GetTablegroupId() int64 {
+	if x != nil {
+		return x.TablegroupId
+	}
+	return 0
 }
 
 // DropTableGroupResponse identifies the operation to wait on.
@@ -4648,7 +4673,7 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	"\x13GetOperationRequest\x12!\n" +
 	"\foperation_id\x18\x01 \x01(\tR\voperationId\"W\n" +
 	"\x14GetOperationResponse\x12?\n" +
-	"\toperation\x18\x01 \x01(\v2!.multipoolermanagerdata.OperationR\toperation\"\xb2\x04\n" +
+	"\toperation\x18\x01 \x01(\v2!.multipoolermanagerdata.OperationR\toperation\"\xd1\x04\n" +
 	"\tOperation\x12!\n" +
 	"\foperation_id\x18\x01 \x01(\tR\voperationId\x129\n" +
 	"\x04kind\x18\x02 \x01(\x0e2%.multipoolermanagerdata.OperationKindR\x04kind\x12<\n" +
@@ -4665,10 +4690,13 @@ const file_multipoolermanagerdata_proto_rawDesc = "" +
 	" \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
 	"updated_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\x12-\n" +
-	"\x12poolers_registered\x18\f \x01(\x05R\x11poolersRegistered\"H\n" +
+	"\x12poolers_registered\x18\f \x01(\x05R\x11poolersRegistered\x12\x1d\n" +
+	"\n" +
+	"claim_held\x18\r \x01(\bR\tclaimHeld\"m\n" +
 	"\x15DropTableGroupRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
-	"\tif_exists\x18\x02 \x01(\bR\bifExists\"\xac\x01\n" +
+	"\tif_exists\x18\x02 \x01(\bR\bifExists\x12#\n" +
+	"\rtablegroup_id\x18\x03 \x01(\x03R\ftablegroupId\"\xac\x01\n" +
 	"\x16DropTableGroupResponse\x12!\n" +
 	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12#\n" +
 	"\rtablegroup_id\x18\x02 \x01(\x03R\ftablegroupId\x12\x1b\n" +

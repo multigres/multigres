@@ -114,10 +114,14 @@ var catalogMigrations = []catalogMigration{
 //
 // Additive changes are appended: a new table as CREATE TABLE IF NOT EXISTS, a
 // new nullable or defaulted column as ALTER TABLE ... ADD COLUMN IF NOT EXISTS
-// after its table's CREATE. Never edit an existing statement on its own:
-// existing catalogs already have the table, so CREATE ... IF NOT EXISTS skips
-// it and they would never see the edit. A changed shape needs a numbered
-// migration in catalogMigrations (see its comment).
+// after its table's CREATE, a view or function inside a DO block that creates
+// it only when to_regclass or to_regprocedure finds nothing, since CREATE OR
+// REPLACE is not a no-op on an existing object: it takes an AccessExclusiveLock
+// on a view, which a reader idle in a transaction would block the open on, and
+// rewrites the catalog row either way. Never edit a statement on its own:
+// existing catalogs already have the object, so the guard skips it and they
+// would never see the edit. A changed shape needs a numbered migration in
+// catalogMigrations (see its comment).
 //
 // CREATE INDEX IF NOT EXISTS takes a ShareLock on its table before finding
 // the index already exists, so every open briefly blocks writes to shard_key
@@ -220,6 +224,44 @@ var catalogTables = []string{
 	CHECK ((scope = 'table') = (from_table_id IS NOT NULL)),
 	CHECK ((scope = 'tablegroup') = (to_shard_id IS NOT NULL))
 )`,
+	// multigres.operations is how a user follows a catalog operation from SQL;
+	// the gateway's CREATE and DROP TABLEGROUP notices point at it. The request
+	// JSON is unpacked so the tablegroup an operation is about is readable
+	// after its rows are gone. No grant: like the tablegroup statements, only a
+	// superuser may read it.
+	`DO $do$ BEGIN
+	IF to_regclass('multigres.operations') IS NULL THEN
+		CREATE VIEW multigres.operations AS
+		SELECT operation_id, kind, state,
+		       (request->>'tablegroup_id')::bigint AS tablegroup_id,
+		       request->>'name' AS tablegroup_name,
+		       request->'shards' AS shards,
+		       cancel_requested, last_error, created_at, updated_at
+		FROM multigres.operation;
+	END IF;
+	END $do$`,
+	// multigres.cancel_operation asks the catalog primary's completion loop to
+	// fail a tablegroup creation still in flight, which then tears down what
+	// was provisioned, like DROP TABLEGROUP on a creating tablegroup. It returns
+	// whether this call set the flag: false for an operation that is not a
+	// pending creation or was already cancelled. Functions are executable by
+	// PUBLIC by default, so that is revoked: superusers only, like the view.
+	`DO $do$ BEGIN
+	IF to_regprocedure('multigres.cancel_operation(uuid)') IS NULL THEN
+		CREATE FUNCTION multigres.cancel_operation(uuid) RETURNS boolean
+		LANGUAGE plpgsql AS $fn$
+		BEGIN
+			-- The catalog_state row lock every catalog writer takes first
+			-- (writeCatalog in routing_snapshot.go).
+			PERFORM 1 FROM multigres.catalog_state FOR UPDATE;
+			UPDATE multigres.operation SET cancel_requested = true, updated_at = now()
+			WHERE operation_id = $1 AND kind = 'create_tablegroup' AND state = 'creating' AND NOT cancel_requested;
+			RETURN FOUND;
+		END
+		$fn$;
+		REVOKE EXECUTE ON FUNCTION multigres.cancel_operation(uuid) FROM PUBLIC;
+	END IF;
+	END $do$`,
 }
 
 // catalogSeed inserts the catalog's initial rows. Every insert is idempotent

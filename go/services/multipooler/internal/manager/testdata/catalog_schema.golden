@@ -98,6 +98,35 @@ CREATE TABLE IF NOT EXISTS multigres.routing_rule (
 	CHECK ((scope = 'table') = (from_table_id IS NOT NULL)),
 	CHECK ((scope = 'tablegroup') = (to_shard_id IS NOT NULL))
 )
+== table
+DO $do$ BEGIN
+	IF to_regclass('multigres.operations') IS NULL THEN
+		CREATE VIEW multigres.operations AS
+		SELECT operation_id, kind, state,
+		       (request->>'tablegroup_id')::bigint AS tablegroup_id,
+		       request->>'name' AS tablegroup_name,
+		       request->'shards' AS shards,
+		       cancel_requested, last_error, created_at, updated_at
+		FROM multigres.operation;
+	END IF;
+	END $do$
+== table
+DO $do$ BEGIN
+	IF to_regprocedure('multigres.cancel_operation(uuid)') IS NULL THEN
+		CREATE FUNCTION multigres.cancel_operation(uuid) RETURNS boolean
+		LANGUAGE plpgsql AS $fn$
+		BEGIN
+			-- The catalog_state row lock every catalog writer takes first
+			-- (writeCatalog in routing_snapshot.go).
+			PERFORM 1 FROM multigres.catalog_state FOR UPDATE;
+			UPDATE multigres.operation SET cancel_requested = true, updated_at = now()
+			WHERE operation_id = $1 AND kind = 'create_tablegroup' AND state = 'creating' AND NOT cancel_requested;
+			RETURN FOUND;
+		END
+		$fn$;
+		REVOKE EXECUTE ON FUNCTION multigres.cancel_operation(uuid) FROM PUBLIC;
+	END IF;
+	END $do$
 == seed
 INSERT INTO multigres.catalog_state (format_version) VALUES (0) ON CONFLICT (singleton) DO NOTHING
 == seed

@@ -384,6 +384,15 @@ func (s *managerService) CreateTableGroup(ctx context.Context, req *multipoolerm
 	return resp, nil
 }
 
+// DropTableGroup records the intent to drop a tablegroup.
+func (s *managerService) DropTableGroup(ctx context.Context, req *multipoolermanagerdatapb.DropTableGroupRequest) (*multipoolermanagerdatapb.DropTableGroupResponse, error) {
+	resp, err := s.manager.DropTableGroup(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
 // GetOperation returns a catalog operation's current state.
 func (s *managerService) GetOperation(ctx context.Context, req *multipoolermanagerdatapb.GetOperationRequest) (*multipoolermanagerdatapb.GetOperationResponse, error) {
 	op, err := s.manager.GetOperation(ctx, req.GetOperationId())

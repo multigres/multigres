@@ -82,3 +82,15 @@ func (ts *store) ClaimShardInitialization(ctx context.Context, shardRef *cluster
 
 	return false, nil, nil
 }
+
+// DeleteShardInitClaim removes a shard's initialization claim, so a shard of
+// the same name provisioned later, for a new incarnation of its tablegroup,
+// bootstraps afresh. The catalog primary calls it once it has deleted a
+// dropped tablegroup's rows. A missing claim is not an error.
+func (ts *store) DeleteShardInitClaim(ctx context.Context, shardRef *clustermetadatapb.ShardRef) error {
+	err := ts.globalTopo.Delete(ctx, shardInitClaimPath(shardRef), nil)
+	if err == nil || errors.Is(err, &TopoError{Code: NoNode}) {
+		return nil
+	}
+	return mterrors.Wrapf(err, "failed to delete the shard init claim for %s", types.FormatShardRef(shardRef))
+}

@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
@@ -53,6 +54,20 @@ func (env *tableGroupTestEnv) expectCreations(rows ...[]any) {
 // expectDroppings answers the loop's dropping-tablegroups query with rows.
 func (env *tableGroupTestEnv) expectDroppings(rows ...[]any) {
 	env.expect("FROM multigres.tablegroup t LEFT JOIN multigres.operation o", dropCols, rows)
+}
+
+// expectShardNames answers finishDropTableGroup's read of the shard names.
+func (env *tableGroupTestEnv) expectShardNames(names ...string) {
+	rows := make([][]any, len(names))
+	for i, n := range names {
+		rows[i] = []any{n}
+	}
+	env.expect("SELECT shard_name FROM multigres.shard WHERE tablegroup_id", []string{"shard_name"}, rows)
+}
+
+// commerceShard is the ref of a shard of the commerce test tablegroup.
+func commerceShard(shard string) *clustermetadatapb.ShardRef {
+	return &clustermetadatapb.ShardRef{Database: testTableGroupDB, TableGroup: "commerce", Shard: shard}
 }
 
 // expectRoutingChange registers what writeCatalog does around a writer that
@@ -139,6 +154,7 @@ func TestReconcileTableGroups_FailsACancelledCreationAndDropsIt(t *testing.T) {
 	env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
 	env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
 	env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
+	env.expectShardNames()
 	env.expect("DELETE FROM multigres.shard", nil, nil)
 	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
 	env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
@@ -266,7 +282,16 @@ func TestReconcileTableGroups_ADroppingTableGroupWaitsForTheClaim(t *testing.T) 
 	// Once released, the next pass deletes it and completes its drop operation.
 	// The listing patterns from above still answer, which is what we want.
 	require.NoError(t, env.ts.ReleaseTableGroupProvisioning(t.Context(), testTableGroupDB, testTableGroupID))
+	// The shards bootstrapped, so each has an initialization claim, keyed by
+	// name, that would stop the next tablegroup of the name bootstrapping.
+	claimer := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell1", Name: "orch"}
+	for _, shard := range []string{"0-80", "80-inf"} {
+		won, _, err := env.ts.ClaimShardInitialization(t.Context(), commerceShard(shard), claimer, nil)
+		require.NoError(t, err)
+		require.True(t, won)
+	}
 	env.expectRoutingChange()
+	env.expectShardNames("0-80", "80-inf")
 	env.expect("DELETE FROM multigres.shard", nil, nil)
 	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
 	env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
@@ -276,6 +301,12 @@ func TestReconcileTableGroups_ADroppingTableGroupWaitsForTheClaim(t *testing.T) 
 	assert.Len(t, env.queriesMatching("DELETE"), 2)
 	assert.Contains(t, env.queries, "UPDATE multigres.operation SET state = $3, last_error = NULL, updated_at = now() WHERE kind = $1 AND state = $2 AND (request->>'tablegroup_id')::bigint = $4")
 	assert.Contains(t, env.queries, advanceRoutingVersionSQL)
+	other := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell2", Name: "next"}
+	for _, shard := range []string{"0-80", "80-inf"} {
+		won, _, err := env.ts.ClaimShardInitialization(t.Context(), commerceShard(shard), other, nil)
+		require.NoError(t, err)
+		assert.True(t, won, "the initialization claim of %s is deleted after the commit", shard)
+	}
 }
 
 func TestReconcileTableGroups_ADeletedTableGroupIsLeftAlone(t *testing.T) {
@@ -285,13 +316,144 @@ func TestReconcileTableGroups_ADeletedTableGroupIsLeftAlone(t *testing.T) {
 	env.expectCreations()
 	env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
 	env.expectLock()
+	env.expectShardNames("0-inf")
 	env.expect("DELETE FROM multigres.shard", nil, nil)
 	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, nil)
+	claimer := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell1", Name: "orch"}
+	won, _, err := env.ts.ClaimShardInitialization(t.Context(), commerceShard("0-inf"), claimer, nil)
+	require.NoError(t, err)
+	require.True(t, won)
 
 	pending, err := env.pm.reconcileTableGroups(t.Context())
 	require.NoError(t, err)
 	assert.Zero(t, pending)
 	assert.Empty(t, env.queriesMatching("routing_version + 1"))
+	won, _, err = env.ts.ClaimShardInitialization(t.Context(), commerceShard("0-inf"),
+		&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell2", Name: "other"}, nil)
+	require.NoError(t, err)
+	assert.False(t, won, "a pass that deleted nothing leaves the claims alone")
+}
+
+// failingClaimDelete is a topology store whose DeleteShardInitClaim fails.
+type failingClaimDelete struct {
+	topoclient.Store
+}
+
+func (failingClaimDelete) DeleteShardInitClaim(context.Context, *clustermetadatapb.ShardRef) error {
+	return errors.New("etcd timeout")
+}
+
+func TestReconcileTableGroups_AClaimThatCannotBeDeletedKeepsTheDropPending(t *testing.T) {
+	// The claims are deleted inside the catalog write, so a failure rolls the
+	// deletion back and the next pass retries it; after a commit there would
+	// be nothing left to retry from.
+	env := newCatalogTestEnv(t)
+	env.pm.topoClient = failingClaimDelete{env.pm.topoClient}
+	env.expectCreations()
+	env.expectDroppings(droppedRow(testTableGroupID, "commerce", ""))
+	env.expectLock()
+	env.expectShardNames("0-inf")
+	env.expect("DELETE FROM multigres.shard", nil, nil)
+	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
+	env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
+	env.expect("UPDATE multigres.operation SET last_error = \\$2", nil, nil)
+	env.expect("ROLLBACK", nil, nil)
+	env.expectCommit()
+
+	pending, err := env.pm.reconcileTableGroups(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 1, pending, "the tablegroup stays dropping")
+	assert.Empty(t, env.queriesMatching("routing_version + 1"), "nothing advances")
+	assert.Len(t, env.queriesMatching("ROLLBACK"), 1, "the row deletion is rolled back")
+	assert.Len(t, env.queriesMatching("SET last_error = $2"), 1, "why is recorded on the drop operation")
+}
+
+// recordingClaimDelete is a topology store that records the shards whose
+// initialization claim is deleted.
+type recordingClaimDelete struct {
+	topoclient.Store
+	deleted *[]string
+}
+
+func (r recordingClaimDelete) DeleteShardInitClaim(ctx context.Context, ref *clustermetadatapb.ShardRef) error {
+	*r.deleted = append(*r.deleted, ref.GetShard())
+	return r.Store.DeleteShardInitClaim(ctx, ref)
+}
+
+func TestReconcileTableGroups_ADropRolledBackAfterItsClaimsAreDeletedIsRetried(t *testing.T) {
+	// Topology is outside the catalog transaction: a commit that fails after
+	// the claims are deleted rolls the rows back but not the claims. The
+	// tablegroup is left dropping without them, and the next pass, on this
+	// primary or on the one elected after it, finishes from there.
+	env := newCatalogTestEnv(t)
+	won, _, err := env.ts.ClaimShardInitialization(t.Context(), commerceShard("0-inf"),
+		&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell1", Name: "orch"}, nil)
+	require.NoError(t, err)
+	require.True(t, won)
+	var deleted []string
+	expectDrop := func(env *tableGroupTestEnv) {
+		env.pm.topoClient = recordingClaimDelete{env.ts, &deleted}
+		env.expectCreations()
+		env.expectDroppings(droppedRow(testTableGroupID, "commerce", ""))
+		env.expectRoutingChange()
+		env.expectShardNames("0-inf")
+		env.expect("DELETE FROM multigres.shard", nil, nil)
+		env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
+		env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
+	}
+	expectDrop(env)
+	env.qs.AddQueryPatternWithError("^COMMIT$", errors.New("connection lost"))
+	env.expect("ROLLBACK", nil, nil)
+	env.expect("UPDATE multigres.operation SET last_error = \\$2", nil, nil)
+
+	pending, err := env.pm.reconcileTableGroups(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 1, pending, "the tablegroup stays dropping")
+	assert.Equal(t, []string{"0-inf"}, deleted, "the claim was deleted before the commit failed")
+
+	// The retry runs against the same topology, where the claim is now gone.
+	next := newCatalogTestEnv(t)
+	next.ts = env.ts
+	expectDrop(next)
+	next.expectCommit()
+	pending, err = next.pm.reconcileTableGroups(t.Context())
+	require.NoError(t, err)
+	assert.Zero(t, pending, "a claim that is already gone does not fail the retry")
+	assert.Equal(t, []string{"0-inf", "0-inf"}, deleted)
+	assert.Len(t, next.queriesMatching("COMMIT"), 1)
+	assert.Contains(t, next.queries, advanceRoutingVersionSQL)
+}
+
+func TestReconcileTableGroups_ADropErrorIsRecordedThenCleared(t *testing.T) {
+	// A drop that cannot finish records why on its operation; once a later
+	// pass finds it merely waiting, the error is cleared.
+	env := newCatalogTestEnv(t)
+	env.expectCreations()
+	env.expectDroppings(droppedRow(testTableGroupID, "commerce", ""))
+	env.expectLock()
+	env.expectShardNames("0-inf")
+	env.qs.AddQueryPatternWithError("DELETE FROM multigres.shard", errors.New("violates foreign key constraint"))
+	env.expect("ROLLBACK", nil, nil)
+	env.expect("UPDATE multigres.operation SET last_error = \\$2", nil, nil)
+	env.expect("^COMMIT$", nil, nil)
+
+	pending, err := env.pm.reconcileTableGroups(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 1, pending)
+	assert.Len(t, env.queriesMatching("SET last_error = $2"), 1, "the failure is recorded on the drop operation")
+
+	env2 := newCatalogTestEnv(t)
+	env2.expectCreations()
+	env2.expectDroppings(droppedRow(testTableGroupID, "commerce", "violates foreign key constraint"))
+	env2.addPooler(t, "cell1", "commerce-old", "commerce", "0-inf", testTableGroupID,
+		clustermetadatapb.RoutingRole_ROUTING_ROLE_UNKNOWN, clustermetadatapb.PoolerServingStatus_DISABLED, clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN)
+	env2.expectLock()
+	env2.expect("UPDATE multigres.operation SET last_error = NULL", nil, nil)
+	env2.expectCommit()
+	pending, err = env2.pm.reconcileTableGroups(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 1, pending)
+	assert.Len(t, env2.queriesMatching("SET last_error = NULL"), 1, "a drop now only waiting has its error cleared")
 }
 
 func TestTableGroupOperationsPass_OnlyTheElectedPrimaryRuns(t *testing.T) {
@@ -487,6 +649,7 @@ func TestReconcileTableGroups_EveryStatementOfATransactionIsChecked(t *testing.T
 		env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
 		env.expectLock()
 		env.qs.AddQueryPatternWithError(failing, errors.New("lock timeout"))
+		env.expectShardNames()
 		env.expect("DELETE FROM multigres.shard", nil, nil)
 		env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
 		env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
@@ -498,6 +661,7 @@ func TestReconcileTableGroups_EveryStatementOfATransactionIsChecked(t *testing.T
 		assert.Equal(t, 1, pending, failing)
 	}
 	for _, failing := range []string{
+		"SELECT shard_name FROM multigres.shard",
 		"DELETE FROM multigres.tablegroup",
 		"UPDATE multigres.operation SET state = \\$3",
 		"UPDATE multigres.catalog_state SET routing_version",

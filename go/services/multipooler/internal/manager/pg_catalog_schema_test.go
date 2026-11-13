@@ -255,7 +255,7 @@ func TestConnectionsTable_Shape(t *testing.T) {
 
 func TestCatalogTables_IdempotentInDependencyOrder(t *testing.T) {
 	for _, stmt := range catalogTables {
-		assert.Regexp(t, `^(CREATE TABLE IF NOT EXISTS|CREATE UNIQUE INDEX IF NOT EXISTS|CREATE INDEX IF NOT EXISTS|ALTER TABLE \S+ ADD COLUMN IF NOT EXISTS) `,
+		assert.Regexp(t, `^(CREATE TABLE IF NOT EXISTS|CREATE UNIQUE INDEX IF NOT EXISTS|CREATE INDEX IF NOT EXISTS|ALTER TABLE \S+ ADD COLUMN IF NOT EXISTS|DO \$do\$ BEGIN\n\tIF to_reg(class|procedure)\('[^']+'\) IS NULL THEN)\s`,
 			stmt, "catalogTables statements must be idempotent")
 	}
 	for _, stmt := range catalogSeed {

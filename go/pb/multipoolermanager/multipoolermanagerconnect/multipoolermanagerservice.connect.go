@@ -197,9 +197,10 @@ type MultipoolerManagerClient interface {
 	// provisioner tears it down and releases its provision claim, and the
 	// completion loop deletes the catalog rows once no pooler record carrying
 	// its id and no claim for it remain in topology. A tablegroup still
-	// being created has that creation cancelled instead. The default tablegroup
-	// and tablegroups that contain tables cannot be dropped. Idempotent: a
-	// repeat while dropping returns the existing operation.
+	// being created has that creation cancelled instead. The default
+	// tablegroup, tablegroups that contain tables, and tablegroups a routing
+	// rule names as source or target cannot be dropped. Idempotent: a repeat
+	// while dropping returns the existing operation.
 	DropTableGroup(context.Context, *connect.Request[multipoolermanagerdata.DropTableGroupRequest]) (*connect.Response[multipoolermanagerdata.DropTableGroupResponse], error)
 	// ListTableGroups returns every non-default tablegroup with its shard
 	// layout: creating and active ones for the provisioner to provision,
@@ -584,9 +585,10 @@ type MultipoolerManagerHandler interface {
 	// provisioner tears it down and releases its provision claim, and the
 	// completion loop deletes the catalog rows once no pooler record carrying
 	// its id and no claim for it remain in topology. A tablegroup still
-	// being created has that creation cancelled instead. The default tablegroup
-	// and tablegroups that contain tables cannot be dropped. Idempotent: a
-	// repeat while dropping returns the existing operation.
+	// being created has that creation cancelled instead. The default
+	// tablegroup, tablegroups that contain tables, and tablegroups a routing
+	// rule names as source or target cannot be dropped. Idempotent: a repeat
+	// while dropping returns the existing operation.
 	DropTableGroup(context.Context, *connect.Request[multipoolermanagerdata.DropTableGroupRequest]) (*connect.Response[multipoolermanagerdata.DropTableGroupResponse], error)
 	// ListTableGroups returns every non-default tablegroup with its shard
 	// layout: creating and active ones for the provisioner to provision,

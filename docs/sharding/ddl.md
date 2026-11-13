@@ -80,11 +80,12 @@ special cases.
 no-op with a notice instead of an error.
 
 `DROP TABLEGROUP` defaults to `RESTRICT`, requiring the tablegroup to be
-empty. `CASCADE` drops its contained objects and recursively follows their
+empty and named by no routing rule. `CASCADE` drops its contained objects and recursively follows their
 dependencies, using PostgreSQL dependency semantics; the gateway rejects it
 with `feature_not_supported`. All applicable privilege and protected-object
 checks must pass before execution. Dropping a tablegroup that is still being
-created cancels the creation.
+created cancels the creation and, like any drop, returns once the name is
+free again.
 
 The default tablegroup is protected: it cannot be renamed, resharded, or
 dropped. It houses the metadata tables and the database catalog (MUL-1783),

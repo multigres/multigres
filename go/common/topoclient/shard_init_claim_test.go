@@ -23,6 +23,29 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 )
 
+func TestDeleteShardInitClaim(t *testing.T) {
+	shardRef := &clustermetadatapb.ShardRef{Database: "mydb", TableGroup: "tg0", Shard: "0"}
+	coord := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell1", Name: "orch-1"}
+	other := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell1", Name: "orch-2"}
+	ctx := t.Context()
+	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
+	defer ts.Close()
+
+	require.NoError(t, ts.DeleteShardInitClaim(ctx, shardRef), "deleting a claim that is not there is not an error")
+
+	won, _, err := ts.ClaimShardInitialization(ctx, shardRef, coord, nil)
+	require.NoError(t, err)
+	require.True(t, won)
+	won, _, err = ts.ClaimShardInitialization(ctx, shardRef, other, nil)
+	require.NoError(t, err)
+	require.False(t, won, "the shard is claimed")
+
+	require.NoError(t, ts.DeleteShardInitClaim(ctx, shardRef))
+	won, _, err = ts.ClaimShardInitialization(ctx, shardRef, other, nil)
+	require.NoError(t, err)
+	require.True(t, won, "a later incarnation of the shard bootstraps afresh")
+}
+
 func TestClaimShardInitialization(t *testing.T) {
 	shardRef := &clustermetadatapb.ShardRef{Database: "mydb", TableGroup: "tg0", Shard: "0"}
 	coord := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell1", Name: "orch-1"}
