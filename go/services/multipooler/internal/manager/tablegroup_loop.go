@@ -404,7 +404,21 @@ func (pm *MultipoolerManager) tableGroupClaimHeld(ctx context.Context, id int64)
 // from bootstrapping. Deleting the claims inside the write makes them part of
 // the retry: a claim that cannot be deleted rolls the write back, the
 // tablegroup stays dropping, and the next pass tries again. Doing it after
-// the commit would leave nothing to retry from once the rows are gone. Until
+// the commit would leave nothing to retry from once the rows are gone.
+//
+// Topology is not part of the transaction, so a write that fails after the
+// claims are deleted (the snapshot check, the version advance, the commit, or
+// a later shard's claim) rolls the rows back and leaves the tablegroup
+// dropping with claims missing. That state is safe to stay in and to retry
+// from, on this primary or on the next one after a failover. Dropping never
+// goes back to active, so each deleted claim is one this drop was going to
+// delete anyway. Nothing is left to bootstrap under the name: the loop gets
+// here only once no pooler carries the id and the provisioner has released
+// its claim, and the dropping row stops a new tablegroup taking the name.
+// Deleting a claim that is already gone is not an error, so the retry runs
+// the same statements and goes through.
+//
+// Until
 // the commit the dropping row keeps the name from being reused, so no claim
 // deleted here can belong to a newer tablegroup of the name; the residual case
 // is a former primary that still passes writeCatalog's primary check while the

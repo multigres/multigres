@@ -368,6 +368,62 @@ func TestReconcileTableGroups_AClaimThatCannotBeDeletedKeepsTheDropPending(t *te
 	assert.Len(t, env.queriesMatching("SET last_error = $2"), 1, "why is recorded on the drop operation")
 }
 
+// recordingClaimDelete is a topology store that records the shards whose
+// initialization claim is deleted.
+type recordingClaimDelete struct {
+	topoclient.Store
+	deleted *[]string
+}
+
+func (r recordingClaimDelete) DeleteShardInitClaim(ctx context.Context, ref *clustermetadatapb.ShardRef) error {
+	*r.deleted = append(*r.deleted, ref.GetShard())
+	return r.Store.DeleteShardInitClaim(ctx, ref)
+}
+
+func TestReconcileTableGroups_ADropRolledBackAfterItsClaimsAreDeletedIsRetried(t *testing.T) {
+	// Topology is outside the catalog transaction: a commit that fails after
+	// the claims are deleted rolls the rows back but not the claims. The
+	// tablegroup is left dropping without them, and the next pass, on this
+	// primary or on the one elected after it, finishes from there.
+	env := newCatalogTestEnv(t)
+	won, _, err := env.ts.ClaimShardInitialization(t.Context(), commerceShard("0-inf"),
+		&clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell1", Name: "orch"}, nil)
+	require.NoError(t, err)
+	require.True(t, won)
+	var deleted []string
+	expectDrop := func(env *tableGroupTestEnv) {
+		env.pm.topoClient = recordingClaimDelete{env.ts, &deleted}
+		env.expectCreations()
+		env.expectDroppings(droppedRow(testTableGroupID, "commerce", ""))
+		env.expectRoutingChange()
+		env.expectShardNames("0-inf")
+		env.expect("DELETE FROM multigres.shard", nil, nil)
+		env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
+		env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
+	}
+	expectDrop(env)
+	env.qs.AddQueryPatternWithError("^COMMIT$", errors.New("connection lost"))
+	env.expect("ROLLBACK", nil, nil)
+	env.expect("UPDATE multigres.operation SET last_error = \\$2", nil, nil)
+
+	pending, err := env.pm.reconcileTableGroups(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 1, pending, "the tablegroup stays dropping")
+	assert.Equal(t, []string{"0-inf"}, deleted, "the claim was deleted before the commit failed")
+
+	// The retry runs against the same topology, where the claim is now gone.
+	next := newCatalogTestEnv(t)
+	next.ts = env.ts
+	expectDrop(next)
+	next.expectCommit()
+	pending, err = next.pm.reconcileTableGroups(t.Context())
+	require.NoError(t, err)
+	assert.Zero(t, pending, "a claim that is already gone does not fail the retry")
+	assert.Equal(t, []string{"0-inf", "0-inf"}, deleted)
+	assert.Len(t, next.queriesMatching("COMMIT"), 1)
+	assert.Contains(t, next.queries, advanceRoutingVersionSQL)
+}
+
 func TestReconcileTableGroups_ADropErrorIsRecordedThenCleared(t *testing.T) {
 	// A drop that cannot finish records why on its operation; once a later
 	// pass finds it merely waiting, the error is cleared.

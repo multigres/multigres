@@ -253,7 +253,13 @@ commits, it deletes each shard's initialization claim from topology, which is
 keyed by name and would otherwise stop the next tablegroup of that name from
 bootstrapping. A claim that cannot be deleted rolls the write back, so the next
 pass retries it; until the commit the `dropping` row keeps the name from being
-reused, so no newer tablegroup's claim can be deleted. The first statement is a
+reused, so no newer tablegroup's claim can be deleted. Topology is not part of
+the transaction, so a write that fails after deleting claims leaves the
+tablegroup `dropping` with claims missing. That is safe to stay in and to retry
+from, on this primary or the next: `dropping` never goes back to `active`,
+nothing is left to bootstrap under the name once no pooler carries the id and
+the provision claim is released, and deleting a claim that is already gone is
+not an error. The first statement is a
 compare-and-set on the operation's or tablegroup's state, so a repeated or
 concurrent completion finds nothing to do and advances nothing. Recording or
 clearing a transient `last_error` goes through the same path and, touching
