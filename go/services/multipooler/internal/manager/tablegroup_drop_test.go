@@ -35,11 +35,18 @@ func (env *tableGroupTestEnv) dropLookup(rows ...[]any) {
 	env.expect("FROM multigres.tablegroup WHERE name = \\$1 FOR UPDATE", []string{"tablegroup_id", "state"}, rows)
 }
 
+// expectDropCounts answers the two checks DropTableGroup makes of an active
+// tablegroup: how many tables it contains and how many routing rules name it.
+func (env *tableGroupTestEnv) expectDropCounts(tables, rules int64) {
+	env.expect("SELECT count\\(\\*\\) FROM multigres.tablegroup_table", []string{"count"}, [][]any{{tables}})
+	env.expect("SELECT count\\(\\*\\) FROM multigres.routing_rule", []string{"count"}, [][]any{{rules}})
+}
+
 func TestDropTableGroup_ActiveRecordsADrop(t *testing.T) {
 	env := newCatalogTestEnv(t)
 	env.expectLock()
 	env.dropLookup([]any{testTableGroupID, tableGroupStateActive})
-	env.expect("SELECT count\\(\\*\\) FROM multigres.tablegroup_table", []string{"count"}, [][]any{{int64(0)}})
+	env.expectDropCounts(0, 0)
 	env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
 	env.expect("INSERT INTO multigres.operation", nil, nil)
 	env.expectCatalogRows()
@@ -61,6 +68,7 @@ func TestDropTableGroup_ActiveRecordsADrop(t *testing.T) {
 		"SELECT routing_version, plan_epoch FROM multigres.catalog_state FOR UPDATE",
 		"SELECT tablegroup_id, state FROM multigres.tablegroup WHERE name = $1 FOR UPDATE",
 		"SELECT count(*) FROM multigres.tablegroup_table WHERE tablegroup_id = $1",
+		"SELECT count(*) FROM multigres.routing_rule WHERE from_tablegroup_id = $1 OR to_tablegroup_id = $1",
 		"UPDATE multigres.tablegroup SET state = $2 WHERE tablegroup_id = $1 AND state = $3",
 		"INSERT INTO multigres.operation (operation_id, kind, state, request) VALUES ($1, $2, $3, $4::jsonb)",
 		snapshotTableGroupsQuery, snapshotShardsQuery, snapshotTablesQuery,
@@ -70,17 +78,33 @@ func TestDropTableGroup_ActiveRecordsADrop(t *testing.T) {
 	}, env.queries)
 }
 
-func TestDropTableGroup_ActiveWithTablesIsRefused(t *testing.T) {
-	env := newCatalogTestEnv(t)
-	env.expectLock()
-	env.dropLookup([]any{testTableGroupID, tableGroupStateActive})
-	env.expect("SELECT count\\(\\*\\) FROM multigres.tablegroup_table", []string{"count"}, [][]any{{int64(3)}})
+func TestDropTableGroup_ActiveInUseIsRefused(t *testing.T) {
+	// A tablegroup holding tables, or one a routing rule still sends traffic
+	// from or to, stays active: dropping it would tear down shards in use, and
+	// the rows referencing it would keep the drop from ever finishing.
+	cases := []struct {
+		name          string
+		tables, rules int64
+		contains      string
+	}{
+		{"with tables", 3, 0, "contains 3 table(s)"},
+		{"named by routing rules", 0, 2, "is the source or target of 2 routing rule(s)"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			env := newCatalogTestEnv(t)
+			env.expectLock()
+			env.dropLookup([]any{testTableGroupID, tableGroupStateActive})
+			env.expectDropCounts(c.tables, c.rules)
 
-	_, err := env.pm.DropTableGroup(t.Context(), &multipoolermanagerdatapb.DropTableGroupRequest{Name: "commerce"})
-	require.Error(t, err)
-	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
-	assert.Contains(t, err.Error(), "contains 3 table(s)")
-	assert.Empty(t, env.queriesMatching("UPDATE multigres"), "nothing is changed")
+			_, err := env.pm.DropTableGroup(t.Context(), &multipoolermanagerdatapb.DropTableGroupRequest{Name: "commerce"})
+			require.Error(t, err)
+			assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+			assert.Contains(t, err.Error(), c.contains)
+			assert.Empty(t, env.queriesMatching("UPDATE multigres"), "nothing is changed")
+			assert.Empty(t, env.queriesMatching("COMMIT"), "nothing is committed")
+		})
+	}
 }
 
 func TestDropTableGroup_CreatingCancelsTheCreation(t *testing.T) {
@@ -269,7 +293,8 @@ func TestDropTableGroup_EveryStatementIsChecked(t *testing.T) {
 		name, state, failing string
 	}{
 		{"lookup", tableGroupStateActive, "FROM multigres.tablegroup WHERE name"},
-		{"table count", tableGroupStateActive, "SELECT count"},
+		{"table count", tableGroupStateActive, "FROM multigres.tablegroup_table"},
+		{"routing rule count", tableGroupStateActive, "FROM multigres.routing_rule"},
 		{"marking dropping", tableGroupStateActive, "UPDATE multigres.tablegroup SET state"},
 		{"recording the drop", tableGroupStateActive, "INSERT INTO multigres.operation"},
 		{"cancelling the creation", tableGroupStateCreating, "SET cancel_requested = true"},
@@ -281,7 +306,7 @@ func TestDropTableGroup_EveryStatementIsChecked(t *testing.T) {
 			env.expectLock()
 			env.qs.AddQueryPatternWithError(c.failing, errors.New("lock timeout"))
 			env.dropLookup([]any{testTableGroupID, c.state})
-			env.expect("SELECT count\\(\\*\\) FROM multigres.tablegroup_table", []string{"count"}, [][]any{{int64(0)}})
+			env.expectDropCounts(0, 0)
 			env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
 			env.expect("INSERT INTO multigres.operation", nil, nil)
 			_, err := env.pm.DropTableGroup(t.Context(), &multipoolermanagerdatapb.DropTableGroupRequest{Name: "commerce"})

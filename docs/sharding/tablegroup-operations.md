@@ -194,8 +194,13 @@ Idempotency on the name:
 | `active`     | `ALREADY_EXISTS`, or `already_exists` with `if_not_exists`                                       | new drop operation                           |
 | `dropping`   | `FAILED_PRECONDITION`                                                                            | the existing drop operation                  |
 
-`DropTableGroup` also refuses the default tablegroup, and any tablegroup that
-contains tables, with `FAILED_PRECONDITION`.
+`DropTableGroup` also refuses the default tablegroup, any tablegroup that
+contains tables, and any tablegroup a routing rule names as its source or
+target, with `FAILED_PRECONDITION`. A rule means an operation still sends
+traffic from or to the tablegroup, and its foreign keys would keep the rows
+from being deleted; the rule's owner removes it first (`DeleteRoutingRules`).
+Rule writes take the same `catalog_state` lock and refuse a dropping
+tablegroup, so no rule can appear after the drop is recorded.
 
 The default tablegroup is seeded `active` at catalog creation, so creating it
 is `ALREADY_EXISTS` like any other active tablegroup.

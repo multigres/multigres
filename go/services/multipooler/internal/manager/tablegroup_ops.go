@@ -519,7 +519,9 @@ func (op operationRow) toProto() *multipoolermanagerdatapb.Operation {
 // created has its creation cancelled instead, and the caller follows that
 // operation. A dropping tablegroup returns its drop operation, recording one
 // if it has none, which is the case after a failed creation. With tablegroup_id
-// set, a tablegroup of the name under another id counts as missing.
+// set, a tablegroup of the name under another id counts as missing. An active
+// tablegroup is refused while it contains tables or a routing rule names it
+// as source or target.
 func (pm *MultipoolerManager) DropTableGroup(ctx context.Context, req *multipoolermanagerdatapb.DropTableGroupRequest) (*multipoolermanagerdatapb.DropTableGroupResponse, error) {
 	if err := pm.checkReady(); err != nil {
 		return nil, err
@@ -615,6 +617,29 @@ func dropTableGroupTx(ctx context.Context, tx executor.InternalTx, req *multipoo
 		}
 		if tables > 0 {
 			return nil, catalogNoSnapshotChange, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "tablegroup %q contains %d table(s)", req.GetName(), tables)
+		}
+		// A routing rule sends traffic from or to the tablegroup for as long
+		// as its operation has it. Dropping under one would tear down shards
+		// that traffic is still routed to, and the rule's foreign keys would
+		// then keep the rows from ever being deleted. Whoever owns the rules
+		// removes them first (DeleteRoutingRules). Rule writes hold the same
+		// catalog_state lock and refuse a dropping tablegroup
+		// (checkNewRules), so none can appear once this commits. A tablegroup
+		// that becomes dropping from creating is not checked here: until its
+		// creation finishes, only that creation could write a rule on it, and
+		// a creation writes none.
+		res, err = tx.QueryArgs(ctx,
+			"SELECT count(*) FROM multigres.routing_rule WHERE from_tablegroup_id = $1 OR to_tablegroup_id = $1", id)
+		if err != nil {
+			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to count the tablegroup's routing rules")
+		}
+		var rules int64
+		if err := executor.ScanSingleRow(res, &rules); err != nil {
+			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to read the tablegroup's routing rule count")
+		}
+		if rules > 0 {
+			return nil, catalogNoSnapshotChange, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+				"tablegroup %q is the source or target of %d routing rule(s)", req.GetName(), rules)
 		}
 		if _, err := tx.QueryArgs(ctx,
 			"UPDATE multigres.tablegroup SET state = $2 WHERE tablegroup_id = $1 AND state = $3",

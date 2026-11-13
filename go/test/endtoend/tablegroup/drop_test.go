@@ -81,6 +81,22 @@ func TestTableGroupDrop(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("a tablegroup a routing rule names cannot be dropped", func(t *testing.T) {
+		// A rule from the tablegroup to its own shard is not one the rule API
+		// writes, but it names the tablegroup as source and target without
+		// sending anyone's traffic elsewhere.
+		_, err := primary.Pooler.ExecuteQuery(ctx, fmt.Sprintf(
+			"INSERT INTO multigres.routing_rule (operation_id, scope, from_tablegroup_id, to_tablegroup_id, to_shard_id, created_version) "+
+				"SELECT '%s', 'tablegroup', tablegroup_id, tablegroup_id, shard_id, 0 FROM multigres.shard WHERE tablegroup_id = %d",
+			created.GetOperationId(), tg.GetTablegroupId()), 1)
+		require.NoError(t, err)
+		_, err = manager.DropTableGroup(ctx, &multipoolermanagerdatapb.DropTableGroupRequest{Name: "commerce"})
+		requireCode(t, err, codes.FailedPrecondition)
+		assert.ErrorContains(t, err, "routing rule")
+		_, err = primary.Pooler.ExecuteQuery(ctx, fmt.Sprintf("DELETE FROM multigres.routing_rule WHERE to_tablegroup_id = %d", tg.GetTablegroupId()), 1)
+		require.NoError(t, err)
+	})
+
 	var dropOp string
 	t.Run("dropping an active tablegroup records the intent", func(t *testing.T) {
 		resp, err := manager.DropTableGroup(ctx, &multipoolermanagerdatapb.DropTableGroupRequest{Name: "commerce"})

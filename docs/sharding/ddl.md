@@ -80,7 +80,7 @@ special cases.
 no-op with a notice instead of an error.
 
 `DROP TABLEGROUP` defaults to `RESTRICT`, requiring the tablegroup to be
-empty. `CASCADE` drops its contained objects and recursively follows their
+empty and named by no routing rule. `CASCADE` drops its contained objects and recursively follows their
 dependencies, using PostgreSQL dependency semantics; the gateway rejects it
 with `feature_not_supported`. All applicable privilege and protected-object
 checks must pass before execution. Dropping a tablegroup that is still being

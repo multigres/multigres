@@ -170,9 +170,10 @@ service MultipoolerManager {
   // provisioner tears it down and releases its provision claim, and the
   // completion loop deletes the catalog rows once no pooler record carrying
   // its id and no claim for it remain in topology. A tablegroup still
-  // being created has that creation cancelled instead. The default tablegroup
-  // and tablegroups that contain tables cannot be dropped. Idempotent: a
-  // repeat while dropping returns the existing operation.
+  // being created has that creation cancelled instead. The default
+  // tablegroup, tablegroups that contain tables, and tablegroups a routing
+  // rule names as source or target cannot be dropped. Idempotent: a repeat
+  // while dropping returns the existing operation.
   rpc DropTableGroup(multipoolermanagerdata.DropTableGroupRequest)
       returns (multipoolermanagerdata.DropTableGroupResponse);
 
