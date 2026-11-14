@@ -2902,13 +2902,11 @@ func (x *StreamPoolerHealthResponse) GetPlanEpoch() int64 {
 // BackingConnection is the configuration of an external PostgreSQL. It names one
 // server: the pooler's admin and application connections must reach the same one.
 //
-// The catalog stores a connection as a libpq connection string, in either form: a
-// postgres:// URI or space-separated keyword=value pairs. The default primary decodes
-// both the same way. The string must give host, port, dbname and user explicitly, and
-// carries only those, the password and the TLS settings below: it is refused, not
-// trimmed, if it sets any other parameter (for example sslcert, sslkey,
-// channel_binding or options), names more than one server, or leaves one of the four
-// out. Nothing is read from the environment or a password file.
+// The default primary serves a stored connection as it is (ForPooler has accepted
+// it). A connection must give host, port, dbname and user, and carries only those,
+// the password and the TLS settings below: any other parameter, or more than one
+// server, is refused, not trimmed. Nothing is read from the environment or a
+// password file.
 type BackingConnection struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// name identifies the connection within a database.
@@ -2923,7 +2921,9 @@ type BackingConnection struct {
 	Database string `protobuf:"bytes,4,opt,name=database,proto3" json:"database,omitempty"`
 	// user is the role the pooler connects as.
 	User string `protobuf:"bytes,5,opt,name=user,proto3" json:"user,omitempty"`
-	// password is the credential of user. It is never logged.
+	// password is the credential of user. The generated String() of this message
+	// includes it, so a caller must not log the message: log a backingconn.Conn,
+	// which redacts it.
 	Password string `protobuf:"bytes,6,opt,name=password,proto3" json:"password,omitempty"`
 	// ssl_mode, ssl_root_cert and ssl_negotiation are the TLS settings of the
 	// connection; empty keeps the pooler's configured default.

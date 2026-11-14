@@ -15,36 +15,50 @@
 package manager
 
 import (
+	"encoding/json"
 	"errors"
-	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
 
-	"github.com/multigres/multigres/go/common/backingconn/backingconntest"
+	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	multipoolerservicepb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
-	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
-// connectionRow is the row of multigres.connections that the migrator's store reads.
+// connectionRow is the row of multigres.connections that the migrator's store reads, for the
+// connection a libpq string names (completed, as CREATE CONNECTION stores it).
 func connectionRow(name, dsn string) *sqltypes.Result {
+	conn, err := backingconn.ParseDSN(dsn)
+	if err != nil {
+		panic(err)
+	}
+	conn.Complete()
+	data, err := json.Marshal(conn)
+	if err != nil {
+		panic(err)
+	}
+	return connectionRowWithConnInfo(name, dsn, string(data))
+}
+
+// connectionRowWithConnInfo is a row whose conninfo column holds the given JSON.
+func connectionRowWithConnInfo(name, dsn, conninfo string) *sqltypes.Result {
 	return mock.MakeQueryResult(
-		[]string{"connection_id", "name", "dsn", "owner_role", "created_at"},
-		[][]any{{int64(1), name, dsn, "", "2026-01-01T00:00:00Z"}})
+		[]string{"connection_id", "name", "dsn", "owner_role", "created_at", "conninfo"},
+		[][]any{{int64(1), name, dsn, "", "2026-01-01T00:00:00Z", conninfo}})
 }
 
 // TestBackingConnectionIsReadFromTheCatalog: the connection is a row of multigres.connections,
-// read with one query, and the dsn column decodes into the structured connection.
+// read with one query, and its conninfo is the connection.
 func TestBackingConnectionIsReadFromTheCatalog(t *testing.T) {
 	t.Run("found", func(t *testing.T) {
 		pm, qs := newTestManagerWithMock(t, constants.DefaultTableGroup, "0-inf")
-		qs.AddQueryPattern("FROM multigres.connections WHERE name", connectionRow("src", "postgres://u@h:5432/db"))
+		qs.AddQueryPattern("FROM multigres.connections WHERE name", connectionRow("src", "postgres://u:p@h:5432/db"))
 		conn, found, err := newConnectionStore(pm).BackingConnection(t.Context(), "src")
 		require.NoError(t, err)
 		require.True(t, found)
@@ -92,147 +106,64 @@ func TestBackingConnectionIsReadFromTheCatalog(t *testing.T) {
 		require.False(t, found)
 		require.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "%v", err)
 	})
-	t.Run("a keyword=value dsn the migrator wrote is servable as it is", func(t *testing.T) {
-		const dsn = "host=db.example.com port=5432 dbname=app user=repl password='p w'"
+	t.Run("a connection that does not name one server is refused with its code, naming the connection", func(t *testing.T) {
 		pm, qs := newTestManagerWithMock(t, constants.DefaultTableGroup, "0-inf")
-		qs.AddQueryPattern("FROM multigres.connections", connectionRow("src", dsn))
-		conn, found, err := newConnectionStore(pm).BackingConnection(t.Context(), "src")
-		require.NoError(t, err)
-		require.True(t, found)
-		require.Equal(t, []string{"db.example.com"}, conn.GetHosts())
-		require.Equal(t, "repl", conn.GetUser())
-		require.Equal(t, "p w", conn.GetPassword())
-	})
-	t.Run("a dsn that does not name one server is refused with its code, naming the connection", func(t *testing.T) {
-		pm, qs := newTestManagerWithMock(t, constants.DefaultTableGroup, "0-inf")
-		qs.AddQueryPattern("FROM multigres.connections", connectionRow("src", "host=h1,h2 port=5432 dbname=app user=u"))
+		qs.AddQueryPattern("FROM multigres.connections", connectionRow("src", "host=h1,h2 port=5432 dbname=app user=u password=p"))
 		_, _, err := newConnectionStore(pm).BackingConnection(t.Context(), "src")
 		require.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err), "%v", err)
 		require.ErrorContains(t, err, `connection "src"`)
 	})
 }
 
-// dsnCase is one connection described in both forms of a libpq connection string. Every case
-// must be accepted or refused identically in each: the stored form is a choice of whoever
-// wrote the connection, not a different contract.
-type dsnCase struct {
-	name string
-	uri  string
-	kv   string
-	// refused is a fragment of the error, or empty when the connection is accepted.
-	refused string
-}
+// A connection is served from its stored conninfo, and only the conninfo: the dsn column is not read.
+func TestBackingConnectionIsServedFromTheStoredConnInfo(t *testing.T) {
+	read := func(t *testing.T, row *sqltypes.Result) (*multipoolerservicepb.BackingConnection, error) {
+		pm, qs := newTestManagerWithMock(t, constants.DefaultTableGroup, "0-inf")
+		qs.AddQueryPattern("FROM multigres.connections", row)
+		conn, found, err := newConnectionStore(pm).BackingConnection(t.Context(), "src")
+		if err == nil {
+			require.True(t, found)
+		}
+		return conn, err
+	}
+	bound := func(dsn, conninfo string) *sqltypes.Result {
+		return connectionRowWithConnInfo("src", dsn, conninfo)
+	}
 
-var dsnCases = []dsnCase{
-	{
-		name: "every parameter",
-		uri:  "postgres://alice:s3cret@db.example.com:6543/app?sslmode=verify-full&sslrootcert=/ca.pem&sslnegotiation=direct",
-		kv:   "host=db.example.com port=6543 dbname=app user=alice password=s3cret sslmode=verify-full sslrootcert=/ca.pem sslnegotiation=direct",
-	},
-	{
-		name: "no password, no TLS settings",
-		uri:  "postgresql://alice@db.example.com:5432/app",
-		kv:   "host=db.example.com port=5432 dbname=app user=alice",
-	},
-	{
-		name: "quoting and escapes",
-		uri:  "postgres://al%40ice:p%20w%27d@db.example.com:5432/app",
-		kv:   `host=db.example.com port=5432 dbname=app user=al@ice password='p w\'d'`,
-	},
-	{
-		name: "ipv6 host",
-		uri:  "postgres://alice@[2001:db8::1]:5432/app",
-		kv:   "host=2001:db8::1 port=5432 dbname=app user=alice",
-	},
-
-	{name: "no host", uri: "postgres://alice@:5432/app", kv: "port=5432 dbname=app user=alice", refused: "host is required"},
-	{name: "no port", uri: "postgres://alice@h/app", kv: "host=h dbname=app user=alice", refused: "port is required"},
-	{name: "no dbname", uri: "postgres://alice@h:5432", kv: "host=h port=5432 user=alice", refused: "database is required"},
-	{name: "no user", uri: "postgres://h:5432/app", kv: "host=h port=5432 dbname=app", refused: "user is required"},
-	{name: "a host list", uri: "postgres://alice@h1:5432,h2:5432/app", kv: "host=h1,h2 port=5432 dbname=app user=alice", refused: "more than one server"},
-	{name: "a port list", uri: "postgres://alice@h:5432,5433/app", kv: "host=h port=5432,5433 dbname=app user=alice", refused: "port"},
-	{name: "a bad port", uri: "postgres://alice@h:notaport/app", kv: "host=h port=notaport dbname=app user=alice", refused: "port"},
-	{name: "a socket directory", uri: "postgres://alice@:5432/app?host=%2Fvar%2Frun%2Fpostgresql", kv: "host=/var/run/postgresql port=5432 dbname=app user=alice", refused: "socket"},
-	{name: "hostaddr", uri: "postgres://alice@h:5432/app?hostaddr=10.0.0.1", kv: "host=h hostaddr=10.0.0.1 port=5432 dbname=app user=alice", refused: "hostaddr"},
-	{name: "target_session_attrs", uri: "postgres://alice@h:5432/app?target_session_attrs=read-write", kv: "host=h port=5432 dbname=app user=alice target_session_attrs=read-write", refused: "target_session_attrs"},
-	{name: "load_balance_hosts", uri: "postgres://alice@h:5432/app?load_balance_hosts=random", kv: "host=h port=5432 dbname=app user=alice load_balance_hosts=random", refused: "load_balance_hosts"},
-	// A parameter that is not carried is refused, not dropped: dropping it would weaken the
-	// connection or change how it authenticates.
-	{name: "channel_binding", uri: "postgres://alice@h:5432/app?channel_binding=require", kv: "host=h port=5432 dbname=app user=alice channel_binding=require", refused: "channel_binding"},
-	{name: "sslcert", uri: "postgres://alice@h:5432/app?sslcert=/c.pem", kv: "host=h port=5432 dbname=app user=alice sslcert=/c.pem", refused: "sslcert"},
-	{name: "sslkey", uri: "postgres://alice@h:5432/app?sslkey=/k.pem", kv: "host=h port=5432 dbname=app user=alice sslkey=/k.pem", refused: "sslkey"},
-	{name: "options", uri: "postgres://alice@h:5432/app?options=-c%20role%3Dx", kv: "host=h port=5432 dbname=app user=alice options='-c role=x'", refused: "options"},
-	{name: "application_name", uri: "postgres://alice@h:5432/app?application_name=x", kv: "host=h port=5432 dbname=app user=alice application_name=x", refused: "application_name"},
-	{name: "a parameter twice", uri: "postgres://alice@h:5432/app?sslmode=require&sslmode=disable", kv: "host=h port=5432 dbname=app user=alice sslmode=require sslmode=disable", refused: "more than once"},
-	{name: "a parameter in upper case", uri: "postgres://alice@h:5432/app?SSLMODE=disable", kv: "host=h port=5432 dbname=app user=alice SSLMODE=disable", refused: "not supported"},
-	{name: "a parameter without a value", uri: "postgres://alice@h:5432/app?sslmode", kv: "host=h port=5432 dbname=app user=alice sslmode", refused: `no "="`},
-	{name: "a fragment in a URI", uri: "postgres://alice@h:5432/app#1?sslmode=verify-full", kv: "", refused: "'#'"},
-	{name: "a word after the password", uri: "", kv: "host=h port=5432 dbname=app user=alice password=hunter2 morepw", refused: `no "="`},
-	{name: "a URI parameter that repeats the authority", uri: "postgres://alice@h:5432/app?user=bob", kv: "", refused: "both in the URI and as a query parameter"},
-	{name: "nothing", uri: "", kv: "", refused: "neither"},
-}
-
-func TestParseBackingDSN(t *testing.T) {
-	for _, tc := range dsnCases {
-		for _, form := range []struct{ name, dsn string }{{"uri", tc.uri}, {"keyword", tc.kv}} {
-			if form.dsn == "" && tc.name != "nothing" {
-				continue // a case that only exists in the other form
-			}
-			t.Run(tc.name+"/"+form.name, func(t *testing.T) {
-				got, err := parseBackingDSN(form.dsn)
-				if tc.refused != "" {
-					require.Error(t, err)
-					require.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err), "%v", err)
-					require.ErrorContains(t, err, tc.refused)
-					// No value of the dsn, which holds the password, is in the message.
-					require.NotContains(t, err.Error(), "s3cret")
-					require.NotContains(t, err.Error(), "hunter2")
-					return
-				}
-				require.NoError(t, err)
-				require.Len(t, got.GetHosts(), 1)
-				require.Len(t, got.GetPorts(), 1)
-				require.NotEmpty(t, got.GetDatabase())
-				require.NotEmpty(t, got.GetUser())
+	t.Run("a conninfo", func(t *testing.T) {
+		// The dsn column is not even a connection string: only the conninfo is read.
+		conn, err := read(t, bound("not a dsn",
+			`{"host":["db.example.com"],"port":[6543],"dbname":"app","user":"alice","password":"pw","sslmode":"verify-full","sslrootcert":"/ca.pem"}`))
+		require.NoError(t, err)
+		require.Equal(t, "src", conn.GetName())
+		require.Equal(t, []string{"db.example.com"}, conn.GetHosts())
+		require.Equal(t, []int32{6543}, conn.GetPorts())
+		require.Equal(t, "alice", conn.GetUser())
+		require.Equal(t, "pw", conn.GetPassword())
+		require.Equal(t, "verify-full", conn.GetSslMode())
+		require.Equal(t, "/ca.pem", conn.GetSslRootCert())
+	})
+	t.Run("a connection that is not valid is refused", func(t *testing.T) {
+		_, err := read(t, bound("host=h", `{"host":["h"],"port":[5432],"dbname":"app","user":"u","sslmode":"prefer"}`))
+		require.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err), "%v", err)
+	})
+	t.Run("a connection a pooler cannot front is refused by the rules of the pooler", func(t *testing.T) {
+		for name, conninfo := range map[string]string{
+			"a parameter it does not carry": `{"host":["h"],"port":[5432],"dbname":"app","user":"u","password":"p","sslmode":"prefer","params":{"application_name":"x"}}`,
+			"more than one server":          `{"host":["a","b"],"port":[5432],"dbname":"app","user":"u","password":"p","sslmode":"prefer"}`,
+		} {
+			t.Run(name, func(t *testing.T) {
+				_, err := read(t, bound("host=h", conninfo))
+				require.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err), "%v", err)
+				require.ErrorContains(t, err, `connection "src"`)
 			})
 		}
-	}
-
-	// Both forms of an accepted case decode to the same connection.
-	for _, tc := range dsnCases {
-		if tc.refused != "" {
-			continue
-		}
-		fromURI, err := parseBackingDSN(tc.uri)
-		require.NoError(t, err, tc.name)
-		fromKV, err := parseBackingDSN(tc.kv)
-		require.NoError(t, err, tc.name)
-		require.True(t, proto.Equal(fromURI, fromKV), "%s: %v != %v", tc.name, fromURI, fromKV)
-	}
-
-	got, err := parseBackingDSN("postgres://alice:s3cret@db.example.com:6543/app?sslmode=verify-full&sslrootcert=/ca.pem&sslnegotiation=direct")
-	require.NoError(t, err)
-	require.Equal(t, []string{"db.example.com"}, got.GetHosts())
-	require.Equal(t, []int32{6543}, got.GetPorts())
-	require.Equal(t, "app", got.GetDatabase())
-	require.Equal(t, "alice", got.GetUser())
-	require.Equal(t, "s3cret", got.GetPassword())
-	require.Equal(t, "verify-full", got.GetSslMode())
-	require.Equal(t, "/ca.pem", got.GetSslRootCert())
-	require.Equal(t, "direct", got.GetSslNegotiation())
-}
-
-// TestParseBackingDSNIgnoresTheEnvironment: the keyword form is read as the catalog stores
-// it. A parameter the string leaves out is not filled from PG* variables or a password file.
-func TestParseBackingDSNIgnoresTheEnvironment(t *testing.T) {
-	t.Setenv("PGHOST", "elsewhere.example.com")
-	t.Setenv("PGPORT", "6000")
-	t.Setenv("PGUSER", "someone")
-	t.Setenv("PGDATABASE", "other")
-	_, err := parseBackingDSN("host=h dbname=app user=alice")
-	require.ErrorContains(t, err, "port is required")
-	_, err = parseBackingDSN("host=h port=5432 dbname=app")
-	require.ErrorContains(t, err, "user is required")
+	})
+	t.Run("a conninfo this version cannot read is refused, never read as less", func(t *testing.T) {
+		_, err := read(t, bound("host=h port=5432 dbname=app user=u", `{"host":["h"],"password":"s3cr3t","future":true}`))
+		require.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err), "%v", err)
+		require.NotContains(t, err.Error(), "s3cr3t")
+	})
 }
 
 // TestTheCatalogIsTheDefaultDirectory: a manager with no directory of its own reads
@@ -240,26 +171,4 @@ func TestParseBackingDSNIgnoresTheEnvironment(t *testing.T) {
 func TestTheCatalogIsTheDefaultDirectory(t *testing.T) {
 	pm, _ := newTestManagerWithMock(t, constants.DefaultTableGroup, "0-inf")
 	require.IsType(t, &connectionStore{}, pm.connections())
-}
-
-// TestTheCatalogRefusesWhatThePoolerRefuses: the default primary refuses a connection exactly
-// when the pooler that would receive it does, by the same cases the pooler is tested against
-// (backingconntest), so that a connection the catalog serves is never one the pooler retries
-// and refuses.
-func TestTheCatalogRefusesWhatThePoolerRefuses(t *testing.T) {
-	for _, tc := range backingconntest.Cases() {
-		t.Run(tc.Name, func(t *testing.T) {
-			kv := "host=" + pgutil.QuoteConnInfoValue(tc.Host) + " port=" + strconv.Itoa(tc.Port) +
-				" dbname=" + pgutil.QuoteConnInfoValue(tc.Database) + " user=" + pgutil.QuoteConnInfoValue(tc.User)
-			conn, err := parseBackingDSN(kv)
-			if tc.Refused == "" {
-				require.NoError(t, err)
-				require.Equal(t, []string{tc.Host}, conn.GetHosts())
-				return
-			}
-			require.Error(t, err)
-			require.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err), "%v", err)
-			require.ErrorContains(t, err, tc.Refused)
-		})
-	}
 }

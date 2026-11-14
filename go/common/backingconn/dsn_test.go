@@ -32,29 +32,28 @@ type refusedDSN struct {
 	secrets []string
 }
 
-// libpqRefusals are connection strings libpq itself refuses, or reads differently from a lenient
-// parser: the cases of the review of the first version of this parser.
+// libpqRefusals are strings libpq refuses or reads differently from a lenient parser.
 var libpqRefusals = []refusedDSN{
 	// Parameter names are exactly libpq's, in lower case, in both forms.
 	{
 		name:   "keyword: a name in upper case is not folded onto the real one",
 		dsn:    "host=good.example.com HOST=evil.example.com port=5432 dbname=app user=alice",
-		reason: "not supported",
+		reason: "unrecognized",
 	},
 	{
 		name:   "keyword: a name in mixed case",
 		dsn:    "host=h port=5432 dbname=app user=alice SslMode=disable",
-		reason: "not supported",
+		reason: "unrecognized",
 	},
 	{
 		name:   "uri: a query parameter in upper case",
 		dsn:    "postgres://alice@h:5432/app?SSLMODE=disable",
-		reason: "not supported",
+		reason: "unrecognized",
 	},
 	{
 		name:   "uri: a query parameter in mixed case",
 		dsn:    "postgres://alice@h:5432/app?SslRootCert=/ca.pem",
-		reason: "not supported",
+		reason: "unrecognized",
 	},
 
 	// A parameter given twice is refused in both forms, whichever value is the valid one.
@@ -84,9 +83,10 @@ var libpqRefusals = []refusedDSN{
 		reason: "more than once",
 	},
 	{
-		name:   "uri: a query parameter that repeats the authority",
-		dsn:    "postgres://alice@h:5432/app?user=bob",
-		reason: "both in the URI and as a query parameter",
+		name:    "uri: a query parameter that repeats the authority",
+		dsn:     "postgres://alice:s3cr3t@h:5432/app?user=bob",
+		reason:  "both in the URI and as a query parameter",
+		secrets: []string{"s3cr3t"},
 	},
 
 	// A keyword-form token without "=" is refused, not dropped with the rest of the string.
@@ -149,6 +149,38 @@ var libpqRefusals = []refusedDSN{
 		secrets: []string{"cd", "ef", "pw"},
 	},
 
+	// Neither a port that is not a number nor a list of servers that does not fit repeats the string.
+	{
+		name:    "keyword: a port that is not a number",
+		dsn:     "host=h port=notaport dbname=app user=alice password=s3cr3t",
+		reason:  "port",
+		secrets: []string{"s3cr3t", "notaport"},
+	},
+	{
+		name:    "uri: a port that is not a number",
+		dsn:     "postgres://alice:s3cr3t@h:notaport/app",
+		reason:  "port",
+		secrets: []string{"s3cr3t", "notaport"},
+	},
+	{
+		name:    "uri: some servers with a port and some without",
+		dsn:     "postgres://alice:s3cr3t@h1:5432,h2/app",
+		reason:  "every host has a port or none does",
+		secrets: []string{"s3cr3t"},
+	},
+	{
+		name:    "uri: a password fragment as a bare query word",
+		dsn:     "postgres://alice:s3cr3t@h:5432/app?fragment",
+		reason:  `no "="`,
+		secrets: []string{"s3cr3t", "fragment"},
+	},
+	{
+		name:    "uri: a password fragment as a query parameter name given twice",
+		dsn:     "postgres://alice:s3cr3t@h:5432/app?fragment=1&fragment=2",
+		reason:  "(unrecognized)",
+		secrets: []string{"s3cr3t", "fragment"},
+	},
+
 	// "#" has no meaning in a libpq URI; a URL parser would cut the string there and drop the
 	// query, so the connection would silently lose its TLS settings.
 	{
@@ -192,27 +224,95 @@ var libpqRefusals = []refusedDSN{
 
 	// Quoting that libpq refuses.
 	{
-		name:   "keyword: an unterminated quote",
-		dsn:    "host=h port=5432 dbname=app user=alice password='abc",
-		reason: "not closed",
+		name:    "keyword: an unterminated quote",
+		dsn:     "host=h port=5432 dbname=app user=alice password='abc",
+		reason:  "not closed",
+		secrets: []string{"abc"},
 	},
 	{
-		name:   "keyword: a trailing backslash",
-		dsn:    `host=h port=5432 dbname=app user=alice password=abc\`,
-		reason: "backslash",
+		name:    "keyword: a trailing backslash",
+		dsn:     `host=h port=5432 dbname=app user=alice password=abc\`,
+		reason:  "backslash",
+		secrets: []string{"abc"},
 	},
 	{
-		name:   "uri: a bad percent-encoding in the query",
-		dsn:    "postgres://alice@h:5432/app?sslrootcert=%zz",
+		name:    "uri: a bad percent-encoding in the query",
+		dsn:     "postgres://alice:s3cr3t@h:5432/app?sslrootcert=%zz",
+		reason:  "percent-encoding",
+		secrets: []string{"s3cr3t"},
+	},
+	// A keyword-form value starts directly after "=": libpq skips the white space and reads the
+	// next word as the value.
+	{
+		name:   "keyword: a value after white space swallows the next word",
+		dsn:    "host=h port=5432 dbname=app user=u password= sslmode=require",
+		reason: `must start directly after "="`,
+	},
+	{
+		name:   "keyword: an empty value at the end is written ''",
+		dsn:    "host=h port=5432 dbname=app user=u password=",
+		reason: "a value is empty",
+	},
+	{
+		name:   "keyword: an empty sslmode is not dropped",
+		dsn:    "host=h port=5432 dbname=app user=u sslmode=''",
+		reason: "sslmode is empty",
+	},
+	{
+		name:   "keyword: an empty sslnegotiation is not dropped",
+		dsn:    "host=h port=5432 dbname=app user=u sslnegotiation=''",
+		reason: "sslnegotiation is empty",
+	},
+	{
+		name:   "uri: an empty sslmode is not dropped",
+		dsn:    "postgres://u@h:5432/app?sslmode=",
+		reason: "sslmode is empty",
+	},
+
+	// A raw "=" or white space in a URI query value, and %00.
+	{
+		name:   "uri: a raw = in a query value",
+		dsn:    "postgres://u@h:5432/app?application_name=a=b",
+		reason: "raw",
+	},
+	{
+		name:   "uri: a raw tab in a query value",
+		dsn:    "postgres://u@h:5432/app?application_name=a\tb",
+		reason: "white space",
+	},
+	{
+		name:   "uri: %00 in the password",
+		dsn:    "postgres://u:p%00w@h:5432/app",
 		reason: "percent-encoding",
+	},
+	{
+		name:   "uri: %00 in the database",
+		dsn:    "postgres://u@h:5432/a%00pp",
+		reason: "percent-encoding",
+	},
+	{
+		name:   "uri: invalid UTF-8 once decoded",
+		dsn:    "postgres://u:p%ffw@h:5432/app",
+		reason: "percent-encoding",
+	},
+
+	// NUL and invalid UTF-8 in the string itself.
+	{
+		name:   "keyword: a NUL in a value",
+		dsn:    "host=h port=5432 dbname=app user=u password=p\x00w",
+		reason: "NUL",
+	},
+	{
+		name:   "keyword: invalid UTF-8 in a value",
+		dsn:    "host=h port=5432 dbname=app user=u password=p\xffw",
+		reason: "UTF-8",
 	},
 }
 
-// unsupportedParams are parameters libpq reads and a backing connection does not carry. Each is
-// refused, in both forms, and named, since the name is a libpq parameter.
-var unsupportedParams = []string{
-	"sslcert=/c.pem", "sslkey=/k.pem", "channel_binding=require", "options=-c%20role%3Dx",
-	"hostaddr=10.0.0.1", "target_session_attrs=read-write", "load_balance_hosts=random",
+// uncarriedParams are parameters libpq reads and a backing connection does not carry.
+var uncarriedParams = []string{
+	"sslcert=/c.pem", "sslkey=/k.pem", "sslcrl=/l.pem", "sslcrldir=/d", "sslpassword=x", "sslkeylogfile=/k.log", "servicefile=/s", "channel_binding=require", "options=-c%20role%3Dx",
+	"hostaddr=10.0.0.1", "target_session_attrs=read-write", "load_balance_hosts=disable",
 	"application_name=x", "connect_timeout=5", "service=s", "passfile=/p", "requiressl=1",
 }
 
@@ -229,52 +329,12 @@ func TestParseDSNRefuses(t *testing.T) {
 		})
 	}
 
-	for _, param := range unsupportedParams {
-		key, _, _ := strings.Cut(param, "=")
-		t.Run("unsupported "+key, func(t *testing.T) {
-			for _, dsn := range []string{
-				"postgres://alice@h:5432/app?" + param,
-				"host=h port=5432 dbname=app user=alice " + param,
-			} {
-				// The keyword form takes the value as written, so a URI-encoded one is as good.
-				_, err := ParseDSN(dsn)
-				require.ErrorContains(t, err, "parameter "+key+" is not supported", dsn)
-			}
-		})
-	}
-
 	t.Run("nothing", func(t *testing.T) {
 		for _, dsn := range []string{"", "   ", "\t\n"} {
 			_, err := ParseDSN(dsn)
 			require.ErrorContains(t, err, "neither a postgres:// URI nor keyword=value pairs")
 		}
 	})
-}
-
-// TestParseDSNErrorsNeverCarryTheString: whatever is refused, the message carries no part of the
-// string, which holds the password. The one thing it may name is a libpq parameter.
-func TestParseDSNErrorsNeverCarryTheString(t *testing.T) {
-	const secret = "s3cr3tfragment"
-	for _, dsn := range []string{
-		"host=h port=5432 dbname=app user=alice password=" + secret + " morepw",
-		"host=h port=5432 dbname=app user=alice password=x " + secret + "=1",
-		"host=h port=5432 dbname=app user=alice " + secret + "=1 " + secret + "=2",
-		"host=h port=5432 dbname=app user=alice password='" + secret,
-		"host=h port=5432 dbname=app user=alice password=" + secret + `\`,
-		"host=h port=notaport dbname=app user=alice password=" + secret,
-		"postgres://alice:" + secret + "@h:5432/app#x",
-		"postgres://alice:" + secret + "@h:notaport/app",
-		"postgres://alice:" + secret + "@h:5432/app?" + secret,
-		"postgres://alice:" + secret + "@h:5432/app?" + secret + "=1",
-		"postgres://alice:" + secret + "@h:5432/app?" + secret + "=1&" + secret + "=2",
-		"postgres://alice:" + secret + "@h:5432/app?sslmode=%zz",
-		"postgres://alice:" + secret + "@h:5432/app?user=bob",
-		"postgres://alice:" + secret + "@h1:5432,h2:5432/app",
-	} {
-		_, err := ParseDSN(dsn)
-		require.Error(t, err, dsn)
-		require.NotContains(t, err.Error(), secret, dsn)
-	}
 }
 
 // dsnPair is one connection written in both forms of a libpq connection string. Each must be
@@ -341,14 +401,14 @@ func TestParseDSNAccepts(t *testing.T) {
 		{
 			name: "spaces around =",
 			uri:  "postgres://alice@h:5432/app?sslmode=disable",
-			kv:   "  host = h   port =5432 dbname= app\tuser = alice\nsslmode = disable ",
+			kv:   "  host =h   port =5432 dbname =app\tuser =alice\nsslmode =disable ",
 			want: Conn{Hosts: []string{"h"}, Ports: []int{5432}, Database: "app", User: "alice", SSLMode: "disable"},
 		},
 		{
-			name: "an empty value is a value",
-			uri:  "postgres://alice@h:5432/app?sslmode=",
-			kv:   "host=h port=5432 dbname=app user=alice sslmode=",
-			want: Conn{Hosts: []string{"h"}, Ports: []int{5432}, Database: "app", User: "alice"},
+			name: "an empty value is a value, written ''",
+			uri:  "postgres://alice@h:5432/app?application_name=",
+			kv:   "host=h port=5432 dbname=app user=alice application_name=''",
+			want: Conn{Hosts: []string{"h"}, Ports: []int{5432}, Database: "app", User: "alice", Params: map[string]string{"application_name": ""}},
 		},
 		{
 			name: "an empty query",
@@ -368,9 +428,38 @@ func TestParseDSNAccepts(t *testing.T) {
 	}
 }
 
-// TestParseDSNKeepsLists: a list of hosts or ports is decoded as a list. Refusing more than one
-// is Endpoint's, not the decoding's, so the type does not change if a connection is ever given
-// more than one server.
+// TestParseDSNKeepsWhatItDoesNotCarry: a libpq parameter that a backing connection does not carry
+// is kept, in either form, so that the migrator loses nothing; ForPooler is what refuses it.
+func TestParseDSNKeepsWhatItDoesNotCarry(t *testing.T) {
+	for _, param := range uncarriedParams {
+		key, value, _ := strings.Cut(param, "=")
+		if key == "options" {
+			value = "-c role=x"
+		}
+		for _, dsn := range []string{
+			"postgres://alice@h:5432/app?" + param,
+			"host=h port=5432 dbname=app user=alice " + key + "='" + value + "'",
+		} {
+			conn, err := ParseDSN(dsn)
+			require.NoError(t, err, dsn)
+			require.Equal(t, map[string]string{key: value}, conn.Params, dsn)
+			conn.Password = "p" // Validate requires one; the string under test has none
+			conn.Complete()
+			if !params[key].allowed {
+				// Parsed, then refused by Validate.
+				require.ErrorContains(t, conn.Validate(), "parameter "+key+" is not supported", dsn)
+			} else {
+				require.NoError(t, conn.Validate(), dsn)
+			}
+			require.ErrorContains(t, conn.ForPooler(), "parameter "+key+" is not supported", dsn)
+			back, err := ParseDSN(conn.DSN())
+			require.NoError(t, err)
+			require.Equal(t, conn.Params, back.Params)
+		}
+	}
+}
+
+// A list of hosts or ports is decoded as a list; refusing more than one server is ForPooler's.
 func TestParseDSNKeepsLists(t *testing.T) {
 	conn, err := ParseDSN("host=a.example.com,b.example.com port=5432,5433 dbname=app user=alice")
 	require.NoError(t, err)
@@ -378,15 +467,15 @@ func TestParseDSNKeepsLists(t *testing.T) {
 	require.Equal(t, []int{5432, 5433}, conn.Ports)
 
 	_, err = ParseDSN("host=a port=5432,x dbname=app user=alice")
-	require.ErrorContains(t, err, "port is not a single valid port number")
-	_, err = ParseDSN("host=a port='' dbname=app user=alice")
-	require.ErrorContains(t, err, "port is required")
-	_, err = ParseDSN("host=a dbname=app user=alice")
-	require.ErrorContains(t, err, "port is required")
+	require.ErrorContains(t, err, "port is not a valid port number")
 
-	// A URI that names a list of servers in its authority is refused with the same reason.
-	_, err = ParseDSN("postgres://alice@h1:5432,h2:5432/app")
-	require.ErrorIs(t, err, ErrMultipleHosts)
+	// A URI names a list of servers in its authority, as libpq reads it.
+	conn, err = ParseDSN("postgres://alice@h1:5432,[2001:db8::1]:5433/app")
+	require.NoError(t, err)
+	require.Equal(t, []string{"h1", "2001:db8::1"}, conn.Hosts)
+	require.Equal(t, []int{5432, 5433}, conn.Ports)
+	_, err = ParseDSN("postgres://alice@h1:5432,h2/app")
+	require.ErrorContains(t, err, "every host has a port or none does")
 }
 
 // TestParseDSNIgnoresTheEnvironment: the string is read as it is. A parameter it leaves out is
@@ -401,36 +490,12 @@ func TestParseDSNIgnoresTheEnvironment(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, &Conn{Hosts: []string{"h"}, Ports: []int{5432}, Database: "app", User: "alice"}, conn)
 
-	_, err = ParseDSN("host=h dbname=app user=alice")
-	require.ErrorContains(t, err, "port is required")
+	conn, err = ParseDSN("host=h dbname=app user=alice")
+	require.NoError(t, err)
+	require.Empty(t, conn.Ports, "the port is left to the caller, not read from PGPORT")
+	require.ErrorContains(t, conn.ForPooler(), "port is required")
 
 	conn, err = ParseDSN("port=5432 dbname=app user=alice")
 	require.NoError(t, err)
-	require.Empty(t, conn.Hosts, "the host is left for Validate to refuse, not read from PGHOST")
-}
-
-func TestEndpoint(t *testing.T) {
-	host, port, err := Endpoint([]string{"h"}, []int{5432})
-	require.NoError(t, err)
-	require.Equal(t, "h", host)
-	require.Equal(t, 5432, port)
-
-	host, port, err = Endpoint([]string{"h"}, []int32{5432})
-	require.NoError(t, err)
-	require.Equal(t, "h", host)
-	require.Equal(t, 5432, port)
-
-	// A missing host or port comes back empty, for Validate to name.
-	host, port, err = Endpoint(nil, []int{})
-	require.NoError(t, err)
-	require.Empty(t, host)
-	require.Zero(t, port)
-
-	_, _, err = Endpoint([]string{"a", "b"}, []int{5432})
-	require.ErrorIs(t, err, ErrMultipleHosts)
-	_, _, err = Endpoint([]string{"a"}, []int{5432, 5433})
-	require.ErrorContains(t, err, "port is not a single valid port number")
-	// Lists of both are refused for the ports, as they always were.
-	_, _, err = Endpoint([]string{"a", "b"}, []int{5432, 5433})
-	require.ErrorContains(t, err, "port is not a single valid port number")
+	require.Empty(t, conn.Hosts, "the host is left to the caller, not read from PGHOST")
 }

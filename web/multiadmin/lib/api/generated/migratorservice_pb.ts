@@ -1519,9 +1519,18 @@ export class Connection extends Message<Connection> {
   name = "";
 
   /**
-   * dsn is a full libpq conninfo (may include TLS options). Returned as-is on
-   * read paths, which may expose a password — same trust model as
-   * Migration.connection_name's resolved source; see that field's doc comment.
+   * dsn is a libpq conninfo, as keyword=value pairs or a postgres:// URI.
+   * CreateConnection checks it strictly and stores the checked structure, so a
+   * connection is self-contained: host, user and password are required, and the
+   * port, database and sslmode default to 5432, postgres and require (verify-full
+   * with sslrootcert=system). What is refused is listed in
+   * docs/migration/migrator_sql_interface.md; a string that fails is
+   * INVALID_ARGUMENT, and the message never carries a part of it.
+   * On read paths the dsn is the canonical rendering of the stored structure,
+   * which may differ in form from what was sent, and may expose a password: same
+   * trust model as Migration.connection_name's resolved source.
+   * An empty dsn in a listing means the stored connection cannot be read: drop it and
+   * create it again.
    *
    * @generated from field: string dsn = 3;
    */
