@@ -20,8 +20,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -230,12 +232,25 @@ func (pm *MultipoolerManager) CreateTableGroup(ctx context.Context, req *multipo
 	for i, kr := range ranges {
 		layout[i] = keyrange.ShardName(kr)
 	}
+	bindings, err := validateShardBindings(req.GetName(), req.GetShardBackingConnections(), layout)
+	if err != nil {
+		return nil, err
+	}
 
 	var resp *multipoolermanagerdatapb.CreateTableGroupResponse
 	var change catalogChange
 	versions, err := pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {
+		// Resolved under the catalog lock, so a refused binding writes nothing.
+		connectionIDs := make(map[string]int64, len(bindings))
+		for shard, connection := range bindings {
+			id, err := pm.resolveBackingBinding(ctx, tx, connection)
+			if err != nil {
+				return catalogNoSnapshotChange, err
+			}
+			connectionIDs[shard] = id
+		}
 		var err error
-		resp, change, err = createTableGroupTx(ctx, tx, req, ranges, layout)
+		resp, change, err = createTableGroupTx(ctx, tx, req, ranges, layout, bindings, connectionIDs)
 		return change, err
 	})
 	if err != nil {
@@ -251,7 +266,7 @@ func (pm *MultipoolerManager) CreateTableGroup(ctx context.Context, req *multipo
 // createTableGroupTx is CreateTableGroup's catalog transaction. A name that
 // already has a row (an active tablegroup, or a creation to join) is resolved
 // without writing anything, and reported as catalogNoSnapshotChange.
-func createTableGroupTx(ctx context.Context, tx executor.InternalTx, req *multipoolermanagerdatapb.CreateTableGroupRequest, ranges []*clustermetadatapb.KeyRange, layout []string) (*multipoolermanagerdatapb.CreateTableGroupResponse, catalogChange, error) {
+func createTableGroupTx(ctx context.Context, tx executor.InternalTx, req *multipoolermanagerdatapb.CreateTableGroupRequest, ranges []*clustermetadatapb.KeyRange, layout []string, bindings map[string]string, connectionIDs map[string]int64) (*multipoolermanagerdatapb.CreateTableGroupResponse, catalogChange, error) {
 	// Claim the name. writeCatalog's catalog_state lock already serializes
 	// catalog writers, so a concurrent CREATE of the same name waits for this
 	// transaction to end; if it committed, nothing is inserted there and the
@@ -278,7 +293,7 @@ func createTableGroupTx(ctx context.Context, tx executor.InternalTx, req *multip
 		if err := executor.ScanRow(res.Rows[0], &id, &state); err != nil {
 			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to read tablegroup row")
 		}
-		resp, err := createTableGroupExisting(ctx, tx, req, id, state, layout)
+		resp, err := createTableGroupExisting(ctx, tx, req, id, state, layout, bindings)
 		return resp, catalogNoSnapshotChange, err
 	}
 	var id int64
@@ -289,10 +304,15 @@ func createTableGroupTx(ctx context.Context, tx executor.InternalTx, req *multip
 		// Bounds travel as hex text and are decoded in SQL: query parameters
 		// are sent in text format, so raw bytes cannot be bound to a bytea.
 		// A nil parameter is NULL, which is how the catalog spells the start
-		// and end of the keyspace.
+		// and end of the keyspace, and a managed shard's absent connection.
+		name := keyrange.ShardName(kr)
+		var connectionID any
+		if cid, ok := connectionIDs[name]; ok {
+			connectionID = cid
+		}
 		if _, err := tx.QueryArgs(ctx,
-			"INSERT INTO multigres.shard (tablegroup_id, shard_name, range_start, range_end, state) VALUES ($1, $2, decode($3, 'hex'), decode($4, 'hex'), $5)",
-			id, keyrange.ShardName(kr), hexBound(kr.GetStart()), hexBound(kr.GetEnd()), shardStatePreparing); err != nil {
+			"INSERT INTO multigres.shard (tablegroup_id, shard_name, range_start, range_end, state, backing_connection_id) VALUES ($1, $2, decode($3, 'hex'), decode($4, 'hex'), $5, $6)",
+			id, name, hexBound(kr.GetStart()), hexBound(kr.GetEnd()), shardStatePreparing, connectionID); err != nil {
 			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to insert shard")
 		}
 	}
@@ -314,11 +334,16 @@ func createTableGroupTx(ctx context.Context, tx executor.InternalTx, req *multip
 // IF NOT EXISTS and an error without. A creating tablegroup returns its
 // in-flight operation, so a retried or concurrent CREATE joins it, when the
 // layout matches or IF NOT EXISTS is given (which, as in PostgreSQL, ignores
-// the definition); otherwise a different layout is a conflict.
-func createTableGroupExisting(ctx context.Context, tx executor.InternalTx, req *multipoolermanagerdatapb.CreateTableGroupRequest, id int64, state string, layout []string) (*multipoolermanagerdatapb.CreateTableGroupResponse, error) {
+// the definition); otherwise a different layout is a conflict. Other shard
+// bindings are a conflict either way: the caller would otherwise be told the
+// tablegroup exists while it is served from another database.
+func createTableGroupExisting(ctx context.Context, tx executor.InternalTx, req *multipoolermanagerdatapb.CreateTableGroupRequest, id int64, state string, layout []string, bindings map[string]string) (*multipoolermanagerdatapb.CreateTableGroupResponse, error) {
 	switch state {
 	case tableGroupStateActive:
 		if req.GetIfNotExists() {
+			if err := checkShardBindings(ctx, tx, req.GetName(), "already exists", id, bindings); err != nil {
+				return nil, err
+			}
 			return &multipoolermanagerdatapb.CreateTableGroupResponse{TablegroupId: id, AlreadyExists: true}, nil
 		}
 		return nil, mterrors.Errorf(mtrpcpb.Code_ALREADY_EXISTS, "tablegroup %q already exists", req.GetName())
@@ -339,6 +364,9 @@ func createTableGroupExisting(ctx context.Context, tx executor.InternalTx, req *
 				"tablegroup %q is already being created with shards %v", req.GetName(), existing)
 		}
 	}
+	if err := checkShardBindings(ctx, tx, req.GetName(), "is already being created", id, bindings); err != nil {
+		return nil, err
+	}
 	res, err := tx.QueryArgs(ctx,
 		"SELECT operation_id FROM multigres.operation WHERE kind = $1 AND state = $2 AND (request->>'tablegroup_id')::bigint = $3",
 		operationKindCreateTableGroup, operationStateCreating, id)
@@ -353,6 +381,106 @@ func createTableGroupExisting(ctx context.Context, tx executor.InternalTx, req *
 		return nil, mterrors.Wrap(err, "failed to read tablegroup operation")
 	}
 	return &multipoolermanagerdatapb.CreateTableGroupResponse{OperationId: opID, TablegroupId: id}, nil
+}
+
+// validateShardBindings checks a request's shard bindings against the canonical layout, without
+// touching the catalog. A sharded tablegroup is UNIMPLEMENTED rather than invalid: nothing says
+// yet how a split would divide an external database.
+func validateShardBindings(name string, requested map[string]string, layout []string) (map[string]string, error) {
+	if len(requested) == 0 {
+		return nil, nil
+	}
+	if name == constants.DefaultTableGroup {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "the default tablegroup cannot have a backing connection")
+	}
+	if len(layout) != 1 {
+		return nil, mterrors.Errorf(mtrpcpb.Code_UNIMPLEMENTED,
+			"a sharded tablegroup cannot have a backing connection: tablegroup %q has %d shards, and only an unsharded tablegroup can be bound", name, len(layout))
+	}
+	// In shard order, so that a request with several faults always reports the same one.
+	for _, shard := range slices.Sorted(maps.Keys(requested)) {
+		connection := requested[shard]
+		if !slices.Contains(layout, shard) {
+			return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "backing connection for shard %q, which is not one of the tablegroup's shards %v", shard, layout)
+		}
+		if connection == "" {
+			return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "shard %s has an empty backing connection name", shard)
+		}
+	}
+	return requested, nil
+}
+
+// checkShardBindings is FAILED_PRECONDITION unless the existing tablegroup's shards are bound as
+// requested; situation completes "tablegroup %q ...".
+func checkShardBindings(ctx context.Context, tx executor.InternalTx, name, situation string, id int64, requested map[string]string) error {
+	existing, err := tableGroupShardBindings(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if !maps.Equal(existing, requested) {
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "tablegroup %q %s %s, not %s",
+			name, situation, describeBindings(existing), describeBindings(requested))
+	}
+	return nil
+}
+
+func describeBindings(bindings map[string]string) string {
+	if len(bindings) == 0 {
+		return "as a managed tablegroup"
+	}
+	parts := make([]string, 0, len(bindings))
+	for _, shard := range slices.Sorted(maps.Keys(bindings)) {
+		parts = append(parts, fmt.Sprintf("with backing connection %q on shard %s", bindings[shard], shard))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// tableGroupShardBindings returns the connection name of each bound shard of a tablegroup.
+func tableGroupShardBindings(ctx context.Context, tx executor.InternalTx, id int64) (map[string]string, error) {
+	res, err := tx.QueryArgs(ctx,
+		"SELECT s.shard_name, c.name FROM multigres.shard s "+
+			"JOIN multigres.connections c ON c.connection_id = s.backing_connection_id "+
+			"WHERE s.tablegroup_id = $1 AND s.state <> $2",
+		id, shardStateRetired)
+	if err != nil {
+		return nil, mterrors.Wrap(err, "failed to read tablegroup shard bindings")
+	}
+	bindings := map[string]string{}
+	for _, row := range res.Rows {
+		var shard, connection string
+		if err := executor.ScanRow(row, &shard, &connection); err != nil {
+			return nil, mterrors.Wrap(err, "failed to read shard binding row")
+		}
+		bindings[shard] = connection
+	}
+	return bindings, nil
+}
+
+// resolveBackingBinding returns the id of the named connection if it exists, a pooler can front
+// it (as GetBackingConnection serves it) and it serves this cluster's database: the bound
+// shard's pooler would refuse to start on any of these.
+func (pm *MultipoolerManager) resolveBackingBinding(ctx context.Context, tx executor.InternalTx, name string) (int64, error) {
+	res, err := tx.QueryArgs(ctx, "SELECT connection_id, coalesce(conninfo::text, '') FROM multigres.connections WHERE name = $1", name)
+	if err != nil {
+		return 0, mterrors.Wrap(err, "failed to look up backing connection")
+	}
+	if len(res.Rows) == 0 {
+		return 0, mterrors.Errorf(mtrpcpb.Code_NOT_FOUND, "backing connection %q does not exist", name)
+	}
+	var id int64
+	var conninfo string
+	if err := executor.ScanRow(res.Rows[0], &id, &conninfo); err != nil {
+		return 0, mterrors.Wrap(err, "failed to read backing connection")
+	}
+	conn, err := backingFromColumns(name, conninfo)
+	if err != nil {
+		return 0, err
+	}
+	if database := pm.record.ShardRef().GetDatabase(); conn.GetDatabase() != database {
+		return 0, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"backing connection %q serves database %q, which does not match the cluster's database %q", name, conn.GetDatabase(), database)
+	}
+	return id, nil
 }
 
 // hexBound encodes a key range bound for decode($n, 'hex'). An empty bound is
@@ -519,8 +647,9 @@ func (pm *MultipoolerManager) ListTableGroups(ctx context.Context) ([]*multipool
 	// One statement, so the tablegroups and their shards come from the same
 	// snapshot: a tablegroup is listed with its whole layout or not at all.
 	res, err := qs.QueryAdminArgs(execCtx,
-		"SELECT t.tablegroup_id, t.name, t.state, s.shard_name FROM multigres.tablegroup t "+
+		"SELECT t.tablegroup_id, t.name, t.state, s.shard_name, coalesce(c.name, '') FROM multigres.tablegroup t "+
 			"JOIN multigres.shard s ON s.tablegroup_id = t.tablegroup_id AND s.state <> $2 "+
+			"LEFT JOIN multigres.connections c ON c.connection_id = s.backing_connection_id "+
 			"WHERE t.name <> $1 ORDER BY t.tablegroup_id, s.range_start NULLS FIRST",
 		constants.DefaultTableGroup, shardStateRetired)
 	if err != nil {
@@ -529,8 +658,8 @@ func (pm *MultipoolerManager) ListTableGroups(ctx context.Context) ([]*multipool
 	groups := []*multipoolermanagerdatapb.TableGroup{}
 	for _, row := range res.Rows {
 		var id int64
-		var name, state, shard string
-		if err := executor.ScanRow(row, &id, &name, &state, &shard); err != nil {
+		var name, state, shard, backing string
+		if err := executor.ScanRow(row, &id, &name, &state, &shard, &backing); err != nil {
 			return nil, mterrors.Wrap(err, "failed to read tablegroup row")
 		}
 		if n := len(groups); n == 0 || groups[n-1].TablegroupId != id {
@@ -538,6 +667,12 @@ func (pm *MultipoolerManager) ListTableGroups(ctx context.Context) ([]*multipool
 		}
 		last := groups[len(groups)-1]
 		last.Shards = append(last.Shards, shard)
+		if backing != "" {
+			if last.ShardBackingConnections == nil {
+				last.ShardBackingConnections = map[string]string{}
+			}
+			last.ShardBackingConnections[shard] = backing
+		}
 	}
 	return groups, nil
 }
