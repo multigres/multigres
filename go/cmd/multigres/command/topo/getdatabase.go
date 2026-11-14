@@ -37,7 +37,7 @@ func AddGetDatabaseCommand() *cobra.Command {
 
 	// Add command-specific flags
 	cmd.Flags().String("name", "", "Name of the database to retrieve (required)")
-	cmd.Flags().String("admin-server", "", "gRPC address of the multiadmin server (e.g., localhost:15990)")
+	cmd.Flags().String("admin-server", "", "gRPC address of the multiadmin server (e.g., localhost:15990; env: MULTIGRES_ADMIN_SERVER)")
 
 	// Mark the name flag as required
 	_ = cmd.MarkFlagRequired("name")
