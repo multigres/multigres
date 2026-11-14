@@ -776,6 +776,12 @@ message CreateTableGroupRequest {
   // (already_exists is set on the response) instead of an error, and joins a
   // creation of this name already in flight whatever its layout.
   bool if_not_exists = 3;
+  // backing_connection names the connection (in the catalog's connections
+  // table) of an external PostgreSQL that the tablegroup is bound to instead of
+  // multigres-managed shards. Empty means a managed tablegroup. The binding is
+  // fixed at creation. An external tablegroup has exactly one shard, 0-inf,
+  // and the default tablegroup never has a binding.
+  string backing_connection = 4;
 }
 
 // CreateTableGroupResponse identifies the operation that creates the tablegroup.
@@ -916,6 +922,9 @@ message TableGroup {
   shardingcatalog.TableGroupState state = 3;
   // shards is the shard layout in canonical order.
   repeated string shards = 4;
+  // backing_connection is the name of the connection of the external
+  // PostgreSQL that the tablegroup is bound to. Empty for a managed tablegroup.
+  string backing_connection = 5;
 }
 
 // GetRoutingSnapshotRequest asks the catalog primary for the sharding catalog.

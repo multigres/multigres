@@ -230,12 +230,27 @@ func (pm *MultipoolerManager) CreateTableGroup(ctx context.Context, req *multipo
 	for i, kr := range ranges {
 		layout[i] = keyrange.ShardName(kr)
 	}
+	backing := req.GetBackingConnection()
+	if err := validateBackingBinding(req.GetName(), backing, layout); err != nil {
+		return nil, err
+	}
 
 	var resp *multipoolermanagerdatapb.CreateTableGroupResponse
 	var change catalogChange
 	versions, err := pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {
+		// An external tablegroup names a connection that must exist and be usable as a
+		// backing connection. It is resolved here, under the lock, so a refused binding is
+		// an error that writes nothing. A nil id is NULL, a managed tablegroup.
+		var connectionID any
+		if backing != "" {
+			id, err := pm.resolveBackingBinding(ctx, tx, backing)
+			if err != nil {
+				return catalogNoSnapshotChange, err
+			}
+			connectionID = id
+		}
 		var err error
-		resp, change, err = createTableGroupTx(ctx, tx, req, ranges, layout)
+		resp, change, err = createTableGroupTx(ctx, tx, req, ranges, layout, connectionID)
 		return change, err
 	})
 	if err != nil {
@@ -251,20 +266,24 @@ func (pm *MultipoolerManager) CreateTableGroup(ctx context.Context, req *multipo
 // createTableGroupTx is CreateTableGroup's catalog transaction. A name that
 // already has a row (an active tablegroup, or a creation to join) is resolved
 // without writing anything, and reported as catalogNoSnapshotChange.
-func createTableGroupTx(ctx context.Context, tx executor.InternalTx, req *multipoolermanagerdatapb.CreateTableGroupRequest, ranges []*clustermetadatapb.KeyRange, layout []string) (*multipoolermanagerdatapb.CreateTableGroupResponse, catalogChange, error) {
+// connectionID is the id of the connection the tablegroup is bound to, nil for a
+// managed tablegroup.
+func createTableGroupTx(ctx context.Context, tx executor.InternalTx, req *multipoolermanagerdatapb.CreateTableGroupRequest, ranges []*clustermetadatapb.KeyRange, layout []string, connectionID any) (*multipoolermanagerdatapb.CreateTableGroupResponse, catalogChange, error) {
 	// Claim the name. writeCatalog's catalog_state lock already serializes
 	// catalog writers, so a concurrent CREATE of the same name waits for this
 	// transaction to end; if it committed, nothing is inserted there and the
 	// name resolves against this row instead.
 	res, err := tx.QueryArgs(ctx,
-		"INSERT INTO multigres.tablegroup (name, state) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING RETURNING tablegroup_id",
-		req.GetName(), tableGroupStateCreating)
+		"INSERT INTO multigres.tablegroup (name, state, backing_connection_id) VALUES ($1, $2, $3) ON CONFLICT (name) DO NOTHING RETURNING tablegroup_id",
+		req.GetName(), tableGroupStateCreating, connectionID)
 	if err != nil {
 		return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to insert tablegroup")
 	}
 	if len(res.Rows) == 0 {
 		res, err = tx.QueryArgs(ctx,
-			"SELECT tablegroup_id, state FROM multigres.tablegroup WHERE name = $1 FOR UPDATE", req.GetName())
+			"SELECT t.tablegroup_id, t.state, coalesce(c.name, '') FROM multigres.tablegroup t "+
+				"LEFT JOIN multigres.connections c ON c.connection_id = t.backing_connection_id "+
+				"WHERE t.name = $1 FOR UPDATE OF t", req.GetName())
 		if err != nil {
 			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to look up tablegroup")
 		}
@@ -274,11 +293,11 @@ func createTableGroupTx(ctx context.Context, tx executor.InternalTx, req *multip
 			return nil, catalogNoSnapshotChange, mterrors.Errorf(mtrpcpb.Code_ABORTED, "tablegroup %q changed concurrently; retry", req.GetName())
 		}
 		var id int64
-		var state string
-		if err := executor.ScanRow(res.Rows[0], &id, &state); err != nil {
+		var state, existingBacking string
+		if err := executor.ScanRow(res.Rows[0], &id, &state, &existingBacking); err != nil {
 			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to read tablegroup row")
 		}
-		resp, err := createTableGroupExisting(ctx, tx, req, id, state, layout)
+		resp, err := createTableGroupExisting(ctx, tx, req, id, state, layout, existingBacking)
 		return resp, catalogNoSnapshotChange, err
 	}
 	var id int64
@@ -309,16 +328,20 @@ func createTableGroupTx(ctx context.Context, tx executor.InternalTx, req *multip
 	return &multipoolermanagerdatapb.CreateTableGroupResponse{OperationId: opID, TablegroupId: id}, catalogRoutingChange, nil
 }
 
-// createTableGroupExisting resolves a CREATE for a name that already has a
-// row, inside the caller's transaction. An active tablegroup is a no-op with
-// IF NOT EXISTS and an error without. A creating tablegroup returns its
-// in-flight operation, so a retried or concurrent CREATE joins it, when the
-// layout matches or IF NOT EXISTS is given (which, as in PostgreSQL, ignores
-// the definition); otherwise a different layout is a conflict.
-func createTableGroupExisting(ctx context.Context, tx executor.InternalTx, req *multipoolermanagerdatapb.CreateTableGroupRequest, id int64, state string, layout []string) (*multipoolermanagerdatapb.CreateTableGroupResponse, error) {
+// createTableGroupExisting resolves a CREATE for a name that already has a row, inside the
+// caller's transaction. An active tablegroup is a no-op with IF NOT EXISTS and an error without. A
+// creating one returns its in-flight operation, so a retried or concurrent CREATE joins it, when
+// the layout matches or IF NOT EXISTS is given (which ignores the definition, as in PostgreSQL).
+// The backing connection is the exception: a request for another binding is a conflict, with or
+// without IF NOT EXISTS, since it would route traffic to another database than the caller
+// believes. existingBacking is the connection of the existing row, empty when it is managed.
+func createTableGroupExisting(ctx context.Context, tx executor.InternalTx, req *multipoolermanagerdatapb.CreateTableGroupRequest, id int64, state string, layout []string, existingBacking string) (*multipoolermanagerdatapb.CreateTableGroupResponse, error) {
 	switch state {
 	case tableGroupStateActive:
 		if req.GetIfNotExists() {
+			if existingBacking != req.GetBackingConnection() {
+				return nil, errBindingConflict(req, "already exists", existingBacking)
+			}
 			return &multipoolermanagerdatapb.CreateTableGroupResponse{TablegroupId: id, AlreadyExists: true}, nil
 		}
 		return nil, mterrors.Errorf(mtrpcpb.Code_ALREADY_EXISTS, "tablegroup %q already exists", req.GetName())
@@ -339,6 +362,9 @@ func createTableGroupExisting(ctx context.Context, tx executor.InternalTx, req *
 				"tablegroup %q is already being created with shards %v", req.GetName(), existing)
 		}
 	}
+	if existingBacking != req.GetBackingConnection() {
+		return nil, errBindingConflict(req, "is already being created", existingBacking)
+	}
 	res, err := tx.QueryArgs(ctx,
 		"SELECT operation_id FROM multigres.operation WHERE kind = $1 AND state = $2 AND (request->>'tablegroup_id')::bigint = $3",
 		operationKindCreateTableGroup, operationStateCreating, id)
@@ -353,6 +379,69 @@ func createTableGroupExisting(ctx context.Context, tx executor.InternalTx, req *
 		return nil, mterrors.Wrap(err, "failed to read tablegroup operation")
 	}
 	return &multipoolermanagerdatapb.CreateTableGroupResponse{OperationId: opID, TablegroupId: id}, nil
+}
+
+// validateBackingBinding checks the parts of a backing connection binding that
+// need no catalog access: the default tablegroup, which is the catalog shard's
+// own and always managed, cannot have one, and an external tablegroup is one
+// shard, 0-inf, because the external postgres is not split. layout is the
+// canonical shard layout.
+func validateBackingBinding(name, backing string, layout []string) error {
+	if backing == "" {
+		return nil
+	}
+	if name == constants.DefaultTableGroup {
+		return mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "the default tablegroup cannot have a backing connection")
+	}
+	if !slices.Equal(layout, []string{constants.DefaultShard}) {
+		return mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT,
+			"a tablegroup with a backing connection has exactly one shard, %s, not %v", constants.DefaultShard, layout)
+	}
+	return nil
+}
+
+// errBindingConflict is a CREATE that asks for another backing connection than
+// the tablegroup has (or has been given): what exists, then what was asked for.
+// situation is "already exists" or "is already being created".
+func errBindingConflict(req *multipoolermanagerdatapb.CreateTableGroupRequest, situation, existingBacking string) error {
+	return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "tablegroup %q %s %s, not %s",
+		req.GetName(), situation, describeBacking(existingBacking), describeBacking(req.GetBackingConnection()))
+}
+
+// describeBacking words a tablegroup's binding for an error message.
+func describeBacking(backing string) string {
+	if backing == "" {
+		return "as a managed tablegroup"
+	}
+	return fmt.Sprintf("with backing connection %q", backing)
+}
+
+// resolveBackingBinding returns the id of the named connection, after checking that it exists,
+// that a pooler can front it (backingFromColumns, as the default primary serves it), and that it
+// serves this cluster's database, which every pooler of the tablegroup would otherwise refuse at
+// start.
+func (pm *MultipoolerManager) resolveBackingBinding(ctx context.Context, tx executor.InternalTx, name string) (int64, error) {
+	res, err := tx.QueryArgs(ctx, "SELECT connection_id, coalesce(conninfo::text, '') FROM multigres.connections WHERE name = $1", name)
+	if err != nil {
+		return 0, mterrors.Wrap(err, "failed to look up backing connection")
+	}
+	if len(res.Rows) == 0 {
+		return 0, mterrors.Errorf(mtrpcpb.Code_NOT_FOUND, "backing connection %q does not exist", name)
+	}
+	var id int64
+	var conninfo string
+	if err := executor.ScanRow(res.Rows[0], &id, &conninfo); err != nil {
+		return 0, mterrors.Wrap(err, "failed to read backing connection")
+	}
+	conn, err := backingFromColumns(name, conninfo)
+	if err != nil {
+		return 0, err
+	}
+	if database := pm.record.ShardRef().GetDatabase(); conn.GetDatabase() != database {
+		return 0, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"backing connection %q serves database %q, which does not match the cluster's database %q", name, conn.GetDatabase(), database)
+	}
+	return id, nil
 }
 
 // hexBound encodes a key range bound for decode($n, 'hex'). An empty bound is
@@ -519,8 +608,9 @@ func (pm *MultipoolerManager) ListTableGroups(ctx context.Context) ([]*multipool
 	// One statement, so the tablegroups and their shards come from the same
 	// snapshot: a tablegroup is listed with its whole layout or not at all.
 	res, err := qs.QueryAdminArgs(execCtx,
-		"SELECT t.tablegroup_id, t.name, t.state, s.shard_name FROM multigres.tablegroup t "+
+		"SELECT t.tablegroup_id, t.name, t.state, s.shard_name, coalesce(c.name, '') FROM multigres.tablegroup t "+
 			"JOIN multigres.shard s ON s.tablegroup_id = t.tablegroup_id AND s.state <> $2 "+
+			"LEFT JOIN multigres.connections c ON c.connection_id = t.backing_connection_id "+
 			"WHERE t.name <> $1 ORDER BY t.tablegroup_id, s.range_start NULLS FIRST",
 		constants.DefaultTableGroup, shardStateRetired)
 	if err != nil {
@@ -529,12 +619,12 @@ func (pm *MultipoolerManager) ListTableGroups(ctx context.Context) ([]*multipool
 	groups := []*multipoolermanagerdatapb.TableGroup{}
 	for _, row := range res.Rows {
 		var id int64
-		var name, state, shard string
-		if err := executor.ScanRow(row, &id, &name, &state, &shard); err != nil {
+		var name, state, shard, backing string
+		if err := executor.ScanRow(row, &id, &name, &state, &shard, &backing); err != nil {
 			return nil, mterrors.Wrap(err, "failed to read tablegroup row")
 		}
 		if n := len(groups); n == 0 || groups[n-1].TablegroupId != id {
-			groups = append(groups, &multipoolermanagerdatapb.TableGroup{TablegroupId: id, Name: name, State: tableGroupStates[state]})
+			groups = append(groups, &multipoolermanagerdatapb.TableGroup{TablegroupId: id, Name: name, State: tableGroupStates[state], BackingConnection: backing})
 		}
 		last := groups[len(groups)-1]
 		last.Shards = append(last.Shards, shard)

@@ -15,6 +15,8 @@
 package manager
 
 import (
+	"encoding/json"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -24,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -96,8 +99,14 @@ func (env *tableGroupTestEnv) expect(pattern string, columns []string, rows [][]
 // nameTaken registers the claim of a name that already has a row: the insert
 // conflicts and returns nothing, and the lookup returns the existing row.
 func (env *tableGroupTestEnv) nameTaken(id int64, state string) {
+	env.nameTakenBy(id, state, "")
+}
+
+// nameTakenBy is nameTaken for a row bound to the named backing connection;
+// empty is a managed tablegroup.
+func (env *tableGroupTestEnv) nameTakenBy(id int64, state, backing string) {
 	env.expect("ON CONFLICT \\(name\\) DO NOTHING", []string{"tablegroup_id"}, nil)
-	env.expect("FROM multigres.tablegroup WHERE name = \\$1 FOR UPDATE", []string{"tablegroup_id", "state"}, [][]any{{id, state}})
+	env.expect("FROM multigres.tablegroup t .*FOR UPDATE OF t", []string{"tablegroup_id", "state", "name"}, [][]any{{id, state, backing}})
 }
 
 // expectLock registers what writeCatalog does before its writer runs: the
@@ -126,6 +135,24 @@ func (env *tableGroupTestEnv) queriesMatching(substr string) []string {
 		}
 	}
 	return out
+}
+
+// backingDSN is a usable dsn for the catalog database of these tests.
+const backingDSN = "host=db.example.com port=5432 dbname=" + testTableGroupDB + " user=app password=secret"
+
+// expectConnection registers the lookup of a connection by name: the connection a libpq string
+// names, completed, as CREATE CONNECTION stores it.
+func (env *tableGroupTestEnv) expectConnection(id int64, dsn string) {
+	conn, err := backingconn.ParseDSN(dsn)
+	if err != nil {
+		panic(err)
+	}
+	conn.Complete()
+	data, err := json.Marshal(conn)
+	if err != nil {
+		panic(err)
+	}
+	env.expect(`SELECT connection_id, coalesce\(conninfo::text, ''\) FROM multigres.connections`, []string{"connection_id", "conninfo"}, [][]any{{id, string(data)}})
 }
 
 func (env *tableGroupTestEnv) expectPrimary() {
@@ -206,7 +233,7 @@ func TestCreateTableGroup_RecordsIntent(t *testing.T) {
 		"SELECT pg_is_in_recovery()",
 		"SELECT pg_is_in_recovery()",
 		"SELECT routing_version, plan_epoch FROM multigres.catalog_state FOR UPDATE",
-		"INSERT INTO multigres.tablegroup (name, state) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING RETURNING tablegroup_id",
+		"INSERT INTO multigres.tablegroup (name, state, backing_connection_id) VALUES ($1, $2, $3) ON CONFLICT (name) DO NOTHING RETURNING tablegroup_id",
 		"INSERT INTO multigres.shard (tablegroup_id, shard_name, range_start, range_end, state) VALUES ($1, $2, decode($3, 'hex'), decode($4, 'hex'), $5)",
 		"INSERT INTO multigres.shard (tablegroup_id, shard_name, range_start, range_end, state) VALUES ($1, $2, decode($3, 'hex'), decode($4, 'hex'), $5)",
 		"INSERT INTO multigres.operation (operation_id, kind, state, request) VALUES ($1, $2, $3, $4::jsonb)",
@@ -263,6 +290,43 @@ func TestCreateTableGroup_ExistingActive(t *testing.T) {
 		assert.Empty(t, resp.OperationId)
 		assert.Len(t, env.queries, 5, "nothing written after the claim conflicts")
 		assert.Empty(t, env.queriesMatching("routing_version + 1"), "an unchanged catalog keeps its version")
+	})
+	t.Run("with IF NOT EXISTS and another binding is an error", func(t *testing.T) {
+		for name, tc := range map[string]struct{ existing, requested, wantErr string }{
+			"bound, asked for another connection": {"src", "other", `already exists with backing connection "src", not with backing connection "other"`},
+			"bound, asked as managed":             {"src", "", `already exists with backing connection "src", not as a managed tablegroup`},
+			"managed, asked to be bound":          {"", "src", `already exists as a managed tablegroup, not with backing connection "src"`},
+		} {
+			t.Run(name, func(t *testing.T) {
+				env := newCatalogTestEnv(t)
+				env.expectPrimary()
+				env.expectLock()
+				if tc.requested != "" {
+					env.expectConnection(11, backingDSN)
+				}
+				env.nameTakenBy(testTableGroupID, tableGroupStateActive, tc.existing)
+
+				_, err := env.pm.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{
+					Name: "external", BackingConnection: tc.requested, IfNotExists: true,
+				})
+				require.Error(t, err)
+				assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+				assert.Contains(t, err.Error(), tc.wantErr)
+			})
+		}
+	})
+	t.Run("with IF NOT EXISTS and the same binding is a no-op", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		env.expectPrimary()
+		env.expectLock()
+		env.expectConnection(11, backingDSN)
+		env.nameTakenBy(testTableGroupID, tableGroupStateActive, "src")
+
+		resp, err := env.pm.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{
+			Name: "external", BackingConnection: "src", IfNotExists: true,
+		})
+		require.NoError(t, err)
+		assert.True(t, resp.AlreadyExists)
 	})
 	t.Run("the default tablegroup is always active", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
@@ -339,7 +403,7 @@ func TestCreateTableGroup_ExistingCreating(t *testing.T) {
 		env.expectPrimary()
 		env.expectLock()
 		env.expect("ON CONFLICT \\(name\\) DO NOTHING", []string{"tablegroup_id"}, nil)
-		env.expect("FROM multigres.tablegroup WHERE name = \\$1 FOR UPDATE", []string{"tablegroup_id", "state"}, nil)
+		env.expect("FROM multigres.tablegroup t .*FOR UPDATE OF t", []string{"tablegroup_id", "state", "name"}, nil)
 
 		_, err := env.pm.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "commerce"})
 		require.Error(t, err)
@@ -431,6 +495,135 @@ func TestTableGroupOps_RequireTheElectedPrimary(t *testing.T) {
 	}
 }
 
+func TestCreateTableGroup_BackingConnection(t *testing.T) {
+	bound := func() *multipoolermanagerdatapb.CreateTableGroupRequest {
+		return &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "external", BackingConnection: "src"}
+	}
+
+	t.Run("records the binding with the intent", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		env.expectPrimary()
+		env.expectLock()
+		env.expectConnection(11, backingDSN)
+		env.expect("INSERT INTO multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
+		env.expect("INSERT INTO multigres.shard", nil, nil)
+		env.expect("INSERT INTO multigres.operation", nil, nil)
+		env.expectCatalogRows()
+		env.expectAdvance(5)
+		env.expectCommit()
+
+		resp, err := env.pm.CreateTableGroup(t.Context(), bound())
+		require.NoError(t, err)
+		assert.Equal(t, testTableGroupID, resp.TablegroupId)
+		// The connection is read inside the catalog write, under the catalog_state lock, and
+		// before the row that names it.
+		assert.Contains(t, env.queries[2], "FROM multigres.catalog_state FOR UPDATE")
+		assert.Equal(t, "SELECT connection_id, coalesce(conninfo::text, '') FROM multigres.connections WHERE name = $1", env.queries[3])
+		assert.Contains(t, env.queries[4], "INSERT INTO multigres.tablegroup (name, state, backing_connection_id)")
+	})
+
+	for name, tc := range map[string]struct {
+		req  *multipoolermanagerdatapb.CreateTableGroupRequest
+		code mtrpcpb.Code
+		msg  string
+	}{
+		"the default tablegroup cannot be bound": {
+			&multipoolermanagerdatapb.CreateTableGroupRequest{Name: constants.DefaultTableGroup, BackingConnection: "src"},
+			mtrpcpb.Code_INVALID_ARGUMENT, "default tablegroup cannot have a backing connection",
+		},
+		"an external tablegroup is one shard": {
+			&multipoolermanagerdatapb.CreateTableGroupRequest{Name: "external", BackingConnection: "src", Shards: []string{"0-80", "80-inf"}},
+			mtrpcpb.Code_INVALID_ARGUMENT, "exactly one shard, 0-inf",
+		},
+	} {
+		t.Run(name+", before any catalog access", func(t *testing.T) {
+			env := newCatalogTestEnv(t)
+			env.expectPrimary()
+			_, err := env.pm.CreateTableGroup(t.Context(), tc.req)
+			require.Error(t, err)
+			assert.Equal(t, tc.code, mterrors.Code(err))
+			assert.Contains(t, err.Error(), tc.msg)
+			assert.Equal(t, []string{"SELECT pg_is_in_recovery()"}, env.queries)
+		})
+	}
+
+	t.Run("a connection that does not exist", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		env.expectPrimary()
+		env.expectLock()
+		env.expect(`SELECT connection_id, coalesce\(conninfo::text, ''\) FROM multigres.connections`, []string{"connection_id", "conninfo"}, nil)
+		_, err := env.pm.CreateTableGroup(t.Context(), bound())
+		require.Error(t, err)
+		assert.Equal(t, mtrpcpb.Code_NOT_FOUND, mterrors.Code(err))
+		assert.Empty(t, env.queriesMatching("INSERT"), "nothing is written")
+	})
+	// How a stored connection is decoded and refused is tested in connection_store_test.go; here
+	// only that a refusal reaches the caller and writes nothing.
+	t.Run("a connection the pooler would refuse is not bound", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		env.expectPrimary()
+		env.expectLock()
+		env.expectConnection(11, "host=a.example.com,b.example.com port=5432 dbname="+testTableGroupDB+" user=app password=secret")
+		_, err := env.pm.CreateTableGroup(t.Context(), bound())
+		require.Error(t, err)
+		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+		assert.Contains(t, err.Error(), "more than one server")
+		assert.Empty(t, env.queriesMatching("INSERT"), "nothing is written")
+	})
+	t.Run("a connection to another database than the cluster's", func(t *testing.T) {
+		env := newCatalogTestEnv(t)
+		env.expectPrimary()
+		env.expectLock()
+		env.expectConnection(11, "host=db.example.com port=5432 dbname=other user=app password=secret")
+		_, err := env.pm.CreateTableGroup(t.Context(), bound())
+		require.Error(t, err)
+		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+		assert.Contains(t, err.Error(), `serves database "other", which does not match the cluster's database "`+testTableGroupDB+`"`)
+		assert.NotContains(t, err.Error(), "secret", "the dsn is never echoed")
+	})
+
+	// A retry must ask for the binding the tablegroup has, with or without IF NOT EXISTS, which
+	// ignores a different shard layout but not a different binding.
+	t.Run("the binding is part of what a retry must match", func(t *testing.T) {
+		for name, tc := range map[string]struct {
+			existing, requested string
+			wantErr             string
+		}{
+			"same binding joins":           {"src", "src", ""},
+			"managed row, managed request": {"", "", ""},
+			"another connection conflicts": {"src", "other", `with backing connection "src", not with backing connection "other"`},
+			"managed row, bound request":   {"", "src", `as a managed tablegroup, not with backing connection "src"`},
+			"bound row, managed request":   {"src", "", `with backing connection "src", not as a managed tablegroup`},
+		} {
+			for _, ifNotExists := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s, IfNotExists=%v", name, ifNotExists), func(t *testing.T) {
+					env := newCatalogTestEnv(t)
+					env.expectPrimary()
+					env.expectLock()
+					if tc.requested != "" {
+						env.expectConnection(11, backingDSN)
+					}
+					env.nameTakenBy(testTableGroupID, tableGroupStateCreating, tc.existing)
+					env.expect("SELECT shard_name FROM multigres.shard", []string{"shard_name"}, [][]any{{"0-inf"}})
+					env.expect("SELECT operation_id FROM multigres.operation", []string{"operation_id"}, [][]any{{testOpID}})
+
+					resp, err := env.pm.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{
+						Name: "external", BackingConnection: tc.requested, IfNotExists: ifNotExists,
+					})
+					if tc.wantErr != "" {
+						require.Error(t, err)
+						assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+						assert.Contains(t, err.Error(), tc.wantErr)
+						return
+					}
+					require.NoError(t, err)
+					assert.Equal(t, testOpID, resp.OperationId)
+				})
+			}
+		}
+	})
+}
+
 func TestGetOperation(t *testing.T) {
 	t.Run("creating reports progress from topology", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
@@ -508,12 +701,12 @@ func TestListTableGroups(t *testing.T) {
 	t.Run("groups shards under their tablegroup, dropping ones included", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectPrimary()
-		env.expect("FROM multigres.tablegroup t JOIN multigres.shard s", []string{"tablegroup_id", "name", "state", "shard_name"},
+		env.expect("FROM multigres.tablegroup t JOIN multigres.shard s", []string{"tablegroup_id", "name", "state", "shard_name", "name"},
 			[][]any{
-				{int64(7), "commerce", tableGroupStateActive, "0-80"},
-				{int64(7), "commerce", tableGroupStateActive, "80-inf"},
-				{int64(9), "analytics", tableGroupStateCreating, "0-inf"},
-				{int64(10), "old", tableGroupStateDropping, "0-inf"},
+				{int64(7), "commerce", tableGroupStateActive, "0-80", ""},
+				{int64(7), "commerce", tableGroupStateActive, "80-inf", ""},
+				{int64(9), "analytics", tableGroupStateCreating, "0-inf", "src"},
+				{int64(10), "old", tableGroupStateDropping, "0-inf", ""},
 			})
 
 		groups, err := env.pm.ListTableGroups(t.Context())
@@ -530,6 +723,8 @@ func TestListTableGroups(t *testing.T) {
 		assert.Equal(t, "analytics", groups[1].Name)
 		assert.Equal(t, shardingcatalogpb.TableGroupState_TABLE_GROUP_STATE_CREATING, groups[1].State)
 		assert.Equal(t, []string{"0-inf"}, groups[1].Shards)
+		assert.Empty(t, groups[0].BackingConnection, "a managed tablegroup has no binding")
+		assert.Equal(t, "src", groups[1].BackingConnection)
 		require.Len(t, env.queries, 2)
 		assert.Contains(t, env.queries[1], "WHERE t.name <> $1 ORDER BY", "every state is listed")
 		for _, state := range []string{tableGroupStateCreating, tableGroupStateActive, tableGroupStateDropping} {
@@ -539,7 +734,7 @@ func TestListTableGroups(t *testing.T) {
 	t.Run("empty catalog is an empty list, not nil", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
 		env.expectPrimary()
-		env.expect("FROM multigres.tablegroup t JOIN multigres.shard s", []string{"tablegroup_id", "name", "state", "shard_name"}, nil)
+		env.expect("FROM multigres.tablegroup t JOIN multigres.shard s", []string{"tablegroup_id", "name", "state", "shard_name", "name"}, nil)
 		groups, err := env.pm.ListTableGroups(t.Context())
 		require.NoError(t, err)
 		assert.NotNil(t, groups)

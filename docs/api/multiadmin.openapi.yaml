@@ -4510,6 +4510,12 @@ components:
       additionalProperties: false
       description: TableGroup is a tablegroup as recorded in the catalog.
       properties:
+        backingConnection:
+          description: |-
+            backing_connection is the name of the connection of the external
+             PostgreSQL that the tablegroup is bound to. Empty for a managed tablegroup.
+          title: backing_connection
+          type: string
         name:
           title: name
           type: string

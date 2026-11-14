@@ -112,3 +112,15 @@ func decodeConnInfo(name, conninfo string) (*backingconn.Conn, error) {
 	}
 	return conn, nil
 }
+
+// ConnFromColumns returns the connection of a row of multigres.connections that is read by its
+// columns, as Connection.Conn returns it: valid and self-contained, with the name of the connection
+// set. conninfo is the text of the conninfo column; one this version cannot read is refused with
+// ErrConnectionUnreadable, and one that is not a valid connection with ErrInvalidConnection.
+func ConnFromColumns(name, conninfo string) (*backingconn.Conn, error) {
+	decoded, err := decodeConnInfo(name, conninfo)
+	if err != nil {
+		return nil, err
+	}
+	return validConn(name, decoded)
+}

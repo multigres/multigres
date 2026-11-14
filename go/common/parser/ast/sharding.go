@@ -23,17 +23,26 @@ import "strings"
 // never forwards any of them to postgres (IsTableGroupDDL below).
 
 // CreateTableGroupStmt is CREATE TABLEGROUP [IF NOT EXISTS] name
-// [SHARDS ('range', ...)]. Shards is nil when the clause is omitted: a
-// single 0-inf shard.
+// [SHARDS ('range', ...) | CONNECTION connection]. Shards is nil when the
+// clause is omitted: a single 0-inf shard. Connection names the connection of
+// an external database the tablegroup is bound to, and is empty for a
+// managed tablegroup; it is exclusive with Shards.
 type CreateTableGroupStmt struct {
 	BaseNode
 	Name        string
 	Shards      *NodeList // *String items, 'lower-upper' ranges
+	Connection  string
 	IfNotExists bool
 }
 
 func NewCreateTableGroupStmt(name string, shards *NodeList, ifNotExists bool) *CreateTableGroupStmt {
 	return &CreateTableGroupStmt{BaseNode: BaseNode{Tag: T_CreateTableGroupStmt}, Name: name, Shards: shards, IfNotExists: ifNotExists}
+}
+
+// NewCreateTableGroupOnConnectionStmt is CREATE TABLEGROUP [IF NOT EXISTS] name
+// CONNECTION connection.
+func NewCreateTableGroupOnConnectionStmt(name, connection string, ifNotExists bool) *CreateTableGroupStmt {
+	return &CreateTableGroupStmt{BaseNode: BaseNode{Tag: T_CreateTableGroupStmt}, Name: name, Connection: connection, IfNotExists: ifNotExists}
 }
 
 func (c *CreateTableGroupStmt) StatementType() string { return "CREATE TABLEGROUP" }
@@ -46,6 +55,9 @@ func (c *CreateTableGroupStmt) SqlString() string {
 	s += QuoteIdentifier(c.Name)
 	if c.Shards != nil && c.Shards.Len() > 0 {
 		s += " SHARDS " + shardRangeListSql(c.Shards)
+	}
+	if c.Connection != "" {
+		s += " CONNECTION " + QuoteIdentifier(c.Connection)
 	}
 	return s
 }
