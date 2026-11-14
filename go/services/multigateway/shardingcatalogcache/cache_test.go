@@ -15,15 +15,19 @@
 package shardingcatalogcache
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -66,6 +70,8 @@ type fakePrimary struct {
 	rule    *clustermetadatapb.RuleNumber
 	err     error
 	calls   []*Position
+	// waited records each fetch's waitForFailover.
+	waited []bool
 	// gate, when set, blocks each fetch until it is closed or ctx ends.
 	gate chan struct{}
 }
@@ -83,9 +89,10 @@ func (f *fakePrimary) setRule(term int64) {
 	f.rule = rule(term)
 }
 
-func (f *fakePrimary) fetch(ctx context.Context, database string, since *Position) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+func (f *fakePrimary) fetch(ctx context.Context, database string, since *Position, waitForFailover bool) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, since)
+	f.waited = append(f.waited, waitForFailover)
 	gate := f.gate
 	f.mu.Unlock()
 	if gate != nil {
@@ -352,4 +359,135 @@ func TestCache_RuleOrdering(t *testing.T) {
 		time.Sleep(quietPeriod)
 		assert.Same(t, installed, c.Snapshot(testDB))
 	})
+}
+
+// Await on first use starts following the database and waits for its first
+// snapshot; afterwards it returns the cached one without fetching.
+func TestCache_AwaitFetchesOnFirstUse(t *testing.T) {
+	f := &fakePrimary{catalog: snapshotAt(2, "commerce")}
+	c := newTestCache(t, f, noPoll)
+
+	snap, err := c.Await(t.Context(), testDB)
+	require.NoError(t, err)
+	require.NotNil(t, snap)
+	assert.Equal(t, int64(2), snap.RoutingVersion())
+	assert.Equal(t, []string{testDB}, c.Databases())
+
+	calls := f.callCount()
+	again, err := c.Await(t.Context(), testDB)
+	require.NoError(t, err)
+	assert.Same(t, snap, again)
+	assert.Equal(t, calls, f.callCount(), "a cached snapshot needs no fetch")
+}
+
+// While the cache has no snapshot, a fetch waits out a failover of the
+// catalog primary; once it has one, fetches do not.
+func TestCache_OnlyAFetchWithoutASnapshotWaitsOutAFailover(t *testing.T) {
+	f := &fakePrimary{catalog: snapshotAt(1)}
+	c := newTestCache(t, f, noPoll)
+	_, err := c.Await(t.Context(), testDB)
+	require.NoError(t, err)
+
+	f.set(snapshotAt(2), nil)
+	c.ObserveCatalogShard(testDB, true, nil, 2)
+	waitForVersion(t, c, 2)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	require.GreaterOrEqual(t, len(f.waited), 2)
+	assert.True(t, f.waited[0], "the first fetch waits out a failover")
+	assert.False(t, f.waited[len(f.waited)-1], "a refresh of a cached snapshot does not")
+}
+
+// A failed first fetch fails Await rather than leaving it to guess; the next
+// Await fetches again.
+func TestCache_AwaitReportsAFailedFetch(t *testing.T) {
+	f := &fakePrimary{}
+	f.set(nil, errors.New("no writable pooler"))
+	c := newTestCache(t, f, noPoll)
+
+	_, err := c.Await(t.Context(), testDB)
+	require.ErrorContains(t, err, "no writable pooler")
+
+	f.set(snapshotAt(3), nil)
+	snap, err := c.Await(t.Context(), testDB)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), snap.RoutingVersion())
+}
+
+// Await gives up when its context ends before the first fetch does.
+func TestCache_AwaitHonoursItsContext(t *testing.T) {
+	f := &fakePrimary{catalog: snapshotAt(1), gate: make(chan struct{})}
+	defer close(f.gate)
+	c := newTestCache(t, f, noPoll)
+
+	ctx, cancel := context.WithTimeout(t.Context(), quietPeriod)
+	defer cancel()
+	_, err := c.Await(ctx, testDB)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+// A catalog primary that predates snapshots means the database has no
+// catalog: Await returns nil without an error, the cache warns once, and it
+// keeps polling. A snapshot that arrives later replaces that state and runs
+// the install hooks.
+func TestCache_UnimplementedMeansNoCatalog(t *testing.T) {
+	f := &fakePrimary{}
+	f.set(nil, status.Error(codes.Unimplemented, "unknown method GetRoutingSnapshot"))
+	var logs bytes.Buffer
+	c := New(t.Context(), slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelWarn})), f.fetch, 10*time.Millisecond)
+	var installs []string
+	var mu sync.Mutex
+	c.OnInstall(func(db string) {
+		mu.Lock()
+		defer mu.Unlock()
+		installs = append(installs, db)
+	})
+
+	snap, err := c.Await(t.Context(), testDB)
+	require.NoError(t, err)
+	assert.Nil(t, snap)
+	waitForCalls(t, f, 3)
+	again, err := c.Await(t.Context(), testDB)
+	require.NoError(t, err)
+	assert.Nil(t, again)
+	assert.Equal(t, 1, strings.Count(logs.String(), "does not serve sharding catalog snapshots"), "warned once: %s", logs.String())
+
+	f.set(snapshotAt(1), nil)
+	waitForVersion(t, c, 1)
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(installs) == 1
+	}, waitFor, waitTick, "a snapshot that replaces the unsupported state runs the hooks")
+}
+
+// Install hooks run when a snapshot replaces an earlier one, not for the
+// first.
+func TestCache_OnInstallRunsOnReplacement(t *testing.T) {
+	f := &fakePrimary{catalog: snapshotAt(1)}
+	c := newTestCache(t, f, noPoll)
+	var mu sync.Mutex
+	var installs []string
+	c.OnInstall(func(db string) {
+		mu.Lock()
+		defer mu.Unlock()
+		installs = append(installs, db)
+	})
+	installed := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), installs...)
+	}
+
+	_, err := c.Await(t.Context(), testDB)
+	require.NoError(t, err)
+	assert.Empty(t, installed(), "the first snapshot is not a change")
+
+	// Same version: nothing installed, no hook.
+	c.ObserveCatalogShard(testDB, true, nil, 1)
+	f.set(snapshotAt(2), nil)
+	c.ObserveCatalogShard(testDB, true, nil, 2)
+	waitForVersion(t, c, 2)
+	require.Eventually(t, func() bool { return len(installed()) == 1 }, waitFor, waitTick)
+	assert.Equal(t, []string{testDB}, installed())
 }

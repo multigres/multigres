@@ -50,6 +50,7 @@ import (
 	"github.com/multigres/multigres/go/services/multigateway/handler"
 	"github.com/multigres/multigres/go/services/multigateway/handler/queryregistry"
 	"github.com/multigres/multigres/go/services/multigateway/poolergateway"
+	"github.com/multigres/multigres/go/services/multigateway/routing"
 	"github.com/multigres/multigres/go/services/multigateway/scatterconn"
 	"github.com/multigres/multigres/go/services/multigateway/shardingcatalogcache"
 	"github.com/multigres/multigres/go/tools/ctxutil"
@@ -115,6 +116,9 @@ type Multigateway struct {
 	cancelManager *CancelManager
 	// scatterConn coordinates query execution across poolers
 	scatterConn *scatterconn.ScatterConn
+	// routing applies each database's routing rules, from its sharding
+	// catalog snapshot, to application targets.
+	routing *routing.Router
 	// executor handles query execution and routing
 	executor *executor.Executor
 	// buffer holds requests during PRIMARY failovers
@@ -373,7 +377,7 @@ func NewMultigateway(reg *viperutil.Registry, resources servenv.ProcessResources
 }
 
 // ShardingCatalog returns the per-database sharding catalog snapshots, or nil
-// with a single pooler. Nothing on the query path reads it yet.
+// with a single pooler. Routing reads each database's rules from it.
 func (mg *Multigateway) ShardingCatalog() shardingcatalogcache.Source {
 	if mg.shardingCatalog == nil {
 		return nil
@@ -508,27 +512,36 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	}
 
 	// Wire LISTEN/NOTIFY notification manager.
-	// Uses a lazy client getter that resolves the primary pooler connection
-	// from the load balancer at subscribe time (after pooler discovery), and
-	// the gateway's leader-serving hook to reopen streams after a failover.
+	// Uses a lazy client getter that resolves, at subscribe time (after
+	// pooler discovery), where the session's database sends its application
+	// traffic, through its routing rules, and the gateway's leader-serving
+	// hook to reopen streams after a failover.
 	notifMetrics, notifMetricsErr := poolergateway.NewNotificationMetrics()
 	if notifMetricsErr != nil {
 		logger.WarnContext(ctx, "failed to initialise some notification metrics", "error", notifMetricsErr)
 	}
 	notifMgr := poolergateway.NewNotificationManager(
-		func() queryservice.Pooler {
-			conn, err := mg.poolerGateway.GetConnection(&querypb.Target{
+		func(database string) (queryservice.Pooler, string, error) {
+			target, err := mg.routing.Resolve(mg.shutdownCtx, &querypb.Target{
 				ShardRef: &clustermetadatapb.ShardRef{
-					Database:   constants.DefaultPostgresDatabase,
+					Database:   database,
 					TableGroup: constants.DefaultTableGroup,
 					Shard:      constants.DefaultShard,
 				},
 				Mode: querypb.Mode_MODE_WRITABLE,
 			})
-			if err != nil || conn == nil {
-				return nil
+			if err != nil {
+				return nil, "", err
 			}
-			return conn.Pooler()
+			conn, err := mg.poolerGateway.GetConnection(target)
+			if err != nil {
+				return nil, "", err
+			}
+			if conn == nil {
+				return nil, "", nil
+			}
+			ref := target.GetShardRef()
+			return conn.Pooler(), ref.GetTableGroup() + "/" + ref.GetShard(), nil
 		},
 		logger,
 		notifMetrics,
@@ -545,19 +558,18 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	var onCatalogShardHealth func(string, bool, *clustermetadatapb.RuleNumber, int64)
 	if mg.shardingCatalogPollInterval != nil {
 		mg.shardingCatalog = shardingcatalogcache.New(mg.shutdownCtx, logger,
-			func(ctx context.Context, database string, since *shardingcatalogcache.Position) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
-				client, err := catalogPrimaryClient(mg.poolerGateway, database)
-				if err != nil {
-					return nil, err
-				}
+			func(ctx context.Context, database string, since *shardingcatalogcache.Position, waitForFailover bool) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
 				req := &multipoolermanagerdatapb.GetRoutingSnapshotRequest{}
 				if since != nil {
 					req.SinceVersion = &since.RoutingVersion
 					req.SinceConsensusRule = since.Rule
 				}
-				return client.GetRoutingSnapshot(ctx, req)
+				return mg.poolerGateway.GetRoutingSnapshot(ctx, database, req, waitForFailover)
 			},
 			mg.shardingCatalogPollInterval.Get())
+		// A snapshot that changes a database's routing reopens its sessions'
+		// LISTEN streams on the side that now serves it.
+		mg.shardingCatalog.OnInstall(notifMgr.OnRoutingChanged)
 		onCatalogShardHealth = mg.shardingCatalog.ObserveCatalogShard
 	}
 
@@ -576,8 +588,18 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	})
 	logger.InfoContext(ctx, "pooler cache started", "local_cell", mg.cell.Get())
 
+	// Each database's routing rules, from its sharding catalog snapshot,
+	// applied to its application traffic at execute time. Without a catalog
+	// cache (a single pooler) there are no rules.
+	if mg.shardingCatalog != nil {
+		mg.routing = routing.NewRouter(mg.shardingCatalog)
+	} else {
+		mg.routing = routing.NewRouter(nil)
+	}
+
 	// Initialize ScatterConn for query coordination
 	mg.scatterConn = scatterconn.NewScatterConn(mg.poolerGateway, logger)
+	mg.scatterConn.SetRouter(mg.routing)
 
 	// Initialize the executor for query routing
 	// Pass ScatterConn as the IExecute implementation
