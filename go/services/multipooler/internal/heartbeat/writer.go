@@ -64,6 +64,13 @@ type Writer struct {
 
 	writes      atomic.Int64
 	writeErrors atomic.Int64
+
+	// writeSchemaErrors counts the writeErrors caused by an incompatible heartbeat
+	// table (see IsSchemaError). schemaBroken is true from such a failure until the next
+	// successful write; failures of any other kind leave it as it was, because they say
+	// nothing about the table.
+	writeSchemaErrors atomic.Int64
+	schemaBroken      atomic.Bool
 }
 
 // NewWriter creates a new heartbeat writer.
@@ -116,7 +123,6 @@ func (w *Writer) writeHeartbeat(ctx context.Context) {
 	err := w.write(writeCtx, true)
 	if err != nil {
 		w.logger.ErrorContext(ctx, "failed to write heartbeat", "error", err)
-		w.writeErrors.Add(1)
 	} else {
 		w.writes.Add(1)
 		w.logger.DebugContext(ctx, "heartbeat written",
@@ -167,8 +173,17 @@ func (w *Writer) write(ctx context.Context, waitForQuorum bool) error {
 		RETURNING pg_current_wal_lsn()::text
 	`, w.shardID, w.poolerID, now.UnixNano(), lsnArg, provenTsArg)
 	if err != nil {
+		// Every failed write is counted here, so WriteProven's are too. writeErrors goes
+		// first: a reader that loads writeSchemaErrors and then writeErrors (see
+		// registerMetrics) then never sees more schema errors than errors.
+		w.writeErrors.Add(1)
+		if IsSchemaError(err) {
+			w.writeSchemaErrors.Add(1)
+			w.schemaBroken.Store(true)
+		}
 		return mterrors.Wrap(err, "failed to write heartbeat")
 	}
+	w.schemaBroken.Store(false)
 
 	// Candidate for the NEXT write's quorum_commit_lsn/quorum_commit_ts, paired
 	// with now (also captured pre-commit, above). Best-effort: on failure,
@@ -232,7 +247,21 @@ func (w *Writer) Writes() int64 {
 	return w.writes.Load()
 }
 
-// WriteErrors returns the number of heartbeat write errors.
+// WriteErrors returns the number of failed heartbeat writes, including those made by
+// WriteProven.
 func (w *Writer) WriteErrors() int64 {
 	return w.writeErrors.Load()
+}
+
+// WriteSchemaErrors returns the number of heartbeat write errors caused by an
+// incompatible heartbeat table. They are also counted in WriteErrors.
+func (w *Writer) WriteSchemaErrors() int64 {
+	return w.writeSchemaErrors.Load()
+}
+
+// SchemaBroken reports whether the most recent write that failed for a schema reason has
+// not been followed by a successful write, i.e. the heartbeat table currently cannot
+// take this Writer's heartbeats.
+func (w *Writer) SchemaBroken() bool {
+	return w.schemaBroken.Load()
 }
