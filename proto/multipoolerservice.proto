@@ -109,12 +109,13 @@ service MultipoolerService {
   // notifications across channels preserve PostgreSQL delivery order.
   rpc NotificationStream(stream NotificationStreamRequest) returns (stream NotificationStreamResponse);
 
-  // GetBackingConnection returns the named backing connection. It is served only
-  // by the default primary pooler, which owns the connection metadata; unmanaged
-  // poolers call it at bootstrap to learn the external endpoint they front. The
-  // reply carries the credential, so the call should travel over TLS; it is
-  // protected only by the transport's authentication, and there is no
-  // per-call authorization.
+  // GetBackingConnection says how a tablegroup is served: by an external
+  // PostgreSQL, whose connection it returns, or by managed shards. It is served
+  // only by the default primary pooler, which owns the catalog; a pooler calls it
+  // at startup, by its tablegroup id, to learn whether it is unmanaged and which
+  // external endpoint it fronts. The reply carries the credential, so the call
+  // should travel over TLS; it is protected only by the transport's
+  // authentication, and there is no per-call authorization.
   rpc GetBackingConnection(GetBackingConnectionRequest) returns (GetBackingConnectionResponse);
 }
 
@@ -758,18 +759,29 @@ message BackingConnection {
   string ssl_negotiation = 9;
 }
 
-// GetBackingConnectionRequest asks the default primary for a named connection.
+// GetBackingConnectionRequest asks the default primary how a tablegroup is
+// served.
 message GetBackingConnectionRequest {
-  // database is the database the connection belongs to.
+  // database is the database the tablegroup belongs to.
   string database = 1;
 
-  // connection_name is the name of the requested connection.
-  string connection_name = 2;
+  reserved 2;
+  reserved "connection_name";
+
+  // tablegroup_id is the catalog id of the tablegroup (Multipooler.tablegroup_id).
+  int64 tablegroup_id = 3;
 }
 
-// GetBackingConnectionResponse carries the requested connection.
+// GetBackingConnectionResponse says how the tablegroup is served. Exactly one of
+// connection and managed is set; a reply that sets neither says nothing, and a
+// caller must not take it for managed.
 message GetBackingConnectionResponse {
+  // connection is the external PostgreSQL that serves the tablegroup.
   BackingConnection connection = 1;
+
+  // managed is set when the tablegroup has no backing connection: it is served
+  // by multigres-managed shards.
+  bool managed = 2;
 }
 
 // NotificationStreamRequest updates the subscribed channels for one gateway

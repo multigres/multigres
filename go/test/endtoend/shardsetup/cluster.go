@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
@@ -248,6 +249,18 @@ func (s *ShardSetup) PrimaryMultipooler(t *testing.T) *ProcessInstance {
 func (s *ShardSetup) PrimaryPgctld(t *testing.T) *ProcessInstance {
 	t.Helper()
 	return s.GetPrimary(t).Pgctld
+}
+
+// ConnectPrimaryAdmin opens an administrative connection to the primary
+// postgres of this cohort, for fixtures that must go around the pooler.
+func (s *ShardSetup) ConnectPrimaryAdmin(t *testing.T) *pgx.Conn {
+	t.Helper()
+	ctx := t.Context()
+	conn, err := pgx.Connect(ctx, fmt.Sprintf("host=127.0.0.1 port=%d user=postgres password=%s dbname=postgres sslmode=disable",
+		s.PostgresPort(t), TestPostgresPassword))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
+	return conn
 }
 
 // CreateMultipoolerInstance creates a new multipooler instance (pgctld + multipooler pair) with the given name.

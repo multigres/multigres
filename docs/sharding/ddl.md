@@ -30,7 +30,7 @@ quoted: `"default"`.
 
 ```sql
 CREATE TABLEGROUP [IF NOT EXISTS] group_name
-    [SHARDS ('range' [, ...])];
+    [SHARDS ('range' [, ...]) | CONNECTION connection_name];
 
 ALTER TABLEGROUP group_name RENAME TO new_name;
 
@@ -43,6 +43,17 @@ DROP TABLEGROUP [IF EXISTS] group_name [RESTRICT | CASCADE];
 
 Without `SHARDS`, a tablegroup has a single shard, `0-inf`, and is unsharded.
 A tablegroup is sharded exactly when it has more than one shard.
+
+With `CONNECTION`, the tablegroup is bound to the external database that
+`connection_name` names, a connection created with `CREATE CONNECTION`, and not
+to postgres instances of its own. It has a single shard, `0-inf`, and
+`CONNECTION` cannot be combined with `SHARDS`. The connection
+must exist and be one a pooler can serve: it names one server and the database
+the cluster serves. The binding is set here and never changes, the default
+tablegroup is never bound, and the connection cannot be dropped while a
+tablegroup is bound to it. `IF NOT EXISTS`
+finds a tablegroup bound to another connection (or to none) an error, not a
+skipped statement. See [tablegroup-operations.md](tablegroup-operations.md).
 
 A tablegroup name is a lowercase DNS label: letters, digits and hyphens,
 starting and ending with a letter or digit, at most 25 characters. The name is

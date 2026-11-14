@@ -23,13 +23,13 @@ import (
 	multipoolerservicepb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
 
-// connectionDirectory holds the backing connections of the cluster, which the default
-// primary serves to the poolers that front an external PostgreSQL. It is the sharding
-// catalog (connectionStore); the interface is the seam tests replace it through.
+// connectionDirectory is where the default primary reads how a tablegroup is served: the
+// sharding catalog (connectionStore); the interface is the seam tests replace it through.
 type connectionDirectory interface {
-	// BackingConnection returns the named connection, and false when there is none of
-	// that name. Its Name is set by the caller.
-	BackingConnection(ctx context.Context, name string) (conn *multipoolerservicepb.BackingConnection, found bool, err error)
+	// TableGroupBinding returns the backing connection of the tablegroup with the given
+	// catalog id, which is nil when the tablegroup is managed, and false when there is no
+	// such tablegroup. A connection's Name is the name it has in the catalog.
+	TableGroupBinding(ctx context.Context, tablegroupID int64) (conn *multipoolerservicepb.BackingConnection, found bool, err error)
 }
 
 // connections returns the directory the default primary reads connections from: the
@@ -64,27 +64,29 @@ func (pm *MultipoolerManager) requireDefaultPrimary(database string) error {
 	return nil
 }
 
-// GetBackingConnection returns the named backing connection from the default
-// primary's metadata.
+// GetBackingConnection says how a tablegroup is served, from the default primary's catalog:
+// the backing connection of an external tablegroup, or that it is managed.
 func (pm *MultipoolerManager) GetBackingConnection(ctx context.Context, req *multipoolerservicepb.GetBackingConnectionRequest) (*multipoolerservicepb.GetBackingConnectionResponse, error) {
 	if err := pm.requireDefaultPrimary(req.GetDatabase()); err != nil {
 		return nil, err
 	}
-	return pm.backingConnection(ctx, req.GetConnectionName())
+	return pm.tableGroupBinding(ctx, req.GetTablegroupId())
 }
 
-// backingConnection reads the named connection from the directory.
-func (pm *MultipoolerManager) backingConnection(ctx context.Context, name string) (*multipoolerservicepb.GetBackingConnectionResponse, error) {
-	if name == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "connection name is required")
+// tableGroupBinding reads the tablegroup's binding from the directory.
+func (pm *MultipoolerManager) tableGroupBinding(ctx context.Context, tablegroupID int64) (*multipoolerservicepb.GetBackingConnectionResponse, error) {
+	if tablegroupID <= 0 {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "tablegroup id is required")
 	}
-	conn, found, err := pm.connections().BackingConnection(ctx, name)
+	conn, found, err := pm.connections().TableGroupBinding(ctx, tablegroupID)
 	if err != nil {
-		return nil, mterrors.Wrap(err, "read backing connection")
+		return nil, mterrors.Wrap(err, "read tablegroup binding")
 	}
 	if !found {
-		return nil, mterrors.Errorf(mtrpcpb.Code_NOT_FOUND, "backing connection %q not found", name)
+		return nil, mterrors.Errorf(mtrpcpb.Code_NOT_FOUND, "tablegroup %d not found", tablegroupID)
 	}
-	conn.Name = name
+	if conn == nil {
+		return &multipoolerservicepb.GetBackingConnectionResponse{Managed: true}, nil
+	}
 	return &multipoolerservicepb.GetBackingConnectionResponse{Connection: conn}, nil
 }

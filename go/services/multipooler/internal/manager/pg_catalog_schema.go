@@ -271,6 +271,11 @@ var catalogTables = []string{
 	CHECK ((scope = 'tablegroup') = (to_shard_id IS NOT NULL))
 )`,
 	connectionsConnInfoColumnSQL,
+	// A tablegroup served by an external PostgreSQL names its connection here; NULL is a
+	// managed tablegroup. Set when the tablegroup is created, never updated, never on the
+	// default tablegroup. Appended because it references connections, declared after the
+	// CREATE TABLE above.
+	`ALTER TABLE multigres.tablegroup ADD COLUMN IF NOT EXISTS backing_connection_id bigint REFERENCES multigres.connections (connection_id)`,
 }
 
 // catalogSeed inserts the catalog's initial rows. Every insert is idempotent

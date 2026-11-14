@@ -17,17 +17,17 @@ package multipooler
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/servenv"
+	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/services/multipooler/internal/manager"
 	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
@@ -44,37 +44,19 @@ func newTestMultipooler() *Multipooler {
 	}, "/", false)
 }
 
-func TestLeadershipModeFor(t *testing.T) {
-	for _, tc := range []struct {
-		backingConnection string
-		staticLeader      bool
-		want              clustermetadatapb.LeadershipMode
-	}{
-		{"", false, clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_CONSENSUS},
-		{"", true, clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC},
-		{"src", false, clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNMANAGED},
-	} {
-		got, err := leadershipModeFor(tc.backingConnection, tc.staticLeader)
-		require.NoError(t, err)
-		require.Equal(t, tc.want, got)
-	}
-	_, err := leadershipModeFor("src", true)
-	require.ErrorContains(t, err, "static leader")
-}
-
 func TestValidateBackendFlags(t *testing.T) {
 	none := func(string) bool { return false }
 	only := func(name string) func(string) bool { return func(n string) bool { return n == name } }
 
 	// Managed poolers may set any of the local-postgres flags.
-	require.NoError(t, validateBackendFlags("", none))
-	require.NoError(t, validateBackendFlags("", only("pg-port")))
+	require.NoError(t, validateBackendFlags(false, none))
+	require.NoError(t, validateBackendFlags(false, only("pg-port")))
 
 	// An unmanaged pooler has no pgctld, no local postgres and no backups: every flag that
 	// belongs to them is refused, the ones pgctld's Status is adopted into included.
-	require.NoError(t, validateBackendFlags("src", none))
+	require.NoError(t, validateBackendFlags(true, none))
 	for _, name := range managedPostgresFlags() {
-		require.ErrorContains(t, validateBackendFlags("src", only(name)), "--"+name, name)
+		require.ErrorContains(t, validateBackendFlags(true, only(name)), "--"+name, name)
 	}
 	require.ElementsMatch(t, []string{
 		"socket-file", "pooler-dir", "pg-port", "pgctld-addr", "pgbackrest-port",
@@ -102,221 +84,262 @@ func endpointConn(name, host string, port int, database, user string) *backingco
 	return c
 }
 
+// fakeSource answers every question the same way, and counts them.
 type fakeSource struct {
-	conn *backingconn.Conn
+	conn    *backingconn.Conn
+	managed bool
+	err     error
+	asked   []int64
 }
 
-func (f fakeSource) BackingConnection(_ context.Context, name string) (*backingconn.Conn, error) {
-	if name != "src" {
-		return nil, errors.New("unknown connection")
-	}
-	return f.conn, nil
+func (f *fakeSource) TableGroupBinding(_ context.Context, tablegroupID int64) (*backingconn.Conn, bool, error) {
+	f.asked = append(f.asked, tablegroupID)
+	return f.conn, f.managed, f.err
 }
 
-func TestConnectionSourceIsAnExplicitSeam(t *testing.T) {
-	// With nothing configured an unmanaged pooler refuses to start, saying why.
-	mp := newTestMultipooler()
-	_, err := mp.connections.BackingConnection(t.Context(), "src")
-	require.ErrorContains(t, err, "no source of backing connections")
-
-	want := endpointConn("src", "db.example.com", 5432, "app", "u")
-	mp.connections = fakeSource{conn: want}
-	got, err := mp.connections.BackingConnection(t.Context(), "src")
-	require.NoError(t, err)
-	require.Same(t, want, got)
-}
-
-// TestAConnectionIsUsedOnlyIfTheSourceGaveAUsableOne: whatever the source is, nothing, an
-// incomplete connection and a connection that names several servers are refused, and the
-// refusal is permanent.
-func TestAConnectionIsUsedOnlyIfTheSourceGaveAUsableOne(t *testing.T) {
+// TestAnAnswerIsUsedOnlyIfTheSourceGaveAUsableOne: whatever the source is, an answer that says
+// nothing, or both a connection and managed, is refused, and a refusal is not taken for managed. A
+// connection a pooler cannot front is refused too (see TestAReplyIsValidatedOnce).
+func TestAnAnswerIsUsedOnlyIfTheSourceGaveAUsableOne(t *testing.T) {
 	good := endpointConn("src", "db.example.com", 5432, "app", "u")
-	got, err := fetchBackingConnection(t.Context(), fakeSource{conn: good}, "src")
+	got, managed, err := fetchBinding(t.Context(), &fakeSource{conn: good}, 7)
 	require.NoError(t, err)
+	require.False(t, managed)
 	require.Same(t, good, got)
 
-	_, err = fetchBackingConnection(t.Context(), fakeSource{}, "src")
-	require.ErrorIs(t, err, errInvalidBackingConnection, "a source that answers with nothing")
+	got, managed, err = fetchBinding(t.Context(), &fakeSource{managed: true}, 7)
+	require.NoError(t, err)
+	require.True(t, managed)
+	require.Nil(t, got)
 
-	incomplete := *good
-	incomplete.User = ""
-	_, err = fetchBackingConnection(t.Context(), fakeSource{conn: &incomplete}, "src")
-	require.ErrorIs(t, err, errInvalidBackingConnection)
+	_, managed, err = fetchBinding(t.Context(), &fakeSource{}, 7)
+	require.ErrorContains(t, err, "neither", "a source that says nothing")
+	require.False(t, managed)
 
-	hostList := *good
-	hostList.Hosts = []string{"a.example.com", "b.example.com"}
-	_, err = fetchBackingConnection(t.Context(), fakeSource{conn: &hostList}, "src")
-	require.ErrorIs(t, err, errInvalidBackingConnection)
+	_, managed, err = fetchBinding(t.Context(), &fakeSource{conn: good, managed: true}, 7)
+	require.ErrorContains(t, err, "returned a connection for a managed tablegroup", "both")
+	require.False(t, managed)
 
-	withCredentials := *good
-	withCredentials.Hosts = []string{"alice@db.example.com"}
-	_, err = fetchBackingConnection(t.Context(), fakeSource{conn: &withCredentials}, "src")
-	require.ErrorIs(t, err, errInvalidBackingConnection)
-
-	_, err = fetchBackingConnection(t.Context(), fakeSource{conn: good}, "other")
-	require.ErrorContains(t, err, "unknown connection")
-	require.NotErrorIs(t, err, errInvalidBackingConnection, "a source's own failure is not a verdict on the connection")
+	_, managed, err = fetchBinding(t.Context(), &fakeSource{err: errors.New("unavailable")}, 7)
+	require.ErrorContains(t, err, "unavailable")
+	require.False(t, managed, "a failed read is not managed")
 }
 
-func TestResolveLeadershipMode(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		args    []string
-		static  bool
-		want    clustermetadatapb.LeadershipMode
-		wantErr string
+// resolveFixture is a pooler under test with a topology and a source of bindings.
+type resolveFixture struct {
+	mp      *Multipooler
+	ts      topoclient.Store
+	factory *memorytopo.Factory
+	id      *clustermetadatapb.ID
+}
+
+func newResolveFixture(t *testing.T, source connectionSource, static bool, args ...string) *resolveFixture {
+	t.Helper()
+	ts, factory := memorytopo.NewServerAndFactory(t.Context(), "zone1")
+	t.Cleanup(func() { _ = ts.Close() })
+	mp := newTestMultipooler()
+	mp.ts = ts
+	mp.staticLeader = static
+	mp.connections = source
+	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	mp.RegisterFlags(flags)
+	require.NoError(t, flags.Parse(append([]string{"--database=db", "--cell=zone1", "--service-id=ext", "--shard=0-inf"}, args...)))
+	return &resolveFixture{mp: mp, ts: ts, factory: factory, id: &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "ext"}}
+}
+
+func (f *resolveFixture) resolve(ctx context.Context, tableGroup string) (leadership, error) {
+	return f.mp.resolveLeadership(ctx, f.mp.senv.GetLogger(), f.id, tableGroup)
+}
+
+// TestResolveLeadership: a pooler learns how it is managed from its own topology record, else
+// from its tablegroup's catalog row; a static leader, a pooler of the default tablegroup and one
+// with no catalog id are managed without a lookup.
+func TestResolveLeadership(t *testing.T) {
+	const (
+		consensus = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_CONSENSUS
+		static    = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
+		unmanaged = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNMANAGED
+	)
+	bound := endpointConn("src", "db.example.com", 5432, "db", "u")
+	for name, tc := range map[string]struct {
+		source     *fakeSource
+		static     bool
+		tableGroup string
+		id         string
+		record     *clustermetadatapb.LeadershipMode
+		want       clustermetadatapb.LeadershipMode
+		wantAsked  int
+		wantErr    string
 	}{
-		{name: "managed by default", want: clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_CONSENSUS},
-		{name: "managed keeps local flags", args: []string{"--pg-port=5433", "--pooler-dir=/tmp/p"}, want: clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_CONSENSUS},
-		{name: "static leader", static: true, want: clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC},
-		{name: "backing connection", args: []string{"--backing-connection=src"}, want: clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNMANAGED},
-		{name: "static leader with backing connection", args: []string{"--backing-connection=src"}, static: true, wantErr: "static leader"},
-		{name: "socket file", args: []string{"--backing-connection=src", "--socket-file=/tmp/s"}, wantErr: "--socket-file"},
-		{name: "pooler dir", args: []string{"--backing-connection=src", "--pooler-dir=/tmp/p"}, wantErr: "--pooler-dir"},
-		{name: "pg port", args: []string{"--backing-connection=src", "--pg-port=5432"}, wantErr: "--pg-port"},
-		{name: "pgctld address", args: []string{"--backing-connection=src", "--pgctld-addr=localhost:1"}, wantErr: "--pgctld-addr"},
-		{name: "pgbackrest port", args: []string{"--backing-connection=src", "--pgbackrest-port=8432"}, wantErr: "--pgbackrest-port"},
-		{name: "pgbackrest cipher key file", args: []string{"--backing-connection=src", "--pgbackrest-cipher-key-file=/tmp/k"}, wantErr: "--pgbackrest-cipher-key-file"},
-		{name: "managed keeps pgbackrest flags", args: []string{"--pgbackrest-port=8432", "--pgctld-addr=localhost:1"}, want: clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_CONSENSUS},
+		"the default tablegroup is managed, without a lookup":          {source: &fakeSource{conn: bound}, tableGroup: "default", id: "5", want: consensus},
+		"a static leader is managed, without a lookup":                 {source: &fakeSource{conn: bound}, static: true, tableGroup: "migrateTG", id: "5", want: static},
+		"a tablegroup with no catalog id is managed, without a lookup": {source: &fakeSource{conn: bound}, tableGroup: "migrateTG", id: "0", want: consensus},
+		"a bound tablegroup is unmanaged":                              {source: &fakeSource{conn: bound}, tableGroup: "migrateTG", id: "5", want: unmanaged, wantAsked: 1},
+		"a tablegroup with no binding is managed":                      {source: &fakeSource{managed: true}, tableGroup: "migrateTG", id: "5", want: consensus, wantAsked: 1},
+		"a managed record is managed, without a lookup":                {source: &fakeSource{conn: bound}, tableGroup: "migrateTG", id: "5", record: new(consensus), want: consensus},
+		"an unmanaged record reads its connection":                     {source: &fakeSource{conn: bound}, tableGroup: "migrateTG", id: "5", record: new(unmanaged), want: unmanaged, wantAsked: 1},
+		"an unmanaged record the catalog calls managed is refused":     {source: &fakeSource{managed: true}, tableGroup: "migrateTG", id: "5", record: new(unmanaged), wantAsked: 1, wantErr: "cannot start as"},
+		"an unmanaged record with no catalog id is refused":            {source: &fakeSource{conn: bound}, tableGroup: "migrateTG", id: "0", record: new(unmanaged), wantErr: "with a tablegroup in the catalog"},
+		"an unmanaged record of the default tablegroup is refused":     {source: &fakeSource{conn: bound}, tableGroup: "default", id: "5", record: new(unmanaged), wantErr: "with a tablegroup in the catalog"},
+		"an unmanaged record of a static leader is refused":            {source: &fakeSource{conn: bound}, static: true, tableGroup: "migrateTG", id: "5", record: new(unmanaged), wantErr: "with a tablegroup in the catalog"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			mp := newTestMultipooler()
-			mp.staticLeader = tc.static
-			flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
-			mp.RegisterFlags(flags)
-			require.NoError(t, flags.Parse(tc.args))
-			got, err := mp.resolveLeadershipMode()
+		t.Run(name, func(t *testing.T) {
+			f := newResolveFixture(t, tc.source, tc.static, "--tablegroup-id="+tc.id)
+			if tc.record != nil {
+				require.NoError(t, f.ts.CreateMultipooler(t.Context(), &clustermetadatapb.Multipooler{Id: f.id, LeadershipMode: *tc.record}))
+			}
+			got, err := f.resolve(t.Context(), tc.tableGroup)
+			require.Len(t, tc.source.asked, tc.wantAsked)
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 				return
 			}
 			require.NoError(t, err)
-			require.Equal(t, tc.want, got)
-		})
-	}
-}
-
-// TestAPoolerStaysManagedOrUnmanaged: a pooler id stays managed or unmanaged for life. A
-// restart that would flip a registered pooler between managed and unmanaged is refused; a
-// first start, or a restart that stays on the same side, is not.
-func TestAPoolerStaysManagedOrUnmanaged(t *testing.T) {
-	const (
-		consensus   = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_CONSENSUS
-		static      = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_STATIC
-		unmanaged   = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNMANAGED
-		unspecified = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNSPECIFIED
-		unknown     = clustermetadatapb.LeadershipMode(99)
-	)
-	for name, tc := range map[string]struct {
-		registered *clustermetadatapb.LeadershipMode
-		starting   clustermetadatapb.LeadershipMode
-		refused    bool
-	}{
-		"first start, consensus":        {nil, consensus, false},
-		"first start, unmanaged":        {nil, unmanaged, false},
-		"restart, consensus":            {new(consensus), consensus, false},
-		"restart, unmanaged":            {new(unmanaged), unmanaged, false},
-		"legacy record, consensus":      {new(unspecified), consensus, false},
-		"static restarted consensus":    {new(static), consensus, false},
-		"consensus restarted unmanaged": {new(consensus), unmanaged, true},
-		"legacy record, unmanaged":      {new(unspecified), unmanaged, true},
-		"unmanaged restarted consensus": {new(unmanaged), consensus, true},
-		"unknown mode, consensus":       {new(unknown), consensus, true},
-		"unknown mode, unmanaged":       {new(unknown), unmanaged, false},
-	} {
-		t.Run(name, func(t *testing.T) {
-			ts, _ := memorytopo.NewServerAndFactory(t.Context(), "zone1")
-			t.Cleanup(func() { _ = ts.Close() })
-			id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p"}
-			if tc.registered != nil {
-				require.NoError(t, ts.CreateMultipooler(t.Context(), &clustermetadatapb.Multipooler{Id: id, LeadershipMode: *tc.registered}))
-			}
-			err := requireUnchangedManagement(t.Context(), ts, id, tc.starting, slog.Default())
-			if tc.refused {
-				require.ErrorContains(t, err, "cannot start as")
+			require.Equal(t, tc.want, got.mode)
+			if tc.want == unmanaged {
+				require.Same(t, bound, got.backing)
 			} else {
-				require.NoError(t, err)
+				require.Nil(t, got.backing)
+			}
+			if tc.wantAsked > 0 {
+				require.Equal(t, int64(5), tc.source.asked[0], "asked by the tablegroup id")
 			}
 		})
 	}
 }
 
-// TestAnUnreadableRecordRefusesOnlyAnUnmanagedPooler: a managed pooler still starts when its
-// topology record cannot be read, as it does without the managed-or-unmanaged check; an unmanaged
-// one, whose bootstrap needs the topology anyway, does not.
-func TestAnUnreadableRecordRefusesOnlyAnUnmanagedPooler(t *testing.T) {
-	ts, factory := memorytopo.NewServerAndFactory(t.Context(), "zone1")
-	t.Cleanup(func() { _ = ts.Close() })
-	id := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p"}
-	factory.SetError(errors.New("topology unreachable"))
-
-	require.NoError(t, requireUnchangedManagement(t.Context(), ts, id,
-		clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_CONSENSUS, slog.Default()))
-	require.Error(t, requireUnchangedManagement(t.Context(), ts, id,
-		clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNMANAGED, slog.Default()))
+// TestAnUnreadableRecordDoesNotDecideTheMode: a pooler that cannot read its own record goes by
+// its tablegroup, as a pooler with no record does.
+func TestAnUnreadableRecordDoesNotDecideTheMode(t *testing.T) {
+	f := newResolveFixture(t, &fakeSource{}, false, "--tablegroup-id=0")
+	f.factory.SetError(errors.New("topology unreachable"))
+	got, err := f.resolve(t.Context(), "default")
+	require.NoError(t, err)
+	require.Equal(t, clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_CONSENSUS, got.mode)
 }
 
-// countingSource counts the fetches it is asked for.
-type countingSource struct{ fetches int }
+// TestAPoolerWaitsForTheCatalogAndNeverGuessesManaged: while the catalog cannot be read, the
+// pooler keeps asking, whatever is wrong with the answer; it starts as soon as the catalog
+// answers, and never as a managed pooler for want of one.
+func TestAPoolerWaitsForTheCatalogAndNeverGuessesManaged(t *testing.T) {
+	fastRetries(t)
+	bound := endpointConn("src", "db.example.com", 5432, "db", "u")
 
-func (c *countingSource) BackingConnection(context.Context, string) (*backingconn.Conn, error) {
-	c.fetches++
-	return nil, errors.New("not reached")
+	t.Run("it answers after a few failures", func(t *testing.T) {
+		source := &flakySource{failures: 5, conn: bound}
+		f := newResolveFixture(t, source, false, "--tablegroup-id=5")
+		got, err := f.resolve(t.Context(), "migrateTG")
+		require.NoError(t, err)
+		require.Equal(t, clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNMANAGED, got.mode)
+		require.Equal(t, 6, source.calls)
+	})
+	t.Run("it never answers", func(t *testing.T) {
+		source := &flakySource{failures: -1}
+		f := newResolveFixture(t, source, false, "--tablegroup-id=5")
+		ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+		defer cancel()
+		got, err := f.resolve(ctx, "migrateTG")
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.ErrorContains(t, err, "did not say how tablegroup 5 is served")
+		require.Zero(t, got.mode, "no mode, and in particular not a managed one")
+		require.Greater(t, source.calls, 2, "it kept asking")
+	})
 }
 
-// TestInitRefusesAShardItCannotServeBeforeFetchingTheBackingConnection: a bad shard name, a
-// missing one, and the default tablegroup, which an unmanaged pooler never serves, are all
-// refused before the pooler asks anything for its backing connection.
-func TestInitRefusesAShardItCannotServeBeforeFetchingTheBackingConnection(t *testing.T) {
+// flakySource fails a number of times (forever when negative), then answers with conn.
+type flakySource struct {
+	failures int
+	conn     *backingconn.Conn
+	calls    int
+}
+
+func (f *flakySource) TableGroupBinding(context.Context, int64) (*backingconn.Conn, bool, error) {
+	f.calls++
+	if f.failures < 0 || f.calls <= f.failures {
+		return nil, false, errors.New("default primary unavailable")
+	}
+	return f.conn, false, nil
+}
+
+// TestInitRefusesAShardItCannotServeBeforeAskingTheCatalog: a bad shard name and a missing
+// one are refused before the pooler registers anything or asks how its tablegroup is served: a
+// pooler that exits on them leaves no topology record behind.
+func TestInitRefusesAShardItCannotServeBeforeAskingTheCatalog(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		tableGroup string
 		shard      string
+		tgID       string
 		wantErr    string
 	}{
-		{"bad shard name", "migrateTG", "foo", "foo"},
-		{"no shard", "migrateTG", "", "shard is required"},
-		{"no tablegroup", "", "0-inf", "table group is required"},
-		{"default tablegroup", "default", "0-inf", "default tablegroup"},
+		{"bad shard name", "migrateTG", "foo", "5", "foo"},
+		{"no shard", "migrateTG", "", "5", "shard is required"},
+		{"no tablegroup", "", "0-inf", "5", "table group is required"},
+		{"negative tablegroup id", "migrateTG", "0-inf", "-1", "must not be negative"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ts, _ := memorytopo.NewServerAndFactory(t.Context(), "zone1")
 			t.Cleanup(func() { _ = ts.Close() })
-			source := &countingSource{}
+			source := &fakeSource{}
 			mp := newTestMultipooler()
 			mp.connections = source
 			flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
 			mp.RegisterFlags(flags)
 			require.NoError(t, flags.Parse([]string{
-				"--backing-connection=src", "--database=db", "--cell=zone1", "--service-id=ext",
-				"--table-group=" + tc.tableGroup, "--shard=" + tc.shard,
+				"--database=db", "--cell=zone1", "--service-id=ext",
+				"--table-group=" + tc.tableGroup, "--shard=" + tc.shard, "--tablegroup-id=" + tc.tgID,
 			}))
 			err := mp.Init(t.Context(), ts)
 			require.ErrorContains(t, err, tc.wantErr)
-			require.Zero(t, source.fetches)
+			require.Empty(t, source.asked, "the catalog is not asked")
+			registered, err := ts.GetMultipoolersByCell(t.Context(), "zone1", nil)
+			require.NoError(t, err)
+			require.Empty(t, registered, "nothing is registered")
 		})
 	}
 }
 
-// TestAPoolerRefusesABackingConnectionThatServesAnotherDatabase: the pooler advertises
-// --database to the cluster and dials the connection's, so the two must agree, and a pooler
-// whose connection serves another database refuses to start.
-func TestAPoolerRefusesABackingConnectionThatServesAnotherDatabase(t *testing.T) {
-	backend := &manager.ExternalBackend{Host: "db.example.com", Port: 5432, Database: "other"}
-	require.NoError(t, checkBackingDatabase("src", backend, "other"))
-	require.EqualError(t, checkBackingDatabase("src", backend, "db"),
-		`backing connection "src" serves database "other", which does not match --database "db"`)
-
-	ts, _ := memorytopo.NewServerAndFactory(t.Context(), "zone1")
-	t.Cleanup(func() { _ = ts.Close() })
+// initWithBinding runs Init for a pooler of tablegroup 5 whose catalog answers with source.
+func initWithBinding(t *testing.T, source connectionSource, ts topoclient.Store, extraArgs ...string) error {
+	t.Helper()
 	mp := newTestMultipooler()
-	mp.connections = fakeSource{conn: endpointConn("src", "db.example.com", 5432, "other", "u")}
+	mp.connections = source
 	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	mp.RegisterFlags(flags)
-	require.NoError(t, flags.Parse([]string{
-		"--backing-connection=src", "--database=db", "--cell=zone1", "--service-id=ext",
-		"--table-group=migrateTG", "--shard=0-inf",
-	}))
-	err := mp.Init(t.Context(), ts)
+	require.NoError(t, flags.Parse(append([]string{
+		"--database=db", "--cell=zone1", "--service-id=ext",
+		"--table-group=migrateTG", "--shard=0-inf", "--tablegroup-id=5",
+	}, extraArgs...)))
+	return mp.Init(t.Context(), ts)
+}
+
+func registeredPoolers(t *testing.T, ts topoclient.Store) []*topoclient.MultipoolerInfo {
+	t.Helper()
+	registered, err := ts.GetMultipoolersByCell(t.Context(), "zone1", nil)
+	require.NoError(t, err)
+	return registered
+}
+
+// TestAPoolerRefusesABackingConnectionThatServesAnotherDatabase: the pooler advertises
+// --database to the cluster and dials the connection's, so the two must agree, and a pooler
+// whose connection serves another database refuses to start, before it registers anywhere.
+func TestAPoolerRefusesABackingConnectionThatServesAnotherDatabase(t *testing.T) {
+	ts, _ := memorytopo.NewServerAndFactory(t.Context(), "zone1")
+	t.Cleanup(func() { _ = ts.Close() })
+	err := initWithBinding(t, &fakeSource{conn: endpointConn("src", "db.example.com", 5432, "other", "u")}, ts)
 	require.EqualError(t, err, `backing connection "src" serves database "other", which does not match --database "db"`)
+	require.Empty(t, registeredPoolers(t, ts), "nothing is registered")
+}
+
+// TestTheManagedPostgresFlagsAreRefusedWhenTheCatalogSaysUnmanaged: whether a pooler is
+// unmanaged is only known once the catalog has said so, and the flags of a pgctld-managed
+// postgres are refused then, before the pooler registers.
+func TestTheManagedPostgresFlagsAreRefusedWhenTheCatalogSaysUnmanaged(t *testing.T) {
+	ts, _ := memorytopo.NewServerAndFactory(t.Context(), "zone1")
+	t.Cleanup(func() { _ = ts.Close() })
+	bound := endpointConn("src", "db.example.com", 5432, "db", "u")
+	err := initWithBinding(t, &fakeSource{conn: bound}, ts, "--pg-port=5432")
+	require.ErrorContains(t, err, "--pg-port")
+	require.ErrorContains(t, err, "unmanaged")
+	require.Empty(t, registeredPoolers(t, ts))
 }

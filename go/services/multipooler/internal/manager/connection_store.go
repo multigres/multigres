@@ -16,7 +16,6 @@ package manager
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -26,9 +25,9 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
 )
 
-// connectionStore reads the connection directory from the sharding catalog on
-// the default primary, through the admin pool: the named connections of
-// multigres.connections, read by the same store the migrator uses.
+// connectionStore reads how a tablegroup is served from the sharding catalog on the default
+// primary, through the admin pool: the tablegroup row, and the named connection of
+// multigres.connections it is bound to, the table the migrator shares.
 type connectionStore struct {
 	queryService func() executor.InternalQueryService
 }
@@ -37,39 +36,43 @@ func newConnectionStore(pm *MultipoolerManager) *connectionStore {
 	return &connectionStore{queryService: pm.internalQueryService}
 }
 
-// BackingConnection reads the named connection and returns it as the structured connection the
-// contract carries. The catalog stores it structured (the conninfo column, validated when the
-// connection was created), and that is served as it is; the dsn column is never read. A connection
-// with no conninfo cannot be read, and one that a pooler cannot front, one that does not name
-// exactly one server for example, is refused.
+// TableGroupBinding reads the tablegroup's row and the connection it is bound to, and returns that
+// connection as the structured connection the contract carries (backingFromColumns). A managed
+// tablegroup has no connection, and one being dropped is served to no one.
 //
-// A failure to read the row is UNAVAILABLE when the query service is missing or the connection
-// to the database is lost, which the caller retries; a catalog without the connections table is
-// FAILED_PRECONDITION, a fact about where the call was made; so is a stored connection that
-// cannot be read; anything else is passed on.
-func (s *connectionStore) BackingConnection(ctx context.Context, name string) (*multipoolerservicepb.BackingConnection, bool, error) {
+// A failure to read is UNAVAILABLE when the query service is missing or the connection to the
+// database is lost, which the caller retries; a stored connection that cannot be read is
+// FAILED_PRECONDITION; anything else is passed on.
+func (s *connectionStore) TableGroupBinding(ctx context.Context, tablegroupID int64) (*multipoolerservicepb.BackingConnection, bool, error) {
 	qs := s.queryService()
 	if qs == nil {
 		return nil, false, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "internal query service not available")
 	}
-	stored, err := migration.NewStore(qs).GetConnectionByRef(ctx, migration.Ref{Name: name})
+	res, err := qs.QueryAdminArgs(ctx,
+		"SELECT t.state, coalesce(c.name, ''), coalesce(c.conninfo::text, '') FROM multigres.tablegroup t "+
+			"LEFT JOIN multigres.connections c ON c.connection_id = t.backing_connection_id WHERE t.tablegroup_id = $1", tablegroupID)
 	switch {
-	case errors.Is(err, migration.ErrConnectionNotFound):
-		return nil, false, nil
 	case mterrors.IsConnectionError(err):
-		return nil, false, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "read connection %q: %v", name, err)
-	case errors.Is(err, migration.ErrNoConnectionsTable):
-		// Not the catalog shard, or the catalog's table is not created yet: a fact about the
-		// state this call expects, as for the migrator's own connection RPCs.
-		return nil, false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, migration.NoConnectionsTableMessage)
-	case errors.Is(err, migration.ErrConnectionUnreadable):
-		return nil, false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
+		return nil, false, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "read tablegroup %d: %v", tablegroupID, err)
 	case err != nil:
 		return nil, false, err
 	}
-	reply, err := backingFromStored(stored)
+	if len(res.Rows) == 0 {
+		return nil, false, nil
+	}
+	var state, name, conninfo string
+	if err := executor.ScanRow(res.Rows[0], &state, &name, &conninfo); err != nil {
+		return nil, false, mterrors.Wrap(err, "read tablegroup row")
+	}
+	if state == tableGroupStateDropping {
+		return nil, false, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "tablegroup %d is being dropped", tablegroupID)
+	}
+	if name == "" { // the left join found no connection: a connection always has a name
+		return nil, true, nil
+	}
+	reply, err := backingFromColumns(name, conninfo)
 	if err != nil {
-		return nil, false, mterrors.Wrap(err, fmt.Sprintf("connection %q", name))
+		return nil, false, err
 	}
 	return reply, true, nil
 }
@@ -82,15 +85,17 @@ func errUnusableConnection(format string, args ...any) error {
 	return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "backing connection is not usable: "+format, args...)
 }
 
-// backingFromStored returns a stored connection as the reply, refused unless a pooler can front it
-// (Conn.ForPooler), so that the default primary never serves a connection that the pooler refuses.
-func backingFromStored(c *migration.Connection) (*multipoolerservicepb.BackingConnection, error) {
-	conn, err := c.Conn()
-	if err == nil {
-		err = conn.ForPooler()
-	}
+// backingFromColumns returns the connection of a row of multigres.connections as the reply, or an
+// error naming it unless a pooler can front it (Conn.ForPooler, which validates it): the default
+// primary never serves a connection that the pooler refuses.
+func backingFromColumns(name, conninfo string) (*multipoolerservicepb.BackingConnection, error) {
+	conn, err := migration.DecodeConnInfo(name, conninfo)
 	if err != nil {
-		return nil, errUnusableConnection("%s", err)
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
+	}
+	conn.Name = name
+	if err := conn.ForPooler(); err != nil {
+		return nil, mterrors.Wrap(errUnusableConnection("%s", err), fmt.Sprintf("connection %q", name))
 	}
 	return conn.ToProto(), nil
 }

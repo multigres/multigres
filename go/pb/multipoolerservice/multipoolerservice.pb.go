@@ -3027,15 +3027,16 @@ func (x *BackingConnection) GetSslNegotiation() string {
 	return ""
 }
 
-// GetBackingConnectionRequest asks the default primary for a named connection.
+// GetBackingConnectionRequest asks the default primary how a tablegroup is
+// served.
 type GetBackingConnectionRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// database is the database the connection belongs to.
+	// database is the database the tablegroup belongs to.
 	Database string `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
-	// connection_name is the name of the requested connection.
-	ConnectionName string `protobuf:"bytes,2,opt,name=connection_name,json=connectionName,proto3" json:"connection_name,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// tablegroup_id is the catalog id of the tablegroup (Multipooler.tablegroup_id).
+	TablegroupId  int64 `protobuf:"varint,3,opt,name=tablegroup_id,json=tablegroupId,proto3" json:"tablegroup_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetBackingConnectionRequest) Reset() {
@@ -3075,17 +3076,23 @@ func (x *GetBackingConnectionRequest) GetDatabase() string {
 	return ""
 }
 
-func (x *GetBackingConnectionRequest) GetConnectionName() string {
+func (x *GetBackingConnectionRequest) GetTablegroupId() int64 {
 	if x != nil {
-		return x.ConnectionName
+		return x.TablegroupId
 	}
-	return ""
+	return 0
 }
 
-// GetBackingConnectionResponse carries the requested connection.
+// GetBackingConnectionResponse says how the tablegroup is served. Exactly one of
+// connection and managed is set; a reply that sets neither says nothing, and a
+// caller must not take it for managed.
 type GetBackingConnectionResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Connection    *BackingConnection     `protobuf:"bytes,1,opt,name=connection,proto3" json:"connection,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// connection is the external PostgreSQL that serves the tablegroup.
+	Connection *BackingConnection `protobuf:"bytes,1,opt,name=connection,proto3" json:"connection,omitempty"`
+	// managed is set when the tablegroup has no backing connection: it is served
+	// by multigres-managed shards.
+	Managed       bool `protobuf:"varint,2,opt,name=managed,proto3" json:"managed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3125,6 +3132,13 @@ func (x *GetBackingConnectionResponse) GetConnection() *BackingConnection {
 		return x.Connection
 	}
 	return nil
+}
+
+func (x *GetBackingConnectionResponse) GetManaged() bool {
+	if x != nil {
+		return x.Managed
+	}
+	return false
 }
 
 // NotificationStreamRequest updates the subscribed channels for one gateway
@@ -3537,14 +3551,15 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\bpassword\x18\x06 \x01(\tR\bpassword\x12\x19\n" +
 	"\bssl_mode\x18\a \x01(\tR\asslMode\x12\"\n" +
 	"\rssl_root_cert\x18\b \x01(\tR\vsslRootCert\x12'\n" +
-	"\x0fssl_negotiation\x18\t \x01(\tR\x0esslNegotiation\"b\n" +
+	"\x0fssl_negotiation\x18\t \x01(\tR\x0esslNegotiation\"u\n" +
 	"\x1bGetBackingConnectionRequest\x12\x1a\n" +
-	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12'\n" +
-	"\x0fconnection_name\x18\x02 \x01(\tR\x0econnectionName\"e\n" +
+	"\bdatabase\x18\x01 \x01(\tR\bdatabase\x12#\n" +
+	"\rtablegroup_id\x18\x03 \x01(\x03R\ftablegroupIdJ\x04\b\x02\x10\x03R\x0fconnection_name\"\x7f\n" +
 	"\x1cGetBackingConnectionResponse\x12E\n" +
 	"\n" +
 	"connection\x18\x01 \x01(\v2%.multipoolerservice.BackingConnectionR\n" +
-	"connection\"\xcd\x01\n" +
+	"connection\x12\x18\n" +
+	"\amanaged\x18\x02 \x01(\bR\amanaged\"\xcd\x01\n" +
 	"\x19NotificationStreamRequest\x12%\n" +
 	"\x06target\x18\x01 \x01(\v2\r.query.TargetR\x06target\x12-\n" +
 	"\x12subscribe_channels\x18\x02 \x03(\tR\x11subscribeChannels\x121\n" +

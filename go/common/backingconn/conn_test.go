@@ -320,7 +320,7 @@ func TestHostAndPortOfOneServer(t *testing.T) {
 	require.Equal(t, 5432, c.Port())
 }
 
-func TestToProto(t *testing.T) {
+func TestProtoRoundTrip(t *testing.T) {
 	conn := goodConn()
 	p := conn.ToProto()
 	require.Equal(t, "src", p.GetName())
@@ -332,4 +332,10 @@ func TestToProto(t *testing.T) {
 	require.Equal(t, "verify-full", p.GetSslMode())
 	require.Equal(t, "/ca.pem", p.GetSslRootCert())
 	require.Equal(t, "direct", p.GetSslNegotiation())
+	require.Equal(t, conn, FromProto(p))
+
+	// A reply with nothing is a connection with nothing; ForPooler is what refuses it.
+	empty := FromProto(nil)
+	require.Equal(t, &Conn{}, empty)
+	require.Error(t, empty.ForPooler())
 }
