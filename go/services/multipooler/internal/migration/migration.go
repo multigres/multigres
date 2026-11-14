@@ -186,6 +186,54 @@ type Migration struct {
 	Tables         []string
 	SequenceMargin int64
 
+	// OwnerRole is the PostgreSQL role the gateway's SQL client was connected
+	// as when this migration was created. Empty when created through the
+	// CLI/multiadmin path, which has no SQL-authenticated identity to stamp it
+	// from; DropMigration's ownership check is skipped in that case. Without
+	// it, any caller passing the gateway's CanCreateMigration gate could abort
+	// another operator's migration.
+	OwnerRole string
+
+	// QuiesceRoles is the optional set of application role names whose CONNECT
+	// privilege on the source is revoked at the ACTIVATE cutover and restored
+	// on a deactivate rollback or teardown, so they cannot reconnect and write
+	// once the source becomes a subscriber. Empty means the hard quiesce still
+	// freezes and terminates client backends but does not fence by role.
+	// Immutable after create; validated at create time. Persisted as a JSON
+	// array.
+	QuiesceRoles []string
+
+	// PublicHadConnect records whether the PUBLIC pseudo-role held CONNECT on
+	// the source database immediately before the ACTIVATE cutover's hard
+	// quiesce revoked it. GrantConnect reads this back at rollback or teardown
+	// so it only restores PUBLIC's CONNECT when PUBLIC genuinely had it.
+	// Defaults to true, Postgres's own default ACL state, for a migration that
+	// never reaches a hard quiesce.
+	PublicHadConnect bool
+
+	// QuiesceApplied records whether this migration's ACTIVATE cutover
+	// actually ran a hard quiesce. QuiesceRoleConnLimits alone cannot prove
+	// this, since it stays empty whenever QuiesceRoles is empty even though
+	// PUBLIC is still revoked unconditionally, so teardown and a forced drop
+	// need this flag to know whether GrantConnect must run.
+	QuiesceApplied bool
+
+	// QuiesceRoleConnLimits records each quiesce role's pg_roles.rolconnlimit,
+	// where -1 means no limit, immediately before the hard quiesce caps it to
+	// 0. GrantConnect's later restore sets each role back to its original
+	// limit instead of assuming unlimited. Capping CONNECTION LIMIT fences a
+	// role regardless of how it derives CONNECT. Keyed by role name; empty
+	// when QuiesceRoles is.
+	QuiesceRoleConnLimits map[string]int32
+
+	// QuiesceRolesHadConnect records, per quiesce role, whether it held its own
+	// direct CONNECT grant on the source database immediately before the hard
+	// quiesce revoked it. A role named in QuiesceRoles may only have been
+	// reachable via PUBLIC's CONNECT, so GrantConnect's later restore must only
+	// re-grant roles this map marks true. Keyed by role name; empty when
+	// QuiesceRoles is.
+	QuiesceRolesHadConnect map[string]bool
+
 	// CopyData is the initial-copy choice recorded at create time: true (the
 	// default) runs the stock tablesync initial COPY at subscription setup; false
 	// subscribes without a copy (target seeded out-of-band).
@@ -218,6 +266,24 @@ func (m *Migration) PublicationName() string { return "mt_pub_" + strconv.Format
 // SubscriptionName is the subscription object name for a migration.
 func (m *Migration) SubscriptionName() string { return "mt_sub_" + strconv.FormatInt(m.ID, 10) }
 
+// quiesceRolesToRestoreConnect narrows QuiesceRoles down to the roles
+// GrantConnect should actually re-grant: those QuiesceRolesHadConnect
+// marks as having held a direct CONNECT grant before the hard quiesce
+// revoked it. A migration that never reached a hard quiesce has an empty
+// map, so this returns none.
+func (m *Migration) quiesceRolesToRestoreConnect() []string {
+	if len(m.QuiesceRoles) == 0 {
+		return nil
+	}
+	restore := make([]string, 0, len(m.QuiesceRoles))
+	for _, r := range m.QuiesceRoles {
+		if m.QuiesceRolesHadConnect[r] {
+			restore = append(restore, r)
+		}
+	}
+	return restore
+}
+
 // CreateMigrationSQL is the DDL for the sidecar migration table, idempotent so
 // it can run both at shard bootstrap and on first use against an
 // already-bootstrapped shard. Created through the admin pool with no PUBLIC
@@ -239,10 +305,16 @@ const CreateMigrationSQL = `CREATE TABLE IF NOT EXISTS multigres.migration (
 	migration_phase TEXT NOT NULL,
 	migration_target multigres.shard_ref NOT NULL,
 	connection_id BIGINT NOT NULL,
+	owner_role TEXT NOT NULL DEFAULT '',
 	sequence_margin BIGINT NOT NULL DEFAULT 0,
 	copy_data BOOLEAN NOT NULL DEFAULT true,
 	skip_schema_copy BOOLEAN NOT NULL DEFAULT false,
 	direction TEXT NOT NULL DEFAULT 'IMPORT',
+	quiesce_roles TEXT NOT NULL DEFAULT '[]',
+	public_had_connect BOOLEAN NOT NULL DEFAULT true,
+	quiesce_applied BOOLEAN NOT NULL DEFAULT false,
+	quiesce_role_conn_limits TEXT NOT NULL DEFAULT '{}',
+	quiesce_roles_had_connect TEXT NOT NULL DEFAULT '{}',
 	last_error TEXT NOT NULL DEFAULT '',
 	reverse_link_error TEXT NOT NULL DEFAULT '',
 	streaming_since TIMESTAMPTZ NULL
