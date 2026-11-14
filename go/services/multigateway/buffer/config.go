@@ -78,7 +78,7 @@ func NewConfig(reg *viperutil.Registry) *Config {
 // RegisterFlags registers buffer flags on the given FlagSet.
 func (c *Config) RegisterFlags(fs *pflag.FlagSet) {
 	fs.Bool("buffer-enabled", c.Enabled.Default(), "Enable failover buffering")
-	fs.Duration("buffer-window", c.Window.Default(), "Max time a request stays buffered")
+	fs.Duration("buffer-window", c.Window.Default(), "Max time a request stays buffered, or waits for routing past a fence (even with buffering disabled)")
 	fs.Int("buffer-size", c.Size.Default(), "Max total buffered requests (global)")
 	fs.Duration("buffer-max-failover-duration", c.MaxFailoverDuration.Default(), "Stop buffering if failover exceeds this")
 	fs.Duration("buffer-min-time-between-failovers", c.MinTimeBetweenFailovers.Default(), "Min gap between failovers per shard")

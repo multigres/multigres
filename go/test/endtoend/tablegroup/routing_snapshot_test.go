@@ -167,7 +167,7 @@ func TestRoutingSnapshot(t *testing.T) {
 		replica := setup.NewClient(t, replicaName(t, setup))
 		defer replica.Close()
 		_, err = replica.Manager.GetRoutingSnapshot(t.Context(), &multipoolermanagerdatapb.GetRoutingSnapshotRequest{})
-		requireCode(t, err, codes.FailedPrecondition)
+		requireCode(t, err, codes.Unavailable)
 
 		require.Eventually(t, func() bool {
 			v, groups, ok := readGatewayCatalog(t, setup)

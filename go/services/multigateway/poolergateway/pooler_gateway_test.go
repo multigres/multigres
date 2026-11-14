@@ -156,6 +156,14 @@ func TestClassifyError(t *testing.T) {
 			want:               actionFail,
 		},
 		{
+			// A fence is retried by the scatterconn after newer routing, not
+			// buffered for a new leader that never comes.
+			name:   "MTF02 on PRIMARY does not buffer",
+			err:    mterrors.MTF02.New(),
+			target: primaryTarget,
+			want:   actionFail,
+		},
+		{
 			name:   "other MT error on PRIMARY does not buffer",
 			err:    mterrors.MTB01.New(),
 			target: primaryTarget,

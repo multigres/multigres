@@ -161,7 +161,7 @@ func TestRoutingRules_RPCs(t *testing.T) {
 
 	t.Run("only the catalog primary serves routing", func(t *testing.T) {
 		_, err := sc.manager.GetRoutingSnapshot(ctx, &mdpb.GetRoutingSnapshotRequest{})
-		assert.Equal(t, codes.FailedPrecondition, status.Code(err), "standby snapshot: %v", err)
+		assert.Equal(t, codes.Unavailable, status.Code(err), "standby snapshot: %v", err)
 		_, err = sc.manager.SetRoutingRules(ctx, &mdpb.SetRoutingRulesRequest{
 			Database: routingE2EDatabase, OperationId: routingImportOp, Rules: []*mdpb.ShardRoutingRuleSpec{shardSpec("default", "srctg", "0-inf")},
 		})

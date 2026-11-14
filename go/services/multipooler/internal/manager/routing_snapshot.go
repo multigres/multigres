@@ -285,12 +285,16 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
+	// A pooler off the catalog shard never serves the catalog, so the caller
+	// is wrong to ask it. One on the catalog shard that is not its elected
+	// primary is refused with UNAVAILABLE, as writeCatalog refuses it: the
+	// caller rediscovers the primary and asks again.
 	if err := pm.checkCatalogShard(); err != nil {
 		return nil, err
 	}
 	rule, err := pm.catalogPrimaryRule(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.WithCode(err, mtrpcpb.Code_UNAVAILABLE)
 	}
 	qs, err := pm.catalogQueryService()
 	if err != nil {
@@ -335,7 +339,7 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 	// read state belonging to neither, so the caller asks again.
 	after, err := pm.catalogPrimaryRule(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.WithCode(err, mtrpcpb.Code_UNAVAILABLE)
 	}
 	if commonconsensus.CompareRuleNumbers(after, rule) != 0 {
 		return nil, mterrors.Errorf(mtrpcpb.Code_ABORTED,
