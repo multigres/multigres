@@ -21,8 +21,9 @@ import (
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
 
-// GetBackingConnection returns a named backing connection. Only the default
-// primary serves it; the manager enforces that.
+// GetBackingConnection returns how a tablegroup is served: the backing connection
+// it is bound to, or managed. Only the default primary serves it; the manager
+// enforces that.
 func (s *poolerService) GetBackingConnection(ctx context.Context, req *multipoolerpb.GetBackingConnectionRequest) (*multipoolerpb.GetBackingConnectionResponse, error) {
 	p, err := s.pooler.MetadataProvider()
 	if err != nil {

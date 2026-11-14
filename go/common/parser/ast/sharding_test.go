@@ -27,6 +27,12 @@ func TestTableGroupStmts(t *testing.T) {
 	assert.Equal(t, "CREATE TABLEGROUP", create.StatementType())
 	assert.Equal(t, "CREATE TABLEGROUP g", create.SqlString())
 
+	bound := NewCreateTableGroupOnConnectionStmt("g", "ext", false)
+	assert.Equal(t, "CREATE TABLEGROUP", bound.StatementType())
+	assert.Equal(t, "CREATE TABLEGROUP g CONNECTION ext", bound.SqlString())
+	assert.Equal(t, `CREATE TABLEGROUP IF NOT EXISTS g CONNECTION "Source DB"`, NewCreateTableGroupOnConnectionStmt("g", "Source DB", true).SqlString())
+	assert.Nil(t, bound.Shards, "a bound tablegroup has no shards clause")
+
 	alter := NewAlterTableGroupRename("g", "h")
 	assert.Equal(t, "ALTER TABLEGROUP", alter.StatementType())
 	assert.Equal(t, "ALTER TABLEGROUP g RENAME TO h", alter.SqlString())
@@ -35,5 +41,6 @@ func TestTableGroupStmts(t *testing.T) {
 	assert.Equal(t, "ALTER TABLEGROUP g", alter.SqlString())
 
 	assert.True(t, IsTableGroupDDL(create))
+	assert.True(t, IsTableGroupDDL(bound))
 	assert.False(t, IsTableGroupDDL(&DropStmt{RemoveType: OBJECT_TABLE}))
 }

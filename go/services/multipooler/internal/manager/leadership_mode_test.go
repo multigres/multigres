@@ -142,9 +142,8 @@ func TestTheExternalBackendIsRequiredExactlyForAnUnmanagedPooler(t *testing.T) {
 	}
 }
 
-// TestAnUnmanagedPoolerRefusesTheDefaultTablegroupWithTheSharedError: startup and the manager
-// refuse it with the same error.
-func TestAnUnmanagedPoolerRefusesTheDefaultTablegroupWithTheSharedError(t *testing.T) {
+// TestAnUnmanagedPoolerRefusesTheDefaultTablegroup: the manager refuses to construct one.
+func TestAnUnmanagedPoolerRefusesTheDefaultTablegroup(t *testing.T) {
 	want := ValidateUnmanagedTableGroup(constants.DefaultTableGroup)
 	require.ErrorContains(t, want, "default tablegroup")
 	require.NoError(t, ValidateUnmanagedTableGroup("migrateTG"))

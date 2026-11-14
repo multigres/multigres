@@ -7725,6 +7725,7 @@ OptTableSpace:
  *		Multigres tablegroup DDL (docs/sharding/ddl.md)
  *
  *		CREATE TABLEGROUP [IF NOT EXISTS] name [SHARDS ('range', ...)]
+ *		CREATE TABLEGROUP [IF NOT EXISTS] name CONNECTION name
  *		ALTER TABLEGROUP name RENAME TO name
  *		ALTER TABLEGROUP name RESHARD ('range', ...) INTO ('range', ...)
  *		DROP TABLEGROUP is an alternative of DropStmt.
@@ -7736,9 +7737,17 @@ CreateTableGroupStmt:
 				{
 					$$ = ast.NewCreateTableGroupStmt($3, $4, false)
 				}
+		|	CREATE TABLEGROUP name CONNECTION name
+				{
+					$$ = ast.NewCreateTableGroupOnConnectionStmt($3, $5, false)
+				}
 		|	CREATE TABLEGROUP IF_P NOT EXISTS name opt_tablegroup_shards
 				{
 					$$ = ast.NewCreateTableGroupStmt($6, $7, true)
+				}
+		|	CREATE TABLEGROUP IF_P NOT EXISTS name CONNECTION name
+				{
+					$$ = ast.NewCreateTableGroupOnConnectionStmt($6, $8, true)
 				}
 		;
 

@@ -131,7 +131,7 @@ func (c *Coordinator) openSource(ctx context.Context, m *Migration) (migrationSo
 // The checked structure is stored as the conninfo, which every consumer renders
 // its client's string from; the dsn column is its canonical rendering. Whether a pooler can front
 // the connection is not asked here, since one for the migrator may carry parameters a pooler
-// cannot: Conn.ForPooler is applied where one is served.
+// cannot: Conn.ForPooler is applied where one is bound to a tablegroup and where it is served.
 func (c *Coordinator) CreateConnection(ctx context.Context, conn *Connection) error {
 	if conn.Name == "" {
 		return errors.New("connection name is required")

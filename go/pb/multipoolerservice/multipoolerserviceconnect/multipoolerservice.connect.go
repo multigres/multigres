@@ -161,12 +161,13 @@ type MultipoolerServiceClient interface {
 	// session. Subscription updates and notification delivery share one stream so
 	// notifications across channels preserve PostgreSQL delivery order.
 	NotificationStream(context.Context) *connect.BidiStreamForClient[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse]
-	// GetBackingConnection returns the named backing connection. It is served only
-	// by the default primary pooler, which owns the connection metadata; unmanaged
-	// poolers call it at bootstrap to learn the external endpoint they front. The
-	// reply carries the credential, so the call should travel over TLS; it is
-	// protected only by the transport's authentication, and there is no
-	// per-call authorization.
+	// GetBackingConnection says how a tablegroup is served: by an external
+	// PostgreSQL, whose connection it returns, or by managed shards. It is served
+	// only by the default primary pooler, which owns the catalog; a pooler calls it
+	// at startup, by its tablegroup id, to learn whether it is unmanaged and which
+	// external endpoint it fronts. The reply carries the credential, so the call
+	// should travel over TLS; it is protected only by the transport's
+	// authentication, and there is no per-call authorization.
 	GetBackingConnection(context.Context, *connect.Request[multipoolerservice.GetBackingConnectionRequest]) (*connect.Response[multipoolerservice.GetBackingConnectionResponse], error)
 }
 
@@ -425,12 +426,13 @@ type MultipoolerServiceHandler interface {
 	// session. Subscription updates and notification delivery share one stream so
 	// notifications across channels preserve PostgreSQL delivery order.
 	NotificationStream(context.Context, *connect.BidiStream[multipoolerservice.NotificationStreamRequest, multipoolerservice.NotificationStreamResponse]) error
-	// GetBackingConnection returns the named backing connection. It is served only
-	// by the default primary pooler, which owns the connection metadata; unmanaged
-	// poolers call it at bootstrap to learn the external endpoint they front. The
-	// reply carries the credential, so the call should travel over TLS; it is
-	// protected only by the transport's authentication, and there is no
-	// per-call authorization.
+	// GetBackingConnection says how a tablegroup is served: by an external
+	// PostgreSQL, whose connection it returns, or by managed shards. It is served
+	// only by the default primary pooler, which owns the catalog; a pooler calls it
+	// at startup, by its tablegroup id, to learn whether it is unmanaged and which
+	// external endpoint it fronts. The reply carries the credential, so the call
+	// should travel over TLS; it is protected only by the transport's
+	// authentication, and there is no per-call authorization.
 	GetBackingConnection(context.Context, *connect.Request[multipoolerservice.GetBackingConnectionRequest]) (*connect.Response[multipoolerservice.GetBackingConnectionResponse], error)
 }
 

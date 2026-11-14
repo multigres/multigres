@@ -39,7 +39,7 @@ func (p *Planner) planCreateTableGroup(sql string, stmt *ast.CreateTableGroupStm
 			}
 		}
 	}
-	prim := engine.NewCreateTableGroup(p.tableGroups, sql, stmt.Name, shards, stmt.IfNotExists)
+	prim := engine.NewCreateTableGroup(p.tableGroups, sql, stmt.Name, shards, stmt.Connection, stmt.IfNotExists)
 	return p.tableGroupPlan(sql, prim), nil
 }
 
