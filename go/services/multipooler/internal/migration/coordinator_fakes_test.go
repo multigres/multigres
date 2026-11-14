@@ -479,6 +479,31 @@ type fakeSource struct {
 
 	terminateErr error
 
+	revokeConnectErr error
+
+	grantConnectErr error
+	// grantConnectRoles captures the roles argument of the last GrantConnect
+	// call, so tests can assert the coordinator only restores roles that had a
+	// prior direct CONNECT grant (Migration.QuiesceRolesHadConnect), not every
+	// QuiesceRoles entry unconditionally.
+	grantConnectRoles []string
+	// grantConnectRestorePublic captures the restorePublic argument of the last
+	// GrantConnect call, so tests can assert the coordinator threaded
+	// Migration.PublicHadConnect through correctly.
+	grantConnectRestorePublic bool
+	// grantConnectLimits captures the connLimits argument of the last
+	// GrantConnect call, so tests can assert the coordinator threaded
+	// Migration.QuiesceRoleConnLimits through correctly.
+	grantConnectLimits map[string]int32
+
+	publicHasConnect    bool
+	publicHasConnectErr error
+	rolesHadConnect     map[string]bool
+	rolesHadConnectErr  error
+	roleConnLimits      map[string]int32
+	roleConnLimitsErr   error
+	checkRolesErr       error
+
 	closed int
 }
 
@@ -559,6 +584,36 @@ func (s *fakeSource) TerminateClientBackends() error {
 	return s.terminateErr
 }
 
+func (s *fakeSource) RevokeConnect(roles []string) error {
+	s.record("RevokeConnect")
+	return s.revokeConnectErr
+}
+
+func (s *fakeSource) GrantConnect(roles []string, restorePublic bool, connLimits map[string]int32) error {
+	if len(roles) > 0 || restorePublic {
+		s.record("GrantConnect")
+	}
+	s.grantConnectRoles = roles
+	s.grantConnectRestorePublic = restorePublic
+	s.grantConnectLimits = connLimits
+	return s.grantConnectErr
+}
+
+func (s *fakeSource) RoleConnLimits(roles []string) (map[string]int32, error) {
+	s.record("RoleConnLimits")
+	return s.roleConnLimits, s.roleConnLimitsErr
+}
+
+func (s *fakeSource) PublicHasConnect() (bool, error) {
+	s.record("PublicHasConnect")
+	return s.publicHasConnect, s.publicHasConnectErr
+}
+
+func (s *fakeSource) RolesHadConnect(roles []string) (map[string]bool, error) {
+	s.record("RolesHadConnect")
+	return s.rolesHadConnect, s.rolesHadConnectErr
+}
+func (s *fakeSource) checkQuiesceRoles([]string) error { return s.checkRolesErr }
 func (s *fakeSource) CurrentLSN() (string, error) {
 	if s.currentLSN == "" {
 		return "0/0", s.currentLSNErr
