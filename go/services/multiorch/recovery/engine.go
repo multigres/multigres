@@ -222,6 +222,10 @@ type Engine struct {
 	// against a shard's observed TermRevocation without coordinating.
 	recruitmentBackoff ha.BackoffSchedule
 
+	// recoveryRetryBackoffTracker throttles re-execution of non-failover actions
+	// that keep failing against the same problem and entity.
+	recoveryRetryBackoffTracker *RecoveryRetryBackoffTracker
+
 	// Context for shutting down loops
 	shutdownCtx context.Context
 	cancel      context.CancelFunc
@@ -295,6 +299,8 @@ func NewEngine(
 		coordinator,
 		logger,
 	)
+
+	engine.recoveryRetryBackoffTracker = NewRecoveryRetryBackoffTracker(logger)
 
 	return engine
 }
@@ -556,6 +562,10 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]D
 	// Engine.readyToExecute) and are not forced here — MaxCycles=0's retry loop
 	// below still resolves them within the RPC's own timeout, just via a few
 	// extra cycles rather than instantly.
+	//
+	// Failure backoff, by contrast, is bypassed for every cycle of this call and
+	// cleared again on return, so the call is not slowed by backoff it builds up.
+	defer re.recoveryRetryBackoffTracker.Bypass()()
 
 	// Create channel to wait for first cycle completion
 	cycleDone := make(chan error, 1)

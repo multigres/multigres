@@ -226,6 +226,17 @@ func (p Problem) EntityID() string {
 	return string(commontypes.FormatShardRef(p.ShardRef))
 }
 
+// RetryBackoffConfig holds the failure backoff settings for recovery actions.
+// After each consecutive failed attempt against the same problem and entity,
+// the engine waits BaseDelay * 2^(failures-1), capped at MaxDelay, plus up to
+// JitterFraction of that delay, before executing the action again. A zero
+// MaxDelay means the engine's default ceiling of one hour.
+type RetryBackoffConfig struct {
+	BaseDelay      time.Duration
+	MaxDelay       time.Duration
+	JitterFraction float64
+}
+
 // RecheckedProblem pairs a Problem with the exact consensus rule the engine's
 // pre-execution recheck just re-verified it against (the same shard snapshot
 // that redetected the problem — see recovery_loop.go's recheckProblem). The
@@ -275,6 +286,11 @@ type RecoveryMetadata struct {
 	// cache gives. Zero means no refresh. A pooler that does not answer in time is
 	// itself evidence for the recheck, which then uses its cached state.
 	RefreshBeforeRecheckTimeout time.Duration
+	// RetryBackoff, if set, makes the engine back off exponentially after
+	// consecutive failures of this action for the same problem and entity.
+	// Ignored for failover problems, which are gated on collective recruitment
+	// backoff instead.
+	RetryBackoff *RetryBackoffConfig
 }
 
 // GetLockTimeout returns the lock timeout, defaulting to 15 seconds if not set.
