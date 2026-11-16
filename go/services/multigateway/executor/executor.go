@@ -153,7 +153,7 @@ func (e *Executor) StreamExecute(
 		"connection_id", conn.ConnectionID())
 
 	var result *handler.ExecuteResult
-	err := e.runFenced(ctx, conn, callback, func(callback func(context.Context, *sqltypes.Result) error) error {
+	err := e.runFenced(ctx, conn, state, callback, func(exec engine.IExecute, callback func(context.Context, *sqltypes.Result) error) error {
 		planStart := time.Now()
 		plan, bindVars, cacheHit, normalizedSQL, fingerprint, err := e.resolvePlan(ctx, queryStr, astStmt, conn, state)
 		planTime := time.Since(planStart)
@@ -178,7 +178,7 @@ func (e *Executor) StreamExecute(
 			Fingerprint:   fingerprint,
 		}
 
-		err = plan.StreamExecute(ctx, e.exec, conn, state, bindVars, callback)
+		err = plan.StreamExecute(ctx, exec, conn, state, bindVars, callback)
 		if err != nil {
 			e.logger.ErrorContext(ctx, "query execution failed",
 				"query", logQueryStr,
@@ -310,17 +310,18 @@ func (e *Executor) PortalStreamExecute(
 		"connection_id", conn.ConnectionID())
 
 	var result *handler.ExecuteResult
-	err := e.runFenced(ctx, conn, callback, func(callback func(context.Context, *sqltypes.Result) error) error {
+	err := e.runFenced(ctx, conn, state, callback, func(exec engine.IExecute, callback func(context.Context, *sqltypes.Result) error) error {
 		var err error
-		result, err = e.portalAttempt(ctx, conn, state, portalInfo, maxRows, includeDescribe, callback)
+		result, err = e.portalAttempt(ctx, exec, conn, state, portalInfo, maxRows, includeDescribe, callback)
 		return err
 	})
 	return result, err
 }
 
-// portalAttempt plans the portal's statement and runs the plan once.
+// portalAttempt plans the portal's statement and runs the plan once on exec.
 func (e *Executor) portalAttempt(
 	ctx context.Context,
+	exec engine.IExecute,
 	conn *server.Conn,
 	state *handler.MultigatewayConnectionState,
 	portalInfo *preparedstatement.PortalInfo,
@@ -349,7 +350,7 @@ func (e *Executor) portalAttempt(
 	// portalInfo and run their StreamExecute logic. A plain Route reissuing the
 	// portal is exactly what a raw forward to the multipooler would do, so
 	// non-routable utility statements need no special-casing here.
-	err = plan.PortalStreamExecute(ctx, e.exec, conn, state, portalInfo, maxRows, includeDescribe, callback)
+	err = plan.PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, includeDescribe, callback)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "portal query execution failed",
 			"query", ast.LogSafeQuery(portalInfo.PreparedStatementInfo.Query, portalInfo.PreparedStatementInfo.AstStmt()),

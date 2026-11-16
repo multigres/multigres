@@ -208,8 +208,10 @@ mode:
 3. Run it again.
 
 A statement is not run again when the session is in a transaction, explicit or
-implicit, or when output has already reached the client (an earlier Route of
-the plan may have streamed rows). The client then gets the `MTF02`, which tells
+implicit (a multi-statement query, or an extended-protocol pipeline before its
+Sync), when an earlier step of its plan already ran on a pooler (for example
+the resolve query of a dynamic `set_config`), or when output has already
+reached the client. The client then gets the `MTF02`, which tells
 it to retry. A gateway a version behind the fence may run the statement once on
 the snapshot that put the fence up and be refused again; its next wait reaches
 the snapshot that lifts it.

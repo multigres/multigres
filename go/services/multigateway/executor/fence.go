@@ -19,8 +19,15 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
+	"github.com/multigres/multigres/go/pb/query"
+	"github.com/multigres/multigres/go/services/multigateway/engine"
+	"github.com/multigres/multigres/go/services/multigateway/handler"
 )
 
 // A pooler whose target an operation has fenced refuses new application work
@@ -68,14 +75,18 @@ const (
 	fenceOutcomeCanceled      = "canceled"       // the statement's context ended
 	fenceOutcomeInTransaction = "in_transaction" // not retried: the session is in a transaction
 	fenceOutcomeStreamed      = "streamed"       // not retried: output already reached the client
+	fenceOutcomeRan           = "ran"            // not retried: an earlier step already ran on a pooler
 )
 
-// runFenced runs attempt, which plans the statement and runs the plan with
-// the callback it is given, and runs it again when a pooler refused it as
-// fenced and the statement can safely run again: the session is not in a
-// transaction (explicit or implicit), and nothing has reached the client.
-// The latter matters for a plan with several Routes, where an earlier Route
-// may have streamed rows before a later one was refused.
+// runFenced runs attempt, which plans the statement and runs the plan on the
+// IExecute and with the callback it is given, and runs it again when a pooler
+// refused it as fenced and the statement can safely run again: the session is
+// not in a transaction, explicit or implicit (a multi-statement query, or an
+// extended-protocol pipeline before its Sync), no earlier step of the plan ran
+// on a pooler, and nothing has reached the client. The last two matter for a
+// plan with several steps: an earlier step may have run the user's query
+// without forwarding its rows (resolve_set_config's resolve), or sent output
+// the gateway produced itself, before a later step was refused.
 //
 // Each retry waits for a snapshot newer than the one the refused attempt
 // planned against, read before it planned. The waits share one fence window,
@@ -85,21 +96,19 @@ const (
 func (e *Executor) runFenced(
 	ctx context.Context,
 	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
 	callback func(context.Context, *sqltypes.Result) error,
-	attempt func(callback func(context.Context, *sqltypes.Result) error) error,
+	attempt func(exec engine.IExecute, callback func(context.Context, *sqltypes.Result) error) error,
 ) error {
 	snapshots := e.routingSnapshots
 	if snapshots == nil {
-		return attempt(callback)
+		return attempt(e.exec, callback)
 	}
 	database := conn.Database()
 	version := snapshots.RoutingVersion(database)
-	streamed := false
-	tracked := func(ctx context.Context, res *sqltypes.Result) error {
-		streamed = true
-		return callback(ctx, res)
-	}
-	err := attempt(tracked)
+	guard := &attemptGuard{IExecute: e.exec, callback: callback}
+	tracked := guard.forward
+	err := attempt(guard, tracked)
 	if err == nil || !mterrors.IsErrorCode(err, mterrors.MTF02.ID) {
 		return err
 	}
@@ -115,10 +124,13 @@ func (e *Executor) runFenced(
 	defer cancel()
 	for range maxFenceRetries {
 		switch {
-		case conn.IsInTransaction():
+		case conn.IsInTransaction() || (state != nil && state.Pipelining()):
 			outcome = fenceOutcomeInTransaction
 			return err
-		case streamed:
+		case guard.ran:
+			outcome = fenceOutcomeRan
+			return err
+		case guard.streamed:
 			outcome = fenceOutcomeStreamed
 			return err
 		}
@@ -133,10 +145,113 @@ func (e *Executor) runFenced(
 			return err
 		}
 		version = snapshots.RoutingVersion(database)
-		if err = attempt(tracked); err == nil || !mterrors.IsErrorCode(err, mterrors.MTF02.ID) {
+		if err = attempt(guard, tracked); err == nil || !mterrors.IsErrorCode(err, mterrors.MTF02.ID) {
 			outcome = fenceOutcomeServed
 			return err
 		}
 	}
 	return err
 }
+
+// attemptGuard is the IExecute and callback a fenced statement's attempts run
+// on. It records whether any call reached a pooler that took it (ran) and
+// whether any output reached the client (streamed), the two things that make
+// running the statement again unsafe. A call refused with MTF02 ran nothing;
+// any other outcome, an error included, may have.
+type attemptGuard struct {
+	engine.IExecute
+	callback func(context.Context, *sqltypes.Result) error
+	ran      bool
+	streamed bool
+}
+
+func (g *attemptGuard) forward(ctx context.Context, res *sqltypes.Result) error {
+	g.streamed = true
+	return g.callback(ctx, res)
+}
+
+func (g *attemptGuard) note(err error) {
+	if err == nil || !mterrors.IsErrorCode(err, mterrors.MTF02.ID) {
+		g.ran = true
+	}
+}
+
+func (g *attemptGuard) StreamExecute(ctx context.Context, conn *server.Conn, tableGroup, shard, sql string, eagerParsePreparedStatement *query.PreparedStatement, state *handler.MultigatewayConnectionState, info engine.PlanExecInfo, keepStructured bool, callback func(context.Context, *sqltypes.Result) error) error {
+	err := g.IExecute.StreamExecute(ctx, conn, tableGroup, shard, sql, eagerParsePreparedStatement, state, info, keepStructured, callback)
+	g.note(err)
+	return err
+}
+
+func (g *attemptGuard) PortalStreamExecute(ctx context.Context, tableGroup, shard string, conn *server.Conn, state *handler.MultigatewayConnectionState, portalInfo *preparedstatement.PortalInfo, maxRows int32, includeDescribe bool, info engine.PlanExecInfo, keepStructured bool, callback func(context.Context, *sqltypes.Result) error) error {
+	err := g.IExecute.PortalStreamExecute(ctx, tableGroup, shard, conn, state, portalInfo, maxRows, includeDescribe, info, keepStructured, callback)
+	g.note(err)
+	return err
+}
+
+func (g *attemptGuard) Describe(ctx context.Context, tableGroup, shard string, conn *server.Conn, state *handler.MultigatewayConnectionState, portalInfo *preparedstatement.PortalInfo, preparedStatementInfo *preparedstatement.PreparedStatementInfo) (*query.StatementDescription, error) {
+	desc, err := g.IExecute.Describe(ctx, tableGroup, shard, conn, state, portalInfo, preparedStatementInfo)
+	g.note(err)
+	return desc, err
+}
+
+func (g *attemptGuard) ConcludeTransaction(ctx context.Context, conn *server.Conn, state *handler.MultigatewayConnectionState, conclusion multipoolerpb.TransactionConclusion, releasePortalNames []string, releaseAllPortals, chain bool, callback func(context.Context, *sqltypes.Result) error) error {
+	err := g.IExecute.ConcludeTransaction(ctx, conn, state, conclusion, releasePortalNames, releaseAllPortals, chain, callback)
+	g.note(err)
+	return err
+}
+
+func (g *attemptGuard) DiscardTempTables(ctx context.Context, conn *server.Conn, state *handler.MultigatewayConnectionState, callback func(context.Context, *sqltypes.Result) error) error {
+	err := g.IExecute.DiscardTempTables(ctx, conn, state, callback)
+	g.note(err)
+	return err
+}
+
+func (g *attemptGuard) ReleaseAllReservedConnections(ctx context.Context, conn *server.Conn, state *handler.MultigatewayConnectionState, keepStickyReservations bool) error {
+	err := g.IExecute.ReleaseAllReservedConnections(ctx, conn, state, keepStickyReservations)
+	g.note(err)
+	return err
+}
+
+func (g *attemptGuard) CopyInitiate(ctx context.Context, conn *server.Conn, tableGroup, shard, queryStr string, state *handler.MultigatewayConnectionState, callback func(context.Context, *sqltypes.Result) error) (int16, []int16, error) {
+	format, columnFormats, err := g.IExecute.CopyInitiate(ctx, conn, tableGroup, shard, queryStr, state, callback)
+	g.note(err)
+	return format, columnFormats, err
+}
+
+func (g *attemptGuard) CopySendData(ctx context.Context, conn *server.Conn, tableGroup, shard string, state *handler.MultigatewayConnectionState, data []byte) error {
+	err := g.IExecute.CopySendData(ctx, conn, tableGroup, shard, state, data)
+	g.note(err)
+	return err
+}
+
+func (g *attemptGuard) CopyFinalize(ctx context.Context, conn *server.Conn, tableGroup, shard string, state *handler.MultigatewayConnectionState, finalData []byte, callback func(context.Context, *sqltypes.Result) error) error {
+	err := g.IExecute.CopyFinalize(ctx, conn, tableGroup, shard, state, finalData, callback)
+	g.note(err)
+	return err
+}
+
+func (g *attemptGuard) CopyAbort(ctx context.Context, conn *server.Conn, tableGroup, shard string, state *handler.MultigatewayConnectionState) error {
+	err := g.IExecute.CopyAbort(ctx, conn, tableGroup, shard, state)
+	g.note(err)
+	return err
+}
+
+func (g *attemptGuard) CopyOutInitiate(ctx context.Context, conn *server.Conn, tableGroup, shard, queryStr string, state *handler.MultigatewayConnectionState) (int16, []int16, []*mterrors.PgDiagnostic, error) {
+	format, columnFormats, notices, err := g.IExecute.CopyOutInitiate(ctx, conn, tableGroup, shard, queryStr, state)
+	g.note(err)
+	return format, columnFormats, notices, err
+}
+
+func (g *attemptGuard) CopyOutStream(ctx context.Context, conn *server.Conn, tableGroup, shard string, state *handler.MultigatewayConnectionState, onMessage func(pgClient.CopyOutMessage) error) (*sqltypes.Result, error) {
+	result, err := g.IExecute.CopyOutStream(ctx, conn, tableGroup, shard, state, onMessage)
+	g.note(err)
+	return result, err
+}
+
+func (g *attemptGuard) StreamReplication(ctx context.Context, conn *server.Conn, tableGroup, shard string, state *handler.MultigatewayConnectionState, init *multipoolerpb.StreamReplicationInit) (queryservice.ReplicationStream, error) {
+	stream, err := g.IExecute.StreamReplication(ctx, conn, tableGroup, shard, state, init)
+	g.note(err)
+	return stream, err
+}
+
+var _ engine.IExecute = (*attemptGuard)(nil)

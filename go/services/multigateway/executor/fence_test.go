@@ -333,3 +333,48 @@ func TestFence_OtherErrorsAreNotRetried(t *testing.T) {
 		})
 	}
 }
+
+// A statement whose earlier step already ran on a pooler is not run again,
+// even though nothing reached the client: resolve_set_config runs the user's
+// query through its own callback before its apply step, and running the
+// statement again would run that query twice.
+func TestFence_NotRetriedAfterAnEarlierStepRan(t *testing.T) {
+	exec := newFencedExec(nil, mterrors.MTF02.New())
+	snapshots := newFakeSnapshots(5)
+	exec.onCall = func(int) { snapshots.setVersion(6) }
+	e := newFenceTestExecutor(t, exec, snapshots, 10*time.Second)
+	conn := testConn()
+	capture := func(context.Context, *sqltypes.Result) error { return nil }
+
+	var sent int
+	err := e.runFenced(t.Context(), conn, handler.NewMultigatewayConnectionState(), func(context.Context, *sqltypes.Result) error {
+		sent++
+		return nil
+	}, func(exec engine.IExecute, callback func(context.Context, *sqltypes.Result) error) error {
+		if err := exec.StreamExecute(t.Context(), conn, "tg", "", "SELECT resolve()", nil, nil, engine.PlanExecInfo{}, true, capture); err != nil {
+			return err
+		}
+		return exec.StreamExecute(t.Context(), conn, "tg", "", "SELECT apply()", nil, nil, engine.PlanExecInfo{}, false, callback)
+	})
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF02.ID), "got %v", err)
+	assert.Equal(t, 2, exec.calls(), "the resolve step is not run again")
+	assert.Zero(t, sent)
+	assert.Empty(t, snapshots.waitAfters())
+}
+
+// A statement in an extended-protocol pipeline after an earlier Execute runs
+// in the pipeline's implicit transaction, and is not run again.
+func TestFence_NotRetriedInAPipeline(t *testing.T) {
+	exec := newFencedExec(mterrors.MTF02.New())
+	snapshots := newFakeSnapshots(5)
+	exec.onCall = func(int) { snapshots.setVersion(6) }
+	e := newFenceTestExecutor(t, exec, snapshots, 10*time.Second)
+	state := handler.NewMultigatewayConnectionState()
+	state.SetPipelining(true)
+
+	_, err := e.PortalStreamExecute(t.Context(), testConn(), state,
+		makePortalInfo(t, "SELECT * FROM users WHERE id = $1"), 0, false, noopCallback)
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF02.ID), "got %v", err)
+	assert.Equal(t, 1, exec.calls())
+	assert.Empty(t, snapshots.waitAfters())
+}
