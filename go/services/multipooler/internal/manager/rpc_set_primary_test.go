@@ -526,6 +526,13 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	healthState := pm.healthStreamer.getState()
 	assert.NotEqual(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, healthState.RoutingState.GetRole(),
 		"a demoted pooler must not advertise itself as the routing primary")
+
+	fresh := restartManagerForTest(t, pm)
+	health, err := fresh.GetHealthState(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, health)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, health.ServingStatus,
+		"a completed rewind must not leave a serving hold after restart")
 }
 
 // TestSetPrimary_StalePrimaryDefersRewindWhenLeaderUnreachable verifies that a
@@ -558,6 +565,16 @@ func TestSetPrimary_StalePrimaryDefersRewindWhenLeaderUnreachable(t *testing.T) 
 		"the pooler must still rewind once a reachable leader is recorded")
 	assert.Equal(t, "new-primary", pm.consensusMgr.GetReplicationPrimary().GetPrimary().GetId().GetName(),
 		"the new leader is still recorded so the monitor and later SetPrimary calls can retry")
+
+	// Restart just the manager, keeping postgres and the pooler directory. A new
+	// process must restore the read restriction before publishing startup health,
+	// without waiting for the postgres monitor (disabled by the test constructor).
+	fresh := restartManagerForTest(t, pm)
+	health, err := fresh.GetHealthState(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, health)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, health.ServingStatus,
+		"a restarted pooler must not serve divergent data while its rewind is pending")
 }
 
 // TestSetPrimary_StaleLeaderByRuleStoreMarksDivergence verifies the rule-store /

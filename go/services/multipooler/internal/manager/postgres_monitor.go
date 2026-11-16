@@ -1277,17 +1277,22 @@ func (pm *MultipoolerManager) leaderReachable(ctx context.Context, host string, 
 }
 
 // markSuspectedDivergence prevents a node whose WAL is untrusted from serving
-// reads while it waits for rewind or demotion. Callers hold the action lock.
+// reads while it waits for rewind or demotion, including across a process
+// restart. Callers hold the action lock.
 func (pm *MultipoolerManager) markSuspectedDivergence(ctx context.Context) error {
 	if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
 		return err
 	}
+	// Keep the in-memory hold even if persistence fails, and still attempt to
+	// stop serving. Neither a disk error nor a state-transition error makes the
+	// WAL safe to read.
+	persistErr := pm.rewindPending().write()
 	if pm.stateManager == nil {
-		return nil
+		return persistErr
 	}
-	return pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
+	return errors.Join(persistErr, pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
 		s.ServingStatus = reconciledServingStatus(s.ServingStatus, true)
-	})
+	}))
 }
 
 // shouldRewindForDivergence reports whether an up standby should now be rewound

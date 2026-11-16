@@ -893,6 +893,9 @@ func TestPromote(t *testing.T) {
 				lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed")
 				require.NoError(t, err)
 				require.NoError(t, pm.consensusMgr.SetResignedLeaderAtTerm(lockCtx, &clustermetadatapb.RulePosition{Decision: &clustermetadatapb.ShardRule{RuleNumber: &clustermetadatapb.RuleNumber{CoordinatorTerm: 7}}}))
+				// A prior demotion left a rewind pending. A committed promotion
+				// supersedes it and must release the hold durably.
+				require.NoError(t, pm.markSuspectedDivergence(lockCtx))
 				pm.actionLock.Release(lockCtx)
 			},
 			postCheck: func(t *testing.T, pm *MultipoolerManager, rs *fakeRuleStore) {
@@ -932,6 +935,13 @@ func TestPromote(t *testing.T) {
 				assert.True(t, proto.Equal(selfID, rp.GetPrimary().GetId()))
 				assert.Equal(t, "pg-primary.internal", rp.GetPrimary().GetHost())
 				assert.Equal(t, int32(5432), rp.GetPrimary().GetPostgresPort())
+
+				fresh := restartManagerForTest(t, pm)
+				health, err := fresh.GetHealthState(t.Context())
+				require.NoError(t, err)
+				require.NotNil(t, health)
+				assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, health.ServingStatus,
+					"a committed promotion must release the pending rewind across restart")
 			},
 		},
 		{
@@ -1070,6 +1080,11 @@ func TestPromote(t *testing.T) {
 			setupMocks: func(m *mock.QueryService) {
 				expectLeaderPromoteMocks(m)
 			},
+			preRun: func(t *testing.T, pm *MultipoolerManager) {
+				withLock(t, pm, func(ctx context.Context) {
+					require.NoError(t, pm.markSuspectedDivergence(ctx))
+				})
+			},
 			expectError:       true,
 			expectErrContains: "promote failed: could not write rule",
 			postCheck: func(t *testing.T, pm *MultipoolerManager, rs *fakeRuleStore) {
@@ -1077,6 +1092,13 @@ func TestPromote(t *testing.T) {
 				require.NotNil(t, status, "resignation must be re-set after a failed promote")
 				assert.Equal(t, int64(3), status.LeaderTerm)
 				assert.Equal(t, clustermetadatapb.LeadershipSignal_LEADERSHIP_SIGNAL_REQUESTING_DEMOTION, status.Signal)
+
+				fresh := restartManagerForTest(t, pm)
+				health, err := fresh.GetHealthState(t.Context())
+				require.NoError(t, err)
+				require.NotNil(t, health)
+				assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, health.ServingStatus,
+					"pg_promote alone must not release a pending rewind when the rule write fails")
 			},
 		},
 		{

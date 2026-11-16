@@ -652,6 +652,12 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	if _, err = pm.DoUpdateRule(ctx, ruleUpdate); err != nil {
 		return nil, mterrors.Wrap(err, "promote failed: could not write rule")
 	}
+	// The committed rule makes this node's WAL authoritative, superseding a
+	// pending rewind. Clear the durable hold even if postgres was already out of
+	// recovery and the promotion hook skipped pg_promote.
+	if err := pm.clearSuspectedDivergence(ctx); err != nil {
+		return nil, mterrors.Wrap(err, "failed to clear suspected divergence after promotion")
+	}
 	// Advertise PRIMARY + SERVING now that the rule has committed — this opens the
 	// gateway to write traffic, so it must run only after UpdateRule succeeds
 	// (UpdateRule is the durability gate: it waits for sync-standby acknowledgment).
@@ -894,7 +900,7 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	walRule := commonconsensus.PossiblyUndecidedRule(selfPos.GetPosition())
 	if pgMode.OutOfRecovery() || commonconsensus.RuleNamesLeader(walRule, pm.serviceID) {
 		if err := pm.markSuspectedDivergence(ctx); err != nil {
-			pm.logger.ErrorContext(ctx, "failed to set suspected divergence in SetPrimary", "error", err)
+			return nil, mterrors.Wrap(err, "failed to record suspected divergence in SetPrimary")
 		}
 	}
 

@@ -95,6 +95,22 @@ func NewMultipoolerManagerForTesting(t *testing.T, logger *slog.Logger, mp *clus
 	return newMultipoolerManager(logger, mp, config, 5*time.Minute, ov)
 }
 
+// restartManagerForTest keeps the pooler directory and database but rebuilds
+// all manager state. The monitor stays disabled so it cannot repair startup
+// health before the test observes it.
+func restartManagerForTest(t *testing.T, old *MultipoolerManager) *MultipoolerManager {
+	t.Helper()
+	mp := old.record.Snapshot()
+	mp.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
+	old.ShutdownForTest(t.Context())
+	fresh, err := NewMultipoolerManagerForTesting(t, old.logger, mp, old.config,
+		withMockController(old.qsc), withFakeRules(old.consensusMgr.Rules()))
+	require.NoError(t, err)
+	t.Cleanup(func() { fresh.ShutdownForTest(context.Background()) })
+	withLock(t, fresh, func(ctx context.Context) { fresh.Open(ctx) })
+	return fresh
+}
+
 // testManagerConfig collects the consensus-related inputs a test wants to inject
 // into a MultipoolerManager. Defaults are filled in by newTestManager, so a test
 // only sets what it cares about via the with* options.
@@ -220,6 +236,7 @@ func newTestManager(t *testing.T, opts ...testManagerOption) *MultipoolerManager
 			Id:            cfg.serviceID,
 			Type:          clustermetadatapb.PoolerType_REPLICA,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
+			PoolerDir:     t.TempDir(),
 		})
 	}
 	pm := &MultipoolerManager{

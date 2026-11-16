@@ -596,9 +596,9 @@ func (pm *MultipoolerManager) adminExecArgs(ctx context.Context, sql string, arg
 }
 
 // Open opens the database connections and starts background operations, then
-// transitions the pooler to SERVING. This is the entry point for first-time
-// startup; resume-from-Pause goes through openLocked directly so it can
-// restore the pre-Pause serving state rather than blindly setting SERVING.
+// transitions the pooler to SERVING unless a serving hold is present.
+// This is the entry point for first-time startup; resume-from-Pause goes through
+// openLocked directly so it can restore the pre-Pause serving state.
 //
 // This operation is infallible — if connection pools fail to open, queries
 // will fail gracefully at query time rather than preventing the manager
@@ -612,6 +612,19 @@ func (pm *MultipoolerManager) Open(ctx context.Context) {
 	if pm.IsUnmanaged() {
 		pm.openLocked(ctx, clustermetadatapb.PoolerServingStatus_DISABLED)
 		return
+	}
+	// Restore the divergence hold before publishing startup health. A deferred
+	// rewind can leave postgres running, so database readiness alone is not enough
+	// to permit reads. An unreadable marker is not proof that the WAL is safe.
+	pending, err := pm.rewindPending().present()
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "failed to check pending rewind on open; holding serving", "error", err)
+	}
+	if pending || err != nil {
+		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+			pm.logger.ErrorContext(ctx, "failed to restore suspected divergence on open", "error", err)
+			return
+		}
 	}
 	pm.openLocked(ctx, clustermetadatapb.PoolerServingStatus_SERVING)
 }
@@ -712,7 +725,8 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 		go pm.runCatalogVersionRefresh(pm.ctx, catalogVersionRefreshInterval)
 	}
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.ServingStatus = reconciledServingStatus(targetServingStatus, pm.migrationServingHold())
+		divergenceHold := !pm.IsUnmanaged() && pm.consensusMgr.SuspectedDivergence()
+		s.ServingStatus = reconciledServingStatus(targetServingStatus, divergenceHold || pm.migrationServingHold())
 	}); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to transition serving status on open", "target", targetServingStatus, "error", err)
 	}
@@ -1693,16 +1707,6 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 			pm.broadcastHealth()
 		}
 	}()
-
-	// Promotion supersedes any pending rewind from a prior emergency demotion:
-	// the consensus protocol picked this node as the new leader at a higher
-	// term, so its WAL is by definition the rule going forward. Clear the
-	// flag so the postgres monitor and other operations resume.
-	if changed, err := pm.consensusMgr.SetSuspectedDivergence(ctx, false); err != nil {
-		pm.logger.ErrorContext(ctx, "failed to clear suspected divergence before promotion", "error", err)
-	} else if changed {
-		pm.logger.InfoContext(ctx, "cleared suspectedDivergence before promotion")
-	}
 
 	// Clear primary_conninfo after promotion to prevent accidental replication on restart
 	if err := pm.resetPrimaryConnInfo(ctx); err != nil {

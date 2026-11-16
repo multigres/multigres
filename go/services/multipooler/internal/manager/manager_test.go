@@ -944,6 +944,23 @@ func TestOpen_HonorsMigrationHoldOnRestart(t *testing.T) {
 		"Open must hold serving (DRAINING) when an IMPORT migration is in progress on this shard, not publish SERVING unreconciled")
 }
 
+func TestOpen_PendingRewindReadErrorHoldsServing(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	pm, dir := setupManagerWithMockDB(t, mockQS, &fakeRuleStore{pos: makeRulePosition(3)})
+	// A symlink loop makes the marker unreadable, not absent.
+	marker := filepath.Join(dir, constants.RewindPendingFile)
+	require.NoError(t, os.Symlink(marker, marker))
+
+	fresh := restartManagerForTest(t, pm)
+	health, err := fresh.GetHealthState(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, health)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, health.ServingStatus,
+		"an unreadable pending rewind marker must not allow reads on startup")
+}
+
 // TestPause_RestartsBackupHealthPoller verifies that the backup-health poller
 // survives a Pause/resume cycle. The poller is bound to pm.ctx, which
 // closeLocked cancels and openLocked recreates; StartBackupHealth opts the

@@ -733,6 +733,7 @@ func TestMarkSuspectedDivergenceDrainsServing(t *testing.T) {
 		Type:          clustermetadatapb.PoolerType_REPLICA,
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
 		RoutingState:  &clustermetadatapb.RoutingState{Role: clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA},
+		PoolerDir:     t.TempDir(),
 	})))
 
 	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test")

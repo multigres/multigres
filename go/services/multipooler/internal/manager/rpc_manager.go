@@ -1218,8 +1218,8 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	// divergence resolved (see the note on the rewind path above for why clearing
 	// is deferred to here rather than right after pg_rewind returns).
 	if wantRewind {
-		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, false); err != nil {
-			pm.logger.ErrorContext(ctx, "failed to clear suspected divergence after restart as standby", "error", err)
+		if err := pm.clearSuspectedDivergence(ctx); err != nil {
+			return false, mterrors.Wrap(err, "failed to clear suspected divergence after restart as standby")
 		}
 	}
 

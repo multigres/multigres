@@ -39,17 +39,33 @@ import (
 //
 // runPgRewind writes the sentinel before enabling archive restore and
 // restartAsStandbyLocked removes it only after postgres is verified back up as a
-// standby. Its presence on a later monitor tick is therefore the authoritative signal that a
-// prior rewind did not complete — the one durable signal that survives a process
-// restart (the in-memory suspectedDivergence flag does not). The monitor uses it
-// to re-arm the rewind-repair path instead of starting postgres on the
-// half-rewound directory, and to let the unrecoverable-recovery classifier
-// quarantine the node if repair keeps failing.
+// standby. Its presence means recovery started but did not complete, whereas
+// rewindPending also covers a rewind deferred before recovery started. The
+// monitor uses the in-progress sentinel to re-arm the rewind-repair path instead
+// of starting postgres on the half-rewound directory, and to let the
+// unrecoverable-recovery classifier quarantine the node if repair keeps failing.
 
 // rewindSentinel returns the rewind sentinel. Like every sentinel it lives in
 // pooler_dir; see sentinel.go.
 func (pm *MultipoolerManager) rewindSentinel() sentinel {
 	return pm.newSentinel(constants.RewindSentinelFile, "pg_rewind in progress\n")
+}
+
+// rewindPending records suspected divergence even when recovery has not started
+// (for example, the rewind source is unavailable). It holds serving across a
+// restart without classifying a deferred rewind as an interrupted recovery.
+func (pm *MultipoolerManager) rewindPending() sentinel {
+	return pm.newSentinel(constants.RewindPendingFile, "WAL divergence suspected\n")
+}
+
+// clearSuspectedDivergence releases the durable hold before the in-memory one.
+// A failed removal leaves serving held so a retry can complete the cleanup.
+func (pm *MultipoolerManager) clearSuspectedDivergence(ctx context.Context) error {
+	if err := pm.rewindPending().remove(); err != nil {
+		return mterrors.Wrap(err, "failed to remove pending rewind marker")
+	}
+	_, err := pm.consensusMgr.SetSuspectedDivergence(ctx, false)
+	return err
 }
 
 // A failed pg_rewind is not always a ruined data directory. pg_rewind only starts
