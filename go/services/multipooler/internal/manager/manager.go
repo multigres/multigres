@@ -246,6 +246,12 @@ type MultipoolerManager struct {
 	// background pg queries. Guarded by pm.mu.
 	backupHealthEnabled bool
 
+	// tableGroupOpsEnabled records whether the service layer opted this manager
+	// into the tablegroup completion loop (via StartTableGroupOperations).
+	// Like backupHealthEnabled: openLocked relaunches the loop on every open.
+	// Guarded by pm.mu.
+	tableGroupOpsEnabled bool
+
 	// healthStreamer streams health state to subscribers.
 	// Owns all health-related state and provides typed update methods.
 	healthStreamer *healthStreamer
@@ -263,6 +269,10 @@ type MultipoolerManager struct {
 	// guarded by pm.mu.
 	migrationCoord         *migration.Coordinator
 	migrationSchemaEnsured bool
+
+	// connectionDir replaces the sharding catalog as the directory of backing connections
+	// the default primary serves. Nil outside tests.
+	connectionDir connectionDirectory
 
 	// migrationImportHold is the migration serving gate, stored as a
 	// migrationHoldState: held when an active migration on this shard is in
@@ -675,6 +685,13 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	// the passive backup-health gauges frozen for the rest of the process.
 	if pm.backupHealthEnabled {
 		pm.startBackupHealthPollerLocked()
+	}
+
+	// Relaunch the tablegroup completion loop on the fresh context when the
+	// service layer has opted in (see StartTableGroupOperations). It runs
+	// passes only while this pooler is the catalog primary.
+	if pm.tableGroupOpsEnabled {
+		pm.startTableGroupOperationsLocked()
 	}
 
 	// Relaunch the migration reconcile poller on the fresh context when the

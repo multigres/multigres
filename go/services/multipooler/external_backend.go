@@ -27,27 +27,6 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager"
 )
 
-// backingConnection is the resolved configuration of the external PostgreSQL an
-// unmanaged pooler fronts. It is loaded by name (--backing-connection); no
-// endpoint or credential is ever supplied directly on the command line.
-type backingConnection struct {
-	Name           string
-	Host           string
-	Port           int
-	Database       string
-	User           string
-	Password       string
-	SSLMode        string
-	SSLRootCert    string
-	SSLNegotiation string
-}
-
-// Validate checks that the connection is complete enough to dial, by the rules the default
-// primary applies to the connections it serves (backingconn.Validate).
-func (c *backingConnection) Validate() error {
-	return backingconn.Validate(c.Host, c.Port, c.Database, c.User)
-}
-
 // checkBackingDatabase refuses a backing connection that serves another database than the
 // pooler's own: the pooler advertises --database to the cluster and dials the connection's.
 func checkBackingDatabase(name string, backend *manager.ExternalBackend, database string) error {
@@ -62,13 +41,13 @@ func checkBackingDatabase(name string, backend *manager.ExternalBackend, databas
 // not decided here: the default is a source that refuses, so an unmanaged pooler does not
 // start, with a clear error, until one is set.
 type connectionSource interface {
-	BackingConnection(ctx context.Context, name string) (*backingConnection, error)
+	BackingConnection(ctx context.Context, name string) (*backingconn.Conn, error)
 }
 
 // unconfiguredSource is the default source.
 type unconfiguredSource struct{}
 
-func (unconfiguredSource) BackingConnection(_ context.Context, name string) (*backingConnection, error) {
+func (unconfiguredSource) BackingConnection(_ context.Context, name string) (*backingconn.Conn, error) {
 	return nil, fmt.Errorf("backing connection %q: no source of backing connections is configured", name)
 }
 
@@ -80,7 +59,7 @@ var errInvalidBackingConnection = errors.New("invalid backing connection")
 // fetchBackingConnection asks a source for a connection and returns it only if it is usable:
 // a source that answers with nothing, or with a connection that is not complete or names more
 // than one server, is refused, whoever the source is.
-func fetchBackingConnection(ctx context.Context, source connectionSource, name string) (*backingConnection, error) {
+func fetchBackingConnection(ctx context.Context, source connectionSource, name string) (*backingconn.Conn, error) {
 	conn, err := source.BackingConnection(ctx, name)
 	if err != nil {
 		return nil, err
@@ -88,7 +67,7 @@ func fetchBackingConnection(ctx context.Context, source connectionSource, name s
 	if conn == nil {
 		return nil, fmt.Errorf("%w: backing connection %q: the source returned none", errInvalidBackingConnection, name)
 	}
-	if err := conn.Validate(); err != nil {
+	if err := conn.ForPooler(); err != nil {
 		return nil, fmt.Errorf("%w: backing connection %q: %w", errInvalidBackingConnection, name, err)
 	}
 	return conn, nil

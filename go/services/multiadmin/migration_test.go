@@ -17,6 +17,8 @@ package multiadmin
 import (
 	"context"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -235,9 +237,13 @@ func TestRedactConnectionDSN(t *testing.T) {
 		redactConnectionDSN(nil)
 	})
 	t.Run("empty DSN is left alone", func(t *testing.T) {
-		c := &migratorpb.Connection{}
+		// A listing's way of saying the stored connection cannot be read.
+		c := &migratorpb.Connection{Id: 2, Name: "bad", OwnerRole: "bob"}
 		redactConnectionDSN(c)
 		assert.Empty(t, c.GetDsn())
+		assert.Equal(t, "bad", c.GetName())
+		assert.Equal(t, int64(2), c.GetId())
+		assert.Equal(t, "bob", c.GetOwnerRole())
 	})
 	t.Run("password stripped, other fields kept", func(t *testing.T) {
 		c := &migratorpb.Connection{Dsn: fakeConnectionDSN}
@@ -245,6 +251,13 @@ func TestRedactConnectionDSN(t *testing.T) {
 		assert.NotContains(t, c.GetDsn(), "supersecret")
 		assert.Contains(t, c.GetDsn(), "src.example.com")
 		assert.Contains(t, c.GetDsn(), "postgres")
+	})
+	t.Run("a service file the DSN names is not read", func(t *testing.T) {
+		file := filepath.Join(t.TempDir(), "services")
+		require.NoError(t, os.WriteFile(file, []byte("[s]\nhost=elsewhere.example.com\nuser=other\n"), 0o600))
+		c := &migratorpb.Connection{Dsn: "host=src.example.com port=5432 user=postgres dbname=postgres service=s servicefile=" + file}
+		redactConnectionDSN(c)
+		assert.Equal(t, "host=src.example.com port=5432 dbname=postgres user=postgres", c.GetDsn())
 	})
 	t.Run("unparseable DSN is blanked rather than passed through", func(t *testing.T) {
 		c := &migratorpb.Connection{Dsn: "not a valid conninfo \x00"}

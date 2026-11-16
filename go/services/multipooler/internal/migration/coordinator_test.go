@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/backingconn"
 )
 
 const testDSN = "host=src.example.com port=5432 user=repl password=s3cr3t dbname=appdb sslmode=disable"
@@ -66,14 +68,14 @@ func TestActivateOptionsResolve(t *testing.T) {
 	require.Equal(t, MaxActivateMaxLagBytes+1, lag)
 }
 
-func TestRedactDSN(t *testing.T) {
-	got := redactDSN(testDSN)
+func TestRedactConn(t *testing.T) {
+	got := redactConn(&Connection{Name: "src", ConnInfo: infoOf(testDSN)})
 	require.Equal(t, "src.example.com:5432/appdb", got)
 	require.NotContains(t, got, "s3cr3t", "redaction must drop the password")
 	require.NotContains(t, got, "repl", "redaction must drop the user")
 
-	// A DSN that cannot be parsed yields empty rather than risk leaking anything.
-	require.Equal(t, "", redactDSN("host=h port=notaport dbname=d"))
+	// A connection that is not valid yields empty.
+	require.Equal(t, "", redactConn(&Connection{Name: "bad", ConnInfo: &backingconn.Conn{Hosts: []string{"h"}}}))
 }
 
 func TestPhaseRank(t *testing.T) {
@@ -136,7 +138,7 @@ func TestEffectiveDirection(t *testing.T) {
 
 func TestProject(t *testing.T) {
 	store := newFakeStore()
-	store.conns[1] = &Connection{ID: 1, Name: "src", DSN: testDSN}
+	store.conns[1] = &Connection{ID: 1, Name: "src", ConnInfo: infoOf(testDSN)}
 	c := &Coordinator{store: store}
 	ctx := context.Background()
 	now := time.Now()

@@ -54,9 +54,24 @@ func TestObservedOutgoingRule_Revoke_UndecidedProposal(t *testing.T) {
 		require.EqualError(t, err, "insufficient outgoing cohort recruitment: majority not satisfied: recruited 0 of 3 cohort poolers, need at least 2")
 	})
 
-	t.Run("a majority of the decision's cohort is enough", func(t *testing.T) {
-		// A majority of the proposal's five-member cohort is not required.
-		require.NoError(t, proveRevoked(statuses(zone1.a, zone1.b)))
+	t.Run("a majority of the decision's cohort is not enough when the proposal may be decided", func(t *testing.T) {
+		// The proposal may be decided, after which {c, d, e} could commit on their own.
+		err := proveRevoked(statuses(zone1.a, zone1.b))
+		require.EqualError(t, err, "insufficient undecided proposal cohort recruitment: revocation not satisfied: un-recruited cohort poolers [zone1_pooler-c, zone1_pooler-d, zone1_pooler-e] could independently satisfy AT_LEAST_N(N=2)")
+	})
+
+	t.Run("a proposal with an invalid policy is rejected", func(t *testing.T) {
+		invalid := &clustermetadatapb.DurabilityPolicy{QuorumType: clustermetadatapb.QuorumType_QUORUM_TYPE_UNKNOWN}
+		position := &clustermetadatapb.RulePosition{Decision: decision, Proposal: makeRule(ruleNum(3, 1), invalid, zone1.a, zone1.b, zone1.c)}
+		err := proveRevoked([]*clustermetadatapb.ConsensusStatus{
+			makeStatusWithProposal(zone1.a, position, rev, "0/1000000"),
+			makeStatusWithProposal(zone1.b, position, rev, "0/1000000"),
+		})
+		require.EqualError(t, err, "failed to parse durability policy from rule: unsupported quorum type: QUORUM_TYPE_UNKNOWN")
+	})
+
+	t.Run("recruits that leave the proposal's cohort unable to commit are enough", func(t *testing.T) {
+		require.NoError(t, proveRevoked(statuses(zone1.a, zone1.b, zone1.c, zone1.d)))
 	})
 }
 

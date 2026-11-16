@@ -583,7 +583,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		// The endpoint of an unmanaged pooler is set here and nowhere else: the record
 		// publishes its port, the TLS validation below checks its host, and the manager
 		// dials, probes and serves from it, so they can never disagree.
-		externalBackend = &manager.ExternalBackend{Host: backing.Host, Port: backing.Port, Database: backing.Database}
+		externalBackend = &manager.ExternalBackend{Host: backing.Host(), Port: backing.Port(), Database: backing.Database}
 		if err := checkBackingDatabase(mp.backingConnection.Get(), externalBackend, mp.database.Get()); err != nil {
 			return err
 		}
@@ -685,6 +685,9 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	// Launch the background backup-health poller (service-level concern, kept
 	// out of manager.Start so RPC unit tests don't run background DB queries).
 	poolerManager.StartBackupHealth()
+	// Launch the tablegroup completion loop on the catalog shard, a
+	// service-level concern for the same reason.
+	poolerManager.StartTableGroupOperations()
 	grpcmanagerservice.RegisterPoolerManagerServices(mp.senv, mp.grpcServer)
 	// An unmanaged pooler registers no consensus RPCs: consensusEnabled is false for it, and
 	// the service answers Unimplemented.

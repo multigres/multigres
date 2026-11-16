@@ -17,12 +17,13 @@ package multiadmin
 import (
 	"context"
 	"fmt"
+	"strings"
 
-	"github.com/jackc/pgx/v5"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/common/backingconn"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	migratorpb "github.com/multigres/multigres/go/pb/migrator"
 	"github.com/multigres/multigres/go/tools/netutil"
@@ -126,17 +127,18 @@ func (s *MultiadminServer) ListConnections(ctx context.Context, req *migratorpb.
 	return resp, nil
 }
 
-// redactConnectionDSN blanks the password in c's DSN in place.
+// redactConnectionDSN blanks the password in c's DSN in place, reading the string as written
+// (backingconn.ParseDSN: no environment, password file or service file).
 func redactConnectionDSN(c *migratorpb.Connection) {
 	if c == nil || c.Dsn == "" {
 		return
 	}
-	cfg, err := pgx.ParseConfig(c.Dsn)
+	conn, err := backingconn.ParseDSN(c.Dsn)
 	if err != nil {
 		c.Dsn = ""
 		return
 	}
-	c.Dsn = fmt.Sprintf("host=%s port=%d dbname=%s user=%s", cfg.Host, cfg.Port, cfg.Database, cfg.User)
+	c.Dsn = fmt.Sprintf("host=%s port=%d dbname=%s user=%s", strings.Join(conn.Hosts, ","), conn.Port(), conn.Database, conn.User)
 }
 
 // DropConnection forwards to Multigres Migrator.

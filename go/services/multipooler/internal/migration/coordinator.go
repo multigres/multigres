@@ -23,8 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
+	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 )
@@ -43,7 +42,7 @@ type Coordinator struct {
 	// newSource opens the external source side over the operator-supplied DSN. It is
 	// a field (defaulted to the real newSource in NewCoordinator) so unit tests can
 	// substitute a fake source without a live Postgres — see ports.go.
-	newSource func(ctx context.Context, dsn string) (migrationSource, error)
+	newSource func(ctx context.Context, src *backingconn.Conn) (migrationSource, error)
 
 	// targetConnInfo builds a libpq conninfo the external source can use to reach
 	// this (target) Postgres, for the reverse subscription in EXPORT direction.
@@ -83,7 +82,7 @@ func NewCoordinator(qs executor.InternalQueryService, logger *slog.Logger, targe
 	return &Coordinator{
 		store:            NewStore(qs),
 		target:           newTarget(qs),
-		newSource:        func(ctx context.Context, dsn string) (migrationSource, error) { return newSource(ctx, dsn) },
+		newSource:        func(ctx context.Context, src *backingconn.Conn) (migrationSource, error) { return newSource(ctx, src) },
 		logger:           logger,
 		targetConnInfo:   targetConnInfo,
 		drainForImport:   drainForImport,
@@ -98,25 +97,25 @@ func (c *Coordinator) EnsureSchema(ctx context.Context) error {
 	return c.store.EnsureSchema(ctx)
 }
 
-// resolveSourceDSN returns m's current source DSN: a fresh (uncached) lookup of
-// the connection m.ConnectionID references, rather than trusting any cached
-// value — the live-reference semantics documented on Migration.ConnectionID.
-func (c *Coordinator) resolveSourceDSN(ctx context.Context, m *Migration) (string, error) {
-	conn, err := c.store.GetConnectionByRef(ctx, Ref{ID: m.ConnectionID})
-	if err != nil {
-		return "", err
-	}
-	return conn.DSN, nil
-}
-
-// openSource resolves m's current source DSN and opens a connection to it.
-// The caller releases it with close.
-func (c *Coordinator) openSource(ctx context.Context, m *Migration) (migrationSource, error) {
-	dsn, err := c.resolveSourceDSN(ctx, m)
+// resolveSourceConn returns m's current source connection, validated: a fresh (uncached) lookup
+// of the connection m.ConnectionID references (the live-reference semantics documented on
+// Migration.ConnectionID). Every client of it is dialed with a string rendered from it.
+func (c *Coordinator) resolveSourceConn(ctx context.Context, m *Migration) (*backingconn.Conn, error) {
+	stored, err := c.store.GetConnectionByRef(ctx, Ref{ID: m.ConnectionID})
 	if err != nil {
 		return nil, err
 	}
-	return c.newSource(ctx, dsn)
+	return stored.Conn()
+}
+
+// openSource resolves m's current source connection and opens a connection to it.
+// The caller releases it with close.
+func (c *Coordinator) openSource(ctx context.Context, m *Migration) (migrationSource, error) {
+	src, err := c.resolveSourceConn(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	return c.newSource(ctx, src)
 }
 
 // CreateConnection stores a new named connection. conn.ID is assigned here,
@@ -124,6 +123,15 @@ func (c *Coordinator) openSource(ctx context.Context, m *Migration) (migrationSo
 // there is no in-place update, only create/drop. Takes c.mu, the same lock
 // every other coordinator method that mutates migration/connection state
 // holds.
+//
+// The dsn is checked here, once, with the strict libpq parser (backingconn.FromDSN): a connection
+// libpq would refuse, or read differently from what was meant, is refused now and not found out by
+// a migration or a pooler later. The connection is made self-contained (Conn.Complete, and
+// Validate requires host, user and password), so that no client takes them from its environment.
+// The checked structure is stored as the conninfo, which every consumer renders
+// its client's string from; the dsn column is its canonical rendering. Whether a pooler can front
+// the connection is not asked here, since one for the migrator may carry parameters a pooler
+// cannot: Conn.ForPooler is applied where one is served.
 func (c *Coordinator) CreateConnection(ctx context.Context, conn *Connection) error {
 	if conn.Name == "" {
 		return errors.New("connection name is required")
@@ -131,6 +139,13 @@ func (c *Coordinator) CreateConnection(ctx context.Context, conn *Connection) er
 	if conn.DSN == "" {
 		return errors.New("connection dsn is required")
 	}
+	conninfo, err := backingconn.FromDSN(conn.DSN)
+	if err != nil {
+		return fmt.Errorf("%w: connection %q: %w", ErrInvalidConnection, conn.Name, err)
+	}
+	conninfo.Name = ""
+	conn.ConnInfo = conninfo
+	conn.DSN = conninfo.DSN()
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -188,6 +203,9 @@ func (c *Coordinator) GetConnection(ctx context.Context, ref Ref, callerRole str
 	if err := c.checkConnectionOwnership(ctx, conn, callerRole, ErrConnectionNotFound); err != nil {
 		return nil, err
 	}
+	if err := conn.Unreadable(); err != nil {
+		return nil, err
+	}
 	return conn, nil
 }
 
@@ -198,6 +216,9 @@ func (c *Coordinator) GetConnection(ctx context.Context, ref Ref, callerRole str
 // omitted) rather than a rejection. Left empty on the CLI/multiadmin path:
 // every connection is returned unfiltered, unchanged from before this
 // parameter existed.
+//
+// A connection that cannot be read is listed like any other the caller may see, and reports it
+// with Unreadable: one bad connection does not keep its owner from listing the rest.
 //
 // Checks every distinct OwnerRole in one batched DeniedConnectionOwners call
 // rather than one CheckConnectionOwnership round trip per connection, so this
@@ -210,30 +231,30 @@ func (c *Coordinator) ListConnections(ctx context.Context, callerRole string) ([
 	if err != nil {
 		return nil, err
 	}
-	if callerRole == "" {
-		return conns, nil
-	}
-	ownerSet := make(map[string]bool)
-	for _, conn := range conns {
-		if conn.OwnerRole != "" {
-			ownerSet[conn.OwnerRole] = true
+	visible := conns
+	if callerRole != "" {
+		ownerSet := make(map[string]bool)
+		for _, conn := range conns {
+			if conn.OwnerRole != "" {
+				ownerSet[conn.OwnerRole] = true
+			}
+		}
+		owners := make([]string, 0, len(ownerSet))
+		for r := range ownerSet {
+			owners = append(owners, r)
+		}
+		denied, err := c.target.DeniedConnectionOwners(ctx, callerRole, owners)
+		if err != nil {
+			return nil, err
+		}
+		visible = make([]*Connection, 0, len(conns))
+		for _, conn := range conns {
+			if conn.OwnerRole == "" || !denied[conn.OwnerRole] {
+				visible = append(visible, conn)
+			}
 		}
 	}
-	owners := make([]string, 0, len(ownerSet))
-	for r := range ownerSet {
-		owners = append(owners, r)
-	}
-	denied, err := c.target.DeniedConnectionOwners(ctx, callerRole, owners)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]*Connection, 0, len(conns))
-	for _, conn := range conns {
-		if conn.OwnerRole == "" || !denied[conn.OwnerRole] {
-			out = append(out, conn)
-		}
-	}
-	return out, nil
+	return visible, nil
 }
 
 // checkConnectionOwnership verifies that callerRole could use conn, under
@@ -369,10 +390,21 @@ func (c *Coordinator) CreateMigration(ctx context.Context, p CreateParams) (*Pro
 	if err := c.checkConnectionOwnership(ctx, conn, p.CallerRole, fmt.Errorf("connection %q does not exist", p.ConnectionName)); err != nil {
 		return nil, err
 	}
+	// Only a caller who may use the connection is told it cannot be read.
+	if err := conn.Unreadable(); err != nil {
+		return nil, err
+	}
+
+	// A connection that is not valid, a passwordless one included, is refused before anything
+	// is created.
+	srcConn, err := conn.Conn()
+	if err != nil {
+		return nil, err
+	}
 
 	// Validate the source read-only before recording anything (no DB changes).
 	// Validate also resolves "*"/"schema.*" wildcards to the concrete owned tables.
-	src, err := c.newSource(ctx, conn.DSN)
+	src, err := c.newSource(ctx, srcConn)
 	if err != nil {
 		return nil, err
 	}
@@ -442,13 +474,13 @@ func (c *Coordinator) CreateMigration(ctx context.Context, p CreateParams) (*Pro
 // runSetup runs VALIDATING -> SCHEMA_COPY -> CREATE_PUBLICATION -> COPYING.
 // callerRole is ActivateOptions.CallerRole, threaded through to gate DropTables.
 func (c *Coordinator) runSetup(ctx context.Context, m *Migration, callerRole string) error {
-	dsn, err := c.resolveSourceDSN(ctx, m)
+	srcConn, err := c.resolveSourceConn(ctx, m)
 	if err != nil {
 		return err
 	}
 	// One source connection drives the whole setup (validate, publication);
 	// DumpSchema still shells out to pg_dump separately.
-	src, err := c.newSource(ctx, dsn)
+	src, err := c.newSource(ctx, srcConn)
 	if err != nil {
 		return err
 	}
@@ -573,7 +605,7 @@ func (c *Coordinator) runSetup(ctx context.Context, m *Migration, callerRole str
 	// record COPYING, so the migration table reflects COPYING once the copy has
 	// actually started (not before, where a failed CreateSubscription would leave
 	// the row wrongly claiming COPYING).
-	if err := c.target.CreateSubscription(ctx, m.SubscriptionName(), dsn, m.PublicationName(), m.CopyData); err != nil {
+	if err := c.target.CreateSubscription(ctx, m.SubscriptionName(), srcConn.LibpqString(), m.PublicationName(), m.CopyData); err != nil {
 		return err
 	}
 	return c.advancePhase(ctx, m, PhaseCopying)
@@ -1584,11 +1616,11 @@ func (c *Coordinator) currentLinkLive(ctx context.Context, m *Migration) (bool, 
 // the start LSN on the side that becomes the writer after the switch (the handoff
 // point, past the switch's own catalog WAL) for the handoff journal entry.
 func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Direction) (string, error) {
-	dsn, err := c.resolveSourceDSN(ctx, m)
+	srcConn, err := c.resolveSourceConn(ctx, m)
 	if err != nil {
 		return "", err
 	}
-	src, err := c.newSource(ctx, dsn)
+	src, err := c.newSource(ctx, srcConn)
 	if err != nil {
 		return "", err
 	}
@@ -1696,7 +1728,7 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 	if exists, err := c.target.SubscriptionExists(ctx, sub); err != nil {
 		return "", err
 	} else if !exists {
-		if err := c.target.CreateSubscription(ctx, sub, dsn, pub, false); err != nil {
+		if err := c.target.CreateSubscription(ctx, sub, srcConn.LibpqString(), pub, false); err != nil {
 			return "", err
 		}
 	}
@@ -1719,9 +1751,9 @@ func (c *Coordinator) teardown(ctx context.Context, m *Migration, dir Direction)
 	// The source may be unreachable during an abort; still tear down the target
 	// side. Source-side drops run only if we could resolve a DSN and connect.
 	var src migrationSource
-	if dsn, err := c.resolveSourceDSN(ctx, m); err != nil {
+	if srcConn, err := c.resolveSourceConn(ctx, m); err != nil {
 		logErr("resolve source connection", err)
-	} else if s, err := c.newSource(ctx, dsn); err != nil {
+	} else if s, err := c.newSource(ctx, srcConn); err != nil {
 		logErr("connect source", err)
 	} else {
 		src = s
@@ -1989,14 +2021,14 @@ type Projection struct {
 
 // project builds the redacted projection, merging optional live status. It
 // resolves the migration's current connection fresh (not cached) for Source/
-// ConnectionName, same as resolveSourceDSN — a connection lookup failure (e.g.
+// ConnectionName, same as resolveSourceConn — a connection lookup failure (e.g.
 // a race with a concurrent drop, which the FK normally prevents) degrades
 // those two fields to empty rather than failing the whole projection, since a
 // status read should not fail outright over a display-only field.
 func (c *Coordinator) project(ctx context.Context, m *Migration, status *SubscriptionStatus) *Projection {
 	var source, connectionName string
-	if conn, err := c.store.GetConnectionByRef(ctx, Ref{ID: m.ConnectionID}); err == nil {
-		source = redactDSN(conn.DSN)
+	if conn, err := c.store.GetConnectionByRef(ctx, Ref{ID: m.ConnectionID}); err == nil && conn.Unreadable() == nil {
+		source = redactConn(conn)
 		connectionName = conn.Name
 	}
 	p := &Projection{
@@ -2030,15 +2062,12 @@ func (c *Coordinator) project(ctx context.Context, m *Migration, status *Subscri
 	return p
 }
 
-// redactDSN returns host[:port]/db from a DSN, dropping user and password. On a
-// parse failure it returns empty rather than risk leaking credentials.
-func redactDSN(dsn string) string {
-	cfg, err := pgx.ParseConfig(dsn)
+// redactConn returns host:port/db of a connection, without user or password; empty for one that
+// cannot be read, rather than risk leaking credentials.
+func redactConn(stored *Connection) string {
+	conn, err := stored.Conn()
 	if err != nil {
 		return ""
 	}
-	if cfg.Port != 0 {
-		return fmt.Sprintf("%s:%d/%s", cfg.Host, cfg.Port, cfg.Database)
-	}
-	return cfg.Host + "/" + cfg.Database
+	return fmt.Sprintf("%s:%d/%s", conn.Host(), conn.Port(), conn.Database)
 }

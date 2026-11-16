@@ -119,8 +119,9 @@ service MultipoolerManager {
   // the primary and retries. A stale expected_routing_version or a change the
   // catalog does not allow returns FAILED_PRECONDITION.
   //
-  // Until the pooler admission fence exists, rules must change only while the
-  // affected application traffic is quiesced.
+  // Every rule the change inserts or removes needs a FENCED admission fence
+  // of the same operation on both sides (see FenceScopes); a missing fence
+  // returns FAILED_PRECONDITION. A change already in effect needs none.
   rpc SetRoutingRules(multipoolermanagerdata.SetRoutingRulesRequest)
       returns (multipoolermanagerdata.SetRoutingRulesResponse);
 
@@ -128,6 +129,41 @@ service MultipoolerManager {
   // same rules as SetRoutingRules.
   rpc DeleteRoutingRules(multipoolermanagerdata.DeleteRoutingRulesRequest)
       returns (multipoolermanagerdata.DeleteRoutingRulesResponse);
+
+  //
+  // Admission fences (catalog primary only)
+  //
+
+  // FenceScopes raises an operation's admission fences on a list of scopes
+  // (whole tablegroups or shards) and advances the database's routing
+  // version, in one catalog write: every fence the call writes takes the same
+  // version, and a call it refuses writes none. Served, refused and retried
+  // like SetRoutingRules: scopes the operation has already fenced are
+  // skipped, and a call whose every scope is already fenced returns the
+  // current version and writes nothing. A malformed list (empty, or with two
+  // overlapping scopes) returns INVALID_ARGUMENT; a stale
+  // expected_routing_version, a finished operation, a tablegroup being
+  // dropped, or a fence of another unfinished operation on an
+  // overlapping scope (a whole-tablegroup fence overlaps every shard fence of
+  // the tablegroup) returns FAILED_PRECONDITION.
+  //
+  // In this version FenceScopes records the fences as FENCED directly: it
+  // records intent and guarantees nothing. No pooler reads fences yet, so
+  // the scopes' application traffic is neither refused nor drained, and the
+  // caller must still quiesce it before changing routing rules.
+  rpc FenceScopes(multipoolermanagerdata.FenceScopesRequest)
+      returns (multipoolermanagerdata.FenceScopesResponse);
+
+  // UnfenceScopes lifts an operation's admission fences on a list of scopes:
+  // it deletes them in one catalog write, at one new routing version. Scopes
+  // the operation holds no fence on are skipped, and a call with none to
+  // lift returns the current version and writes nothing. An operation that
+  // has finished may still lift its fences. The expected version is checked
+  // against the versions the lifted fences were set at, not the catalog's
+  // routing version (see UnfenceScopesRequest); a fence set after it returns
+  // FAILED_PRECONDITION.
+  rpc UnfenceScopes(multipoolermanagerdata.UnfenceScopesRequest)
+      returns (multipoolermanagerdata.UnfenceScopesResponse);
 
   //
   // PostgreSQL Configuration Reload
@@ -187,6 +223,9 @@ service MultipoolerManager {
   // state included, read in one transaction, or a note that the caller's copy
   // at since_version is still current. Gateways keep the result cached and
   // call it again when the health stream reports a newer routing_version.
+  // A pooler of the catalog shard that is not its elected primary answers
+  // UNAVAILABLE, for the caller to find the primary and ask again; a pooler
+  // off the catalog shard answers FAILED_PRECONDITION.
   rpc GetRoutingSnapshot(multipoolermanagerdata.GetRoutingSnapshotRequest)
       returns (multipoolermanagerdata.GetRoutingSnapshotResponse);
 

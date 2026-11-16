@@ -200,6 +200,26 @@ func (s *managerService) DeleteRoutingRules(ctx context.Context, req *multipoole
 	return resp, nil
 }
 
+// FenceScopes raises an operation's admission fences on a list of scopes.
+// Only the catalog primary serves it.
+func (s *managerService) FenceScopes(ctx context.Context, req *multipoolermanagerdatapb.FenceScopesRequest) (*multipoolermanagerdatapb.FenceScopesResponse, error) {
+	resp, err := s.manager.FenceScopes(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
+// UnfenceScopes lifts an operation's admission fences on a list of scopes.
+// Only the catalog primary serves it.
+func (s *managerService) UnfenceScopes(ctx context.Context, req *multipoolermanagerdatapb.UnfenceScopesRequest) (*multipoolermanagerdatapb.UnfenceScopesResponse, error) {
+	resp, err := s.manager.UnfenceScopes(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
 // ReloadConfig triggers a PostgreSQL configuration reload and confirms it took effect.
 func (s *managerService) ReloadConfig(ctx context.Context, req *multipoolermanagerdatapb.ReloadConfigRequest) (*multipoolermanagerdatapb.ReloadConfigResponse, error) {
 	resp, err := s.manager.ReloadConfig(ctx, req)
