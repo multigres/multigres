@@ -191,10 +191,10 @@ type MultipoolerManager struct {
 	// stuck preconditions no longer hold.
 	standbyStuckSince atomic.Int64
 
-	// leaderReachableFn, when non-nil, overrides the divergence gate's leader
-	// liveness dial (standbyStuckDiverged -> leaderReachable). Tests set it because
-	// they have no real leader postgres to TCP-dial; production leaves it nil to
-	// use the default net.Dialer.
+	// leaderReachableFn, when non-nil, overrides the leader liveness dial
+	// (leaderReachable) used by standbyStuckDiverged and by restartAsStandbyLocked
+	// before a rewind. Tests set it because they have no real leader postgres to
+	// TCP-dial; production leaves it nil to use the default net.Dialer.
 	leaderReachableFn func(host string, port int32) bool
 
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.

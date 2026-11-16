@@ -1253,12 +1253,16 @@ func (pm *MultipoolerManager) stuckDivergenceThreshold() time.Duration {
 const leaderReachableTimeout = 1 * time.Second
 
 // leaderReachable reports whether the recorded leader's postgres endpoint accepts
-// a TCP connection — a liveness proxy used by standbyStuckDiverged to tell a
-// diverged standby (leader alive) apart from a failover (leader dead). A killed
-// postgres refuses the connection immediately; a partitioned one times out. The
-// actual pg_rewind revalidates via a real libpq connection, so a false "alive"
-// only costs a gated, rate-limited dry-run. Overridable via leaderReachableFn for
-// tests that have no real leader to dial.
+// a TCP connection. It is a liveness proxy: standbyStuckDiverged uses it to tell
+// a diverged standby (leader alive) apart from a failover (leader dead), and
+// restartAsStandbyLocked uses it to defer a rewind whose source is down instead
+// of stopping postgres for a pg_rewind that cannot connect. A killed postgres
+// refuses the connection immediately; a partitioned one times out. Accepting a
+// TCP connection does not prove pg_rewind will succeed: the source can still go
+// away after the dial or refuse the libpq connection, and restartAsStandbyLocked
+// then stops postgres and fails the rewind as before. The check only covers a
+// source that is already down. Overridable via leaderReachableFn for tests that
+// have no real leader to dial.
 func (pm *MultipoolerManager) leaderReachable(ctx context.Context, host string, port int32) bool {
 	if pm.leaderReachableFn != nil {
 		return pm.leaderReachableFn(host, port)

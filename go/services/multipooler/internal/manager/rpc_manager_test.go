@@ -1150,6 +1150,11 @@ func rewindAsStandbyForTest(t *testing.T, manager *MultipoolerManager, source *c
 	if _, err := manager.consensusMgr.SetSuspectedDivergence(lockCtx, true); err != nil {
 		return false, err
 	}
+	// The source is a fake host with no postgres to dial; treat it as reachable
+	// unless the test says otherwise.
+	if manager.leaderReachableFn == nil {
+		manager.leaderReachableFn = func(string, int32) bool { return true }
+	}
 	return manager.restartAsStandbyLocked(lockCtx, source.Hostname, source.PortMap["postgres"])
 }
 

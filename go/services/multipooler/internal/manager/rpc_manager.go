@@ -996,6 +996,19 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	// is suspected.
 	wantRewind := pm.consensusMgr.SuspectedDivergence()
 
+	// pg_rewind reads from the source over a live connection, so with the source
+	// down the rewind below can only fail, after postgres has already been stopped.
+	// A pooler with postgres stopped reports no WAL position and cannot be
+	// recruited, which can block electing the reachable leader it should rewind
+	// against instead (e.g. when the recorded leader died after this node did).
+	// Defer the rewind before stopping postgres and let the caller retry. This is
+	// a TCP check only: a source that fails after the dial still fails the rewind
+	// below, after the stop.
+	if wantRewind && !pm.leaderReachable(ctx, sourceHost, sourcePort) {
+		return false, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"rewind source %s:%d is unreachable; deferring rewind before stopping postgres", sourceHost, sourcePort)
+	}
+
 	if wantRewind {
 		// pg_rewind rewinds to the last shared checkpoint, not the last common
 		// WAL position, so this pooler must not be trusted for quorum again

@@ -470,6 +470,8 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 
 	ruleStore := &fakeRuleStore{pos: makeRulePosition(3)}
 	pm, tmpDir := setupManagerWithMockDB(t, mockQueryService, ruleStore)
+	// The rewind source is a fake host with no postgres to dial.
+	pm.leaderReachableFn = func(string, int32) bool { return true }
 
 	// Seed an initial revocation so we can verify SetPrimary leaves it
 	// untouched even when the incoming rule's coordinator_term is higher.
@@ -524,6 +526,38 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 	healthState := pm.healthStreamer.getState()
 	assert.NotEqual(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, healthState.RoutingState.GetRole(),
 		"a demoted pooler must not advertise itself as the routing primary")
+}
+
+// TestSetPrimary_StalePrimaryDefersRewindWhenLeaderUnreachable verifies that a
+// stale primary told about a rewind-ready leader whose postgres is down defers
+// the demote without stopping its own postgres. pg_rewind against that leader
+// could only fail, and a pooler with postgres stopped reports no WAL position, so
+// it could not be recruited to elect a reachable leader instead.
+func TestSetPrimary_StalePrimaryDefersRewindWhenLeaderUnreachable(t *testing.T) {
+	mockQueryService := mock.NewQueryService()
+	// Postgres is out of recovery: a stale primary, so SetPrimary takes the
+	// demote-via-rewind branch.
+	mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+	pm, mockPgctld := setupManagerWithMockDBAndPgctld(t, mockQueryService, &fakeRuleStore{pos: makeRulePosition(3)})
+	pm.leaderReachableFn = func(string, int32) bool { return false }
+
+	leader := newLeaderAddress("new-primary", "primary-host", 5432)
+	_, err := pm.SetPrimary(t.Context(), &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Position:    &clustermetadatapb.RulePosition{Decision: ruleAtTermForLeader(leader, 10)},
+			Primary:     leader,
+			RewindReady: true,
+		},
+	})
+
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
+	assert.Empty(t, mockPgctld.StopCalls, "postgres must keep running while the rewind source is down")
+	assert.True(t, pm.consensusMgr.SuspectedDivergence(),
+		"the pooler must still rewind once a reachable leader is recorded")
+	assert.Equal(t, "new-primary", pm.consensusMgr.GetReplicationPrimary().GetPrimary().GetId().GetName(),
+		"the new leader is still recorded so the monitor and later SetPrimary calls can retry")
 }
 
 // TestSetPrimary_StaleLeaderByRuleStoreMarksDivergence verifies the rule-store /
