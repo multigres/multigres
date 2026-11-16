@@ -157,7 +157,8 @@
   },
   {
     "comment": "CREATE TRIGGER with arguments",
-    "query": "CREATE TRIGGER arg_trigger BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION trigger_func('arg1', 123)"
+    "query": "CREATE TRIGGER arg_trigger BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION trigger_func('arg1', 123)",
+    "expected": "CREATE TRIGGER arg_trigger BEFORE INSERT ON users FOR EACH ROW EXECUTE FUNCTION trigger_func('arg1', '123')"
   },
   {
     "comment": "CREATE ROLE basic",
