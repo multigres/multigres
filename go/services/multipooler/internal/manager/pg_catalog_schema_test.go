@@ -15,9 +15,12 @@
 package manager
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,6 +29,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 
@@ -44,8 +48,8 @@ func exactPattern(stmt string) string {
 	return "^" + regexp.QuoteMeta(stmt) + "$"
 }
 
-// addCatalogEnsureTail registers catalogTables, catalogSeed and the
-// format_version write, which ensureCatalogSchema runs on every call that is
+// addCatalogEnsureTail registers catalogTables, catalogSeed, the read of the connections without a
+// conninfo and the format_version write, which ensureCatalogSchema runs on every call that is
 // not at a newer format.
 func addCatalogEnsureTail(m *mock.QueryService) {
 	for _, stmt := range catalogTables {
@@ -54,6 +58,7 @@ func addCatalogEnsureTail(m *mock.QueryService) {
 	for _, stmt := range catalogSeed {
 		m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
 	}
+	m.AddQueryPatternOnce(exactPattern(selectUnfilledConnectionsSQL), mock.MakeQueryResult(nil, nil))
 	m.AddQueryPatternOnce(catalogFormatWritePattern, mock.MakeQueryResult(nil, nil))
 }
 
@@ -108,6 +113,7 @@ func catalogEnsureTail() []string {
 	var tail []string
 	tail = append(tail, catalogTables...)
 	tail = append(tail, catalogSeed...)
+	tail = append(tail, selectUnfilledConnectionsSQL)
 	return append(tail, "UPDATE multigres.catalog_state SET format_version = $1 WHERE format_version IS DISTINCT FROM $1", "COMMIT")
 }
 
@@ -251,6 +257,19 @@ func TestConnectionsTable_Shape(t *testing.T) {
 		assert.Contains(t, connectionsTableSQL, want)
 	}
 	assert.NotContains(t, connectionsTableSQL, "GRANT", "the table has no PUBLIC grant")
+}
+
+// The conninfo column is added after its table, nullable so that it can be added to a table that has
+// rows, and the statement that creates the table is not edited. The constraint allows a NULL
+// explicitly.
+func TestConnectionsConnInfoColumn(t *testing.T) {
+	tableAt, columnAt := slices.Index(catalogTables, connectionsTableSQL), slices.Index(catalogTables, connectionsConnInfoColumnSQL)
+	require.GreaterOrEqual(t, tableAt, 0)
+	assert.Greater(t, columnAt, tableAt, "the column is added after its table")
+	assert.Regexp(t, `^ALTER TABLE multigres\.connections ADD COLUMN IF NOT EXISTS conninfo jsonb\s+CONSTRAINT connections_conninfo_servers CHECK \(\s+conninfo IS NULL OR CASE\b`, connectionsConnInfoColumnSQL)
+	assert.NotContains(t, connectionsConnInfoColumnSQL, "NOT NULL")
+	assert.NotContains(t, connectionsConnInfoColumnSQL, "DEFAULT")
+	assert.NotContains(t, connectionsTableSQL, "conninfo", "the original statement is not edited")
 }
 
 func TestCatalogTables_IdempotentInDependencyOrder(t *testing.T) {
@@ -456,6 +475,30 @@ func TestEnsureCatalogSchema_Errors(t *testing.T) {
 			errorContains: "failed to seed catalog",
 		},
 		{
+			name: "the connections without a conninfo cannot be listed",
+			setupMock: func(m *mock.QueryService) {
+				addExistingCatalogState(m, latestCatalogFormat())
+				for _, stmt := range slices.Concat(catalogTables, catalogSeed) {
+					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+				}
+				m.AddQueryPatternOnceWithError(exactPattern(selectUnfilledConnectionsSQL), errors.New("permission denied"))
+			},
+			errorContains: "failed to list connections without a conninfo",
+		},
+		{
+			name: "a conninfo cannot be stored",
+			setupMock: func(m *mock.QueryService) {
+				addExistingCatalogState(m, latestCatalogFormat())
+				for _, stmt := range slices.Concat(catalogTables, catalogSeed) {
+					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+				}
+				m.AddQueryPatternOnce(exactPattern(selectUnfilledConnectionsSQL), mock.MakeQueryResult(
+					[]string{"connection_id", "name", "dsn"}, [][]any{{int64(1), "legacy", legacyDSN}}))
+				m.AddQueryPatternOnceWithError(exactPattern(fillConnInfoSQL), errors.New("permission denied"))
+			},
+			errorContains: "failed to store the conninfo of a connection",
+		},
+		{
 			name: "format write fails",
 			setupMock: func(m *mock.QueryService) {
 				addExistingCatalogState(m, latestCatalogFormat())
@@ -465,6 +508,7 @@ func TestEnsureCatalogSchema_Errors(t *testing.T) {
 				for _, stmt := range catalogSeed {
 					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
 				}
+				m.AddQueryPatternOnce(exactPattern(selectUnfilledConnectionsSQL), mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnceWithError(catalogFormatWritePattern, errors.New("permission denied"))
 			},
 			errorContains: "failed to record catalog format version",
@@ -484,4 +528,76 @@ func TestEnsureCatalogSchema_Errors(t *testing.T) {
 			assert.NoError(t, m.ExpectationsWereMet())
 		})
 	}
+}
+
+// legacyDSN is what a connection created before the conninfo column holds: a dsn, and a password.
+const legacyDSN = "host=db.example.com port=5433 dbname=app user=alice password='s3 cret' sslmode=require"
+
+// fillConnInfoRun runs ensureCatalogSchema on a catalog that has the given connections without a
+// conninfo, and returns the log it wrote and the connections it stored a conninfo for.
+func fillConnInfoRun(t *testing.T, rows [][]any) (log string, stored int) {
+	t.Helper()
+	pm, m := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+	var buf bytes.Buffer
+	pm.logger = slog.New(slog.NewTextHandler(&buf, nil))
+
+	addExistingCatalogState(m, latestCatalogFormat())
+	for _, stmt := range slices.Concat(catalogTables, catalogSeed) {
+		m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+	}
+	m.AddQueryPatternOnce(exactPattern(selectUnfilledConnectionsSQL),
+		mock.MakeQueryResult([]string{"connection_id", "name", "dsn"}, rows))
+	m.AddQueryPatternWithCallback(exactPattern(fillConnInfoSQL), mock.MakeQueryResult(nil, nil), func(string) { stored++ })
+	m.AddQueryPatternOnce(catalogFormatWritePattern, mock.MakeQueryResult(nil, nil))
+
+	require.NoError(t, pm.ensureCatalogSchema(context.Background()))
+	require.NoError(t, m.ExpectationsWereMet())
+	return buf.String(), stored
+}
+
+// A connection with a dsn and no conninfo is given one when the catalog is set up; one whose dsn
+// cannot be a connection (no password, a socket host) is left as it is, named in the log, and the
+// log holds nothing of any dsn.
+func TestEnsureCatalogSchema_FillsTheConnInfoOfALegacyConnection(t *testing.T) {
+	log, stored := fillConnInfoRun(t, [][]any{
+		{int64(1), "legacy", legacyDSN},
+		{int64(2), "no-password", "host=secret-host.example.com dbname=app user=alice sslmode=require"},
+		{int64(3), "socket", "host=/var/run/secret-socket dbname=app user=alice password=hunter2"},
+		{int64(4), "not-a-dsn", "this is not hunter3"},
+	})
+	assert.Equal(t, 1, stored, "only the connection that can be converted is written")
+	for _, name := range []string{"no-password", "socket", "not-a-dsn"} {
+		assert.Contains(t, log, "connection="+name)
+	}
+	assert.NotContains(t, log, "legacy", "a connection that was converted is not reported")
+	for _, secret := range []string{"s3 cret", "cret", "secret-host", "db.example.com", "secret-socket", "hunter", "alice", "sslmode"} {
+		assert.NotContains(t, log, secret, "the log holds nothing of a dsn")
+	}
+}
+
+// Setup that finds nothing to convert writes nothing and says nothing.
+func TestEnsureCatalogSchema_FillsNothingWhenEveryConnectionHasAConnInfo(t *testing.T) {
+	log, stored := fillConnInfoRun(t, nil)
+	assert.Zero(t, stored)
+	assert.Empty(t, log)
+}
+
+// The stored conninfo and dsn are what CreateConnection stores for the same dsn, so that a
+// converted connection is indistinguishable from one created now.
+func TestLegacyConnInfoIsWhatCreateConnectionStores(t *testing.T) {
+	conn, err := backingconn.FromDSN(legacyDSN)
+	require.NoError(t, err)
+	want, err := json.Marshal(conn)
+	require.NoError(t, err)
+
+	got, rendering, err := legacyConnInfo(legacyDSN)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(want), got)
+	assert.JSONEq(t, `{"host":["db.example.com"],"port":[5433],"dbname":"app","user":"alice","password":"s3 cret","sslmode":"require"}`, got)
+	assert.Equal(t, conn.DSN(), rendering)
+	assert.Equal(t, `dbname='app' host='db.example.com' password='s3 cret' port='5433' sslmode='require' user='alice'`, rendering)
+
+	_, _, err = legacyConnInfo("host=h dbname=app user=alice")
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "alice")
 }

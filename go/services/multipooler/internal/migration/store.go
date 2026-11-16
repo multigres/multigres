@@ -448,6 +448,15 @@ const NoConnectionsTableMessage = "multigres.connections is not available on thi
 	"connections live on the catalog shard (tablegroup default, shard 0-inf), " +
 	"and on the catalog shard the table is created when the pooler opens"
 
+// ErrInvalidConnection is returned for a connection that is not valid (backingconn.Conn.Validate,
+// or the strict parse of its dsn). The message never carries a part of it, which holds the
+// password.
+var ErrInvalidConnection = errors.New("invalid connection")
+
+// ErrConnectionUnreadable is returned when a stored connection cannot be decoded (a field this
+// version does not know, or not JSON). Asking again does not help.
+var ErrConnectionUnreadable = errors.New("stored connection cannot be read")
+
 // ErrConnectionInUse is returned by DeleteConnection when a migration still
 // references the connection.
 var ErrConnectionInUse = errors.New("connection is referenced by a migration")
@@ -466,8 +475,8 @@ func connectionsErr(op string, err error) error {
 }
 
 const insertConnectionSQL = `INSERT INTO multigres.connections
-	(connection_id, name, dsn, owner_role)
-	VALUES ($1,$2,$3,$4)`
+	(connection_id, name, dsn, owner_role, conninfo)
+	VALUES ($1,$2,$3,$4,$5::jsonb)`
 
 // InsertConnection writes a new connection row. created_at defaults to now().
 // Connections are read rarely compared to migrations, so — unlike Migration —
@@ -475,9 +484,13 @@ const insertConnectionSQL = `INSERT INTO multigres.connections
 // load-bearing, not an oversight: a cached, stale Connection would silently
 // defeat the point of migrations referencing connections live.
 func (s *Store) InsertConnection(ctx context.Context, c *Connection) error {
+	conninfo, err := json.Marshal(c.ConnInfo)
+	if err != nil {
+		return fmt.Errorf("encode connection: %w", err)
+	}
 	if _, err := s.qs.QueryAdminArgs(
 		ctx, insertConnectionSQL,
-		c.ID, c.Name, c.DSN, c.OwnerRole,
+		c.ID, c.Name, c.DSN, c.OwnerRole, string(conninfo),
 	); err != nil {
 		return connectionsErr("insert connection", err)
 	}
@@ -540,13 +553,13 @@ func (s *Store) DeleteConnection(ctx context.Context, id int64) error {
 	}
 }
 
-const selectConnectionsSQL = `SELECT connection_id, name, dsn, owner_role, created_at
+const selectConnectionsSQL = `SELECT connection_id, name, dsn, owner_role, created_at, coalesce(conninfo::text, '')
 	FROM multigres.connections`
 
-const selectConnectionByIDSQL = `SELECT connection_id, name, dsn, owner_role, created_at
+const selectConnectionByIDSQL = `SELECT connection_id, name, dsn, owner_role, created_at, coalesce(conninfo::text, '')
 	FROM multigres.connections WHERE connection_id = $1`
 
-const selectConnectionByNameSQL = `SELECT connection_id, name, dsn, owner_role, created_at
+const selectConnectionByNameSQL = `SELECT connection_id, name, dsn, owner_role, created_at, coalesce(conninfo::text, '')
 	FROM multigres.connections WHERE name = $1`
 
 // GetConnectionByRef returns the connection addressed by ref: an exact id match
@@ -599,10 +612,14 @@ func (s *Store) ListConnections(ctx context.Context) ([]*Connection, error) {
 // scanConnection decodes a result row (in selectConnectionsSQL order) into a
 // Connection.
 func scanConnection(row *sqltypes.Row) (*Connection, error) {
-	var c Connection
-	if err := executor.ScanRow(row, &c.ID, &c.Name, &c.DSN, &c.OwnerRole, &c.CreatedAt); err != nil {
+	var (
+		c        Connection
+		conninfo string
+	)
+	if err := executor.ScanRow(row, &c.ID, &c.Name, &c.DSN, &c.OwnerRole, &c.CreatedAt, &conninfo); err != nil {
 		return nil, fmt.Errorf("scan connection: %w", err)
 	}
+	c.ConnInfo, c.connInfoErr = decodeConnInfo(c.Name, conninfo)
 	return &c, nil
 }
 

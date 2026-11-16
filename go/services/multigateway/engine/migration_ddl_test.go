@@ -18,15 +18,18 @@ import (
 	"bytes"
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/sqltypes"
@@ -341,24 +344,50 @@ func TestMigrationDDL_ShowConnectionFiltersByName(t *testing.T) {
 	assert.Equal(t, "hb", string(show.Rows[0].Values[1]))
 }
 
-func TestMigrationDDL_ConnectionDefaultsAndHostRequired(t *testing.T) {
+// A connection that cannot be read is listed with an empty dsn, and is shown by its name and NULL
+// in every other column.
+func TestMigrationDDL_ShowConnectionsShowsAConnectionThatCannotBeRead(t *testing.T) {
+	fake := &fakeMigrator{conns: map[string]*migratorpb.Connection{
+		"a": {Id: 1, Name: "a", Dsn: "host='ha' port='5432' dbname='da' user='u' sslmode='require'"},
+		"b": {Id: 2, Name: "b", OwnerRole: "bob", CreatedAt: timestamppb.New(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))},
+	}}
+	backend := newTestBackend(fake)
+
+	// The planner gives the bare plural a name-less ShowConnectionsStmt.
+	var show *sqltypes.Result
+	require.NoError(t, NewMigrationDDL("SHOW CONNECTIONS", &ast.ShowConnectionsStmt{}, backend).StreamExecute(
+		context.Background(), nil, privilegedTestConn(), nil, nil, PlanExecInfo{},
+		func(_ context.Context, r *sqltypes.Result) error { show = r; return nil }))
+	require.Len(t, show.Rows, 2)
+	byName := map[string]*sqltypes.Row{}
+	for _, row := range show.Rows {
+		byName[string(row.Values[0])] = row
+	}
+	assert.Equal(t, "ha", string(byName["a"].Values[1]))
+	assert.Equal(t, "require", string(byName["a"].Values[5]))
+	require.Len(t, byName["b"].Values, 6)
+	for i, v := range byName["b"].Values[1:] {
+		assert.Nil(t, v, "column %d is NULL", i+1)
+	}
+
+	show, err := runSQL(t, backend, "SHOW CONNECTION b")
+	require.NoError(t, err)
+	require.Len(t, show.Rows, 1)
+	assert.Equal(t, "b", string(show.Rows[0].Values[0]))
+	assert.Nil(t, show.Rows[0].Values[1])
+}
+
+// The gateway sends the options as written and decides nothing: the defaults and every
+// requirement are the migrator's, so a statement and any other way of creating a connection get
+// the same ones.
+func TestMigrationDDL_ConnectionOptionsAreSentAsWritten(t *testing.T) {
 	fake := &fakeMigrator{}
 	backend := newTestBackend(fake)
 
-	// host is required; a host-less CREATE CONNECTION errors and stores nothing.
-	_, err := runSQL(t, backend, "CREATE CONNECTION nohost OPTIONS (user 'u')")
-	require.ErrorContains(t, err, "host")
-	_, ok := fake.conns["nohost"]
-	assert.False(t, ok)
-
-	// Only a host given: port=5432, dbname=postgres, sslmode=require are filled
-	// in. pgutil.ConnInfoString renders keys in sorted order and quotes every
-	// value, including these defaults.
-	_, err = runSQL(t, backend, "CREATE CONNECTION only_host OPTIONS (host 'src')")
+	_, err := runSQL(t, backend, "CREATE CONNECTION only_host OPTIONS (host 'src')")
 	require.NoError(t, err)
-	assert.Equal(t, "dbname='postgres' host='src' port='5432' sslmode='require'", fake.conns["only_host"].GetDsn())
+	assert.Equal(t, "host='src'", fake.conns["only_host"].GetDsn(), "no port, database or sslmode is added here")
 
-	// Explicitly-supplied options win over the defaults.
 	_, err = runSQL(t, backend, "CREATE CONNECTION custom OPTIONS (host 'src', port '6543', dbname 'app', sslmode 'disable')")
 	require.NoError(t, err)
 	assert.Equal(t, "dbname='app' host='src' port='6543' sslmode='disable'", fake.conns["custom"].GetDsn())

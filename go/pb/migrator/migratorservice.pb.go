@@ -1788,9 +1788,18 @@ type Connection struct {
 	// name is the unique, required identifier used to reference this connection
 	// from Migration.connection_name.
 	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	// dsn is a full libpq conninfo (may include TLS options). Returned as-is on
-	// read paths, which may expose a password — same trust model as
-	// Migration.connection_name's resolved source; see that field's doc comment.
+	// dsn is a libpq conninfo, as keyword=value pairs or a postgres:// URI.
+	// CreateConnection checks it strictly and stores the checked structure, so a
+	// connection is self-contained: host, user and password are required, and the
+	// port, database and sslmode default to 5432, postgres and require (verify-full
+	// with sslrootcert=system). What is refused is listed in
+	// docs/migration/migrator_sql_interface.md; a string that fails is
+	// INVALID_ARGUMENT, and the message never carries a part of it.
+	// On read paths the dsn is the canonical rendering of the stored structure,
+	// which may differ in form from what was sent, and may expose a password: same
+	// trust model as Migration.connection_name's resolved source.
+	// An empty dsn in a listing means the stored connection cannot be read: drop it and
+	// create it again.
 	Dsn       string                 `protobuf:"bytes,3,opt,name=dsn,proto3" json:"dsn,omitempty"`
 	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	// owner_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL

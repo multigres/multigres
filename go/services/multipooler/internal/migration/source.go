@@ -18,25 +18,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
+	"net"
+	"os"
+	"os/exec"
+	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/tools/executil"
-	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 // source runs the external (old-database) side of a migration over the
-// operator-supplied DSN. It uses pgx rather than the multigres pgprotocol
+// operator-supplied connection. It uses pgx rather than the multigres pgprotocol
 // client, because on-prem/v2/v3 sources commonly use MD5 auth, which the
 // pgprotocol client rejects. newSource opens one connection and caches it on
 // the struct; every method reuses it, so one source drives all of a phase's
 // source-side calls over one connection. The caller releases it with close.
 type source struct {
-	dsn  string
+	src  *backingconn.Conn
 	ctx  context.Context
 	conn *pgx.Conn
 }
@@ -46,6 +51,67 @@ type source struct {
 // the migrator's own (or a concurrent migrator) connection, and it makes
 // migrator sessions identifiable in pg_stat_activity.
 const migratorAppName = "multigres_migrator"
+
+// dialConfig builds the pgx config a source is dialed with, from the connection alone. pgx parses
+// the string every client of the connection is dialed with (Conn.LibpqString), so what the string
+// leaves to the environment is what params.go says, and a bare string's gaps (PGPORT, PGSSLMODE,
+// PGHOST, PGOPTIONS, a password file, a client certificate) are not filled in from it.
+//
+// pgx sends every key it does not parse itself to the server as a setting, so every key that is a
+// parameter of the table is dropped from RuntimeParams, except application_name, which is one. What
+// pgx has no parameter for is honored here: hostaddr by resolving each host to its address, the
+// keepalives by the dialer. A service cannot be pinned, so PGSERVICE in the environment refuses
+// every source.
+func dialConfig(conn *backingconn.Conn) (*pgx.ConnConfig, error) {
+	if os.Getenv("PGSERVICE") != "" {
+		return nil, errors.New("PGSERVICE is set in the environment, which would add the settings of a service to every connection")
+	}
+	cfg, err := pgx.ParseConfig(conn.LibpqString())
+	if err != nil {
+		return nil, err
+	}
+	for key := range cfg.RuntimeParams {
+		if key != "application_name" && backingconn.IsParam(key) {
+			delete(cfg.RuntimeParams, key)
+		}
+	}
+	cfg.Password = conn.Password
+
+	if addrs, ok := conn.Params["hostaddr"]; ok {
+		byHost := map[string][]string{}
+		for i, addr := range strings.Split(addrs, ",") {
+			byHost[conn.Hosts[i]] = append(byHost[conn.Hosts[i]], addr)
+		}
+		cfg.LookupFunc = func(_ context.Context, host string) ([]string, error) { return byHost[host], nil }
+	}
+	if dialer := keepaliveDialer(conn, cfg.ConnectTimeout); dialer != nil {
+		cfg.DialFunc = dialer.DialContext
+	}
+	return cfg, nil
+}
+
+// keepaliveDialer is the dialer that honors the keepalives parameters of the connection, or nil
+// when it has none, which leaves pgx the dialer it chose from connect_timeout. libpq counts in
+// seconds, and 0 is the system default.
+func keepaliveDialer(conn *backingconn.Conn, timeout time.Duration) *net.Dialer {
+	number := func(key string) int { n, _ := strconv.Atoi(conn.Params[key]); return n }
+	if !slices.ContainsFunc([]string{"keepalives", "keepalives_idle", "keepalives_interval", "keepalives_count"},
+		func(key string) bool { _, ok := conn.Params[key]; return ok }) {
+		return nil
+	}
+	dialer := &net.Dialer{Timeout: timeout}
+	if _, ok := conn.Params["keepalives"]; ok && number("keepalives") == 0 {
+		dialer.KeepAlive = -1
+		return dialer
+	}
+	dialer.KeepAliveConfig = net.KeepAliveConfig{
+		Enable:   true,
+		Idle:     time.Duration(number("keepalives_idle")) * time.Second,
+		Interval: time.Duration(number("keepalives_interval")) * time.Second,
+		Count:    number("keepalives_count"),
+	}
+	return dialer
+}
 
 // newSource opens the source connection and caches it on the returned source;
 // every method reuses it. The caller releases it with close.
@@ -57,10 +123,10 @@ const migratorAppName = "multigres_migrator"
 // cfg.Host — pgx.ParseConfig keeps only the first host of a comma-separated
 // list there, trying the rest as fallbacks, so a socket path hidden behind an
 // unreachable first host would otherwise slip through.
-func newSource(ctx context.Context, dsn string) (*source, error) {
-	cfg, err := pgx.ParseConfig(dsn)
+func newSource(ctx context.Context, src *backingconn.Conn) (*source, error) {
+	cfg, err := dialConfig(src)
 	if err != nil {
-		return nil, fmt.Errorf("parse source dsn: %w", err)
+		return nil, fmt.Errorf("parse source connection: %w", err)
 	}
 	if strings.HasPrefix(cfg.Host, "/") {
 		return nil, errors.New("connect to source: a Unix-domain socket host is not permitted")
@@ -83,7 +149,7 @@ func newSource(ctx context.Context, dsn string) (*source, error) {
 		_ = conn.Close(ctx)
 		return nil, fmt.Errorf("set migrator application_name on source: %w", err)
 	}
-	return &source{dsn: dsn, ctx: ctx, conn: conn}, nil
+	return &source{src: src, ctx: ctx, conn: conn}, nil
 }
 
 // close releases the cached connection if one is open. Safe to call more than
@@ -458,7 +524,7 @@ func checkQualifiedNamePartsSupported(nspname, relname string) error {
 // understands). pg_dump accepts a libpq conninfo as its dbname argument, but
 // any password in it must not travel that way: positional/flag arguments are
 // visible to any local user or co-resident process that can read this
-// process's argv. The password is stripped from the conninfo passed as the
+// process's argv. The password is left out of the conninfo passed as the
 // argument and supplied instead via the PGPASSWORD environment variable,
 // which libpq checks when the conninfo has no password of its own.
 //
@@ -469,14 +535,20 @@ func checkQualifiedNamePartsSupported(nspname, relname string) error {
 // instead.
 func (s *source) DumpSchema(tables []string) (string, error) {
 	args := dumpSchemaArgs(tables)
-	dsn, password := stripConnInfoPassword(s.dsn)
-	args = append(args, dsn)
+	// The dbname argument is the string a libpq client is dialed with (Conn.LibpqString), without
+	// the password (see above).
+	noPassword := s.src.Clone()
+	noPassword.Password = ""
+	args = append(args, noPassword.LibpqString())
 	cmd := executil.Command(s.ctx, "pg_dump", args...)
-	if password != "" {
-		cmd.AddEnv("PGPASSWORD=" + password)
-	}
+	cmd.AddEnv("PGPASSWORD=" + s.src.Password)
 	out, err := cmd.Output()
 	if err != nil {
+		// pg_dump's standard error says why; it never repeats the password, which was not an argument.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
+			return "", fmt.Errorf("pg_dump: %w: %s", err, strings.TrimSpace(string(exitErr.Stderr)))
+		}
 		return "", fmt.Errorf("pg_dump: %w", err)
 	}
 	var b strings.Builder
@@ -503,60 +575,6 @@ func dumpSchemaArgs(tables []string) []string {
 		args = append(args, "--table="+quoteQualifiedName(tbl))
 	}
 	return args
-}
-
-// stripConnInfoPassword splits a source DSN into a password-free form (safe to
-// pass as a subprocess argument, since argv is visible to any co-resident
-// process) and the password on its own, to be supplied out-of-band via
-// PGPASSWORD. The DSN may be in either libpq form pgx accepts: keyword=value,
-// or a postgres://user:password@host/db URI — handled separately below, since
-// ParseConnInfo understands only the former and would silently leave a URI's
-// password unstripped. Returns dsn unchanged and an empty password when there
-// is none to strip.
-func stripConnInfoPassword(dsn string) (sanitized string, password string) {
-	if pgutil.IsConnURI(dsn) {
-		return stripURIPassword(dsn)
-	}
-	kv := pgutil.ParseConnInfo(dsn)
-	password = kv["password"]
-	if password == "" {
-		return dsn, ""
-	}
-	delete(kv, "password")
-	return pgutil.ConnInfoString(kv), password
-}
-
-// stripURIPassword is stripConnInfoPassword's counterpart for a pgx/libpq URI
-// DSN. A malformed URI is returned unchanged with no password extracted;
-// pg_dump itself will reject a genuinely malformed DSN.
-//
-// A password can appear in a connection URI two ways: the userinfo form
-// (postgres://user:pass@host/db) and libpq's "password" query parameter
-// (postgres://user@host/db?password=secret) — both are stripped here, since
-// leaving either in the sanitized DSN would expose it via pg_dump's argv to
-// co-resident processes.
-func stripURIPassword(dsn string) (sanitized string, password string) {
-	u, err := url.Parse(dsn)
-	if err != nil {
-		return dsn, ""
-	}
-	if u.User != nil {
-		if pw, ok := u.User.Password(); ok {
-			password = pw
-			u.User = url.User(u.User.Username())
-		}
-	}
-	if q := u.Query(); q.Has("password") {
-		if password == "" {
-			password = q.Get("password")
-		}
-		q.Del("password")
-		u.RawQuery = q.Encode()
-	}
-	if password == "" {
-		return dsn, ""
-	}
-	return u.String(), password
 }
 
 // CreatePublication creates a publication FOR TABLE the given tables on the

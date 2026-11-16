@@ -1022,10 +1022,10 @@ func TestCreateConnection_ValidatesAndAssignsID(t *testing.T) {
 	tc := newTestCoord(t)
 	tc.c.now = func() time.Time { return time.Unix(1_800_000_000, 0) }
 
-	require.ErrorContains(t, tc.c.CreateConnection(context.Background(), &Connection{DSN: "host=x"}), "name is required")
+	require.ErrorContains(t, tc.c.CreateConnection(context.Background(), &Connection{DSN: "host=x dbname=app user=u password=p"}), "name is required")
 	require.ErrorContains(t, tc.c.CreateConnection(context.Background(), &Connection{Name: "src2"}), "dsn is required")
 
-	conn := &Connection{Name: "src2", DSN: "host=src2 dbname=app"}
+	conn := &Connection{Name: "src2", DSN: "host=src2 dbname=app user=u password=p"}
 	require.NoError(t, tc.c.CreateConnection(context.Background(), conn))
 	require.NotZero(t, conn.ID, "CreateConnection must assign an id, not accept one from the caller")
 
@@ -1087,7 +1087,7 @@ func TestGetConnection_Ownership(t *testing.T) {
 func TestListConnections(t *testing.T) {
 	tc := newTestCoord(t)
 	tc.c.now = func() time.Time { return time.Unix(1_800_000_000, 0) }
-	require.NoError(t, tc.c.CreateConnection(context.Background(), &Connection{Name: "extra", DSN: "host=extra"}))
+	require.NoError(t, tc.c.CreateConnection(context.Background(), &Connection{Name: "extra", DSN: "host=extra dbname=app user=u password=p"}))
 
 	conns, err := tc.c.ListConnections(context.Background(), "")
 	require.NoError(t, err)

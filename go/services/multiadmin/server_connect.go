@@ -357,3 +357,21 @@ func (a *connectAdapter) DeleteRoutingRules(ctx context.Context, req *connect.Re
 	}
 	return connect.NewResponse(resp), nil
 }
+
+// FenceScopes forwards to the database's catalog primary.
+func (a *connectAdapter) FenceScopes(ctx context.Context, req *connect.Request[multipoolermanagerdatapb.FenceScopesRequest]) (*connect.Response[multipoolermanagerdatapb.FenceScopesResponse], error) {
+	resp, err := a.MultiadminServer.FenceScopes(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// UnfenceScopes forwards to the database's catalog primary.
+func (a *connectAdapter) UnfenceScopes(ctx context.Context, req *connect.Request[multipoolermanagerdatapb.UnfenceScopesRequest]) (*connect.Response[multipoolermanagerdatapb.UnfenceScopesResponse], error) {
+	resp, err := a.MultiadminServer.UnfenceScopes(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}

@@ -43,7 +43,8 @@ import (
 //
 // The sharding catalog on the catalog shard (default tablegroup, 0-inf) is the
 // single source of truth for which tablegroups should exist. This file holds
-// the three operations the catalog primary serves for it:
+// the three operations the catalog primary serves for it; tablegroup_loop.go
+// holds the loop that completes them:
 //
 //   - CreateTableGroup records the intent in one transaction: a tablegroup row
 //     in state creating, its shards in state preparing, and an operation row.
@@ -70,14 +71,18 @@ import (
 // text in SQL; these are the values this code writes and reads.
 const (
 	operationKindCreateTableGroup = "create_tablegroup"
+	operationKindDropTableGroup   = "drop_tablegroup"
 
 	operationStateCreating = "creating"
+	operationStateDropping = "dropping"
 	operationStateDone     = "done"
 	operationStateFailed   = "failed"
 )
 
 // Tablegroup and shard states, matching the CHECK constraints in
-// pg_catalog_schema.go.
+// pg_catalog_schema.go. A tablegroup moves creating -> active -> dropping and
+// is then deleted, or creating -> dropping when its creation fails; a shard
+// moves preparing -> active, and is deleted with its tablegroup.
 const (
 	tableGroupStateCreating = "creating"
 	tableGroupStateActive   = "active"
@@ -92,9 +97,11 @@ const (
 var (
 	operationKinds = map[string]multipoolermanagerdatapb.OperationKind{
 		operationKindCreateTableGroup: multipoolermanagerdatapb.OperationKind_OPERATION_KIND_CREATE_TABLEGROUP,
+		operationKindDropTableGroup:   multipoolermanagerdatapb.OperationKind_OPERATION_KIND_DROP_TABLEGROUP,
 	}
 	operationStates = map[string]multipoolermanagerdatapb.OperationState{
 		operationStateCreating: multipoolermanagerdatapb.OperationState_OPERATION_STATE_CREATING,
+		operationStateDropping: multipoolermanagerdatapb.OperationState_OPERATION_STATE_DROPPING,
 		operationStateDone:     multipoolermanagerdatapb.OperationState_OPERATION_STATE_DONE,
 		operationStateFailed:   multipoolermanagerdatapb.OperationState_OPERATION_STATE_FAILED,
 	}
@@ -535,33 +542,50 @@ func (pm *MultipoolerManager) ListTableGroups(ctx context.Context) ([]*multipool
 	return groups, nil
 }
 
-// tableGroupShardsServing counts the shards in req's layout that have a
-// serving primary registered in topology for this tablegroup. It reads every
-// cell: a database's poolers may live in any of them. A cell that cannot be
-// read is reported in the error while the cells that answered still count,
-// so the count is never higher than the truth.
-func (pm *MultipoolerManager) tableGroupShardsServing(ctx context.Context, req createTableGroupRequest) (int, error) {
+// tableGroupPoolerRecords returns the topology records of the poolers of a
+// tablegroup, by name, across every cell: a database's poolers may live in any
+// of them. A cell that cannot be read is reported in the error while the
+// records from the cells that answered are still returned, so a count built
+// from them is never higher than the truth.
+func (pm *MultipoolerManager) tableGroupPoolerRecords(ctx context.Context, tableGroup string) ([]*clustermetadatapb.Multipooler, error) {
 	ctx, cancel := context.WithTimeout(ctx, tableGroupOpTimeout)
 	defer cancel()
 	database := pm.record.ShardRef().GetDatabase()
 	cells, err := pm.topoClient.GetCellNames(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("list cells: %w", err)
+		return nil, fmt.Errorf("list cells: %w", err)
 	}
-	serving := make(map[string]bool, len(req.Shards))
+	var records []*clustermetadatapb.Multipooler
 	var errs []error
 	for _, cell := range cells {
 		infos, err := pm.topoClient.GetMultipoolersByCell(ctx, cell, &topoclient.GetMultipoolersByCellOptions{
-			DatabaseShard: &topoclient.DatabaseShard{Database: database, TableGroup: req.Name},
+			DatabaseShard: &topoclient.DatabaseShard{Database: database, TableGroup: tableGroup},
 		})
 		if err != nil {
 			errs = append(errs, fmt.Errorf("list poolers in cell %s: %w", cell, err))
 			continue
 		}
 		for _, info := range infos {
-			if poolerIsServingPrimaryOf(info.Multipooler, req.TableGroupID) {
-				serving[info.Multipooler.GetShardRef().GetShard()] = true
-			}
+			records = append(records, info.Multipooler)
+		}
+	}
+	return records, errors.Join(errs...)
+}
+
+// tableGroupShardsServing counts the shards in req's layout that have a
+// serving primary registered in topology for this tablegroup incarnation.
+func (pm *MultipoolerManager) tableGroupShardsServing(ctx context.Context, req createTableGroupRequest) (int, error) {
+	records, err := pm.tableGroupPoolerRecords(ctx, req.Name)
+	return shardsServing(records, req), err
+}
+
+// shardsServing counts the shards in req's layout that have a serving primary
+// among records (see poolerIsServingPrimaryOf).
+func shardsServing(records []*clustermetadatapb.Multipooler, req createTableGroupRequest) int {
+	serving := make(map[string]bool, len(req.Shards))
+	for _, mp := range records {
+		if poolerIsServingPrimaryOf(mp, req.TableGroupID) {
+			serving[mp.GetShardRef().GetShard()] = true
 		}
 	}
 	n := 0
@@ -570,7 +594,22 @@ func (pm *MultipoolerManager) tableGroupShardsServing(ctx context.Context, req c
 			n++
 		}
 	}
-	return n, errors.Join(errs...)
+	return n
+}
+
+// poolersRegistered counts the records among records that carry a tablegroup
+// incarnation's catalog id, whatever their state: a pooler that stopped
+// gracefully leaves its record marked shut down, and one that crashed leaves
+// it as it was, so the provisioner deleting the records is what brings the
+// count to zero.
+func poolersRegistered(records []*clustermetadatapb.Multipooler, tableGroupID int64) int {
+	n := 0
+	for _, mp := range records {
+		if mp.GetTablegroupId() == tableGroupID {
+			n++
+		}
+	}
+	return n
 }
 
 // poolerIsServingPrimaryOf is the readiness rule for one pooler record: it
