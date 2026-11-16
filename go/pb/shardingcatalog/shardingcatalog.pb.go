@@ -384,9 +384,6 @@ const (
 	// FENCED is a raised fence: the scope is closed to application work, so
 	// routing rules on it may change.
 	FenceState_FENCE_STATE_FENCED FenceState = 2
-	// UNFENCED is a lifted fence. The row stays, so its version keeps a
-	// delayed unfence from overriding a later fence of the same scope.
-	FenceState_FENCE_STATE_UNFENCED FenceState = 3
 )
 
 // Enum value maps for FenceState.
@@ -395,13 +392,11 @@ var (
 		0: "FENCE_STATE_UNSPECIFIED",
 		1: "FENCE_STATE_FENCING",
 		2: "FENCE_STATE_FENCED",
-		3: "FENCE_STATE_UNFENCED",
 	}
 	FenceState_value = map[string]int32{
 		"FENCE_STATE_UNSPECIFIED": 0,
 		"FENCE_STATE_FENCING":     1,
 		"FENCE_STATE_FENCED":      2,
-		"FENCE_STATE_UNFENCED":    3,
 	}
 )
 
@@ -943,7 +938,8 @@ func (x *RoutingRule) GetCreatedVersion() int64 {
 
 // Fence is an admission fence: a scope of a tablegroup that the operation
 // owning the fence closes to application work while it changes where the
-// scope's traffic goes. A scope holds at most one fence.
+// scope's traffic goes. A scope holds at most one fence, and a lifted fence
+// is removed from the catalog.
 type Fence struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	FenceId int64                  `protobuf:"varint,1,opt,name=fence_id,json=fenceId,proto3" json:"fence_id,omitempty"`
@@ -954,7 +950,7 @@ type Fence struct {
 	// tablegroup.
 	ShardId *int64     `protobuf:"varint,4,opt,name=shard_id,json=shardId,proto3,oneof" json:"shard_id,omitempty"`
 	State   FenceState `protobuf:"varint,5,opt,name=state,proto3,enum=shardingcatalog.FenceState" json:"state,omitempty"`
-	// version is the routing_version of the fence's last change.
+	// version is the routing_version the fence was set at.
 	Version       int64 `protobuf:"varint,6,opt,name=version,proto3" json:"version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1249,13 +1245,12 @@ const file_shardingcatalog_proto_rawDesc = "" +
 	"\x10RoutingRuleScope\x12\"\n" +
 	"\x1eROUTING_RULE_SCOPE_UNSPECIFIED\x10\x00\x12!\n" +
 	"\x1dROUTING_RULE_SCOPE_TABLEGROUP\x10\x01\x12\x1c\n" +
-	"\x18ROUTING_RULE_SCOPE_TABLE\x10\x02*t\n" +
+	"\x18ROUTING_RULE_SCOPE_TABLE\x10\x02*Z\n" +
 	"\n" +
 	"FenceState\x12\x1b\n" +
 	"\x17FENCE_STATE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13FENCE_STATE_FENCING\x10\x01\x12\x16\n" +
-	"\x12FENCE_STATE_FENCED\x10\x02\x12\x18\n" +
-	"\x14FENCE_STATE_UNFENCED\x10\x03B6Z4github.com/multigres/multigres/go/pb/shardingcatalogb\x06proto3"
+	"\x12FENCE_STATE_FENCED\x10\x02B6Z4github.com/multigres/multigres/go/pb/shardingcatalogb\x06proto3"
 
 var (
 	file_shardingcatalog_proto_rawDescOnce sync.Once

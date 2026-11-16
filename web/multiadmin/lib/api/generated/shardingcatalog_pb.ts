@@ -274,21 +274,12 @@ export enum FenceState {
    * @generated from enum value: FENCE_STATE_FENCED = 2;
    */
   FENCED = 2,
-
-  /**
-   * UNFENCED is a lifted fence. The row stays, so its version keeps a
-   * delayed unfence from overriding a later fence of the same scope.
-   *
-   * @generated from enum value: FENCE_STATE_UNFENCED = 3;
-   */
-  UNFENCED = 3,
 }
 // Retrieve enum metadata with: proto3.getEnumType(FenceState)
 proto3.util.setEnumType(FenceState, "shardingcatalog.FenceState", [
   { no: 0, name: "FENCE_STATE_UNSPECIFIED" },
   { no: 1, name: "FENCE_STATE_FENCING" },
   { no: 2, name: "FENCE_STATE_FENCED" },
-  { no: 3, name: "FENCE_STATE_UNFENCED" },
 ]);
 
 /**
@@ -723,7 +714,8 @@ export class RoutingRule extends Message<RoutingRule> {
 /**
  * Fence is an admission fence: a scope of a tablegroup that the operation
  * owning the fence closes to application work while it changes where the
- * scope's traffic goes. A scope holds at most one fence.
+ * scope's traffic goes. A scope holds at most one fence, and a lifted fence
+ * is removed from the catalog.
  *
  * @generated from message shardingcatalog.Fence
  */
@@ -759,7 +751,7 @@ export class Fence extends Message<Fence> {
   state = FenceState.UNSPECIFIED;
 
   /**
-   * version is the routing_version of the fence's last change.
+   * version is the routing_version the fence was set at.
    *
    * @generated from field: int64 version = 6;
    */

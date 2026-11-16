@@ -26,19 +26,19 @@ import (
 )
 
 const (
-	fenceFencing  = pb.FenceState_FENCE_STATE_FENCING
-	fenceFenced   = pb.FenceState_FENCE_STATE_FENCED
-	fenceUnfenced = pb.FenceState_FENCE_STATE_UNFENCED
+	fenceFencing = pb.FenceState_FENCE_STATE_FENCING
+	fenceFenced  = pb.FenceState_FENCE_STATE_FENCED
 )
 
 // fencedSnapshot is validSnapshot with fences: one on the whole of
-// analytics, one on commerce's 0-80, and a lifted one on commerce's 80-inf.
+// analytics, one on commerce's 0-80, and one being raised on commerce's
+// 80-inf.
 func fencedSnapshot(t *testing.T) *pb.Snapshot {
 	t.Helper()
 	p := validSnapshot(t)
 	p.Fences = []*pb.Fence{
 		// Listed out of id order: the snapshot sorts them.
-		{FenceId: 52, OperationId: testOperation, TablegroupId: 2, ShardId: new(int64(3)), State: fenceUnfenced, Version: 12},
+		{FenceId: 52, OperationId: testOperation, TablegroupId: 2, ShardId: new(int64(3)), State: fenceFencing, Version: 12},
 		{FenceId: 50, OperationId: testOperation, TablegroupId: 3, State: fenceFenced, Version: 10},
 		{FenceId: 51, OperationId: testOperation, TablegroupId: 2, ShardId: new(int64(2)), State: fenceFencing, Version: 11},
 	}
@@ -83,7 +83,7 @@ func TestNew_Fences(t *testing.T) {
 
 	t.Run("FencesFor", func(t *testing.T) {
 		assert.Equal(t, []int64{51}, fenceIDs(commerce.FencesFor(byName(commerce, "0-80"))))
-		assert.Equal(t, []int64{52}, fenceIDs(commerce.FencesFor(byName(commerce, "80-inf"))), "a lifted fence is still returned")
+		assert.Equal(t, []int64{52}, fenceIDs(commerce.FencesFor(byName(commerce, "80-inf"))), "in any state")
 		assert.Empty(t, commerce.FencesFor(byName(commerce, "0-inf")), "no fence on the retired shard")
 		assert.Empty(t, commerce.FencesFor(nil))
 		assert.Equal(t, []int64{50}, fenceIDs(analytics.FencesFor(byName(analytics, "0-40"))), "a whole-tablegroup fence applies to every shard")
@@ -128,7 +128,7 @@ func TestNew_RejectsFences(t *testing.T) {
 			p.Fences = append(p.Fences, &pb.Fence{FenceId: 60, OperationId: "22222222-2222-2222-2222-222222222222", TablegroupId: 2, ShardId: new(int64(2)), State: fenceFenced})
 		}, "fences 51 and 60 have the same scope"},
 		{"two fences on a whole tablegroup", func(p *pb.Snapshot) {
-			p.Fences = append(p.Fences, &pb.Fence{FenceId: 60, OperationId: testOperation, TablegroupId: 3, State: fenceUnfenced})
+			p.Fences = append(p.Fences, &pb.Fence{FenceId: 60, OperationId: testOperation, TablegroupId: 3, State: fenceFencing})
 		}, "fences 50 and 60 have the same scope"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

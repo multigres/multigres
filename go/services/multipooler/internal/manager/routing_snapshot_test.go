@@ -48,7 +48,7 @@ func (env *tableGroupTestEnv) expectSnapshotRead(routingVersion, planEpoch int64
 // default tablegroup, a sharded commerce tablegroup, a table with a primary
 // shard key, rows in states the snapshot does not know, an import's
 // routing rules (a shard rule from default and a table rule), and its fences:
-// one on the whole default tablegroup and a lifted one on commerce's 0-80.
+// one on the whole default tablegroup and one being raised on commerce's 0-80.
 func (env *tableGroupTestEnv) expectCatalogRows() {
 	env.expect("FROM multigres.tablegroup ORDER BY", []string{"tablegroup_id", "name", "state"}, [][]any{
 		{int64(1), "default", "active"},
@@ -87,7 +87,7 @@ func (env *tableGroupTestEnv) expectCatalogRows() {
 		"fence_id", "operation_id", "tablegroup_id", "shard_id", "state", "version", "operation_state",
 	}, [][]any{
 		{int64(50), importOp, int64(1), nil, "FENCED", int64(7), "preparing"},
-		{int64(51), importOp, int64(7), int64(2), "UNFENCED", int64(9), "preparing"},
+		{int64(51), importOp, int64(7), int64(2), "FENCING", int64(9), "preparing"},
 	})
 }
 
@@ -160,7 +160,7 @@ func TestGetRoutingSnapshot_Full(t *testing.T) {
 		},
 		Fences: []*shardingcatalogpb.Fence{
 			{FenceId: 50, OperationId: importOp, TablegroupId: 1, State: shardingcatalogpb.FenceState_FENCE_STATE_FENCED, Version: 7},
-			{FenceId: 51, OperationId: importOp, TablegroupId: 7, ShardId: proto.Int64(2), State: shardingcatalogpb.FenceState_FENCE_STATE_UNFENCED, Version: 9},
+			{FenceId: 51, OperationId: importOp, TablegroupId: 7, ShardId: proto.Int64(2), State: shardingcatalogpb.FenceState_FENCE_STATE_FENCING, Version: 9},
 		},
 	}
 	assert.True(t, proto.Equal(want, resp.GetSnapshot()), "got %v", resp.GetSnapshot())

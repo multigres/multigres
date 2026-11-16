@@ -3999,8 +3999,7 @@ export class UnfenceScopesRequest extends Message<UnfenceScopesRequest> {
 
   /**
    * scopes are the scopes to unfence, with the same rules as in
-   * FenceScopesRequest. Scopes the operation holds no raised fence on are
-   * skipped.
+   * FenceScopesRequest. Scopes the operation holds no fence on are skipped.
    *
    * @generated from field: repeated multipoolermanagerdata.FenceScopeSpec scopes = 3;
    */
@@ -4009,7 +4008,7 @@ export class UnfenceScopesRequest extends Message<UnfenceScopesRequest> {
   /**
    * expected_routing_version is a routing version at which the caller read
    * the fences it lifts. Unlike other catalog writes, it is checked only
-   * against those fences: the call fails if any of them changed after it, so
+   * against those fences: the call fails if any of them was set after it, so
    * a delayed unfence cannot lift a fence raised again since, but other
    * catalog writes do not force a retry. A change with no scope to unfence
    * succeeds whatever its value.

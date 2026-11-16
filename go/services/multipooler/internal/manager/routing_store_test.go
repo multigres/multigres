@@ -317,6 +317,7 @@ func (env *tableGroupTestEnv) expectCatalogWrite(results map[string]*sqltypes.Re
 	env.expect("^"+regexp.QuoteMeta(insertRoutingRuleSQL)+"$", nil, nil)
 	env.expect("^"+regexp.QuoteMeta(insertFenceSQL)+"$", nil, nil)
 	env.expect("^"+regexp.QuoteMeta(updateFenceSQL)+"$", nil, nil)
+	env.expect("^"+regexp.QuoteMeta(deleteFenceSQL)+"$", nil, nil)
 	env.expect("^"+regexp.QuoteMeta(snapshotTableGroupsQuery)+"$", []string{"tablegroup_id", "name", "state"}, [][]any{
 		{int64(1), "default", "active"}, {int64(2), "srctg", "active"}, {int64(3), "commerce", "active"},
 	})

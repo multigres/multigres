@@ -143,7 +143,7 @@ service MultipoolerManager {
   // current version and writes nothing. A malformed list (empty, or with two
   // overlapping scopes) returns INVALID_ARGUMENT; a stale
   // expected_routing_version, a finished operation, a tablegroup being
-  // dropped, or a raised fence of another unfinished operation on an
+  // dropped, or a fence of another unfinished operation on an
   // overlapping scope (a whole-tablegroup fence overlaps every shard fence of
   // the tablegroup) returns FAILED_PRECONDITION.
   //
@@ -154,14 +154,14 @@ service MultipoolerManager {
   rpc FenceScopes(multipoolermanagerdata.FenceScopesRequest)
       returns (multipoolermanagerdata.FenceScopesResponse);
 
-  // UnfenceScopes lifts an operation's admission fences on a list of scopes,
-  // in one catalog write: each becomes UNFENCED at the same new routing
-  // version. Scopes the operation holds no raised fence on are skipped, and
-  // a call with none to lift returns the current version and writes nothing.
-  // An operation that has finished may still lift its fences. The expected
-  // version is checked against the fences being lifted, not the catalog's
-  // routing version (see UnfenceScopesRequest); a fence that changed after
-  // it returns FAILED_PRECONDITION.
+  // UnfenceScopes lifts an operation's admission fences on a list of scopes:
+  // it deletes them in one catalog write, at one new routing version. Scopes
+  // the operation holds no fence on are skipped, and a call with none to
+  // lift returns the current version and writes nothing. An operation that
+  // has finished may still lift its fences. The expected version is checked
+  // against the versions the lifted fences were set at, not the catalog's
+  // routing version (see UnfenceScopesRequest); a fence set after it returns
+  // FAILED_PRECONDITION.
   rpc UnfenceScopes(multipoolermanagerdata.UnfenceScopesRequest)
       returns (multipoolermanagerdata.UnfenceScopesResponse);
 

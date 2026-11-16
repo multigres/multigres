@@ -4642,12 +4642,11 @@ type UnfenceScopesRequest struct {
 	// finished: lifting fences is always allowed.
 	OperationId string `protobuf:"bytes,2,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
 	// scopes are the scopes to unfence, with the same rules as in
-	// FenceScopesRequest. Scopes the operation holds no raised fence on are
-	// skipped.
+	// FenceScopesRequest. Scopes the operation holds no fence on are skipped.
 	Scopes []*FenceScopeSpec `protobuf:"bytes,3,rep,name=scopes,proto3" json:"scopes,omitempty"`
 	// expected_routing_version is a routing version at which the caller read
 	// the fences it lifts. Unlike other catalog writes, it is checked only
-	// against those fences: the call fails if any of them changed after it, so
+	// against those fences: the call fails if any of them was set after it, so
 	// a delayed unfence cannot lift a fence raised again since, but other
 	// catalog writes do not force a retry. A change with no scope to unfence
 	// succeeds whatever its value.

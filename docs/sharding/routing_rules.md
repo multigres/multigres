@@ -59,16 +59,15 @@ A rule must only change while both of its sides are **fenced**: closed to
 application work, so that no two placements of the same data accept writes at
 once. An admission fence belongs to an operation, like a rule, and lives in
 `multigres.admission_fence`. Its scope is a whole tablegroup or one shard of
-it. A scope has at most one fence, in one of three states:
+it. A scope has at most one fence, in one of two states:
 
 - `FENCING`: the fence is being raised (not written yet; see below).
 - `FENCED`: the scope is closed to application work.
-- `UNFENCED`: the fence was lifted.
 
-Lifting a fence sets it to `UNFENCED` rather than deleting it, and every fence
-write stamps the row with the `routing_version` it commits at, so a delayed
-unfence cannot override a later fence. Fences are removed when their operation
-completes (not implemented yet).
+A fence row exists only while its scope is fenced: lifting a fence deletes it.
+Each row records the `routing_version` the fence was set at. Fences an
+operation never lifted are to be removed when it completes (not implemented
+yet).
 
 `FenceScopes` raises an operation's fences on a list of scopes and
 `UnfenceScopes` lifts them. Each call is one catalog write through
@@ -79,11 +78,11 @@ A reshard fences its target shards and the source shards they split in one
 call; an import fences `default` and its source tablegroup in one call.
 
 Scopes the operation has already fenced (or, for `UnfenceScopes`, holds no
-raised fence on) are skipped, and a call with nothing left to write returns
+fence on) are skipped, and a call with nothing left to write returns
 the current version whatever version it passed, so a retry of the same list
 succeeds. `FenceScopes` checks its expected version against the catalog's
 routing version, as rule changes do. `UnfenceScopes` checks it only against
-the fences it lifts: it fails if any of them changed after that version, so a
+the fences it lifts: it fails if any of them was set after that version, so a
 delayed unfence cannot lift a fence raised again since, but unrelated catalog
 writes do not force a retry. Lifting is always allowed, even by an operation
 that has finished, so its fences can be cleaned up.
@@ -92,10 +91,10 @@ A list must be non-empty, and no two of its scopes may overlap (the same scope
 twice, or a whole tablegroup and one of its shards); otherwise the call
 answers `INVALID_ARGUMENT`. `FenceScopes` is refused when the operation
 does not exist or has finished, a tablegroup is being dropped, or another
-unfinished operation holds a raised fence on a scope that overlaps one in the
-list: a whole-tablegroup fence overlaps every shard fence of the tablegroup. A
-lifted fence, or one of a finished operation, holds nothing, and the next
-operation to fence that scope takes the row over.
+unfinished operation holds a fence on a scope that overlaps one in the list: a
+whole-tablegroup fence overlaps every shard fence of the tablegroup. A fence
+left by an operation that finished without lifting it holds nothing, and the
+next operation to fence that scope takes its row over.
 
 `SetRoutingRules` and `DeleteRoutingRules` require `FENCED` fences of the same
 operation on both sides of every rule the change inserts or removes (a delete

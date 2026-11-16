@@ -106,9 +106,8 @@ var (
 		routingScopeTable:      shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLE,
 	}
 	snapshotFenceStates = map[string]shardingcatalogpb.FenceState{
-		fenceStateFencing:  shardingcatalogpb.FenceState_FENCE_STATE_FENCING,
-		fenceStateFenced:   shardingcatalogpb.FenceState_FENCE_STATE_FENCED,
-		fenceStateUnfenced: shardingcatalogpb.FenceState_FENCE_STATE_UNFENCED,
+		fenceStateFencing: shardingcatalogpb.FenceState_FENCE_STATE_FENCING,
+		fenceStateFenced:  shardingcatalogpb.FenceState_FENCE_STATE_FENCED,
 	}
 )
 

@@ -166,6 +166,10 @@ func TestAdmissionFences_RPCs(t *testing.T) {
 
 	t.Run("unfencing a side refuses deleting the rule until it is fenced again", func(t *testing.T) {
 		version = pc.unfence(t, routingImportOp, version, fenceSpec("srctg", "0-inf"))
+		_, fences := pc.fences(t)
+		require.Len(t, fences, 1, "lifting a fence deletes its row")
+		assert.Equal(t, "default", fences[0].tablegroup)
+
 		_, err := pc.manager.DeleteRoutingRules(ctx, &mdpb.DeleteRoutingRulesRequest{
 			Database: routingE2EDatabase, OperationId: routingImportOp, ExpectedRoutingVersion: version,
 		})
@@ -180,9 +184,9 @@ func TestAdmissionFences_RPCs(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, version, resp.GetRoutingVersion(), "a no-op needs no fences")
 
-		// Fencing again reuses the scope's row at a new version.
+		// Fencing again writes a new row at a new version.
 		version = pc.fence(t, routingImportOp, version, fenceSpec("srctg", "0-inf"))
-		_, fences := pc.fences(t)
+		_, fences = pc.fences(t)
 		require.Len(t, fences, 2)
 		assert.Equal(t, fenceState{
 			tablegroup: "srctg", shard: "0-inf", operationID: routingImportOp, state: shardingcatalogpb.FenceState_FENCE_STATE_FENCED, version: version,
@@ -196,7 +200,7 @@ func TestAdmissionFences_RPCs(t *testing.T) {
 		})
 		require.Error(t, err)
 		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
-		assert.Contains(t, err.Error(), `the fence on shard "0-inf" of tablegroup "srctg" changed at routing version`)
+		assert.Contains(t, err.Error(), `the fence on shard "0-inf" of tablegroup "srctg" was set at routing version`)
 	})
 
 	t.Run("delete the rule and unfence", func(t *testing.T) {
@@ -221,18 +225,14 @@ func TestAdmissionFences_RPCs(t *testing.T) {
 
 		v, fences := pc.fences(t)
 		assert.Equal(t, version, v)
-		assert.Equal(t, []fenceState{
-			{tablegroup: "default", operationID: routingImportOp, state: shardingcatalogpb.FenceState_FENCE_STATE_UNFENCED, version: deleted + 1},
-			{tablegroup: "srctg", shard: "0-inf", operationID: routingImportOp, state: shardingcatalogpb.FenceState_FENCE_STATE_UNFENCED, version: deleted + 1},
-		}, fences, "lifting a fence keeps its row")
+		assert.Empty(t, fences, "lifting a fence deletes its row")
 	})
 
 	t.Run("another operation may fence once the import's fences are lifted", func(t *testing.T) {
 		version = pc.fence(t, routingFenceOtherOp, version, fenceSpec("default", "0-inf"))
 		_, fences := pc.fences(t)
-		require.Len(t, fences, 3)
-		assert.Equal(t, fenceState{
-			tablegroup: "default", shard: "0-inf", operationID: routingFenceOtherOp, state: shardingcatalogpb.FenceState_FENCE_STATE_FENCED, version: version,
-		}, fences[2])
+		assert.Equal(t, []fenceState{
+			{tablegroup: "default", shard: "0-inf", operationID: routingFenceOtherOp, state: shardingcatalogpb.FenceState_FENCE_STATE_FENCED, version: version},
+		}, fences)
 	})
 }

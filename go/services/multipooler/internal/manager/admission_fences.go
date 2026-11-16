@@ -35,25 +35,23 @@ import (
 // fenced by its operation (see checkRuleFences), so no two placements of the
 // same data accept writes at once.
 //
-// A scope has at most one fence row. Raising a fence writes FENCED; lifting
-// it writes UNFENCED. Every write stamps the row with the routing_version it
-// commits at and keeps the row, so a delayed unfence cannot override a later
-// fence. Like rule writes, fence writes are writeCatalog writers, validated
-// here against a routingCatalog loaded under the catalog_state row lock. One
-// change fences or unfences a list of scopes, all or nothing, at one routing
-// version.
+// A scope has at most one fence row, which exists only while the scope is
+// fenced: raising a fence writes FENCED, stamped with the routing_version it
+// commits at, and lifting it deletes the row. Like rule writes, fence writes
+// are writeCatalog writers, validated here against a routingCatalog loaded
+// under the catalog_state row lock. One change fences or unfences a list of
+// scopes, all or nothing, at one routing version.
 //
 // Nothing enforces fences yet: no pooler reads them, so FENCED records the
 // operation's intent and guarantees nothing. A later change raises a list as
 // FENCING, refreshes and drains every pooler of every scope, and only then
-// writes FENCED.
+// writes FENCED; if that fails, it deletes the rows it inserted.
 // ============================================================================
 
 // Fence states, as stored in multigres.admission_fence.state.
 const (
-	fenceStateFencing  = "FENCING"
-	fenceStateFenced   = "FENCED"
-	fenceStateUnfenced = "UNFENCED"
+	fenceStateFencing = "FENCING"
+	fenceStateFenced  = "FENCED"
 )
 
 const (
@@ -66,6 +64,8 @@ FROM multigres.admission_fence f JOIN multigres.operation o USING (operation_id)
 VALUES ($1::uuid, $2, $3, $4, $5)`
 
 	updateFenceSQL = `UPDATE multigres.admission_fence SET operation_id = $2::uuid, state = $3, version = $4 WHERE fence_id = $1`
+
+	deleteFenceSQL = `DELETE FROM multigres.admission_fence WHERE fence_id = $1`
 )
 
 // fenceScope is the scope of a fence. A zero shardID (NULL) is the whole
@@ -93,9 +93,11 @@ type catalogFence struct {
 }
 
 // holds reports whether the fence holds its scope against other operations:
-// it is raised (FENCING or FENCED) and its operation has not finished.
+// its operation has not finished. A finished operation's fence is left only
+// when it was never lifted, and the next operation to fence the scope takes
+// its row over.
 func (f catalogFence) holds() bool {
-	return f.state != fenceStateUnfenced && !slices.Contains(terminalOperationStates, f.operationState)
+	return !slices.Contains(terminalOperationStates, f.operationState)
 }
 
 // fenceScopeSpec names a fence scope: a tablegroup, and a shard of it or ""
@@ -116,11 +118,14 @@ type fenceChange struct {
 
 // fenceWrite is one fence row a validated change writes.
 type fenceWrite struct {
-	// fenceID is the row at the scope to update, 0 to insert one.
+	// fenceID is the row at the scope to update or, for a lift, delete; 0 to
+	// insert one.
 	fenceID int64
 	scope   fenceScope
-	state   string
-	// version is the row's version before the write, 0 for a new row.
+	// state is the state to write, unset for a lift.
+	state string
+	// version is the routing version the existing row was set at, 0 for a
+	// new row.
 	version int64
 }
 
@@ -157,6 +162,12 @@ func applyFenceChange(ctx context.Context, tx executor.InternalTx, current catal
 		return catalogNoSnapshotChange, nil
 	}
 	for _, w := range plan.writes {
+		if change.lift {
+			if _, err := tx.QueryArgs(ctx, deleteFenceSQL, w.fenceID); err != nil {
+				return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to delete admission fence")
+			}
+			continue
+		}
 		if w.fenceID == 0 {
 			if _, err := tx.QueryArgs(ctx, insertFenceSQL, change.operationID, w.scope.tablegroupID,
 				nullableID(w.scope.shardID), w.state, next); err != nil {
@@ -217,11 +228,11 @@ func planFenceChange(cat *routingCatalog, change fenceChange) (fencePlan, error)
 		w := fenceWrite{scope: r.scope, state: fenceStateFenced}
 		if change.lift {
 			// An operation lifts only its own fences; a scope it holds no
-			// raised fence on is already unfenced as far as it is concerned.
-			if !ours || existing.state == fenceStateUnfenced {
+			// fence on is already unfenced as far as it is concerned.
+			if !ours {
 				continue
 			}
-			w.state = fenceStateUnfenced
+			w.state = ""
 		} else if ours && existing.state == fenceStateFenced {
 			continue
 		}
@@ -239,13 +250,13 @@ func planFenceChange(cat *routingCatalog, change fenceChange) (fencePlan, error)
 		// including by an operation that has finished, so its fences can be
 		// cleaned up. The only hazard is a delayed unfence lifting a fence
 		// raised again after the caller last read it, so the lift is checked
-		// against the versions of the fences it lifts rather than the
-		// catalog's routing version: catalog writes that did not touch them
-		// do not force a retry.
+		// against the versions the fences it lifts were set at rather than
+		// the catalog's routing version: catalog writes that did not touch
+		// them do not force a retry.
 		for _, w := range plan.writes {
 			if w.version > change.expectedRoutingVersion {
 				return fencePlan{}, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-					"the fence on %s changed at routing version %d, after the expected %d",
+					"the fence on %s was set at routing version %d, after the expected %d",
 					cat.describeFenceScope(w.scope), w.version, change.expectedRoutingVersion)
 			}
 		}
@@ -270,8 +281,8 @@ func planFenceChange(cat *routingCatalog, change fenceChange) (fencePlan, error)
 			return fencePlan{}, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "tablegroup %q is being dropped", r.tg.name)
 		}
 		// A fence of another operation that still holds its scope keeps
-		// every overlapping scope from being fenced. One that no longer
-		// holds it, at this exact scope, is taken over.
+		// every overlapping scope from being fenced. One whose operation
+		// has finished, at this exact scope, is taken over.
 		for _, f := range cat.fences {
 			if f.operationID != change.operationID && f.holds() && f.scope.overlaps(r.scope) {
 				return fencePlan{}, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,

@@ -222,17 +222,16 @@ var catalogTables = []string{
 )`,
 	// An admission fence closes a scope to application work while its
 	// operation changes routing: a whole tablegroup (shard_id NULL) or one
-	// shard of it. version is the routing_version of the fence's last change.
-	// A scope has at most one row, enforced in Go (admission_fences.go) under
-	// the catalog_state row lock; lifting a fence sets it UNFENCED rather
-	// than deleting it, so the version keeps a delayed unfence from
-	// overriding a later fence.
+	// shard of it. A scope has at most one row, enforced in Go (admission_fences.go) under
+	// the catalog_state row lock, and a row exists only while its scope is
+	// fenced: lifting a fence deletes it. version is the routing_version the
+	// fence was set at.
 	`CREATE TABLE IF NOT EXISTS multigres.admission_fence (
 	fence_id      bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 	operation_id  uuid   NOT NULL REFERENCES multigres.operation (operation_id),
 	tablegroup_id bigint NOT NULL REFERENCES multigres.tablegroup (tablegroup_id),
 	shard_id      bigint REFERENCES multigres.shard (shard_id),
-	state         text   NOT NULL CHECK (state IN ('FENCING', 'FENCED', 'UNFENCED')),
+	state         text   NOT NULL CHECK (state IN ('FENCING', 'FENCED')),
 	version       bigint NOT NULL
 )`,
 }

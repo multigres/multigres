@@ -135,7 +135,7 @@ type MultipoolerManagerClient interface {
 	// current version and writes nothing. A malformed list (empty, or with two
 	// overlapping scopes) returns INVALID_ARGUMENT; a stale
 	// expected_routing_version, a finished operation, a tablegroup being
-	// dropped, or a raised fence of another unfinished operation on an
+	// dropped, or a fence of another unfinished operation on an
 	// overlapping scope (a whole-tablegroup fence overlaps every shard fence of
 	// the tablegroup) returns FAILED_PRECONDITION.
 	//
@@ -144,14 +144,14 @@ type MultipoolerManagerClient interface {
 	// the scopes' application traffic is neither refused nor drained, and the
 	// caller must still quiesce it before changing routing rules.
 	FenceScopes(ctx context.Context, in *multipoolermanagerdata.FenceScopesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.FenceScopesResponse, error)
-	// UnfenceScopes lifts an operation's admission fences on a list of scopes,
-	// in one catalog write: each becomes UNFENCED at the same new routing
-	// version. Scopes the operation holds no raised fence on are skipped, and
-	// a call with none to lift returns the current version and writes nothing.
-	// An operation that has finished may still lift its fences. The expected
-	// version is checked against the fences being lifted, not the catalog's
-	// routing version (see UnfenceScopesRequest); a fence that changed after
-	// it returns FAILED_PRECONDITION.
+	// UnfenceScopes lifts an operation's admission fences on a list of scopes:
+	// it deletes them in one catalog write, at one new routing version. Scopes
+	// the operation holds no fence on are skipped, and a call with none to
+	// lift returns the current version and writes nothing. An operation that
+	// has finished may still lift its fences. The expected version is checked
+	// against the versions the lifted fences were set at, not the catalog's
+	// routing version (see UnfenceScopesRequest); a fence set after it returns
+	// FAILED_PRECONDITION.
 	UnfenceScopes(ctx context.Context, in *multipoolermanagerdata.UnfenceScopesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UnfenceScopesResponse, error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
@@ -523,7 +523,7 @@ type MultipoolerManagerServer interface {
 	// current version and writes nothing. A malformed list (empty, or with two
 	// overlapping scopes) returns INVALID_ARGUMENT; a stale
 	// expected_routing_version, a finished operation, a tablegroup being
-	// dropped, or a raised fence of another unfinished operation on an
+	// dropped, or a fence of another unfinished operation on an
 	// overlapping scope (a whole-tablegroup fence overlaps every shard fence of
 	// the tablegroup) returns FAILED_PRECONDITION.
 	//
@@ -532,14 +532,14 @@ type MultipoolerManagerServer interface {
 	// the scopes' application traffic is neither refused nor drained, and the
 	// caller must still quiesce it before changing routing rules.
 	FenceScopes(context.Context, *multipoolermanagerdata.FenceScopesRequest) (*multipoolermanagerdata.FenceScopesResponse, error)
-	// UnfenceScopes lifts an operation's admission fences on a list of scopes,
-	// in one catalog write: each becomes UNFENCED at the same new routing
-	// version. Scopes the operation holds no raised fence on are skipped, and
-	// a call with none to lift returns the current version and writes nothing.
-	// An operation that has finished may still lift its fences. The expected
-	// version is checked against the fences being lifted, not the catalog's
-	// routing version (see UnfenceScopesRequest); a fence that changed after
-	// it returns FAILED_PRECONDITION.
+	// UnfenceScopes lifts an operation's admission fences on a list of scopes:
+	// it deletes them in one catalog write, at one new routing version. Scopes
+	// the operation holds no fence on are skipped, and a call with none to
+	// lift returns the current version and writes nothing. An operation that
+	// has finished may still lift its fences. The expected version is checked
+	// against the versions the lifted fences were set at, not the catalog's
+	// routing version (see UnfenceScopesRequest); a fence set after it returns
+	// FAILED_PRECONDITION.
 	UnfenceScopes(context.Context, *multipoolermanagerdata.UnfenceScopesRequest) (*multipoolermanagerdata.UnfenceScopesResponse, error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by

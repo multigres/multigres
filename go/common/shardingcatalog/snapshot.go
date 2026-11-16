@@ -307,8 +307,7 @@ func (s *Snapshot) addFences(fences []*shardingcatalogpb.Fence) error {
 		}
 		switch f.GetState() {
 		case shardingcatalogpb.FenceState_FENCE_STATE_FENCING,
-			shardingcatalogpb.FenceState_FENCE_STATE_FENCED,
-			shardingcatalogpb.FenceState_FENCE_STATE_UNFENCED:
+			shardingcatalogpb.FenceState_FENCE_STATE_FENCED:
 		default:
 			return mterrors.NewInvalidShardingCatalogSnapshot("fence %d has unknown state %s", id, f.GetState())
 		}
@@ -711,5 +710,5 @@ func (f *Fence) Shard() *Shard { return f.shard }
 // State is the fence's state.
 func (f *Fence) State() shardingcatalogpb.FenceState { return f.state }
 
-// Version is the routing_version of the fence's last change.
+// Version is the routing_version the fence was set at.
 func (f *Fence) Version() int64 { return f.version }

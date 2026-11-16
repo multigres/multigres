@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS multigres.admission_fence (
 	operation_id  uuid   NOT NULL REFERENCES multigres.operation (operation_id),
 	tablegroup_id bigint NOT NULL REFERENCES multigres.tablegroup (tablegroup_id),
 	shard_id      bigint REFERENCES multigres.shard (shard_id),
-	state         text   NOT NULL CHECK (state IN ('FENCING', 'FENCED', 'UNFENCED')),
+	state         text   NOT NULL CHECK (state IN ('FENCING', 'FENCED')),
 	version       bigint NOT NULL
 )
 == seed
