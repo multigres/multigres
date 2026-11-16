@@ -485,13 +485,6 @@ func TestRecruit(t *testing.T) {
 		}
 	})
 
-	seedFloor := func(t *testing.T, pm *MultipoolerManager, floor *clustermetadatapb.LsnPosition) {
-		t.Helper()
-		lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed-floor")
-		require.NoError(t, err)
-		defer pm.actionLock.Release(lockCtx)
-		require.NoError(t, pm.consensusMgr.Promises().SetRecruitBlockedUntil(lockCtx, floor))
-	}
 	// rulePositionWithLSN builds a minimal PoolerPosition like makeRulePosition,
 	// but with a caller-chosen LSN instead of makeRulePosition's fixed one, for
 	// tests that need to control the LSN relative to a seeded floor.
@@ -508,7 +501,7 @@ func TestRecruit(t *testing.T) {
 		consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
 		_, err := pm.consensusMgr.Promises().Load()
 		require.NoError(t, err)
-		seedFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
+		seedRecruitFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
 
 		req := &consensusdatapb.RecruitRequest{
 			TermRevocation: &clustermetadatapb.TermRevocation{
@@ -532,7 +525,7 @@ func TestRecruit(t *testing.T) {
 		consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
 		_, err := pm.consensusMgr.Promises().Load()
 		require.NoError(t, err)
-		seedFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
+		seedRecruitFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
 
 		req := &consensusdatapb.RecruitRequest{
 			TermRevocation: &clustermetadatapb.TermRevocation{
@@ -555,7 +548,7 @@ func TestRecruit(t *testing.T) {
 		consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
 		_, err := pm.consensusMgr.Promises().Load()
 		require.NoError(t, err)
-		seedFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
+		seedRecruitFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
 
 		req := &consensusdatapb.RecruitRequest{
 			TermRevocation: &clustermetadatapb.TermRevocation{
@@ -586,7 +579,7 @@ func TestRecruit(t *testing.T) {
 		consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
 		_, err := pm.consensusMgr.Promises().Load()
 		require.NoError(t, err)
-		seedFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
+		seedRecruitFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
 
 		req := &consensusdatapb.RecruitRequest{
 			TermRevocation: &clustermetadatapb.TermRevocation{

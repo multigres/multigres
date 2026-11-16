@@ -15,8 +15,10 @@
 package multipooler
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,8 +27,10 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 
+	"github.com/multigres/multigres/go/common/backingconn"
 	migratorpb "github.com/multigres/multigres/go/pb/migrator"
 	multipoolerservicepb "github.com/multigres/multigres/go/pb/multipoolerservice"
+	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -62,18 +66,18 @@ func TestBackingConnectionsAreServedFromTheCatalog(t *testing.T) {
 	// The shared setup is used by other tests: remove what this one added. This
 	// runs before primaryDB is closed (defers run last in, first out).
 	defer func() {
-		if _, err := primaryDB.Exec(`DELETE FROM multigres.connections WHERE name IN ('backing-src', 'migrator-src')`); err != nil {
+		if _, err := primaryDB.Exec(`DELETE FROM multigres.connections WHERE name IN ('backing-src', 'migrator-src', 'migrator-cert', 'migrator-system', 'invalid-src')`); err != nil {
 			t.Errorf("cleanup: %v", err)
 		}
 	}()
 
-	// A connection for an unmanaged pooler, written in SQL as the operator does,
-	// and one the migrator creates, in the keyword=value form it stores.
-	_, err = primaryDB.Exec(`INSERT INTO multigres.connections (name, dsn)
-		VALUES ('backing-src', 'postgres://alice:s3cret@db.example.com:6543/app?sslmode=verify-full&sslrootcert=/ca.pem')`)
+	// A connection for an unmanaged pooler, written in SQL as the operator does, and one the
+	// migrator creates.
+	_, err = primaryDB.Exec(fmt.Sprintf(`INSERT INTO multigres.connections (name, dsn, conninfo)
+		VALUES ('backing-src', 'not read', '{"host":["db.example.com"],"port":[6543],"dbname":"%s","user":"alice","password":"s3cret","sslmode":"verify-full","sslrootcert":"/ca.pem"}')`, database))
 	require.NoError(t, err)
 	_, err = migrator.CreateConnection(utils.WithShortDeadline(t), &migratorpb.CreateConnectionRequest{
-		Connection: &migratorpb.Connection{Name: "migrator-src", Dsn: "host=source.example.com port=5433 dbname=app user=repl password='p w'"},
+		Connection: &migratorpb.Connection{Name: "migrator-src", Dsn: fmt.Sprintf("host=source.example.com port=5433 dbname=%s user=repl password='p w'", database)},
 	})
 	require.NoError(t, err)
 
@@ -85,7 +89,7 @@ func TestBackingConnectionsAreServedFromTheCatalog(t *testing.T) {
 		assert.Equal(t, "backing-src", got.GetName())
 		assert.Equal(t, []string{"db.example.com"}, got.GetHosts())
 		assert.Equal(t, []int32{6543}, got.GetPorts())
-		assert.Equal(t, "app", got.GetDatabase())
+		assert.Equal(t, database, got.GetDatabase())
 		assert.Equal(t, "alice", got.GetUser())
 		assert.Equal(t, "s3cret", got.GetPassword())
 		assert.Equal(t, "verify-full", got.GetSslMode())
@@ -108,24 +112,269 @@ func TestBackingConnectionsAreServedFromTheCatalog(t *testing.T) {
 	})
 
 	t.Run("a connection the migrator created is servable as it is", func(t *testing.T) {
-		// Its dsn is the keyword=value form the migrator stores; both forms are read alike.
 		resp, err := pooler.GetBackingConnection(utils.WithShortDeadline(t),
 			&multipoolerservicepb.GetBackingConnectionRequest{Database: database, ConnectionName: "migrator-src"})
 		require.NoError(t, err)
 		assert.Equal(t, []string{"source.example.com"}, resp.GetConnection().GetHosts())
 		assert.Equal(t, []int32{5433}, resp.GetConnection().GetPorts())
-		assert.Equal(t, "app", resp.GetConnection().GetDatabase())
+		assert.Equal(t, database, resp.GetConnection().GetDatabase())
 		assert.Equal(t, "repl", resp.GetConnection().GetUser())
 		assert.Equal(t, "p w", resp.GetConnection().GetPassword())
 	})
 
-	t.Run("a dsn that is not usable is refused", func(t *testing.T) {
-		_, err := primaryDB.Exec(`UPDATE multigres.connections SET dsn = 'postgres://alice@db.example.com:5432/app?channel_binding=require' WHERE name = 'backing-src'`)
+	// get serves the named connection through the default primary.
+	get := func(name string) (*multipoolerservicepb.GetBackingConnectionResponse, error) {
+		return pooler.GetBackingConnection(utils.WithShortDeadline(t),
+			&multipoolerservicepb.GetBackingConnectionRequest{Database: database, ConnectionName: name})
+	}
+
+	t.Run("a connection created through the migrator is stored structured and served without parsing", func(t *testing.T) {
+		var dsn, conninfo string
+		require.NoError(t, primaryDB.QueryRow(
+			`SELECT dsn, conninfo::text FROM multigres.connections WHERE name = 'migrator-src'`).Scan(&dsn, &conninfo))
+		assert.Equal(t, fmt.Sprintf(`dbname='%s' host='source.example.com' password='p w' port='5433' sslmode='require' user='repl'`, database), dsn)
+		assert.JSONEq(t, fmt.Sprintf(`{"host":["source.example.com"],"port":[5433],"dbname":"%s","user":"repl","password":"p w","sslmode":"require"}`, database), conninfo)
+
+		// Only the conninfo is read: with the dsn made garbage the connection is served all the same.
+		_, err := primaryDB.Exec(`UPDATE multigres.connections SET dsn = 'not a dsn' WHERE name = 'migrator-src'`)
 		require.NoError(t, err)
-		_, err = pooler.GetBackingConnection(utils.WithShortDeadline(t),
-			&multipoolerservicepb.GetBackingConnectionRequest{Database: database, ConnectionName: "backing-src"})
-		assert.Equal(t, codes.FailedPrecondition, status.Code(err), "a parameter that is not carried is refused, not dropped: %v", err)
-		_, err = primaryDB.Exec(`UPDATE multigres.connections SET dsn = 'postgres://alice@db.example.com:5432/app' WHERE name = 'backing-src'`)
+		resp, err := get("migrator-src")
 		require.NoError(t, err)
+		assert.Equal(t, []string{"source.example.com"}, resp.GetConnection().GetHosts())
+		assert.Equal(t, "p w", resp.GetConnection().GetPassword())
+	})
+
+	t.Run("a connection libpq would read differently is refused when it is created", func(t *testing.T) {
+		const dsn = "host=h port=5432 dbname=app user=alice password=s3cret morepw"
+		_, err := migrator.CreateConnection(utils.WithShortDeadline(t), &migratorpb.CreateConnectionRequest{
+			Connection: &migratorpb.Connection{Name: "invalid-src", Dsn: dsn},
+		})
+		assert.Equal(t, codes.InvalidArgument, status.Code(err), "%v", err)
+		assert.NotContains(t, fmt.Sprint(err), "s3cret")
+		var n int
+		require.NoError(t, primaryDB.QueryRow(`SELECT count(*) FROM multigres.connections WHERE name = 'invalid-src'`).Scan(&n))
+		assert.Zero(t, n, "nothing was stored")
+	})
+
+	t.Run("a connection for the migrator that a pooler cannot front is created, and refused when it is served", func(t *testing.T) {
+		_, err := migrator.CreateConnection(utils.WithShortDeadline(t), &migratorpb.CreateConnectionRequest{
+			Connection: &migratorpb.Connection{Name: "migrator-cert", Dsn: fmt.Sprintf("host=source.example.com port=5433 dbname=%s user=repl password=pw sslmode=require connect_timeout=5", database)},
+		})
+		require.NoError(t, err)
+		_, err = get("migrator-cert")
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err), "%v", err)
+		assert.Contains(t, fmt.Sprint(err), "connect_timeout")
+	})
+
+	t.Run("sslrootcert=system is created with verify-full and served as it is", func(t *testing.T) {
+		_, err := migrator.CreateConnection(utils.WithShortDeadline(t), &migratorpb.CreateConnectionRequest{
+			Connection: &migratorpb.Connection{Name: "migrator-system", Dsn: fmt.Sprintf("host=source.example.com port=5433 dbname=%s user=repl password=pw sslrootcert=system", database)},
+		})
+		require.NoError(t, err)
+		resp, err := get("migrator-system")
+		require.NoError(t, err)
+		assert.Equal(t, "system", resp.GetConnection().GetSslRootCert())
+	})
+
+	t.Run("the catalog refuses a conninfo that is structurally wrong, whoever writes it", func(t *testing.T) {
+		insert := func(conninfo string) error {
+			_, err := primaryDB.Exec(`INSERT INTO multigres.connections (name, dsn, conninfo) VALUES ('check-src', 'host=h', $1::jsonb)`, conninfo)
+			if err == nil {
+				_, delErr := primaryDB.Exec(`DELETE FROM multigres.connections WHERE name = 'check-src'`)
+				require.NoError(t, delErr)
+			}
+			return err
+		}
+		for name, ok := range map[string]string{
+			"one server":          `{"host":["h"],"port":[5432]}`,
+			"two servers":         `{"host":["a","b"],"port":[1,2],"dbname":"d"}`,
+			"two hosts, one port": `{"host":["a","b"],"port":[5432]}`,
+		} {
+			assert.NoError(t, insert(ok), name)
+		}
+		for name, bad := range map[string]string{
+			"not an object":           `[]`,
+			"no host or port":         `{}`,
+			"a host that is a string": `{"host":"h","port":[5432]}`,
+			"a port that is a number": `{"host":["h"],"port":5432}`,
+			"no hosts":                `{"host":[],"port":[5432]}`,
+			"no ports":                `{"host":["h"],"port":[]}`,
+			"an empty host":           `{"host":[""],"port":[5432]}`,
+			"a host that is a number": `{"host":[1],"port":[5432]}`,
+			"a null host":             `{"host":[null],"port":[5432]}`,
+			"a nested host":           `{"host":[["h"]],"port":[5432]}`,
+			"port 0":                  `{"host":["h"],"port":[0]}`,
+			"port 65536":              `{"host":["h"],"port":[65536]}`,
+			"a negative port":         `{"host":["h"],"port":[-1]}`,
+			"a fractional port":       `{"host":["h"],"port":[1.5]}`,
+			"a port that is a string": `{"host":["h"],"port":["5432"]}`,
+			"a port that is a bool":   `{"host":["h"],"port":[true]}`,
+			"ports that do not fit":   `{"host":["a","b","c"],"port":[1,2]}`,
+			"two ports for a host":    `{"host":["a"],"port":[1,2]}`,
+		} {
+			err := insert(bad)
+			require.Error(t, err, name)
+			assert.Contains(t, err.Error(), "connections_conninfo_servers", name)
+		}
+	})
+}
+
+// TestConnectionsStoredBeforeTheConnInfoColumnAreConvertedWhenTheCatalogIsSetUp verifies the upgrade
+// of a catalog that has connections and no conninfo column, as main's multigres.connections has
+// it: opening the catalog adds the column, converts the dsn of every connection that can be a
+// connection into its conninfo, and leaves the others without one, which reads as a connection to
+// drop and create again.
+func TestConnectionsStoredBeforeTheConnInfoColumnAreConvertedWhenTheCatalogIsSetUp(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("skipping: PostgreSQL binaries not found")
+	}
+
+	setup, cleanup := shardsetup.NewIsolated(t, shardsetup.WithMultipoolerCount(2))
+	defer cleanup()
+	primary := setup.GetPrimary(t)
+	primaryDB := connectToPostgresViaSocket(t,
+		getPostgresSocketPath(primary.Pgctld.PoolerDir), primary.Pgctld.PgPort)
+	defer primaryDB.Close()
+	var database string
+	require.NoError(t, primaryDB.QueryRow(`SELECT current_database()`).Scan(&database))
+
+	// The table as it was before the column: the column goes, and its constraint with it.
+	_, err := primaryDB.Exec(`ALTER TABLE multigres.connections DROP COLUMN conninfo`)
+	require.NoError(t, err)
+	checkCount := func() (n int) {
+		require.NoError(t, primaryDB.QueryRow(
+			`SELECT count(*) FROM pg_constraint WHERE conname = 'connections_conninfo_servers'`).Scan(&n))
+		return n
+	}
+	require.Zero(t, checkCount())
+
+	validDSN := fmt.Sprintf("host=legacy.example.com port=6543 dbname=%s user=alice password='s3 cret' sslmode=verify-full sslrootcert=system", database)
+	legacyDSNs := map[string]string{
+		"legacy-ok":          validDSN,
+		"legacy-no-password": fmt.Sprintf("host=legacy.example.com dbname=%s user=alice", database),
+		"legacy-socket":      fmt.Sprintf("host=/var/run/postgresql dbname=%s user=alice password=pw", database),
+	}
+	for name, dsn := range legacyDSNs {
+		_, err := primaryDB.Exec(`INSERT INTO multigres.connections (name, dsn, owner_role) VALUES ($1, $2, 'legacy_owner')`, name, dsn)
+		require.NoError(t, err, name)
+	}
+
+	restartMultipooler(t, primary)
+
+	conninfoOf := func(name string) (conninfo *string) {
+		require.NoError(t, primaryDB.QueryRow(
+			`SELECT conninfo::text FROM multigres.connections WHERE name = $1`, name).Scan(&conninfo))
+		return conninfo
+	}
+	require.Eventually(t, func() bool {
+		var filled bool
+		err := primaryDB.QueryRow(`SELECT conninfo IS NOT NULL FROM multigres.connections WHERE name = 'legacy-ok'`).Scan(&filled)
+		return err == nil && filled
+	}, 30*time.Second, 200*time.Millisecond, "opening the catalog should convert the connection")
+
+	dsnOf := func(name string) (dsn string) {
+		require.NoError(t, primaryDB.QueryRow(`SELECT dsn FROM multigres.connections WHERE name = $1`, name).Scan(&dsn))
+		return dsn
+	}
+
+	t.Run("a connection that can be converted is stored as CreateConnection stores it", func(t *testing.T) {
+		want, err := backingconn.FromDSN(validDSN)
+		require.NoError(t, err)
+		wantJSON, err := json.Marshal(want)
+		require.NoError(t, err)
+		got := conninfoOf("legacy-ok")
+		require.NotNil(t, got)
+		assert.JSONEq(t, string(wantJSON), *got)
+		assert.Equal(t, want.DSN(), dsnOf("legacy-ok"), "the dsn is the canonical rendering, not what was written")
+		assert.NotEqual(t, validDSN, dsnOf("legacy-ok"))
+	})
+
+	t.Run("a connection that cannot be converted keeps no conninfo and its dsn", func(t *testing.T) {
+		for _, name := range []string{"legacy-no-password", "legacy-socket"} {
+			assert.Nil(t, conninfoOf(name), name)
+			assert.Equal(t, legacyDSNs[name], dsnOf(name), name)
+		}
+	})
+
+	t.Run("the constraint is added and still refuses a structure that is wrong", func(t *testing.T) {
+		assert.Equal(t, 1, checkCount())
+		_, err := primaryDB.Exec(`INSERT INTO multigres.connections (name, dsn, conninfo) VALUES ('check-src', 'host=h', '{"host":[],"port":[5432]}'::jsonb)`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "connections_conninfo_servers")
+		_, err = primaryDB.Exec(`INSERT INTO multigres.connections (name, dsn, conninfo) VALUES ('check-src', 'host=h', '{"host":["h"],"port":[5432]}'::jsonb)`)
+		assert.NoError(t, err, "a structure that is right is accepted")
+		_, err = primaryDB.Exec(`DELETE FROM multigres.connections WHERE name = 'check-src'`)
+		require.NoError(t, err)
+	})
+
+	conn, err := grpc.NewClient(fmt.Sprintf("localhost:%d", primary.Multipooler.GrpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+	migrator := migratorpb.NewMigratorClient(conn)
+	byName := func(name string) *migratorpb.ConnectionRef {
+		return &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Name{Name: name}}
+	}
+
+	pooler := multipoolerservicepb.NewMultipoolerServiceClient(conn)
+
+	t.Run("a converted connection is served", func(t *testing.T) {
+		// The restarted pooler is the default primary again once it has taken its role back.
+		var resp *multipoolerservicepb.GetBackingConnectionResponse
+		require.Eventually(t, func() bool {
+			var err error
+			resp, err = pooler.GetBackingConnection(utils.WithShortDeadline(t),
+				&multipoolerservicepb.GetBackingConnectionRequest{Database: database, ConnectionName: "legacy-ok"})
+			return err == nil
+		}, 60*time.Second, 500*time.Millisecond, "the converted connection is served")
+		assert.Equal(t, []string{"legacy.example.com"}, resp.GetConnection().GetHosts())
+		assert.Equal(t, []int32{6543}, resp.GetConnection().GetPorts())
+		assert.Equal(t, "s3 cret", resp.GetConnection().GetPassword())
+	})
+
+	t.Run("a connection with no conninfo is one that cannot be read", func(t *testing.T) {
+		for _, name := range []string{"legacy-no-password", "legacy-socket"} {
+			_, err := migrator.GetConnection(utils.WithShortDeadline(t), &migratorpb.GetConnectionRequest{Ref: byName(name)})
+			assert.Equal(t, codes.FailedPrecondition, status.Code(err), "%s: %v", name, err)
+			assert.Contains(t, fmt.Sprint(err), "drop it and create it again", name)
+			assert.NotContains(t, fmt.Sprint(err), "pw", name)
+
+			_, err = pooler.GetBackingConnection(utils.WithShortDeadline(t),
+				&multipoolerservicepb.GetBackingConnectionRequest{Database: database, ConnectionName: name})
+			assert.Equal(t, codes.FailedPrecondition, status.Code(err), "%s: %v", name, err)
+			assert.Contains(t, fmt.Sprint(err), "drop it and create it again", name)
+		}
+	})
+
+	t.Run("a connection that cannot be read is listed with an empty dsn", func(t *testing.T) {
+		resp, err := migrator.ListConnections(utils.WithShortDeadline(t), &migratorpb.ListConnectionsRequest{})
+		require.NoError(t, err, "one connection that cannot be read does not fail the listing")
+		listed := map[string]*migratorpb.Connection{}
+		for _, c := range resp.GetConnections() {
+			listed[c.GetName()] = c
+		}
+		require.Len(t, listed, 3)
+		assert.Contains(t, listed["legacy-ok"].GetDsn(), "legacy.example.com")
+		for _, name := range []string{"legacy-no-password", "legacy-socket"} {
+			c := listed[name]
+			assert.Empty(t, c.GetDsn(), name)
+			assert.Equal(t, "legacy_owner", c.GetOwnerRole(), name)
+			assert.NotZero(t, c.GetId(), name)
+			assert.NotNil(t, c.GetCreatedAt(), name)
+		}
+	})
+
+	t.Run("a connection with no conninfo can be dropped", func(t *testing.T) {
+		for _, name := range []string{"legacy-no-password", "legacy-socket"} {
+			_, err := migrator.DropConnection(utils.WithShortDeadline(t), &migratorpb.DropConnectionRequest{Ref: byName(name)})
+			require.NoError(t, err, name)
+		}
+		resp, err := migrator.ListConnections(utils.WithShortDeadline(t), &migratorpb.ListConnectionsRequest{})
+		require.NoError(t, err)
+		require.Len(t, resp.GetConnections(), 1)
+		assert.Equal(t, "legacy-ok", resp.GetConnections()[0].GetName())
 	})
 }

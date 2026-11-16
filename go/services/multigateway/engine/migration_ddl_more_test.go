@@ -242,7 +242,7 @@ func TestMigrationDDL_CreateAlreadyExistsAndIfNotExists(t *testing.T) {
 	// create's DSN, with the CREATE CONNECTION defaults filled in).
 	_, err = runSQL(t, backend, "CREATE CONNECTION IF NOT EXISTS c OPTIONS (host 'h2')")
 	require.NoError(t, err)
-	assert.Equal(t, "dbname='postgres' host='h' port='5432' sslmode='require'", fake.conns["c"].GetDsn())
+	assert.Equal(t, "host='h'", fake.conns["c"].GetDsn())
 }
 
 func TestMigrationDDL_CreateMigrationOptionErrors(t *testing.T) {
@@ -305,25 +305,53 @@ func TestMigrationDDLHelpers_defElemValue(t *testing.T) {
 	assert.Equal(t, "h", defElemValue(defElem("host", "h")), "reads the literal's unescaped value")
 }
 
-func TestMigrationDDLHelpers_connectionDSN(t *testing.T) {
-	// host is required.
-	_, err := connectionDSN(nil)
-	assert.ErrorContains(t, err, "host")
+// An option that is not a libpq connection parameter is refused at the gateway, which can say
+// which one: the migrator checks the string it is given and cannot name a parameter.
+func TestMigrationDDLHelpers_connectionDSNRefusesAnUnknownOption(t *testing.T) {
+	_, err := connectionDSN(ast.NewNodeList(defElem("host", "h"), defElem("hots", "x")))
+	require.ErrorContains(t, err, `option "hots" is not a libpq connection parameter`)
 
-	// host present but empty is rejected the same way as a missing host.
-	_, err = connectionDSN(ast.NewNodeList(defElem("host", "")))
-	assert.ErrorContains(t, err, "host")
-
-	// Explicit options win; missing ones get the CREATE CONNECTION defaults.
-	// pgutil.ConnInfoString renders keys in sorted order, every value quoted.
-	list := ast.NewNodeList(
-		defElem("host", "db"),
-		ast.NewString("junk"), // non-DefElem entry is skipped
-		defElem("port", "5433"),
-	)
-	dsn, err := connectionDSN(list)
+	// libpq's own parameters are all accepted, in any case.
+	dsn, err := connectionDSN(ast.NewNodeList(defElem("HOST", "h"), defElem("SslRootCert", "/ca.pem"), defElem("connect_timeout", "5")))
 	require.NoError(t, err)
-	assert.Equal(t, "dbname='postgres' host='db' port='5433' sslmode='require'", dsn)
+	require.Contains(t, dsn, "sslrootcert='/ca.pem'")
+}
+
+// An option given twice is refused, as CREATE SERVER ... OPTIONS does (42710), whatever the case it
+// is written in, and not left to the last one.
+func TestMigrationDDLHelpers_connectionDSNRefusesADuplicateOption(t *testing.T) {
+	_, err := connectionDSN(ast.NewNodeList(defElem("host", "a"), defElem("HOST", "b")))
+	require.ErrorContains(t, err, `option "HOST" provided more than once`)
+	assert.Equal(t, mterrors.PgSSDuplicateObject, mterrors.ExtractSQLSTATE(err))
+
+	fake := &fakeMigrator{}
+	_, err = runSQL(t, newTestBackend(fake), "CREATE CONNECTION dup OPTIONS (host 'a', port '1', port '2')")
+	require.ErrorContains(t, err, `option "port" provided more than once`)
+	assert.Empty(t, fake.conns, "nothing is created")
+}
+
+// The gateway renders the options as they were written and decides nothing: no default is applied
+// and no host (or anything else) is required here, since the migrator does both, once, for every
+// connection (backingconn.FromDSN).
+func TestMigrationDDLHelpers_connectionDSNAppliesNoDefaultAndRequiresNothing(t *testing.T) {
+	dsn, err := connectionDSN(nil)
+	require.NoError(t, err)
+	assert.Empty(t, dsn)
+
+	dsn, err = connectionDSN(ast.NewNodeList(defElem("host", "")))
+	require.NoError(t, err)
+	assert.Equal(t, "host=''", dsn, "an empty host is the migrator's to refuse")
+
+	// Only what was given: no port, no database, no sslmode (not even for system roots). pgutil
+	// renders keys in sorted order, every value quoted. A non-DefElem entry is skipped.
+	dsn, err = connectionDSN(ast.NewNodeList(
+		defElem("host", "db"),
+		ast.NewString("junk"),
+		defElem("port", "5433"),
+		defElem("sslrootcert", "system"),
+	))
+	require.NoError(t, err)
+	assert.Equal(t, "host='db' port='5433' sslrootcert='system'", dsn)
 }
 
 func TestMigrationDDLHelpers_nameList(t *testing.T) {

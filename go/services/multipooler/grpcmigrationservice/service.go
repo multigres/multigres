@@ -273,10 +273,12 @@ func (s *migrationService) DropConnection(ctx context.Context, req *migratorpb.D
 }
 
 func connToProto(c *migration.Connection) *migratorpb.Connection {
+	// Rendering is empty for a connection that cannot be read: nothing derived from its stored
+	// form is shown, and the empty dsn is how a listing says so.
 	return &migratorpb.Connection{
 		Id:        c.ID,
 		Name:      c.Name,
-		Dsn:       c.DSN,
+		Dsn:       c.Rendering(),
 		OwnerRole: c.OwnerRole,
 		CreatedAt: timestamppb.New(c.CreatedAt),
 	}
@@ -294,10 +296,17 @@ func toGRPC(err error) error {
 	if errors.Is(err, migration.ErrConnectionNotFound) {
 		return status.Error(codes.NotFound, err.Error())
 	}
+	if errors.Is(err, migration.ErrInvalidConnection) {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
 	if errors.Is(err, migration.ErrConnectionInUse) {
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}
 	if errors.Is(err, migration.ErrNotReady) {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
+	if errors.Is(err, migration.ErrConnectionUnreadable) {
+		// Cannot be read; asking again does not help.
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}
 	if errors.Is(err, migration.ErrNoConnectionsTable) {

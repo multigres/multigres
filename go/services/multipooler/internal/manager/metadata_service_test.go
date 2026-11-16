@@ -87,7 +87,7 @@ func TestBackingConnectionComesFromTheDirectory(t *testing.T) {
 	require.ErrorContains(t, err, "directory down")
 
 	// A refusal by the directory keeps its code through the manager.
-	dir.err = errInvalidBackingDSN("it names more than one server")
+	dir.err = errUnusableConnection("it names more than one server")
 	_, err = pm.backingConnection(t.Context(), "src")
 	requireMetadataCode(t, mtrpcpb.Code_FAILED_PRECONDITION, err)
 
