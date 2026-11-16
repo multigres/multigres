@@ -145,6 +145,12 @@ const (
 	// MultiadminServiceDeleteRoutingRulesProcedure is the fully-qualified name of the
 	// MultiadminService's DeleteRoutingRules RPC.
 	MultiadminServiceDeleteRoutingRulesProcedure = "/multiadmin.MultiadminService/DeleteRoutingRules"
+	// MultiadminServiceFenceScopesProcedure is the fully-qualified name of the MultiadminService's
+	// FenceScopes RPC.
+	MultiadminServiceFenceScopesProcedure = "/multiadmin.MultiadminService/FenceScopes"
+	// MultiadminServiceUnfenceScopesProcedure is the fully-qualified name of the MultiadminService's
+	// UnfenceScopes RPC.
+	MultiadminServiceUnfenceScopesProcedure = "/multiadmin.MultiadminService/UnfenceScopes"
 )
 
 // MultiadminServiceClient is a client for the multiadmin.MultiadminService service.
@@ -360,6 +366,13 @@ type MultiadminServiceClient interface {
 	SetRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.SetRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.SetRoutingRulesResponse], error)
 	// DeleteRoutingRules deletes every routing rule of an operation.
 	DeleteRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error)
+	// FenceScopes raises an operation's admission fences on a list of scopes,
+	// in one catalog write. Scopes already fenced are skipped, so a retry
+	// succeeds. It records intent only: nothing enforces fences yet.
+	FenceScopes(context.Context, *connect.Request[multipoolermanagerdata.FenceScopesRequest]) (*connect.Response[multipoolermanagerdata.FenceScopesResponse], error)
+	// UnfenceScopes lifts an operation's admission fences on a list of scopes,
+	// in one catalog write.
+	UnfenceScopes(context.Context, *connect.Request[multipoolermanagerdata.UnfenceScopesRequest]) (*connect.Response[multipoolermanagerdata.UnfenceScopesResponse], error)
 }
 
 // NewMultiadminServiceClient constructs a client for the multiadmin.MultiadminService service. By
@@ -565,6 +578,18 @@ func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(multiadminServiceMethods.ByName("DeleteRoutingRules")),
 			connect.WithClientOptions(opts...),
 		),
+		fenceScopes: connect.NewClient[multipoolermanagerdata.FenceScopesRequest, multipoolermanagerdata.FenceScopesResponse](
+			httpClient,
+			baseURL+MultiadminServiceFenceScopesProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("FenceScopes")),
+			connect.WithClientOptions(opts...),
+		),
+		unfenceScopes: connect.NewClient[multipoolermanagerdata.UnfenceScopesRequest, multipoolermanagerdata.UnfenceScopesResponse](
+			httpClient,
+			baseURL+MultiadminServiceUnfenceScopesProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("UnfenceScopes")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -602,6 +627,8 @@ type multiadminServiceClient struct {
 	getRoutingRules            *connect.Client[multiadmin.GetRoutingRulesRequest, multiadmin.GetRoutingRulesResponse]
 	setRoutingRules            *connect.Client[multipoolermanagerdata.SetRoutingRulesRequest, multipoolermanagerdata.SetRoutingRulesResponse]
 	deleteRoutingRules         *connect.Client[multipoolermanagerdata.DeleteRoutingRulesRequest, multipoolermanagerdata.DeleteRoutingRulesResponse]
+	fenceScopes                *connect.Client[multipoolermanagerdata.FenceScopesRequest, multipoolermanagerdata.FenceScopesResponse]
+	unfenceScopes              *connect.Client[multipoolermanagerdata.UnfenceScopesRequest, multipoolermanagerdata.UnfenceScopesResponse]
 }
 
 // GetCell calls multiadmin.MultiadminService.GetCell.
@@ -762,6 +789,16 @@ func (c *multiadminServiceClient) SetRoutingRules(ctx context.Context, req *conn
 // DeleteRoutingRules calls multiadmin.MultiadminService.DeleteRoutingRules.
 func (c *multiadminServiceClient) DeleteRoutingRules(ctx context.Context, req *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error) {
 	return c.deleteRoutingRules.CallUnary(ctx, req)
+}
+
+// FenceScopes calls multiadmin.MultiadminService.FenceScopes.
+func (c *multiadminServiceClient) FenceScopes(ctx context.Context, req *connect.Request[multipoolermanagerdata.FenceScopesRequest]) (*connect.Response[multipoolermanagerdata.FenceScopesResponse], error) {
+	return c.fenceScopes.CallUnary(ctx, req)
+}
+
+// UnfenceScopes calls multiadmin.MultiadminService.UnfenceScopes.
+func (c *multiadminServiceClient) UnfenceScopes(ctx context.Context, req *connect.Request[multipoolermanagerdata.UnfenceScopesRequest]) (*connect.Response[multipoolermanagerdata.UnfenceScopesResponse], error) {
+	return c.unfenceScopes.CallUnary(ctx, req)
 }
 
 // MultiadminServiceHandler is an implementation of the multiadmin.MultiadminService service.
@@ -977,6 +1014,13 @@ type MultiadminServiceHandler interface {
 	SetRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.SetRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.SetRoutingRulesResponse], error)
 	// DeleteRoutingRules deletes every routing rule of an operation.
 	DeleteRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error)
+	// FenceScopes raises an operation's admission fences on a list of scopes,
+	// in one catalog write. Scopes already fenced are skipped, so a retry
+	// succeeds. It records intent only: nothing enforces fences yet.
+	FenceScopes(context.Context, *connect.Request[multipoolermanagerdata.FenceScopesRequest]) (*connect.Response[multipoolermanagerdata.FenceScopesResponse], error)
+	// UnfenceScopes lifts an operation's admission fences on a list of scopes,
+	// in one catalog write.
+	UnfenceScopes(context.Context, *connect.Request[multipoolermanagerdata.UnfenceScopesRequest]) (*connect.Response[multipoolermanagerdata.UnfenceScopesResponse], error)
 }
 
 // NewMultiadminServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -1178,6 +1222,18 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 		connect.WithSchema(multiadminServiceMethods.ByName("DeleteRoutingRules")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multiadminServiceFenceScopesHandler := connect.NewUnaryHandler(
+		MultiadminServiceFenceScopesProcedure,
+		svc.FenceScopes,
+		connect.WithSchema(multiadminServiceMethods.ByName("FenceScopes")),
+		connect.WithHandlerOptions(opts...),
+	)
+	multiadminServiceUnfenceScopesHandler := connect.NewUnaryHandler(
+		MultiadminServiceUnfenceScopesProcedure,
+		svc.UnfenceScopes,
+		connect.WithSchema(multiadminServiceMethods.ByName("UnfenceScopes")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/multiadmin.MultiadminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MultiadminServiceGetCellProcedure:
@@ -1244,6 +1300,10 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 			multiadminServiceSetRoutingRulesHandler.ServeHTTP(w, r)
 		case MultiadminServiceDeleteRoutingRulesProcedure:
 			multiadminServiceDeleteRoutingRulesHandler.ServeHTTP(w, r)
+		case MultiadminServiceFenceScopesProcedure:
+			multiadminServiceFenceScopesHandler.ServeHTTP(w, r)
+		case MultiadminServiceUnfenceScopesProcedure:
+			multiadminServiceUnfenceScopesHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1379,4 +1439,12 @@ func (UnimplementedMultiadminServiceHandler) SetRoutingRules(context.Context, *c
 
 func (UnimplementedMultiadminServiceHandler) DeleteRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.DeleteRoutingRules is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) FenceScopes(context.Context, *connect.Request[multipoolermanagerdata.FenceScopesRequest]) (*connect.Response[multipoolermanagerdata.FenceScopesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.FenceScopes is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) UnfenceScopes(context.Context, *connect.Request[multipoolermanagerdata.UnfenceScopesRequest]) (*connect.Response[multipoolermanagerdata.UnfenceScopesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.UnfenceScopes is not implemented"))
 }

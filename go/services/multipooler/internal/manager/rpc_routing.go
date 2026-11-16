@@ -22,7 +22,7 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// checkRoutingRuleCaller checks that a rule RPC for database reached the
+// checkRoutingRuleCaller checks that a rule or fence RPC for database reached the
 // catalog primary: the database is this pooler's, and this pooler is the
 // elected primary of the catalog shard, by the same checkCatalogShard and
 // checkCatalogPrimary every catalog writer uses.
@@ -84,6 +84,53 @@ func (pm *MultipoolerManager) DeleteRoutingRules(ctx context.Context, req *multi
 		return nil, err
 	}
 	return &multipoolermanagerdatapb.DeleteRoutingRulesResponse{RoutingVersion: versions.routingVersion}, nil
+}
+
+// FenceScopes raises an operation's admission fences on a list of scopes.
+// See the RPC's proto comment: the fences record intent and nothing enforces
+// them yet.
+func (pm *MultipoolerManager) FenceScopes(ctx context.Context, req *multipoolermanagerdatapb.FenceScopesRequest) (*multipoolermanagerdatapb.FenceScopesResponse, error) {
+	if err := pm.checkRoutingRuleCaller(ctx, req.GetDatabase()); err != nil {
+		return nil, err
+	}
+	versions, err := pm.writeFences(ctx, fenceChangeOf(req.GetOperationId(), req.GetScopes(), req.GetExpectedRoutingVersion(), false))
+	if err != nil {
+		return nil, err
+	}
+	return &multipoolermanagerdatapb.FenceScopesResponse{RoutingVersion: versions.routingVersion}, nil
+}
+
+// UnfenceScopes lifts an operation's admission fences on a list of scopes.
+func (pm *MultipoolerManager) UnfenceScopes(ctx context.Context, req *multipoolermanagerdatapb.UnfenceScopesRequest) (*multipoolermanagerdatapb.UnfenceScopesResponse, error) {
+	if err := pm.checkRoutingRuleCaller(ctx, req.GetDatabase()); err != nil {
+		return nil, err
+	}
+	versions, err := pm.writeFences(ctx, fenceChangeOf(req.GetOperationId(), req.GetScopes(), req.GetExpectedRoutingVersion(), true))
+	if err != nil {
+		return nil, err
+	}
+	return &multipoolermanagerdatapb.UnfenceScopesResponse{RoutingVersion: versions.routingVersion}, nil
+}
+
+func fenceChangeOf(operationID string, scopes []*multipoolermanagerdatapb.FenceScopeSpec, expectedRoutingVersion int64, lift bool) fenceChange {
+	change := fenceChange{operationID: operationID, lift: lift, expectedRoutingVersion: expectedRoutingVersion}
+	for _, s := range scopes {
+		change.scopes = append(change.scopes, fenceScopeSpec{tablegroup: s.GetTablegroup(), shard: s.GetShard()})
+	}
+	return change
+}
+
+// writeFences writes change through changeFences and logs the routing
+// version it leaves.
+func (pm *MultipoolerManager) writeFences(ctx context.Context, change fenceChange) (catalogVersions, error) {
+	versions, err := pm.changeFences(ctx, change)
+	if err != nil {
+		return catalogVersions{}, err
+	}
+	pm.logger.InfoContext(ctx, "admission fences changed",
+		"operation_id", change.operationID, "scopes", len(change.scopes),
+		"unfence", change.lift, "routing_version", versions.routingVersion)
+	return versions, nil
 }
 
 // writeRoutingRules writes change through changeRoutingRules and logs the
