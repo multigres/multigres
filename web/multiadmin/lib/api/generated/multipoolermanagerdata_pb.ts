@@ -3990,7 +3990,8 @@ export class UnfenceScopesRequest extends Message<UnfenceScopesRequest> {
   database = "";
 
   /**
-   * operation_id is the operation that owns the fences (a UUID).
+   * operation_id is the operation that owns the fences (a UUID). It may have
+   * finished: lifting fences is always allowed.
    *
    * @generated from field: string operation_id = 2;
    */
@@ -4006,8 +4007,12 @@ export class UnfenceScopesRequest extends Message<UnfenceScopesRequest> {
   scopes: FenceScopeSpec[] = [];
 
   /**
-   * expected_routing_version is the routing version the change is based on.
-   * A change with no scope to unfence succeeds whatever its value.
+   * expected_routing_version is a routing version at which the caller read
+   * the fences it lifts. Unlike other catalog writes, it is checked only
+   * against those fences: the call fails if any of them changed after it, so
+   * a delayed unfence cannot lift a fence raised again since, but other
+   * catalog writes do not force a retry. A change with no scope to unfence
+   * succeeds whatever its value.
    *
    * @generated from field: int64 expected_routing_version = 4;
    */

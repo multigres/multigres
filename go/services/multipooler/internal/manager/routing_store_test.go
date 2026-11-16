@@ -17,6 +17,7 @@ package manager
 import (
 	"context"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -218,6 +219,28 @@ func TestApplyRoutingRuleChange_Delete(t *testing.T) {
 	assert.Equal(t, []fakeRoutingCall{
 		{sql: deleteOperationRulesSQL, args: []any{importOp}},
 	}, tx.writes())
+}
+
+// A rule change names its operation in any spelling uuid.Parse accepts; its
+// rules and fences are still found.
+func TestApplyRoutingRuleChange_CanonicalOperationID(t *testing.T) {
+	tx := newFakeRoutingTx([]any{7, importOp, routingScopeTablegroup, 1, nil, 2, 2, nil, 5})
+	change, err := applyRoutingRuleChange(context.Background(), tx, testRoutingCurrent, testRoutingNext, routingRuleChange{
+		operationID:            "urn:uuid:" + importOp,
+		rules:                  []shardRuleSpec{{fromTablegroup: "default", toTablegroup: "srctg", toShard: "0-inf"}},
+		expectedRoutingVersion: 4,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, catalogNoSnapshotChange, change, "the operation's existing rule is found: a retry")
+	assert.Empty(t, tx.writes())
+
+	// A delete in another spelling finds the rule and the fences.
+	tx = newFakeRoutingTx([]any{7, importOp, routingScopeTablegroup, 1, nil, 2, 2, nil, 5})
+	change, err = applyRoutingRuleChange(context.Background(), tx, testRoutingCurrent, testRoutingNext,
+		routingRuleChange{operationID: strings.ReplaceAll(importOp, "-", ""), expectedRoutingVersion: 5})
+	require.NoError(t, err)
+	assert.Equal(t, catalogRoutingChange, change)
+	assert.Equal(t, []fakeRoutingCall{{sql: deleteOperationRulesSQL, args: []any{importOp}}}, tx.writes(), "written with the canonical id")
 }
 
 func TestApplyRoutingRuleChange_WritesNothing(t *testing.T) {

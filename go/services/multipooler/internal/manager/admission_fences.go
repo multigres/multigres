@@ -120,6 +120,8 @@ type fenceWrite struct {
 	fenceID int64
 	scope   fenceScope
 	state   string
+	// version is the row's version before the write, 0 for a new row.
+	version int64
 }
 
 // fencePlan is what a validated fence change writes: the scopes of the change
@@ -142,6 +144,7 @@ func (pm *MultipoolerManager) changeFences(ctx context.Context, change fenceChan
 // change against the catalog at current and writes its fence rows in tx, all
 // stamped with next.
 func applyFenceChange(ctx context.Context, tx executor.InternalTx, current catalogVersions, next int64, change fenceChange) (catalogChange, error) {
+	change.operationID = canonicalOperationID(change.operationID)
 	cat, err := loadRoutingCatalog(ctx, tx, current, change.operationID)
 	if err != nil {
 		return catalogNoSnapshotChange, err
@@ -177,6 +180,9 @@ func applyFenceChange(ctx context.Context, tx executor.InternalTx, current catal
 // Each scope whose fence already holds is skipped, and a change in which every
 // scope already holds returns an empty plan whatever its
 // expectedRoutingVersion, so a retry of a change that committed succeeds.
+//
+// A fence is checked against the catalog's routing version; a lift only
+// against the versions of the fences it lifts (see the comment at the lift).
 func planFenceChange(cat *routingCatalog, change fenceChange) (fencePlan, error) {
 	if err := checkFenceChangeRequest(change); err != nil {
 		return fencePlan{}, err
@@ -220,11 +226,29 @@ func planFenceChange(cat *routingCatalog, change fenceChange) (fencePlan, error)
 			continue
 		}
 		if existing != nil {
-			w.fenceID = existing.fenceID
+			w.fenceID, w.version = existing.fenceID, existing.version
 		}
 		plan.writes = append(plan.writes, w)
 	}
 	if len(plan.writes) == 0 {
+		return plan, nil
+	}
+
+	if change.lift {
+		// Lifting a fence, like deleting rules, must always be possible,
+		// including by an operation that has finished, so its fences can be
+		// cleaned up. The only hazard is a delayed unfence lifting a fence
+		// raised again after the caller last read it, so the lift is checked
+		// against the versions of the fences it lifts rather than the
+		// catalog's routing version: catalog writes that did not touch them
+		// do not force a retry.
+		for _, w := range plan.writes {
+			if w.version > change.expectedRoutingVersion {
+				return fencePlan{}, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+					"the fence on %s changed at routing version %d, after the expected %d",
+					cat.describeFenceScope(w.scope), w.version, change.expectedRoutingVersion)
+			}
+		}
 		return plan, nil
 	}
 
@@ -239,10 +263,6 @@ func planFenceChange(cat *routingCatalog, change fenceChange) (fencePlan, error)
 	if slices.Contains(terminalOperationStates, cat.operation.state) {
 		return fencePlan{}, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"operation %s is %s and may not change fences", change.operationID, cat.operation.state)
-	}
-	if change.lift {
-		// Lifting a fence, like deleting rules, must always be possible.
-		return plan, nil
 	}
 
 	for _, r := range scopes {

@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -197,39 +198,61 @@ func TestPlanFenceChange_List(t *testing.T) {
 		c.lift = true
 		plan, err := planFenceChange(cat, c)
 		require.NoError(t, err)
-		assert.Equal(t, []fenceWrite{{fenceID: 7, scope: onShard(tgCommerce, shardC0080), state: fenceStateUnfenced}}, plan.writes)
+		assert.Equal(t, []fenceWrite{{fenceID: 7, scope: onShard(tgCommerce, shardC0080), state: fenceStateUnfenced, version: testRoutingV0}}, plan.writes)
 	})
 }
 
 func TestPlanFenceChange_Operation(t *testing.T) {
-	for _, change := range []fenceChange{fence(importOp, "commerce", ""), unfence(importOp, "commerce", "")} {
-		t.Run(map[bool]string{false: "fence", true: "unfence"}[change.lift], func(t *testing.T) {
-			raised := fenceRow(7, importOp, tgCommerce, 0, fenceStateFenced)
+	t.Run("fencing needs an unfinished operation", func(t *testing.T) {
+		cat := unfencedCatalog(fenceRow(7, importOp, tgCommerce, 0, fenceStateFenced))
+		cat.operation = nil
+		// Fencing a scope the operation already holds is a no-op.
+		_, err := planFenceChange(cat, fence(importOp, "commerce", ""))
+		require.NoError(t, err)
+		cat.fences = nil
+		_, err = planFenceChange(cat, fence(importOp, "commerce", ""))
+		requireRoutingCode(t, err, mtrpcpb.Code_FAILED_PRECONDITION, "operation "+importOp+" does not exist")
 
-			cat := unfencedCatalog(raised)
-			cat.operation = nil
-			_, err := planFenceChange(cat, change)
-			if change.lift {
-				requireRoutingCode(t, err, mtrpcpb.Code_FAILED_PRECONDITION, "operation "+importOp+" does not exist")
-			} else {
-				// Fencing a scope the operation already holds is a no-op.
-				require.NoError(t, err)
-				cat.fences = nil
-				_, err = planFenceChange(cat, change)
-				requireRoutingCode(t, err, mtrpcpb.Code_FAILED_PRECONDITION, "operation "+importOp+" does not exist")
-			}
+		for _, state := range terminalOperationStates {
+			cat := unfencedCatalog()
+			cat.operation.state = state
+			_, err := planFenceChange(cat, fence(importOp, "commerce", ""))
+			requireRoutingCode(t, err, mtrpcpb.Code_FAILED_PRECONDITION, "is "+state+" and may not change fences")
+		}
+	})
+	t.Run("a finished operation can still lift its fences", func(t *testing.T) {
+		for _, state := range terminalOperationStates {
+			cat := unfencedCatalog(fenceRow(7, importOp, tgCommerce, 0, fenceStateFenced))
+			cat.operation.state = state
+			plan, err := planFenceChange(cat, unfence(importOp, "commerce", ""))
+			require.NoError(t, err, state)
+			assert.Equal(t, fenceStateUnfenced, onlyWrite(t, plan).state, state)
+		}
+	})
+}
 
-			for _, state := range terminalOperationStates {
-				cat := unfencedCatalog()
-				if change.lift {
-					cat.fences = []catalogFence{raised}
-				}
-				cat.operation.state = state
-				_, err := planFenceChange(cat, change)
-				requireRoutingCode(t, err, mtrpcpb.Code_FAILED_PRECONDITION, "is "+state+" and may not change fences")
-			}
-		})
-	}
+func TestPlanFenceChange_UnfenceVersion(t *testing.T) {
+	// The import's fence on commerce 0-80 was last written at testRoutingV0;
+	// the catalog has moved on since.
+	cat := unfencedCatalog(fenceRow(7, importOp, tgCommerce, shardC0080, fenceStateFenced))
+	cat.routingVersion = testRoutingV0 + 3
+
+	t.Run("unrelated catalog writes do not force a retry", func(t *testing.T) {
+		plan, err := planFenceChange(cat, unfence(importOp, "commerce", "0-80"))
+		require.NoError(t, err)
+		assert.Equal(t, fenceStateUnfenced, onlyWrite(t, plan).state)
+	})
+	t.Run("a delayed unfence does not lift a later fence", func(t *testing.T) {
+		c := unfence(importOp, "commerce", "0-80")
+		c.expectedRoutingVersion = testRoutingV0 - 1
+		_, err := planFenceChange(cat, c)
+		requireRoutingCode(t, err, mtrpcpb.Code_FAILED_PRECONDITION,
+			`the fence on shard "0-80" of tablegroup "commerce" changed at routing version 5, after the expected 4`)
+	})
+	t.Run("fencing still checks the catalog's routing version", func(t *testing.T) {
+		_, err := planFenceChange(cat, fence(importOp, "commerce", "80-inf"))
+		requireRoutingCode(t, err, mtrpcpb.Code_FAILED_PRECONDITION, "routing version is 8, expected 5")
+	})
 }
 
 func TestPlanFenceChange_Overlap(t *testing.T) {
@@ -287,7 +310,7 @@ func TestPlanFenceChange_Unfence(t *testing.T) {
 		for _, state := range []string{fenceStateFencing, fenceStateFenced} {
 			plan, err := planFenceChange(unfencedCatalog(fenceRow(7, importOp, tgCommerce, shardC0080, state)), unfence(importOp, "commerce", "0-80"))
 			require.NoError(t, err, state)
-			assert.Equal(t, fenceWrite{fenceID: 7, scope: fenceScope{tablegroupID: tgCommerce, shardID: shardC0080}, state: fenceStateUnfenced}, onlyWrite(t, plan), state)
+			assert.Equal(t, fenceWrite{fenceID: 7, scope: fenceScope{tablegroupID: tgCommerce, shardID: shardC0080}, state: fenceStateUnfenced, version: testRoutingV0}, onlyWrite(t, plan), state)
 		}
 	})
 	t.Run("a tablegroup being dropped can still be unfenced", func(t *testing.T) {
@@ -493,6 +516,17 @@ func TestApplyFenceChange(t *testing.T) {
 			{sql: insertFenceSQL, args: []any{importOp, int64(3), &shard12, fenceStateFenced, next}},
 			{sql: insertFenceSQL, args: []any{importOp, int64(2), nilID, fenceStateFenced, next}},
 		}, tx.writes(), "the 0-80 fence already holds and is skipped")
+	})
+	t.Run("an operation id in another spelling is the same operation", func(t *testing.T) {
+		tx := newFakeRoutingTx()
+		tx.results[selectFencesSQL] = fenceResult([]any{70, importOp, 3, 11, fenceStateFenced, 4, "preparing"})
+		// The same uuid without hyphens: a retry, not another operation
+		// whose fence overlaps.
+		got, err := applyFenceChange(context.Background(), tx, testRoutingCurrent, next,
+			fence(strings.ReplaceAll(importOp, "-", ""), "commerce", "0-80"))
+		require.NoError(t, err)
+		assert.Equal(t, catalogNoSnapshotChange, got)
+		assert.Empty(t, tx.writes())
 	})
 	t.Run("a refused change writes nothing", func(t *testing.T) {
 		tx := newFakeRoutingTx()

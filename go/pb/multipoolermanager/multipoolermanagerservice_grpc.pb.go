@@ -148,6 +148,10 @@ type MultipoolerManagerClient interface {
 	// in one catalog write: each becomes UNFENCED at the same new routing
 	// version. Scopes the operation holds no raised fence on are skipped, and
 	// a call with none to lift returns the current version and writes nothing.
+	// An operation that has finished may still lift its fences. The expected
+	// version is checked against the fences being lifted, not the catalog's
+	// routing version (see UnfenceScopesRequest); a fence that changed after
+	// it returns FAILED_PRECONDITION.
 	UnfenceScopes(ctx context.Context, in *multipoolermanagerdata.UnfenceScopesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UnfenceScopesResponse, error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
@@ -532,6 +536,10 @@ type MultipoolerManagerServer interface {
 	// in one catalog write: each becomes UNFENCED at the same new routing
 	// version. Scopes the operation holds no raised fence on are skipped, and
 	// a call with none to lift returns the current version and writes nothing.
+	// An operation that has finished may still lift its fences. The expected
+	// version is checked against the fences being lifted, not the catalog's
+	// routing version (see UnfenceScopesRequest); a fence that changed after
+	// it returns FAILED_PRECONDITION.
 	UnfenceScopes(context.Context, *multipoolermanagerdata.UnfenceScopesRequest) (*multipoolermanagerdata.UnfenceScopesResponse, error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by

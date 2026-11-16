@@ -187,9 +187,20 @@ func TestAdmissionFences_RPCs(t *testing.T) {
 		assert.Equal(t, fenceState{
 			tablegroup: "srctg", shard: "0-inf", operationID: routingImportOp, state: shardingcatalogpb.FenceState_FENCE_STATE_FENCED, version: version,
 		}, fences[1])
+
+		// A delayed unfence, based on a version from before the fence was
+		// raised again, does not lift it.
+		_, err = pc.manager.UnfenceScopes(ctx, &mdpb.UnfenceScopesRequest{
+			Database: routingE2EDatabase, OperationId: routingImportOp, ExpectedRoutingVersion: version - 1,
+			Scopes: []*mdpb.FenceScopeSpec{fenceSpec("srctg", "0-inf")},
+		})
+		require.Error(t, err)
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+		assert.Contains(t, err.Error(), `the fence on shard "0-inf" of tablegroup "srctg" changed at routing version`)
 	})
 
 	t.Run("delete the rule and unfence", func(t *testing.T) {
+		fenced := version
 		resp, err := pc.manager.DeleteRoutingRules(ctx, &mdpb.DeleteRoutingRulesRequest{
 			Database: routingE2EDatabase, OperationId: routingImportOp, ExpectedRoutingVersion: version,
 		})
@@ -197,10 +208,12 @@ func TestAdmissionFences_RPCs(t *testing.T) {
 		version = resp.GetRoutingVersion()
 		assert.Empty(t, pc.snapshot(t).GetRules())
 
-		// Both sides are lifted in one call, at one version.
+		// Both sides are lifted in one call, at one version. The lift is
+		// based on the version the fences were read at: the rule delete
+		// since does not force a retry.
 		deleted := version
 		both := []*mdpb.FenceScopeSpec{fenceSpec("default", ""), fenceSpec("srctg", "0-inf")}
-		version = pc.unfence(t, routingImportOp, version, both...)
+		version = pc.unfence(t, routingImportOp, fenced, both...)
 		assert.Equal(t, deleted+1, version)
 		// Unfencing again, or a scope never fenced, is a no-op.
 		assert.Equal(t, version, pc.unfence(t, routingImportOp, 0, both...))

@@ -4638,14 +4638,19 @@ type UnfenceScopesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// database must be the database the pooler serves.
 	Database string `protobuf:"bytes,1,opt,name=database,proto3" json:"database,omitempty"`
-	// operation_id is the operation that owns the fences (a UUID).
+	// operation_id is the operation that owns the fences (a UUID). It may have
+	// finished: lifting fences is always allowed.
 	OperationId string `protobuf:"bytes,2,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
 	// scopes are the scopes to unfence, with the same rules as in
 	// FenceScopesRequest. Scopes the operation holds no raised fence on are
 	// skipped.
 	Scopes []*FenceScopeSpec `protobuf:"bytes,3,rep,name=scopes,proto3" json:"scopes,omitempty"`
-	// expected_routing_version is the routing version the change is based on.
-	// A change with no scope to unfence succeeds whatever its value.
+	// expected_routing_version is a routing version at which the caller read
+	// the fences it lifts. Unlike other catalog writes, it is checked only
+	// against those fences: the call fails if any of them changed after it, so
+	// a delayed unfence cannot lift a fence raised again since, but other
+	// catalog writes do not force a retry. A change with no scope to unfence
+	// succeeds whatever its value.
 	ExpectedRoutingVersion int64 `protobuf:"varint,4,opt,name=expected_routing_version,json=expectedRoutingVersion,proto3" json:"expected_routing_version,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache

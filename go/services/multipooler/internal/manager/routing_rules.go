@@ -217,6 +217,19 @@ func planRoutingRuleChange(cat *routingCatalog, change routingRuleChange) (routi
 	}, nil
 }
 
+// canonicalOperationID returns id in the form the catalog reads operation ids
+// back in (operation_id::text: lowercase and hyphenated), so ids from a
+// request compare equal to the ones stored. uuid.Parse also accepts upper
+// case, no hyphens, braces and a urn:uuid: prefix. An id that is not a uuid is
+// returned unchanged, for checkRuleChangeRequest to refuse.
+func canonicalOperationID(id string) string {
+	u, err := uuid.Parse(id)
+	if err != nil {
+		return id
+	}
+	return u.String()
+}
+
 // checkRuleChangeRequest checks the shape of a change, before it is resolved
 // against the catalog.
 func checkRuleChangeRequest(change routingRuleChange) error {

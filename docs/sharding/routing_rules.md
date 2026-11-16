@@ -78,13 +78,19 @@ call it refuses writes none, so a failure never leaves part of a list fenced.
 A reshard fences its target shards and the source shards they split in one
 call; an import fences `default` and its source tablegroup in one call.
 
-Calls follow the same expected version and retry rules as rule changes. Scopes
-the operation has already fenced (or, for `UnfenceScopes`, holds no raised
-fence on) are skipped, and a call with nothing left to write returns the
-current version whatever version it passed, so a retry of the same list
-succeeds. A list must be non-empty, and no two of its scopes may overlap (the
-same scope twice, or a whole tablegroup and one of its shards); otherwise the
-call answers `INVALID_ARGUMENT`. `FenceScopes` is refused when the operation
+Scopes the operation has already fenced (or, for `UnfenceScopes`, holds no
+raised fence on) are skipped, and a call with nothing left to write returns
+the current version whatever version it passed, so a retry of the same list
+succeeds. `FenceScopes` checks its expected version against the catalog's
+routing version, as rule changes do. `UnfenceScopes` checks it only against
+the fences it lifts: it fails if any of them changed after that version, so a
+delayed unfence cannot lift a fence raised again since, but unrelated catalog
+writes do not force a retry. Lifting is always allowed, even by an operation
+that has finished, so its fences can be cleaned up.
+
+A list must be non-empty, and no two of its scopes may overlap (the same scope
+twice, or a whole tablegroup and one of its shards); otherwise the call
+answers `INVALID_ARGUMENT`. `FenceScopes` is refused when the operation
 does not exist or has finished, a tablegroup is being dropped, or another
 unfinished operation holds a raised fence on a scope that overlaps one in the
 list: a whole-tablegroup fence overlaps every shard fence of the tablegroup. A

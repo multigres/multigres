@@ -158,6 +158,10 @@ service MultipoolerManager {
   // in one catalog write: each becomes UNFENCED at the same new routing
   // version. Scopes the operation holds no raised fence on are skipped, and
   // a call with none to lift returns the current version and writes nothing.
+  // An operation that has finished may still lift its fences. The expected
+  // version is checked against the fences being lifted, not the catalog's
+  // routing version (see UnfenceScopesRequest); a fence that changed after
+  // it returns FAILED_PRECONDITION.
   rpc UnfenceScopes(multipoolermanagerdata.UnfenceScopesRequest)
       returns (multipoolermanagerdata.UnfenceScopesResponse);
 
