@@ -964,6 +964,27 @@ func TestPromote(t *testing.T) {
 			expectErrContains: "promote failed: could not write rule",
 		},
 		{
+			name:        "PendingRewindRemovalError",
+			initialTerm: recruitedTerm,
+			ruleStore:   &fakeRuleStore{pos: makeRulePosition(0)},
+			req:         makeLeaderReq(),
+			setupMocks:  expectLeaderPromoteMocks,
+			preRun: func(t *testing.T, pm *MultipoolerManager) {
+				withLock(t, pm, func(ctx context.Context) {
+					require.NoError(t, pm.markSuspectedDivergence(ctx))
+				})
+				require.NoError(t, os.Remove(pm.rewindPending().path))
+				blockPendingRewindMarker(t, pm)
+			},
+			expectError:       true,
+			expectErrContains: "failed to clear suspected divergence after promotion",
+			postCheck: func(t *testing.T, pm *MultipoolerManager, rs *fakeRuleStore) {
+				rs.assertPromoteRecorded(t)
+				assert.True(t, pm.consensusMgr.SuspectedDivergence())
+				assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, pm.healthStreamer.getState().ServingStatus)
+			},
+		},
+		{
 			// postgres is already primary (not in recovery): the standby-state
 			// precondition check rejects the proposal. The coordinator must
 			// re-Recruit before calling Promote again.

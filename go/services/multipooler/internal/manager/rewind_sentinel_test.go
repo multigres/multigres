@@ -33,6 +33,13 @@ import (
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 )
 
+// A non-empty directory at the marker path forces both WriteFile and Remove
+// to fail, including when the test process runs as root.
+func blockPendingRewindMarker(t *testing.T, pm *MultipoolerManager) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Join(pm.rewindPending().path, "child"), 0o700))
+}
+
 // TestDiscoverPostgresState_RewindSentinel verifies discoverPostgresState surfaces
 // the on-disk rewind sentinel, the durable signal the monitor gates on.
 func TestDiscoverPostgresState_RewindSentinel(t *testing.T) {

@@ -535,6 +535,28 @@ func TestSetPrimary_StalePrimaryDemotes(t *testing.T) {
 		"a completed rewind must not leave a serving hold after restart")
 }
 
+func TestSetPrimary_PendingRewindWriteError(t *testing.T) {
+	queryService := mock.NewQueryService()
+	queryService.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+	pm, pgctld := setupManagerWithMockDBAndPgctld(t, queryService, &fakeRuleStore{pos: makeRulePosition(3)})
+	blockPendingRewindMarker(t, pm)
+
+	leader := newLeaderAddress("new-primary", "primary-host", 5432)
+	_, err := pm.SetPrimary(t.Context(), &consensusdatapb.SetPrimaryRequest{
+		ReplicationPrimary: &clustermetadatapb.ReplicationPrimary{
+			Position:    &clustermetadatapb.RulePosition{Decision: ruleAtTermForLeader(leader, 10)},
+			Primary:     leader,
+			RewindReady: true,
+		},
+	})
+
+	require.ErrorContains(t, err, "failed to record suspected divergence")
+	assert.True(t, pm.consensusMgr.SuspectedDivergence())
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, pm.healthStreamer.getState().ServingStatus)
+	assert.Empty(t, pgctld.StopCalls)
+}
+
 // TestSetPrimary_StalePrimaryDefersRewindWhenLeaderUnreachable verifies that a
 // stale primary told about a rewind-ready leader whose postgres is down defers
 // the demote without stopping its own postgres. pg_rewind against that leader

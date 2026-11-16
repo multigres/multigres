@@ -1920,6 +1920,20 @@ func TestRestartAsStandby_RewindKeepsHigherOutstandingFloor(t *testing.T) {
 	assert.Len(t, mockPgctld.PgRewindCalls, 2, "the rewind itself still runs")
 }
 
+func TestRestartAsStandby_PendingRewindRemovalError(t *testing.T) {
+	queryService := mock.NewQueryService()
+	expectRewindPositionFloorMocks(queryService)
+	pm, pgctld, source := newRewindFloorManager(t, queryService)
+	blockPendingRewindMarker(t, pm)
+
+	_, err := rewindAsStandbyForTest(t, pm, source)
+
+	require.ErrorContains(t, err, "failed to clear suspected divergence after restart as standby")
+	assert.Len(t, pgctld.PgRewindCalls, 2, "both the dry run and the rewind completed")
+	assert.True(t, pm.consensusMgr.SuspectedDivergence())
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, pm.healthStreamer.getState().ServingStatus)
+}
+
 func TestRestartAsStandby_RewindAbortsWhenFloorCannotBeRecorded(t *testing.T) {
 	mockQueryService := mock.NewQueryService()
 	expectRewindPositionFloorMocksAt(mockQueryService, "not-an-lsn")
