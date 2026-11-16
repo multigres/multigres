@@ -202,8 +202,11 @@ mode:
 
 1. Wait until the sharding catalog cache has installed a snapshot whose
    `routing_version` is greater than the one the refused attempt planned
-   against (`shardingcatalogcache.Cache.WaitForRoutingVersion`, which triggers
-   a fetch at once).
+   against, and which no longer has an admission fence on the target that
+   refused it, on its shard or its whole tablegroup
+   (`shardingcatalogcache.Cache.WaitForUnfenced`, which triggers a fetch at
+   once). Both conditions matter: a gateway behind the fence first learns of
+   it from a newer snapshot that still fences the target.
 2. Plan the statement again.
 3. Run it again.
 
@@ -212,13 +215,13 @@ implicit (a multi-statement query, or an extended-protocol pipeline before its
 Sync), when an earlier step of its plan already ran on a pooler (for example
 the resolve query of a dynamic `set_config`), or when output has already
 reached the client. The client then gets the `MTF02`, which tells
-it to retry. A gateway a version behind the fence may run the statement once on
-the snapshot that put the fence up and be refused again; its next wait reaches
-the snapshot that lifts it.
+it to retry.
 
 The waits of one statement share one `--buffer-window`, whether or not
-`--buffer-enabled` is set, and a statement runs again at most three times. When
-either bound runs out, the statement fails with the last `MTF02`. A single
+`--buffer-enabled` is set, and that is the only bound: a cutover writes several
+routing versions (raise the fence, change the rule, lift the fence), and each
+retry already needs a newer snapshot that lifts the fence. When the window runs
+out, the statement fails with the last `MTF02`. A single
 pooler (minigres) has nothing to fence, so its gateway never retries. Work on
 an existing reserved connection is never fenced, since the pooler always admits
 it.

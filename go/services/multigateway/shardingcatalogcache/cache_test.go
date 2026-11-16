@@ -354,11 +354,18 @@ func TestCache_RuleOrdering(t *testing.T) {
 	})
 }
 
-// waitResult starts WaitForRoutingVersion in the background and returns the
+// The target the wait tests wait on: the default tablegroup's only shard.
+const (
+	testTableGroup = "default"
+	testShard      = "0-inf"
+)
+
+// waitResult starts WaitForUnfenced on the test target in the background and
+// returns the
 // channel its result arrives on.
 func waitResult(ctx context.Context, c *Cache, name string, after int64) <-chan error {
 	done := make(chan error, 1)
-	go func() { done <- c.WaitForRoutingVersion(ctx, name, after) }()
+	go func() { done <- c.WaitForUnfenced(ctx, name, testTableGroup, testShard, after) }()
 	return done
 }
 
@@ -369,7 +376,7 @@ func requireBlocked(t *testing.T, dones ...<-chan error) {
 	for _, done := range dones {
 		select {
 		case err := <-done:
-			require.FailNow(t, "WaitForRoutingVersion returned early", "err: %v", err)
+			require.FailNow(t, "WaitForUnfenced returned early", "err: %v", err)
 		default:
 		}
 	}
@@ -389,14 +396,14 @@ func requireReturned(t *testing.T, done <-chan error) error {
 	case err := <-done:
 		return err
 	case <-time.After(waitFor):
-		require.FailNow(t, "WaitForRoutingVersion never returned")
+		require.FailNow(t, "WaitForUnfenced never returned")
 		return nil
 	}
 }
 
 // The wait returns only once a snapshot past after is installed: not for the
 // cached one, nor an install that only reaches after.
-func TestWaitForRoutingVersion_ReturnsOnlyPastAfter(t *testing.T) {
+func TestWaitForUnfenced_ReturnsOnlyPastAfter(t *testing.T) {
 	f := &fakePrimary{catalog: snapshotAt(3)}
 	c := newTestCache(t, f, noPoll)
 	c.ObserveCatalogShard(testDB, true, nil, 3)
@@ -420,7 +427,7 @@ func TestWaitForRoutingVersion_ReturnsOnlyPastAfter(t *testing.T) {
 
 // The wait fetches at once instead of sitting until a health report or poll,
 // neither of which comes here.
-func TestWaitForRoutingVersion_TriggersAFetch(t *testing.T) {
+func TestWaitForUnfenced_TriggersAFetch(t *testing.T) {
 	f := &fakePrimary{catalog: snapshotAt(3)}
 	c := newTestCache(t, f, noPoll)
 	c.ObserveCatalogShard(testDB, true, nil, 3)
@@ -434,21 +441,21 @@ func TestWaitForRoutingVersion_TriggersAFetch(t *testing.T) {
 }
 
 // A snapshot already past after returns at once, without a fetch.
-func TestWaitForRoutingVersion_AlreadyPast(t *testing.T) {
+func TestWaitForUnfenced_AlreadyPast(t *testing.T) {
 	f := &fakePrimary{catalog: snapshotAt(6)}
 	c := newTestCache(t, f, noPoll)
 	c.ObserveCatalogShard(testDB, true, nil, 6)
 	waitForVersion(t, c, 6)
 	calls := settle(t, f)
 
-	require.NoError(t, c.WaitForRoutingVersion(t.Context(), testDB, 5))
+	require.NoError(t, c.WaitForUnfenced(t.Context(), testDB, testTableGroup, testShard, 5))
 	time.Sleep(quietPeriod)
 	assert.Equal(t, calls, f.callCount())
 }
 
 // A database the cache has never seen starts its fetch loop, and the wait
 // ends with its first install past after.
-func TestWaitForRoutingVersion_UnseenDatabase(t *testing.T) {
+func TestWaitForUnfenced_UnseenDatabase(t *testing.T) {
 	f := &fakePrimary{catalog: snapshotAt(2)}
 	c := newTestCache(t, f, noPoll)
 	require.NoError(t, requireReturned(t, waitResult(t.Context(), c, testDB, 1)))
@@ -456,7 +463,7 @@ func TestWaitForRoutingVersion_UnseenDatabase(t *testing.T) {
 	assert.Equal(t, int64(2), c.Snapshot(testDB).RoutingVersion())
 }
 
-func TestWaitForRoutingVersion_HonoursItsContext(t *testing.T) {
+func TestWaitForUnfenced_HonoursItsContext(t *testing.T) {
 	f := &fakePrimary{catalog: snapshotAt(3)}
 	c := newTestCache(t, f, noPoll)
 	c.ObserveCatalogShard(testDB, true, nil, 3)
@@ -470,12 +477,12 @@ func TestWaitForRoutingVersion_HonoursItsContext(t *testing.T) {
 
 	ctx, cancel = context.WithTimeout(t.Context(), quietPeriod)
 	defer cancel()
-	assert.ErrorIs(t, c.WaitForRoutingVersion(ctx, testDB, 3), context.DeadlineExceeded)
+	assert.ErrorIs(t, c.WaitForUnfenced(ctx, testDB, testTableGroup, testShard, 3), context.DeadlineExceeded)
 }
 
 // Many waiters on one database are each released by the first install past
 // their own after.
-func TestWaitForRoutingVersion_ManyWaiters(t *testing.T) {
+func TestWaitForUnfenced_ManyWaiters(t *testing.T) {
 	f := &fakePrimary{catalog: snapshotAt(3)}
 	c := newTestCache(t, f, noPoll)
 	c.ObserveCatalogShard(testDB, true, nil, 3)
@@ -501,4 +508,60 @@ func TestWaitForRoutingVersion_ManyWaiters(t *testing.T) {
 	for _, done := range late {
 		require.NoError(t, requireReturned(t, done))
 	}
+}
+
+// fencedAt is snapshotAt with an admission fence on the default tablegroup's
+// shard, or on the whole tablegroup when onShard is false.
+func fencedAt(routingVersion int64, onShard bool) *shardingcatalogpb.Snapshot {
+	s := snapshotAt(routingVersion)
+	f := &shardingcatalogpb.Fence{
+		FenceId: 1, OperationId: "00000000-0000-0000-0000-000000000001", TablegroupId: 1,
+		State: shardingcatalogpb.FenceState_FENCE_STATE_FENCED, Version: routingVersion,
+	}
+	if onShard {
+		shardID := int64(1)
+		f.ShardId = &shardID
+	}
+	s.Fences = []*shardingcatalogpb.Fence{f}
+	return s
+}
+
+// A newer snapshot that still fences the target does not end the wait; the
+// one that lifts the fence does. A fence on the whole tablegroup fences its
+// shards too.
+func TestWaitForUnfenced_WaitsForTheFenceToLift(t *testing.T) {
+	for name, onShard := range map[string]bool{"shard fence": true, "tablegroup fence": false} {
+		t.Run(name, func(t *testing.T) {
+			f := &fakePrimary{catalog: snapshotAt(3)}
+			c := newTestCache(t, f, noPoll)
+			c.ObserveCatalogShard(testDB, true, nil, 3)
+			waitForVersion(t, c, 3)
+
+			done := waitResult(t.Context(), c, testDB, 3)
+			f.set(fencedAt(4, onShard), nil)
+			c.ObserveCatalogShard(testDB, true, nil, 4)
+			waitForVersion(t, c, 4)
+			requireBlocked(t, done)
+
+			f.set(snapshotAt(5), nil)
+			c.ObserveCatalogShard(testDB, true, nil, 5)
+			require.NoError(t, requireReturned(t, done))
+		})
+	}
+}
+
+// A fence on another shard, or a target the snapshot does not know, does not
+// hold the wait.
+func TestWaitForUnfenced_OtherTargetsAreUnfenced(t *testing.T) {
+	f := &fakePrimary{catalog: fencedAt(4, true)}
+	c := newTestCache(t, f, noPoll)
+	c.ObserveCatalogShard(testDB, true, nil, 4)
+	waitForVersion(t, c, 4)
+
+	require.NoError(t, c.WaitForUnfenced(t.Context(), testDB, testTableGroup, "80-inf", 3), "another shard")
+	require.NoError(t, c.WaitForUnfenced(t.Context(), testDB, "commerce", testShard, 3), "an unknown tablegroup")
+
+	ctx, cancel := context.WithTimeout(t.Context(), quietPeriod)
+	defer cancel()
+	assert.ErrorIs(t, c.WaitForUnfenced(ctx, testDB, testTableGroup, testShard, 3), context.DeadlineExceeded, "the fenced shard")
 }

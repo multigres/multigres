@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -104,22 +105,28 @@ func (f *fencedExec) PortalStreamExecute(
 	return f.run(ctx, callback)
 }
 
-// fakeSnapshots is RoutingSnapshots over a settable routing_version.
+// fakeSnapshots is RoutingSnapshots over a settable routing_version and
+// whether that snapshot fences the target.
 type fakeSnapshots struct {
 	mu      sync.Mutex
 	version int64
+	fenced  bool
 	changed chan struct{}
 	waits   []int64
+	targets []string
 }
 
 func newFakeSnapshots(version int64) *fakeSnapshots {
 	return &fakeSnapshots{version: version, changed: make(chan struct{})}
 }
 
-func (r *fakeSnapshots) setVersion(v int64) {
+func (r *fakeSnapshots) setVersion(v int64) { r.install(v, false) }
+
+// install installs a snapshot at v that does or does not fence the target.
+func (r *fakeSnapshots) install(v int64, fenced bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.version = v
+	r.version, r.fenced = v, fenced
 	close(r.changed)
 	r.changed = make(chan struct{})
 }
@@ -130,15 +137,16 @@ func (r *fakeSnapshots) RoutingVersion(string) int64 {
 	return r.version
 }
 
-func (r *fakeSnapshots) WaitForRoutingVersion(ctx context.Context, _ string, after int64) error {
+func (r *fakeSnapshots) WaitForUnfenced(ctx context.Context, _, tableGroup, shard string, after int64) error {
 	r.mu.Lock()
 	r.waits = append(r.waits, after)
+	r.targets = append(r.targets, tableGroup+"/"+shard)
 	r.mu.Unlock()
 	for {
 		r.mu.Lock()
-		v, changed := r.version, r.changed
+		v, fenced, changed := r.version, r.fenced, r.changed
 		r.mu.Unlock()
-		if v > after {
+		if v > after && !fenced {
 			return nil
 		}
 		select {
@@ -147,6 +155,12 @@ func (r *fakeSnapshots) WaitForRoutingVersion(ctx context.Context, _ string, aft
 			return ctx.Err()
 		}
 	}
+}
+
+func (r *fakeSnapshots) waitTargets() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.targets...)
 }
 
 func (r *fakeSnapshots) waitAfters() []int64 {
@@ -206,18 +220,27 @@ func TestFence_PortalRunsAgain(t *testing.T) {
 	assert.Equal(t, []int64{5}, snapshots.waitAfters())
 }
 
-// A gateway a version behind the fence first runs again on the snapshot that
-// fenced the target, is refused again, and is served on the next one, which
-// lifts the fence.
-func TestFence_OneVersionBehindRunsTwiceMore(t *testing.T) {
-	exec := newFencedExec(mterrors.MTF02.New(), mterrors.MTF02.New())
+// The statement waits on the fence of the target that refused it, and runs
+// again only on the snapshot that lifts it: a gateway behind the fence first
+// learns of it from a newer snapshot that still fences the target, and that
+// one is not worth a retry.
+func TestFence_WaitsForTheRefusingTargetsFenceToLift(t *testing.T) {
+	exec := newFencedExec(mterrors.MTF02.New())
 	snapshots := newFakeSnapshots(6)
-	exec.onCall = func(i int) { snapshots.setVersion(int64(7 + i)) }
 	e := newFenceTestExecutor(t, exec, snapshots, 10*time.Second)
 
-	require.NoError(t, runSelect(t.Context(), t, e, testConn(), noopCallback))
-	assert.Equal(t, 3, exec.calls())
-	assert.Equal(t, []int64{6, 7}, snapshots.waitAfters())
+	done := make(chan error, 1)
+	go func() { done <- runSelect(t.Context(), t, e, testConn(), noopCallback) }()
+	require.Eventually(t, func() bool { return len(snapshots.waitAfters()) == 1 }, 5*time.Second, time.Millisecond)
+	assert.Equal(t, []string{DefaultTableGroup + "/" + constants.DefaultShard}, snapshots.waitTargets(), "waits on the target that refused it")
+
+	snapshots.install(7, true)
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, 1, exec.calls(), "not run again while the snapshot still fences the target")
+
+	snapshots.install(8, false)
+	require.NoError(t, <-done)
+	assert.Equal(t, 2, exec.calls())
 }
 
 // The total wait is bounded by the window; the statement then fails with the
@@ -233,9 +256,10 @@ func TestFence_StopsAtTheWaitWindow(t *testing.T) {
 	assert.Equal(t, 1, exec.calls())
 }
 
-// Retries are bounded even while the snapshot keeps moving.
-func TestFence_StopsAtTheRetryBound(t *testing.T) {
-	errs := make([]error, maxFenceRetries+2)
+// Only the window bounds the retries: a statement refused again and again
+// keeps running again while newer snapshots keep arriving.
+func TestFence_OnlyTheWindowBoundsRetries(t *testing.T) {
+	errs := make([]error, 5)
 	for i := range errs {
 		errs[i] = mterrors.MTF02.New()
 	}
@@ -244,9 +268,8 @@ func TestFence_StopsAtTheRetryBound(t *testing.T) {
 	exec.onCall = func(i int) { snapshots.setVersion(int64(i + 1)) }
 	e := newFenceTestExecutor(t, exec, snapshots, 10*time.Second)
 
-	err := runSelect(t.Context(), t, e, testConn(), noopCallback)
-	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF02.ID), "got %v", err)
-	assert.Equal(t, 1+maxFenceRetries, exec.calls())
+	require.NoError(t, runSelect(t.Context(), t, e, testConn(), noopCallback))
+	assert.Equal(t, len(errs)+1, exec.calls())
 }
 
 // Without routing snapshots (minigres, which has nothing to fence, never calls

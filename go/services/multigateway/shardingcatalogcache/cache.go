@@ -117,7 +117,7 @@ type database struct {
 	wake chan struct{}
 
 	// installsMu guards installs, which is closed and replaced on every
-	// install to wake WaitForRoutingVersion's waiters.
+	// install to wake WaitForUnfenced's waiters.
 	installsMu sync.Mutex
 	installs   chan struct{}
 }
@@ -220,21 +220,26 @@ func (c *Cache) database(name string) *database {
 	return db
 }
 
-// WaitForRoutingVersion returns once the database's installed snapshot has a
-// routing_version greater than after, or with ctx's error when ctx ends
-// first. It triggers a fetch when the snapshot is not yet past after, rather
-// than wait for the next health update or poll, and then waits for installs.
-// A database the cache has not seen is treated as ObserveCatalogShard treats
-// one: its fetch loop starts, and the wait lasts until the first snapshot
-// past after is installed. Any number of callers may wait on one database.
-func (c *Cache) WaitForRoutingVersion(ctx context.Context, name string, after int64) error {
+// WaitForUnfenced returns once the database's installed snapshot has a
+// routing_version greater than after and no admission fence on shard of
+// tableGroup, or with ctx's error when ctx ends first. Both are needed: a
+// gateway behind the fence has a snapshot that does not show it yet, so it
+// first waits to learn of the fence, then for the snapshot that lifts it. A
+// tablegroup or shard the snapshot does not know counts as unfenced.
+//
+// It triggers a fetch when the snapshot does not satisfy it yet, rather than
+// wait for the next health update or poll, and then waits for installs. A
+// database the cache has not seen is treated as ObserveCatalogShard treats
+// one: its fetch loop starts, and the wait lasts until its first snapshot that
+// satisfies it is installed. Any number of callers may wait on one database.
+func (c *Cache) WaitForUnfenced(ctx context.Context, name, tableGroup, shard string, after int64) error {
 	db := c.database(name)
 	triggered := false
 	for {
 		// Take the channel before reading the snapshot: an install between
 		// the two closes the channel, so it is never missed.
 		installs := db.installsChannel()
-		if cur := db.current.Load(); cur != nil && cur.position.RoutingVersion > after {
+		if cur := db.current.Load(); cur != nil && cur.position.RoutingVersion > after && !fenced(cur.snapshot, tableGroup, shard) {
 			return nil
 		}
 		if !triggered {
@@ -249,13 +254,30 @@ func (c *Cache) WaitForRoutingVersion(ctx context.Context, name string, after in
 	}
 }
 
+// fenced reports whether snap has an admission fence on shard of tableGroup,
+// whether on the shard or on the whole tablegroup.
+func fenced(snap *shardingcatalog.Snapshot, tableGroup, shard string) bool {
+	g, ok := snap.TableGroupByName(tableGroup)
+	if !ok {
+		return false
+	}
+	var target *shardingcatalog.Shard
+	for _, sh := range g.Shards() {
+		if sh.Name() == shard {
+			target = sh
+			break
+		}
+	}
+	return len(g.FencesFor(target)) > 0
+}
+
 func (db *database) installsChannel() chan struct{} {
 	db.installsMu.Lock()
 	defer db.installsMu.Unlock()
 	return db.installs
 }
 
-// notifyInstalled wakes every WaitForRoutingVersion waiter after an install.
+// notifyInstalled wakes every WaitForUnfenced waiter after an install.
 func (db *database) notifyInstalled() {
 	db.installsMu.Lock()
 	defer db.installsMu.Unlock()
