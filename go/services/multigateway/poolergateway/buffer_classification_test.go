@@ -147,6 +147,30 @@ func TestWithBuffering_UnbufferedFailurePassthrough(t *testing.T) {
 	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
 }
 
+// TestWithBuffering_FencedPassesThrough pins that MTF02 bypasses failover
+// buffering even with a buffer: it is returned after one attempt, for the
+// scatterconn to retry after newer routing.
+func TestWithBuffering_FencedPassesThrough(t *testing.T) {
+	failoverBuffer := newTestFailoverBuffer(t, 10)
+	lb := newTestLBWithLeaderServing(t, "zone1", failoverBuffer.StopBuffering)
+	pg := &PoolerGateway{loadBalancer: lb, buffer: failoverBuffer, logger: slog.New(slog.DiscardHandler)}
+	primary := createTestMultipooler("primary", "zone1", constants.DefaultTableGroup,
+		constants.DefaultShard, clustermetadatapb.PoolerType_PRIMARY)
+	addPoolerForTest(t, lb, primary)
+	simulateHealthUpdate(connForTest(t, lb, primary), clustermetadatapb.PoolerServingStatus_SERVING,
+		primary.Id, &clustermetadatapb.RuleNumber{CoordinatorTerm: 1})
+	target := protoutil.NewTarget(constants.DefaultPostgresDatabase, constants.DefaultTableGroup,
+		constants.DefaultShard, querypb.Mode_MODE_WRITABLE)
+
+	var attempts int
+	err := pg.withBuffering(t.Context(), target, true, false, func(*poolerConnection) error {
+		attempts++
+		return mterrors.MTF02.New()
+	})
+	assert.Equal(t, 1, attempts)
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF02.ID), "got %v", err)
+}
+
 // midStreamFailServer delivers one result frame and then fails the stream:
 // the client-side error surfaces at Recv, after the statement may have
 // started executing on the backend.
