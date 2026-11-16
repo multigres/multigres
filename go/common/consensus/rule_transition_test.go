@@ -106,13 +106,13 @@ func TestRuleTransition_Compare(t *testing.T) {
 	decided6 := NewRuleTransition(&clustermetadatapb.RulePosition{Decision: transitionRule(6, "a")})
 	decided5Proposing6 := NewRuleTransition(&clustermetadatapb.RulePosition{Decision: transitionRule(5, "a"), Proposal: transitionRule(6, "b")})
 
-	assert.Negative(t, decided5.Compare(decided6))
-	assert.Positive(t, decided6.Compare(decided5))
-	assert.Zero(t, decided5.Compare(decided5))
+	assert.Negative(t, decided5.CompareAuthority(decided6))
+	assert.Positive(t, decided6.CompareAuthority(decided5))
+	assert.Zero(t, decided5.CompareAuthority(decided5))
 	// The same decision with a proposal is further along than the bare decision.
-	assert.Positive(t, decided5Proposing6.Compare(decided5))
+	assert.Positive(t, decided5Proposing6.CompareAuthority(decided5))
 	// A settled decision outranks another position's proposal alone.
-	assert.Positive(t, decided6.Compare(decided5Proposing6))
+	assert.Positive(t, decided6.CompareAuthority(decided5Proposing6))
 }
 
 func TestRuleTransition_IsRevokedByMatchesIsRuleRevoked(t *testing.T) {

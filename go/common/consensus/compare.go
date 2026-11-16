@@ -98,8 +98,8 @@ func formatDecisionAndProposal(decision, proposal *clustermetadatapb.RuleNumber)
 // an LSN, e.g. ConsensusStatus.RecruitBlockedUntil) as "<rule>@<lsn>" (e.g.
 // "1.0@0/6000000", or "1.0 proposal=2.0@0/6000000" mid-transition). Rule
 // position leads because comparisons check it first — the LSN only matters
-// once rule numbers match (see RuleNumberPosition.Compare). A nil LsnPosition
-// renders as "none".
+// once rules match (see CompareWALProgress). A nil LsnPosition renders as
+// "none".
 func FormatLsnPosition(pos *clustermetadatapb.LsnPosition) string {
 	if pos == nil {
 		return "none"
@@ -156,46 +156,70 @@ func RuleNumberPositionOf(pos *clustermetadatapb.RulePosition) RuleNumberPositio
 	}
 }
 
-// Compare returns negative, zero, or positive based on whether p is behind,
-// equal to, or ahead of other. The decision takes precedence over
-// everything else — a confirmed rule always outranks another position's
-// unconfirmed proposal alone, even one with a higher rule number. Only when
-// both decisions agree does each side's proposal break the tie (further
-// beyond a shared decision is more advanced).
-func (p RuleNumberPosition) Compare(other RuleNumberPosition) int {
+// LatestWALRule returns the newest rule the position records in its WAL: the
+// proposal if one is outstanding, otherwise the decision.
+func (p RuleNumberPosition) LatestWALRule() *clustermetadatapb.RuleNumber {
+	if ruleNumberIsUnset(p.Proposal) {
+		return p.Decision
+	}
+	return p.Proposal
+}
+
+// CompareAuthority returns negative, zero, or positive based on whether p carries
+// less, the same, or more authority than other. See the CompareAuthority function.
+func (p RuleNumberPosition) CompareAuthority(other RuleNumberPosition) int {
 	if cmp := CompareRuleNumbers(p.Decision, other.Decision); cmp != 0 {
 		return cmp
 	}
 	return CompareRuleNumbers(p.Proposal, other.Proposal)
 }
 
-// CompareRulePosition returns negative, zero, or positive based on whether a
-// is behind, equal to, or ahead of b. The decision takes precedence over
-// everything else — a confirmed rule always outranks another position's
-// unconfirmed proposal alone, even one with a higher rule number. Only when
-// both decisions agree does each side's proposal break the tie (further
-// beyond a shared decision is more advanced).
-func CompareRulePosition(a, b *clustermetadatapb.RulePosition) int {
-	return RuleNumberPositionOf(a).Compare(RuleNumberPositionOf(b))
+// Positions are compared for two questions:
+//   - Authority: which rule is in force (CompareAuthority, decision first). Use it to
+//     accept or refuse a request and to choose which rule to act on. Promises are part
+//     of authority but are ordered by term alone: a node promised to term T refuses a
+//     recruitment below T, whatever rule it names (ValidateRevocation).
+//   - WAL: who holds more of what must survive (CompareWALProgress, latest rule then
+//     LSN). Use it to choose a leader, freeze an LSN or judge the recusal floor.
+//
+// Recruit uses both: its promise and revocation scope (IsRuleRevoked) by authority,
+// and its recusal floor by WAL. A known decision must never be forgotten, so
+// authority ranks it first; it says nothing about holding the data, so the WAL order
+// ignores it.
+
+// CompareAuthority returns negative, zero, or positive based on whether a carries
+// less, the same, or more authority than b: which rule is in force. A decided rule
+// outranks another position's proposal, even one with a higher rule number; only
+// when both decisions agree does each side's proposal break the tie.
+//
+// Use it to ask which rule should be in effect: whether a request supersedes what
+// a node holds, whether a node's rule has been superseded, which intended rule to
+// follow. Do not use it to ask which node is further along: a node can hold more
+// WAL without knowing a rule is decided. Use CompareWALProgress for that.
+//
+// TODO: a proposal built on a recruited quorum of promises could be called an
+// "authorized proposal".
+func CompareAuthority(a, b *clustermetadatapb.RulePosition) int {
+	return RuleNumberPositionOf(a).CompareAuthority(RuleNumberPositionOf(b))
 }
 
-// MostAdvancedPosition returns the highest-ranked PoolerPosition among the
-// given statuses. Rule number takes precedence; LSN breaks ties within the
-// same rule. Returns nil if no status has a parseable LSN.
+// MostAdvancedWALPosition returns the PoolerPosition holding the most WAL among the
+// given statuses (see CompareWALProgress). Returns nil if no status has a
+// parseable LSN.
 //
-// This is the cached-snapshot analogue of discoverMostAdvancedTimeline, which
-// runs over recruited statuses and returns the eligible-leader set. Callers
+// This is the cached-snapshot analogue of minimumLeaderPosition, which runs
+// over recruited statuses. Callers
 // that need to derive an ExternallyCertifiedRevocation from cached cohort
 // state — e.g. the bootstrap path before recruitment — use this to obtain the
 // outgoing rule number and frozen LSN.
-func MostAdvancedPosition(statuses []*clustermetadatapb.ConsensusStatus) *clustermetadatapb.PoolerPosition {
+func MostAdvancedWALPosition(statuses []*clustermetadatapb.ConsensusStatus) *clustermetadatapb.PoolerPosition {
 	var best *clustermetadatapb.PoolerPosition
 	for _, cs := range statuses {
 		pos := cs.GetCurrentPosition()
 		if _, err := pgutil.ParseLSN(pos.GetLsn()); err != nil {
 			continue
 		}
-		if best == nil || ComparePoolerPosition(pos, best) > 0 {
+		if best == nil || CompareWALProgress(pos, best) > 0 {
 			best = pos
 		}
 	}
@@ -230,7 +254,7 @@ func ReplicationPrimaryOrNil(cs *clustermetadatapb.ConsensusStatus) *clustermeta
 // most to least settled; name a "highest X" for its level, never just "known":
 //   - decided: the decision half of a pooler's own position (HighestDecidedRule);
 //   - recorded: a pooler's own position, which may also carry an undecided
-//     proposal ("position" always means this level, as in MostAdvancedPosition);
+//     proposal ("position" always means this level, as in MostAdvancedWALPosition);
 //   - intended: recorded, plus rules only advertised through a ReplicationPrimary,
 //     which no pooler's WAL need hold yet. This function ranks at this level.
 //
@@ -239,8 +263,8 @@ func ReplicationPrimaryOrNil(cs *clustermetadatapb.ConsensusStatus) *clustermeta
 // replication primary holds leadership — a follower can learn of a newer
 // leader (possibly still undecided on the leader's own side) via its
 // replication primary before its own position advances. Unlike
-// MostAdvancedPosition, ranking is purely by position (no LSN tiebreak, no
-// LSN requirement), since leader identity is a function of the rule alone.
+// MostAdvancedWALPosition, it ranks by authority (CompareAuthority) with no
+// LSN, since which leader is intended depends on the rule alone.
 // Returns nil when no status carries a rule.
 //
 // A phantom 0/0 replication primary (see ReplicationPrimaryOrNil) is ignored so
@@ -258,7 +282,7 @@ func HighestIntendedRule(statuses []*clustermetadatapb.ConsensusStatus) *cluster
 			cs.GetCurrentPosition().GetPosition(),
 			ReplicationPrimaryOrNil(cs).GetPosition(),
 		} {
-			if best == nil || CompareRulePosition(position, best) > 0 {
+			if best == nil || CompareAuthority(position, best) > 0 {
 				best = position
 			}
 		}
@@ -299,7 +323,7 @@ func ReplicationPrimaryMatches(rp *clustermetadatapb.ReplicationPrimary, target 
 	if rp == nil || target == nil || targetPosition == nil {
 		return false
 	}
-	if CompareRulePosition(rp.GetPosition(), targetPosition) < 0 {
+	if CompareAuthority(rp.GetPosition(), targetPosition) < 0 {
 		return false
 	}
 	rpPrimary := rp.GetPrimary()
@@ -328,7 +352,7 @@ func ReplicationPrimaryMatches(rp *clustermetadatapb.ReplicationPrimary, target 
 // (false -> true, never the reverse) whenever candidate and current share a
 // coordinator_term — including when candidate's position is a decision
 // replacing current's still-outstanding proposal at that same term, which
-// CompareRulePosition ranks as strictly more advanced. Folding rewind_ready
+// CompareAuthority ranks as strictly more advanced. Folding rewind_ready
 // only within cmp==0 would miss exactly that transition and silently
 // regress a rewind_ready flip already observed.
 func MergeReplicationPrimary(current, candidate *clustermetadatapb.ReplicationPrimary) (result *clustermetadatapb.ReplicationPrimary, changed bool) {
@@ -340,7 +364,7 @@ func MergeReplicationPrimary(current, candidate *clustermetadatapb.ReplicationPr
 		PossiblyUndecidedRule(current.GetPosition()).GetRuleNumber().GetCoordinatorTerm() {
 		rewindReady = rewindReady || current.GetRewindReady()
 	}
-	cmp := CompareRulePosition(candidate.GetPosition(), current.GetPosition())
+	cmp := CompareAuthority(candidate.GetPosition(), current.GetPosition())
 	if cmp < 0 {
 		return current, false
 	}
@@ -388,15 +412,19 @@ func RuleNamesLeader(rule *clustermetadatapb.ShardRule, id *clustermetadatapb.ID
 	return idsEqual(leader, id)
 }
 
-// ComparePoolerPosition returns negative, zero, or positive based on whether a is
-// behind, equal to, or ahead of b. The decision takes precedence over
-// everything else — a confirmed rule always outranks another position's
-// unconfirmed proposal, even one with a higher rule number. Only when both
-// decisions agree does each side's proposal break the tie (further beyond a
-// shared decision is more advanced), and only when both agree on the
-// resulting rule does LSN break the tie. A missing or unparsable LSN is
-// treated as less than any valid LSN; CompareLsnPositions is the strict version.
-func ComparePoolerPosition(a, b *clustermetadatapb.PoolerPosition) int {
+// CompareWALProgress returns negative, zero, or positive based on whether a holds
+// less, the same, or more WAL than b: the latest rule it records, then LSN. An
+// undecided proposal counts, since it is real WAL. Which rules a position knows to
+// be decided plays no part.
+//
+// Use it to ask who holds more of the transactions that must survive: ranking
+// leader candidates, setting a certificate's frozen LSN. It only ranks; whether a
+// candidate is safe is decided by the recruitment conditions, not by this order.
+// Do not use it to ask which rule is in force; use CompareAuthority for that.
+//
+// A missing or unparsable LSN counts as the lowest. That suits ranking candidates;
+// CompareLsnPositions is the strict version, for a promise that must fail closed.
+func CompareWALProgress(a, b *clustermetadatapb.PoolerPosition) int {
 	if cmp, err := CompareLsnPositions(LsnPositionOf(a), LsnPositionOf(b)); err == nil {
 		return cmp
 	}
@@ -423,19 +451,25 @@ func LsnPositionOf(pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.Lsn
 	}
 }
 
-// CompareLsnPositions returns negative, zero, or positive based on whether a is
-// behind, equal to, or ahead of b: rule position first (the decision outranks
-// the proposal, as in ComparePoolerPosition), then LSN. An LSN that can't be
-// parsed is an error rather than the lowest value, so a caller holding a
-// promise can fail closed. LSNs are parsed only to break a rule tie.
+// CompareLsnPositions is the strict WAL order (see CompareWALProgress): the latest
+// rule, then LSN. An LSN that can't be parsed is an error rather than the lowest
+// value, so a caller holding a promise, such as the recusal floor
+// (recruit_blocked_until), can fail closed. LSNs are parsed only to break a rule tie.
 //
-// TODO: callers of ComparePoolerPosition already drop unparsable positions first
+// On a standby the rule comes from replayed WAL and the LSN from received WAL, so
+// the two agree only once replay has caught up, as Recruit waits for.
+//
+// TODO: callers of CompareWALProgress already drop unparsable positions first
 // (filterByValidPosition, MostAdvancedPosition), so it could be strict too.
+//
+// TODO: LSNs are only comparable along one timeline, and an equal latest rule does
+// not guarantee the same timeline, for example when Promote decides a stuck rule on
+// its own timeline first.
 func CompareLsnPositions(a, b *clustermetadatapb.LsnPosition) (int, error) {
-	rules := func(p *clustermetadatapb.LsnPosition) RuleNumberPosition {
-		return RuleNumberPosition{Decision: p.GetPosition().GetDecision(), Proposal: p.GetPosition().GetProposal()}
+	latest := func(p *clustermetadatapb.LsnPosition) *clustermetadatapb.RuleNumber {
+		return RuleNumberPosition{Decision: p.GetPosition().GetDecision(), Proposal: p.GetPosition().GetProposal()}.LatestWALRule()
 	}
-	if cmp := rules(a).Compare(rules(b)); cmp != 0 {
+	if cmp := CompareRuleNumbers(latest(a), latest(b)); cmp != 0 {
 		return cmp, nil
 	}
 	lsnA, err := pgutil.ParseLSN(a.GetLsn())
