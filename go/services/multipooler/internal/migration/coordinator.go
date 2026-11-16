@@ -91,6 +91,17 @@ func NewCoordinator(qs executor.InternalQueryService, logger *slog.Logger, targe
 	}
 }
 
+// ForgetCachedMigrations drops the store's in-memory copy of the migration
+// table, so the next read loads it from postgres. That copy is only right for
+// one continuous primary tenure of this node: while it is a standby another
+// primary may create, advance or drop migrations, and before bootstrap its
+// postgres runs briefly out of recovery with no migrations at all. Its manager
+// calls this on every promotion. It takes no lock, c.mu included, so a
+// promotion never waits behind a migration operation or a slow load.
+func (c *Coordinator) ForgetCachedMigrations() {
+	c.store.Forget()
+}
+
 // EnsureSchema creates the migration table if absent (covers shards bootstrapped
 // before the table existed). Safe to call on every coordinator start.
 func (c *Coordinator) EnsureSchema(ctx context.Context) error {

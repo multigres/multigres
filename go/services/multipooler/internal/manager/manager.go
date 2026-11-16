@@ -1621,6 +1621,10 @@ func (pm *MultipoolerManager) checkPromotionState(ctx context.Context) (*promoti
 // position, not just the term) so a later re-promotion can't inherit a stale
 // mark.
 func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state *promotionState, promotedPosition *clustermetadatapb.RulePosition) error {
+	// Ahead of the early return too: a retry after a promotion that failed past
+	// pg_promote must still start the new tenure with nothing remembered.
+	pm.forgetMigrationState()
+
 	// Return early if already promoted
 	if state.pgMode.OutOfRecovery() {
 		pm.logger.InfoContext(ctx, "Postgres already promoted, skipping") //nolint:sloglint // message intentionally starts with an operation name or proper noun

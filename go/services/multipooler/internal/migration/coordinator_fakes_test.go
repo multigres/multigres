@@ -100,6 +100,9 @@ func (f *fakeStore) ListConnections(context.Context) ([]*Connection, error) {
 
 func (f *fakeStore) EnsureSchema(context.Context) error { return f.ensureErr }
 
+// Forget is a no-op: fakeStore keeps no cache in front of its map.
+func (f *fakeStore) Forget() {}
+
 func (f *fakeStore) Insert(_ context.Context, m *Migration) error {
 	if f.insertErr != nil {
 		return f.insertErr

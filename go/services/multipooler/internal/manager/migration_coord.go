@@ -151,9 +151,28 @@ func (pm *MultipoolerManager) MigrationCoordinatorIfPrimary(ctx context.Context)
 	return coord, nil
 }
 
-// ensureMigrationSchema runs EnsureSchema at most once per process. The schema
-// is normally created at shard bootstrap and replicated in, and on the catalog
-// shard ensureSidecarSchemas re-ensures it on every open (see
+// forgetMigrationState makes the next migration call on this pooler start from
+// what postgres holds rather than from what the coordinator remembers. The
+// coordinator outlives role changes, and what it remembers is only right for
+// the primary tenure it was read in; see Coordinator.ForgetCachedMigrations.
+// Called on every promotion, before pg_promote, so nothing read on this node
+// before it became primary can survive into its tenure: the coordinator is
+// gated to a postgres that is out of recovery, so it cannot reload the cache
+// until the promotion has landed.
+func (pm *MultipoolerManager) forgetMigrationState() {
+	pm.mu.Lock()
+	coord := pm.migrationCoord
+	pm.migrationSchemaEnsured = false
+	pm.mu.Unlock()
+	if coord != nil {
+		coord.ForgetCachedMigrations()
+	}
+}
+
+// ensureMigrationSchema runs EnsureSchema at most once per primary tenure
+// (forgetMigrationState resets it on promotion). The schema is normally
+// created at shard bootstrap and replicated in, and on the catalog shard
+// ensureSidecarSchemas re-ensures it on every open (see
 // ensureCatalogMigrationSchema); this covers shards bootstrapped before a table
 // existed. Primary-only, since the caller has already passed primary
 // guardrails.
