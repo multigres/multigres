@@ -66,6 +66,17 @@ VALUES ($1::uuid, $2, $3, $4, $5)`
 	updateFenceSQL = `UPDATE multigres.admission_fence SET operation_id = $2::uuid, state = $3, version = $4 WHERE fence_id = $1`
 
 	deleteFenceSQL = `DELETE FROM multigres.admission_fence WHERE fence_id = $1`
+
+	// droppingTableGroupFenceHolderSQL finds an unfinished operation that
+	// still fences a dropping tablegroup, if any.
+	droppingTableGroupFenceHolderSQL = `SELECT f.operation_id::text FROM multigres.admission_fence f
+JOIN multigres.operation o USING (operation_id)
+JOIN multigres.tablegroup t USING (tablegroup_id)
+WHERE f.tablegroup_id = $1 AND t.state = $2 AND o.state NOT IN ('` + opStateDone + `', '` + opStateFailed + `')
+ORDER BY f.fence_id LIMIT 1`
+
+	deleteDroppingTableGroupFencesSQL = `DELETE FROM multigres.admission_fence WHERE tablegroup_id = $1
+AND EXISTS (SELECT 1 FROM multigres.tablegroup WHERE tablegroup_id = $1 AND state = $2)`
 )
 
 // fenceScope is the scope of a fence. A zero shardID (NULL) is the whole
@@ -427,4 +438,30 @@ func readFences(ctx context.Context, tx executor.InternalTx) ([]catalogFence, er
 		fences = append(fences, f)
 	}
 	return fences, nil
+}
+
+// deleteDroppingTableGroupFences deletes the fences on a dropping tablegroup,
+// in finishDropTableGroup's transaction, before it deletes the shard and
+// tablegroup rows they reference. A fence an unfinished operation still holds
+// keeps the tablegroup: that operation may still be changing its routing, so
+// the drop is refused with FAILED_PRECONDITION and stays pending until the
+// operation lifts the fence or finishes. A finished operation's fences hold
+// nothing and are deleted.
+func deleteDroppingTableGroupFences(ctx context.Context, tx executor.InternalTx, name string, tablegroupID int64) error {
+	res, err := tx.QueryArgs(ctx, droppingTableGroupFenceHolderSQL, tablegroupID, tableGroupStateDropping)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to read admission fences")
+	}
+	if len(res.Rows) > 0 {
+		var holder string
+		if err := executor.ScanRow(res.Rows[0], &holder); err != nil {
+			return mterrors.Wrap(err, "failed to read admission fence")
+		}
+		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+			"tablegroup %q is fenced by operation %s, which has not finished", name, holder)
+	}
+	if _, err := tx.QueryArgs(ctx, deleteDroppingTableGroupFencesSQL, tablegroupID, tableGroupStateDropping); err != nil {
+		return mterrors.Wrap(err, "failed to delete admission fences")
+	}
+	return nil
 }

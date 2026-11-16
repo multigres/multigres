@@ -390,13 +390,19 @@ func (pm *MultipoolerManager) tableGroupClaimHeld(ctx context.Context, id int64)
 }
 
 // finishDropTableGroup deletes a dropping tablegroup in one catalog write:
-// its shard rows, its tablegroup row, and any drop operation on it to done.
+// its admission fences, its shard rows, its tablegroup row, and any drop
+// operation on it to done. A fence of an unfinished operation refuses the
+// write, and the tablegroup stays pending (see
+// deleteDroppingTableGroupFences).
 // The tablegroup delete is conditional on the state, so a concurrent or
 // repeated pass finds nothing to delete and reports no change. A failed
 // creation has no drop operation; its creation operation already reads
 // failed.
 func (pm *MultipoolerManager) finishDropTableGroup(ctx context.Context, name string, id int64) error {
 	_, err := pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {
+		if err := deleteDroppingTableGroupFences(ctx, tx, name, id); err != nil {
+			return catalogNoSnapshotChange, err
+		}
 		if _, err := tx.QueryArgs(ctx,
 			"DELETE FROM multigres.shard WHERE tablegroup_id = $1 AND EXISTS (SELECT 1 FROM multigres.tablegroup WHERE tablegroup_id = $1 AND state = $2)",
 			id, tableGroupStateDropping); err != nil {

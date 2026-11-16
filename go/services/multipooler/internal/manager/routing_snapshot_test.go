@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"regexp"
 	"sync/atomic"
 	"testing"
 
@@ -83,7 +84,7 @@ func (env *tableGroupTestEnv) expectCatalogRows() {
 		{int64(40), importOp, "tablegroup", int64(1), nil, int64(7), int64(2), nil, int64(8)},
 		{int64(41), importOp, "table", int64(7), int64(10), int64(1), nil, int64(30), int64(9)},
 	})
-	env.expect("FROM multigres.admission_fence f", []string{
+	env.expect("^"+regexp.QuoteMeta(selectFencesSQL)+"$", []string{
 		"fence_id", "operation_id", "tablegroup_id", "shard_id", "state", "version", "operation_state",
 	}, [][]any{
 		{int64(50), importOp, int64(1), nil, "FENCED", int64(7), "preparing"},
@@ -615,7 +616,7 @@ func TestWriteCatalog(t *testing.T) {
 		for _, table := range []string{"tablegroup_table", "shard_index", "shard_key", "shard_key_column", "routing_rule"} {
 			env.expect("FROM multigres."+table+" ORDER BY", nil, nil)
 		}
-		env.expect("FROM multigres.admission_fence f", nil, nil)
+		env.expect("^"+regexp.QuoteMeta(selectFencesSQL)+"$", nil, nil)
 		env.expectCommit()
 
 		_, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {

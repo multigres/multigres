@@ -16,6 +16,7 @@ package multipooler
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,6 +28,7 @@ import (
 	shardingcatalogpb "github.com/multigres/multigres/go/pb/shardingcatalog"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/tools/testpoll"
 )
 
 const routingFenceOtherOp = "aaaaaaaa-0000-0000-0000-0000000000f0"
@@ -234,5 +236,33 @@ func TestAdmissionFences_RPCs(t *testing.T) {
 		assert.Equal(t, []fenceState{
 			{tablegroup: "default", shard: "0-inf", operationID: routingFenceOtherOp, state: shardingcatalogpb.FenceState_FENCE_STATE_FENCED, version: version},
 		}, fences)
+	})
+
+	t.Run("dropping a tablegroup waits for its fences' operations, then deletes them", func(t *testing.T) {
+		// srctg has no poolers and no provisioner claim, so once it is
+		// dropping the tablegroup loop deletes it, unless a fence of an
+		// unfinished operation still holds it.
+		pc.fence(t, routingFenceOtherOp, pc.snapshot(t).GetRoutingVersion(), fenceSpec("srctg", "0-inf"))
+		_, err := db.ExecContext(ctx, `UPDATE multigres.tablegroup SET state = 'dropping' WHERE name = 'srctg'`)
+		require.NoError(t, err)
+		tablegroupGone := func() bool {
+			var n int
+			require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM multigres.tablegroup WHERE name = 'srctg'`).Scan(&n))
+			return n == 0
+		}
+		// The loop passes every few seconds; give it a few passes.
+		testpoll.Never(t, tablegroupGone, 10*time.Second, 500*time.Millisecond, "the fence of an unfinished operation keeps the tablegroup")
+
+		_, err = db.ExecContext(ctx, `UPDATE multigres.operation SET state = 'done' WHERE operation_id = $1::uuid`, routingFenceOtherOp)
+		require.NoError(t, err)
+		require.Eventually(t, tablegroupGone, utils.ScaleTimeout(30*time.Second), 500*time.Millisecond, "the drop never completed")
+		var left int
+		require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM multigres.admission_fence f
+			WHERE NOT EXISTS (SELECT 1 FROM multigres.tablegroup t WHERE t.tablegroup_id = f.tablegroup_id)`).Scan(&left))
+		assert.Zero(t, left)
+		_, fences := pc.fences(t)
+		assert.Equal(t, []fenceState{
+			{tablegroup: "default", shard: "0-inf", operationID: routingFenceOtherOp, state: shardingcatalogpb.FenceState_FENCE_STATE_FENCED, version: version},
+		}, fences, "only the dropped tablegroup's fence went with it")
 	})
 }
