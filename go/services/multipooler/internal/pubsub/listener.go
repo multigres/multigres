@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // request types for the serialized event loop.
@@ -110,7 +111,7 @@ func (l *Listener) Start(ctx context.Context) {
 	l.stopped = make(chan struct{})
 	ctx, l.cancel = context.WithCancel(ctx)
 	l.wg.Add(1)
-	go l.run(ctx, l.requests, l.stopped)
+	go l.run(telemetry.WithTask(ctx, "pubsub-listener"), l.requests, l.stopped)
 }
 
 // Stop shuts down the listener and waits for goroutines to exit. Idempotent.

@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connstate"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // PoolConfig holds configuration for the reserved pool.
@@ -147,15 +148,16 @@ func NewPool(ctx context.Context, config *PoolConfig) *Pool {
 
 // idleKiller periodically scans for and kills timed out connections.
 func (p *Pool) idleKiller(interval time.Duration) {
+	ctx := telemetry.WithTask(p.ctx, "reserved-idle-killer")
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-p.ctx.Done():
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			p.KillTimedOut(p.ctx)
+			p.KillTimedOut(ctx)
 		}
 	}
 }

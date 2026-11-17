@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/switcher"
 	"github.com/multigres/multigres/go/tools/pgutil"
+	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/timer"
 )
 
@@ -91,7 +92,7 @@ func NewReader(queryService executor.InternalQueryService, logger *slog.Logger, 
 
 // newReader creates a heartbeat reader with a configurable interval.
 func newReader(queryService executor.InternalQueryService, logger *slog.Logger, shardID []byte, interval time.Duration) *Reader {
-	runner := timer.NewPeriodicRunner(context.TODO(), interval)
+	runner := timer.NewPeriodicRunner(telemetry.WithTask(context.TODO(), "heartbeat-reader"), interval)
 	return &Reader{
 		queryService: queryService,
 		logger:       logger,

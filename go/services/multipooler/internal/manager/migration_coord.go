@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
 	"github.com/multigres/multigres/go/tools/pgutil"
 	"github.com/multigres/multigres/go/tools/retry"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // migrationReconcileInterval is the period of the migration reconcile poller.
@@ -56,7 +57,7 @@ func (pm *MultipoolerManager) StartMigrationCoordinator() {
 // StartMigrationCoordinator on initial enable and from openLocked on every
 // re-open.
 func (pm *MultipoolerManager) startMigrationReconcilePollerLocked() {
-	go pm.runMigrationReconcile(pm.ctx, migrationReconcileInterval)
+	go pm.runMigrationReconcile(telemetry.WithTask(pm.ctx, "migration-reconcile"), migrationReconcileInterval)
 }
 
 // defaultGatewayPostgresPort is the multigateway's default Postgres-protocol

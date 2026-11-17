@@ -2583,3 +2583,16 @@ func TestDiscoverPostgresState_SeedsConnectionBudget(t *testing.T) {
 		require.NoError(t, err)
 	})
 }
+
+func TestRemedialActionString_AllNamed(t *testing.T) {
+	seen := map[string]remedialAction{}
+	for a := range numRemedialActions {
+		name := a.String()
+		assert.NotContains(t, name, "unknown", "remedialAction %d has no name", int(a))
+		if prev, dup := seen[name]; dup {
+			t.Errorf("remedialAction %d and %d share name %q", int(prev), int(a), name)
+		}
+		seen[name] = a
+	}
+	assert.Equal(t, "unknown-999", remedialAction(999).String())
+}
