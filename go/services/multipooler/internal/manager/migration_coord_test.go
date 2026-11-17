@@ -15,9 +15,12 @@
 package manager
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -26,8 +29,83 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 )
+
+func TestRunMigrationReconcile(t *testing.T) {
+	for _, tt := range []struct {
+		name          string
+		inRecovery    []bool
+		probeError    bool
+		wantReconcile int
+	}{
+		{name: "standby skips quietly", inRecovery: []bool{true, true, true}},
+		{name: "primary reconciles", inRecovery: []bool{false, false, false}, wantReconcile: 3},
+		{name: "promotion resumes reconciliation", inRecovery: []bool{true, false, false}, wantReconcile: 2},
+		{name: "demotion stops reconciliation", inRecovery: []bool{false, true, true}, wantReconcile: 1},
+		{name: "failed recovery probe remains visible", probeError: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				pm, qs := newTestManagerWithMock(t, "default", "0-inf")
+				t.Cleanup(func() { require.NoError(t, pm.topoClient.Close()) })
+				var logs syncBuffer
+				pm.logger = slog.New(slog.NewTextHandler(&logs, nil))
+				// Schema setup is covered separately; count only eligibility probes
+				// and reconciliation attempts here.
+				pm.migrationSchemaEnsured = true
+				if tt.probeError {
+					qs.AddQueryPatternWithError("SELECT pg_is_in_recovery", errors.New("recovery probe unavailable"))
+				} else {
+					for _, inRecovery := range tt.inRecovery {
+						qs.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{inRecovery}}))
+					}
+				}
+				// Fail the load so the coordinator retries it on every eligible tick.
+				// This also verifies that actual reconciliation failures stay visible.
+				qs.AddQueryPatternWithError("FROM multigres.migration", errors.New("migration load unavailable"))
+				ctx, cancel := context.WithCancel(t.Context())
+				go pm.runMigrationReconcile(ctx, 10*time.Millisecond)
+				time.Sleep(35 * time.Millisecond)
+				cancel()
+				synctest.Wait()
+
+				require.Equal(t, 3+tt.wantReconcile, qs.AdminQueryCount(), "standby and failed probes must not reach migration queries")
+				require.NoError(t, qs.ExpectationsWereMet())
+				assert.NotContains(t, logs.String(), "primary operation called on standby instance")
+				if tt.probeError {
+					assert.Contains(t, logs.String(), "recovery probe unavailable")
+					assert.Contains(t, logs.String(), "operation=migration_reconcile")
+				} else {
+					assert.NotContains(t, logs.String(), "level=ERROR")
+				}
+				if tt.wantReconcile == 0 {
+					assert.Nil(t, pm.migrationCoord, "ineligible ticks must not create a coordinator")
+				} else {
+					assert.Contains(t, logs.String(), "migration reconcile failed")
+					assert.Contains(t, logs.String(), "migration load unavailable")
+				}
+			})
+		})
+	}
+}
+
+func TestMigrationCoordinatorIfPrimary_StandbyStillRejected(t *testing.T) {
+	pm, qs := newTestManagerWithMock(t, "default", "0-inf")
+	var logs syncBuffer
+	pm.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	qs.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
+
+	coord, err := pm.MigrationCoordinatorIfPrimary(t.Context())
+
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+	assert.Nil(t, coord)
+	assert.Nil(t, pm.migrationCoord)
+	assert.Equal(t, 1, qs.AdminQueryCount())
+	assert.Contains(t, logs.String(), "primary operation called on standby instance")
+}
 
 // managerWithAdvertiseConfig builds a minimal manager for exercising
 // targetConnInfo: a record whose topo Hostname is a cluster-internal pod FQDN
