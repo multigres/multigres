@@ -21,32 +21,39 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	"github.com/multigres/multigres/go/tools/executil"
 )
 
 // StanzaCreate runs pgbackrest stanza-create. The operation is idempotent
 // and safe to run concurrently — no backup lease required.
 func (e *Engine) StanzaCreate(ctx context.Context) error {
 	defer e.listCache.Invalidate()
+
+	if err := e.runPgBackRestCmd(ctx, 5*time.Second, e.pgbackrestIOTimeoutCmd, "stanza-create"); err != nil {
+		return err
+	}
+
+	e.logger.InfoContext(ctx, "pgbackrest stanza initialized", "stanza", stanzaName)
+	return nil
+}
+
+// runPgBackRestCmd runs a pgBackRest command for the stanza within timeout.
+// newCmd is pgbackrestIOTimeoutCmd for repository commands and pgbackrestCmd
+// for start and stop, which reject --io-timeout.
+func (e *Engine) runPgBackRestCmd(ctx context.Context, timeout time.Duration, newCmd func(context.Context, ...string) *executil.Cmd, args ...string) error {
 	configPath, err := e.requireConfigPath()
 	if err != nil {
 		return mterrors.Wrap(err, "failed to get pgbackrest config")
 	}
 
-	stanzaCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-
-	cmd := e.pgbackrestCmd(stanzaCtx,
-		"--stanza="+stanzaName,
-		"--config="+configPath,
-		"stanza-create")
-
+	cmd := newCmd(runCtx, append([]string{"--stanza=" + stanzaName, "--config=" + configPath}, args...)...)
 	output, err := safeCombinedOutput(cmd)
 	if err != nil {
 		return mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("pgbackrest stanza-create failed for stanza %s: %v\nOutput: %s",
-				stanzaName, err, output))
+			fmt.Sprintf("pgbackrest %s failed for stanza %s: %v\nOutput: %s",
+				args[len(args)-1], stanzaName, err, output))
 	}
-
-	e.logger.InfoContext(ctx, "pgbackrest stanza initialized", "stanza", stanzaName)
 	return nil
 }

@@ -128,7 +128,7 @@ func (e *Engine) runInfoCmd(ctx context.Context, configPath string) (string, err
 	queryCtx, cancel := context.WithTimeout(ctx, commonbackup.InfoTimeout)
 	defer cancel()
 
-	cmd := e.pgbackrestCmd(queryCtx,
+	cmd := e.pgbackrestIOTimeoutCmd(queryCtx,
 		"--stanza="+stanzaName,
 		"--config="+configPath,
 		"--output=json",
