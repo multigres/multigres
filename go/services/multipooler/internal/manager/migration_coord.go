@@ -405,16 +405,13 @@ func (pm *MultipoolerManager) runMigrationReconcile(ctx context.Context, interva
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// A standby is an expected timer skip. Probe the same physical
-			// recovery state as the RPC guard, without its error log for a
-			// primary-only operation directed at a standby.
-			mode, err := pm.postgresMode(ctx)
-			if err != nil {
-				pm.logger.ErrorContext(ctx, "failed to check recovery status for migration reconcile",
-					"operation", "migration_reconcile", "error", err)
-				continue
-			}
-			if !mode.OutOfRecovery() {
+			if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+				// A role mismatch is an expected timer skip. A failed probe
+				// must remain visible rather than looking like a standby.
+				if !isRoleMismatch(err) {
+					pm.logger.ErrorContext(ctx, "failed to check recovery status for migration reconcile",
+						"operation", "migration_reconcile", "error", err)
+				}
 				continue
 			}
 			coord := pm.migrationCoordinator()

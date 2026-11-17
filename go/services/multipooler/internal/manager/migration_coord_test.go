@@ -38,13 +38,15 @@ func TestRunMigrationReconcile(t *testing.T) {
 		name          string
 		inRecovery    []bool
 		probeError    bool
+		probeCode     mtrpcpb.Code
 		wantReconcile int
 	}{
 		{name: "standby skips quietly", inRecovery: []bool{true, true, true}},
 		{name: "primary reconciles", inRecovery: []bool{false, false, false}, wantReconcile: 3},
 		{name: "promotion resumes reconciliation", inRecovery: []bool{true, false, false}, wantReconcile: 2},
 		{name: "demotion stops reconciliation", inRecovery: []bool{false, true, true}, wantReconcile: 1},
-		{name: "failed recovery probe remains visible", probeError: true},
+		{name: "failed recovery probe remains visible", probeError: true, probeCode: mtrpcpb.Code_UNAVAILABLE},
+		{name: "failed precondition probe remains visible", probeError: true, probeCode: mtrpcpb.Code_FAILED_PRECONDITION},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -56,7 +58,7 @@ func TestRunMigrationReconcile(t *testing.T) {
 				// and reconciliation attempts here.
 				pm.migrationSchemaEnsured = true
 				if tt.probeError {
-					qs.AddQueryPatternWithError("SELECT pg_is_in_recovery", errors.New("recovery probe unavailable"))
+					qs.AddQueryPatternWithError("SELECT pg_is_in_recovery", mterrors.New(tt.probeCode, "recovery probe unavailable"))
 				} else {
 					for _, inRecovery := range tt.inRecovery {
 						qs.AddQueryPatternOnce("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{inRecovery}}))
@@ -93,6 +95,7 @@ func TestRunMigrationReconcile(t *testing.T) {
 
 func TestMigrationCoordinatorIfPrimary_StandbyStillRejected(t *testing.T) {
 	pm, qs := newTestManagerWithMock(t, "default", "0-inf")
+	t.Cleanup(func() { require.NoError(t, pm.topoClient.Close()) })
 	var logs syncBuffer
 	pm.logger = slog.New(slog.NewTextHandler(&logs, nil))
 	qs.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{true}}))
@@ -104,7 +107,8 @@ func TestMigrationCoordinatorIfPrimary_StandbyStillRejected(t *testing.T) {
 	assert.Nil(t, coord)
 	assert.Nil(t, pm.migrationCoord)
 	assert.Equal(t, 1, qs.AdminQueryCount())
-	assert.Contains(t, logs.String(), "primary operation called on standby instance")
+	assert.True(t, isRoleMismatch(err))
+	assert.Empty(t, logs.String(), "a stale migration RPC must be rejected without logging")
 }
 
 // managerWithAdvertiseConfig builds a minimal manager for exercising
