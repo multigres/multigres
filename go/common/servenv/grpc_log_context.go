@@ -26,10 +26,10 @@ import (
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
-// rpcLogContext tags the context with the RPC name and caller address so
-// that *Context log calls made while serving an RPC identify it.
+// rpcLogContext tags the context with the RPC as its task, plus the caller
+// address, so that *Context log calls made while serving an RPC identify it.
 func rpcLogContext(ctx context.Context, fullMethod string) context.Context {
-	attrs := []slog.Attr{slog.String("rpc", shortMethodName(fullMethod))}
+	attrs := []slog.Attr{slog.String("task", shortMethodName(fullMethod))}
 	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
 		attrs = append(attrs, slog.Any("peer", peerHost{p.Addr}))
 	}
