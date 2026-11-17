@@ -105,4 +105,9 @@ func TopoServerTestSuite(t *testing.T, ctx context.Context, factory func() topoc
 	ts = factory()
 	checkShardInitClaim(t, ctx, ts)
 	_ = ts.Close()
+
+	t.Log("=== (BootstrapMarker) checkBootstrapMarker")
+	ts = factory()
+	checkBootstrapMarker(t, ctx, ts)
+	_ = ts.Close()
 }
