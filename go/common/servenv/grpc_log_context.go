@@ -16,8 +16,6 @@ package servenv
 
 import (
 	"context"
-	"log/slog"
-	"net"
 	"strings"
 
 	"google.golang.org/grpc"
@@ -29,11 +27,11 @@ import (
 // rpcLogContext tags the context with the RPC as its task, plus the caller
 // address, so that *Context log calls made while serving an RPC identify it.
 func rpcLogContext(ctx context.Context, fullMethod string) context.Context {
-	attrs := []slog.Attr{slog.String("task", shortMethodName(fullMethod))}
+	ctx = telemetry.WithTask(ctx, shortMethodName(fullMethod))
 	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
-		attrs = append(attrs, slog.Any("peer", peerHost{p.Addr}))
+		ctx = telemetry.WithClientAddress(ctx, p.Addr)
 	}
-	return telemetry.ContextWithLogAttrs(ctx, attrs...)
+	return ctx
 }
 
 // shortMethodName drops the leading slash and proto package from a gRPC full
@@ -48,18 +46,6 @@ func shortMethodName(fullMethod string) string {
 		return m[dot+1:]
 	}
 	return m
-}
-
-// peerHost logs a peer address without its ephemeral port. It is resolved
-// lazily, so RPCs that never log don't pay for formatting.
-type peerHost struct{ addr net.Addr }
-
-func (p peerHost) LogValue() slog.Value {
-	s := p.addr.String()
-	if host, _, err := net.SplitHostPort(s); err == nil {
-		return slog.StringValue(host)
-	}
-	return slog.StringValue(s)
 }
 
 func logContextUnaryInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {

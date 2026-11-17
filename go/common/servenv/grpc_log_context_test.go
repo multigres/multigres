@@ -59,6 +59,6 @@ func TestLogContextUnaryInterceptor(t *testing.T) {
 
 	var rec map[string]any
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
-	assert.Equal(t, "MultiPoolerManager/Promote", rec["task"])
-	assert.Equal(t, "10.1.2.3", rec["peer"])
+	assert.Equal(t, "MultiPoolerManager/Promote", rec[telemetry.LogKeyTask])
+	assert.Equal(t, "10.1.2.3", rec[telemetry.LogKeyClientAddress])
 }

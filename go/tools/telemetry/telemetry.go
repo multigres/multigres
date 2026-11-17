@@ -522,8 +522,8 @@ func (h *compositeHandler) WithGroup(name string) slog.Handler {
 	}
 }
 
-// traceHandler wraps an slog.Handler to inject trace_id, span_id, and any
-// ContextWithLogAttrs attrs from context. OTLP export skips the context attrs;
+// traceHandler wraps an slog.Handler to inject trace_id, span_id, and the
+// context's log attrs (WithTask etc.). OTLP export skips the context attrs;
 // those records are already linked to spans that carry the same information.
 type traceHandler struct {
 	wrapped slog.Handler

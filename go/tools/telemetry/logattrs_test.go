@@ -16,32 +16,65 @@ package telemetry
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestContextWithLogAttrs(t *testing.T) {
+// logOnce logs one record with ctx and returns its decoded JSON.
+func logOnce(t *testing.T, ctx context.Context) map[string]any {
+	t.Helper()
 	var buf bytes.Buffer
 	logger := slog.New(NewTelemetry().WrapSlogHandler(slog.NewJSONHandler(&buf, nil)))
+	logger.InfoContext(ctx, "msg")
+	var rec map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &rec))
+	return rec
+}
 
-	ctx := ContextWithLogAttrs(t.Context(), slog.String("a", "1"))
-	ctx = ContextWithLogAttrs(ctx, slog.String("b", "2"))
-	logger.InfoContext(ctx, "with attrs")
-	logger.InfoContext(t.Context(), "without attrs")
+func TestLogAttrs_TaskStepAndClientAddress(t *testing.T) {
+	ctx := WithTask(t.Context(), "postgres-monitor")
+	ctx = WithStep(ctx, "restore-from-backup")
+	ctx = WithClientAddress(ctx, &net.TCPAddr{IP: net.ParseIP("10.1.2.3"), Port: 54321})
 
-	lines := bytes.Split(bytes.TrimSpace(buf.Bytes()), []byte("\n"))
-	require.Len(t, lines, 2)
+	rec := logOnce(t, ctx)
+	assert.Equal(t, "postgres-monitor", rec[LogKeyTask])
+	assert.Equal(t, "restore-from-backup", rec[LogKeyStep])
+	assert.Equal(t, "10.1.2.3", rec[LogKeyClientAddress])
+}
 
-	var with, without map[string]any
-	require.NoError(t, json.Unmarshal(lines[0], &with))
-	require.NoError(t, json.Unmarshal(lines[1], &without))
+func TestLogAttrs_ReplaceNotAppend(t *testing.T) {
+	ctx := WithStep(WithTask(t.Context(), "a"), "s1")
+	ctx = WithStep(ctx, "s2")
 
-	assert.Equal(t, "1", with["a"])
-	assert.Equal(t, "2", with["b"])
-	assert.NotContains(t, without, "a")
-	assert.NotContains(t, without, "b")
+	var buf bytes.Buffer
+	logger := slog.New(NewTelemetry().WrapSlogHandler(slog.NewJSONHandler(&buf, nil)))
+	logger.InfoContext(ctx, "msg")
+	// Count raw JSON keys: decoding into a map would hide a duplicate.
+	assert.Equal(t, 1, bytes.Count(buf.Bytes(), []byte(`"`+LogKeyStep+`"`)), buf.String())
+	assert.Contains(t, buf.String(), `"`+LogKeyStep+`":"s2"`)
+}
+
+func TestLogAttrs_NewTaskClearsStep(t *testing.T) {
+	parent := WithStep(WithTask(t.Context(), "MultiPoolerManager/Promote"), "wait-for-catchup")
+	child := WithTask(parent, "post-promotion-checkpoint")
+
+	rec := logOnce(t, child)
+	assert.Equal(t, "post-promotion-checkpoint", rec[LogKeyTask])
+	assert.NotContains(t, rec, LogKeyStep)
+
+	// The parent context is unchanged.
+	assert.Equal(t, "wait-for-catchup", logOnce(t, parent)[LogKeyStep])
+}
+
+func TestLogAttrs_AbsentWithoutTagging(t *testing.T) {
+	rec := logOnce(t, t.Context())
+	assert.NotContains(t, rec, LogKeyTask)
+	assert.NotContains(t, rec, LogKeyStep)
+	assert.NotContains(t, rec, LogKeyClientAddress)
 }
