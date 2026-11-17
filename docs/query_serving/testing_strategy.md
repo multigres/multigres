@@ -126,7 +126,7 @@ re-compares. Every result is therefore one of three buckets:
   patch describing a divergence we accept. Counted as a pass.
 - **`fail`** - output differs in a way no patch explains. A genuine residual.
 
-There are **130 committed patch files** today (69 core, 4 contrib, 51 external,
+There are **124 committed patch files** today (66 core, 4 contrib, 48 external,
 6 isolation); a meaningful share of every suite is `pass`-with-patch. Those
 files _are_ the reviewable list of divergences - [Known
 divergences](#known-divergences-the-complete-list) is their inventory.
@@ -446,7 +446,8 @@ result rows.** These differences fall below that bar.
   unlogged table is not replicated and is lost on failover; the table is still
   created. See [Unlogged tables](unlogged_tables.md). Appears in `brin`,
   `create_index`, `create_table`, `gist`, `identity`, `spgist`, `alter_table`,
-  `gin`, `sequence`, `publication`, and the two `vector` patches (12 total).
+  `gin`, `publication`, and the two `vector` patches (11 total); `sequence`
+  carries the unlogged-sequence variant of the warning.
 - **`postgres` vs `regression` database naming.** `information_schema` and catalog
   listings report the actual `postgres` database: `domain`, `updatable_views`,
   `sequence`, `psql`, `foreign_data` (its only remaining divergence now that
@@ -595,6 +596,12 @@ regression suite can't reach:
   See [pgparity](testing/pgparity.md).
 - **`sqllogictest`** - large-scale query-result verification via the sqllogictest
   corpus.
+- **`pgproto`** - a wire-protocol conformance suite: hand-written sequences of
+  raw V3 protocol messages (including out-of-order and malformed ones) are
+  replayed against direct PostgreSQL and against the gateway, and the response
+  traces are diffed, with known divergences recorded as patches. It is a gate:
+  the Go test fails on any unpatched divergence. See its
+  [README](../../go/test/endtoend/queryserving/pgproto/README.md).
 - **`postgrest` / `pgbouncer` differential suites** - real-world client
   ecosystems (PostgREST's hspec and I/O suites, PgBouncer's suite) run through
   the gateway. PostgREST I/O runs a curated proxy-relevant subset; its default

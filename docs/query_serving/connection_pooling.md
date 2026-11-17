@@ -5,8 +5,10 @@
 Multigres implements a **per-user connection pooling** architecture in the
 Multipooler service to efficiently manage PostgreSQL connections. Each user
 gets their own dedicated connection pools that authenticate directly as that
-user via trust/peer authentication. This design ensures strong security
-isolation while supporting Row-Level Security (RLS) policies.
+user, using the SCRAM keys the gateway forwards from the client's own login
+(see [SCRAM Key Passthrough](./scram_passthrough_design.md)). This design
+ensures strong security isolation while supporting Row-Level Security (RLS)
+policies.
 
 Pool capacities are managed dynamically using **fair share allocation** -- the
 system distributes the global connection budget among active users based on
@@ -87,8 +89,9 @@ actual demand and automatically rebalances as users come and go.
 
 Each user gets their own `UserPool` containing both a RegularPool and ReservedPool.
 Pools are created **lazily** on first connection request for that user. New pools
-start with an initial capacity of 10 connections; the background rebalancer adjusts
-capacities within seconds based on actual demand.
+start with an initial capacity of 10 connections (split between the regular and
+reserved pool by `--connpool-reserved-ratio`, at least 1 each); the background
+rebalancer adjusts capacities within seconds based on actual demand.
 
 #### RegularPool
 
@@ -96,7 +99,7 @@ capacities within seconds based on actual demand.
 
 **Characteristics:**
 
-- Authenticates directly as the user (trust/peer auth)
+- Authenticates directly as the user (SCRAM key passthrough)
 - Supports the Extended Query Protocol (Parse/Bind/Execute)
 - Tracks connection state including settings and prepared statements
 - Uses settings-based bucket routing for connection reuse
@@ -144,7 +147,7 @@ the same rule.
 
 - Fully encapsulates its own underlying RegularPool (completely separate from
   the main RegularPool)
-- Authenticates directly as the user (trust/peer auth)
+- Authenticates directly as the user (SCRAM key passthrough)
 - Assigns unique connection IDs via atomic counter for client-side reference
 - Maintains an `active map[int64]*Conn` for ID-based lookup
 - Tracks reservation state via `reservedProps` (transaction or portal reservation)
@@ -206,21 +209,21 @@ initiation) whose mid-failure can leave the conn in a partially modified state
 failed-transaction `'E'` state). Discarding the conn is the safe default and
 matches the pre-primitive behavior at every call site.
 
-This is the reserved-pool analog of the regular pool's
-`retryOnConnectionError`. It is wired by every executor call site that
-allocates a fresh reserved conn:
+This is the reserved-pool analog of the retry loop in the regular pool's
+`GetWithSettings`. It is wired by every executor call site that allocates a
+fresh reserved conn:
 
-- `reserveAndStreamExecute` — SQL EXECUTE materialization uses
-  `ensurePrepared` in validation when the request carries an EXECUTE wrapper.
-  A transaction's `prepare_only` request instead replays BEGIN in validation
-  and prepares the named statement after acquiring the reservation, inside
-  that transaction. This preserves Parse-time locks and error handling.
+- `reserveAndStreamExecute` — when the reservation opens a transaction, the
+  BEGIN query (preceded by the backend-vpid stamp when tracking is enabled)
+  runs in validate. A non-transaction reservation (for example `CREATE TEMP`)
+  has no other pre-registration write, so validate probes the socket with
+  `SELECT 1`.
 - `portalExecuteWithReserved` (new-conn branch) — `ensurePrepared` runs in
   validate; the post-acquire `ensurePrepared` becomes a no-op (deduped by
   per-connection state).
-- `CopyInitiate` (new-conn branch) — BEGIN-if-needed and
-  `InitiateCopyFromStdin` run in validate; the captured COPY format and column
-  formats are used after acquisition.
+- `CopyReady` / `CopyOutReady` (new-conn branch) — BEGIN-if-needed and
+  `InitiateCopyFromStdin` / `InitiateCopyToStdout` run in validate; the
+  captured COPY format and column formats are used after acquisition.
 
 Existing-reserved-conn paths (`GetReservedConn`) are not exposed: those conns
 are actively held and never sit idle in the regular pool, so PostgreSQL's idle
@@ -233,7 +236,7 @@ Logical replication (e.g. Realtime) opens a session-pinned backend through
 reserved capacity budget, shares the per-user fair-share allocation and demand
 tracking, gets a unique ID in the `active` map, and frees its slot on `Release`
 exactly like any other reserved conn. It differs from a transactional reserved
-conn in four ways:
+conn in five ways:
 
 - **Replication-mode socket.** `replication=database` is a startup-packet
   parameter that cannot be set on a live backend, so the conn acquires a slot,
@@ -253,6 +256,10 @@ conn in four ways:
   accounts the slot until the deferred `Release` runs; `DetachConn` marks the
   conn closed first so `Recycle` frees the slot exactly once and never
   double-closes.
+- **Invisible to the graceful drain.** It does not fire the `OnReserve` /
+  `OnRelease` drain callbacks and is skipped by the drain's force-close
+  (`KillAllForDrain`), so a streaming walsender neither delays nor is severed
+  by a not-serving transition.
 
 The end-to-end lifecycle:
 
@@ -338,6 +345,23 @@ Derived:
   globalRegularCapacity  = 500 * 0.8 = 400
   globalReservedCapacity = 500 * 0.2 = 100
 ```
+
+When `--connpool-global-capacity` is not set explicitly (flag,
+`CONNPOOL_GLOBAL_CAPACITY`, or config file), the manager derives it from the
+server each time the pools open (`resolveGlobalCapacity`):
+
+```text
+globalCapacity = max(max_connections
+                     - superuser_reserved_connections
+                     - reserved_connections        (PG 16+, else 0)
+                     - connpool-admin-capacity, 1)
+```
+
+so the pooler never asks PostgreSQL for more connections than it accepts. If
+that query fails, the fallback is the budget pgctld last reported over its
+Status RPC (capped at the flag default), and failing that the flag default
+(100). The value in effect is exported as
+`mg.pooler.config.max_server_connections`.
 
 With **elastic quotas** (`--connpool-elastic-quotas`, on by default) these are
 targets under contention, not ceilings. Each rebalance cycle re-splits the
@@ -458,12 +482,14 @@ Example with globalRegularCapacity=400:
   Step 3: Continue with A only
     A=150, B=100, C=80 (total=330) → A is satisfied (demand=150)
 
-  Remaining capacity: 400-330 = 70 (held in reserve)
+  Remaining capacity: 400-330 = 70 (split evenly as burst headroom, see below)
 ```
 
 **Bounds:**
 
-- **Minimum**: Configurable via `--connpool-min-capacity-per-user` (default: 10 connections per user)
+- **Minimum**: Configurable via `--connpool-min-capacity-per-user` (default: 10
+  connections per user, split between the regular and reserved allocators by
+  the reserved ratio, at least 1 each)
 - **Maximum**: Full global capacity (single user can use everything)
 
 The minimum ensures that light users or new arrivals always have enough connections
@@ -715,7 +741,7 @@ the gateway's tracking and rejection gates remain the correctness boundary.
 ### Per-User Connection Pools
 
 The connection pool manager creates **separate pools for each user**. Each pool
-authenticates directly as that PostgreSQL user via trust/peer authentication.
+authenticates directly as that PostgreSQL user (SCRAM key passthrough).
 This design provides:
 
 1. **Strong Security Isolation** - No role switching needed; connections are
@@ -731,9 +757,9 @@ This design provides:
 
 ```text
 1. Client request arrives for user "alice" with settings
-2. Manager.GetRegularConn(ctx, "alice")
-   └─ getOrCreateUserPool("alice") → creates pool if needed
-   └─ userPool.GetRegularConn(ctx)
+2. Manager.GetRegularConnWithSettings(ctx, settings, "alice", clientKey, serverKey)
+   └─ getOrCreateUserPool("alice", keys) → creates pool if needed
+   └─ userPool.GetRegularConnWithSettings(ctx, settings)
 3. Execute user's query (RLS sees current_user = alice)
 4. pooled.Recycle() → returns to alice's pool
 ```
@@ -742,58 +768,54 @@ This design provides:
 
 ```text
 1. Client request arrives for user "alice", BEGIN transaction
-2. Manager.NewReservedConn(ctx, settings, "alice")
-   └─ getOrCreateUserPool("alice")
-   └─ userPool.NewReservedConn(ctx, settings)
+2. Manager.NewReservedConn(ctx, settings, "alice", clientKey, serverKey, WithValidate(...))
+   └─ getOrCreateUserPool("alice", keys)
+   └─ userPool.NewReservedConn(ctx, settings, opts...)
       ├─ Gets RegularConn from alice's reserved pool
+      ├─ Runs the validate callback (BEGIN) on it, retrying on a stale socket
       ├─ Wraps in reserved.Conn with unique ConnID
       └─ Registers in active map
-3. reserved.Begin() → executes BEGIN
-4. Return ConnID to client
-   ... client sends more queries with same ConnID ...
+3. Executor marks the transaction reason on the reserved conn
+4. Return ConnID to the gateway (in ReservedState)
+   ... gateway sends the session's next queries with the same ConnID ...
 5. Manager.GetReservedConn(connID, "alice") → retrieves connection, resets expiry
 6. reserved.Query(ctx, "INSERT ...")
    ... eventually ...
 7. reserved.Commit() → executes COMMIT
-8. reserved.Release(ReleaseCommit)
+8. reserved.Release(ReleaseCommit, gatewaySessionSettings) once no reservation
+   reason remains
 ```
 
 ## Important Usage Guidelines
 
 ### Pool Pollution from SET ROLE
 
-**Users must not execute `SET ROLE` commands directly in their queries.**
+Top-level `SET ROLE` and `SET SESSION AUTHORIZATION` (and their `RESET` /
+`set_config` forms) are safe: the gateway tracks `role` and
+`session_authorization` as session settings like any other GUC
+(`applyTrackedSessionVariable` in
+`go/services/multigateway/engine/apply_session_state.go`), so they are part of
+the settings label the pool routes on and are reset or replayed at checkout.
+See [session_settings.md](./session_settings.md).
 
-While each user has their own connection pool, executing `SET ROLE` within a
-session would pollute that connection:
+What the gateway cannot see is a role change made **inside server-side code**:
+
+- `SET ROLE` inside stored procedures or functions (PL/pgSQL)
+- `SET ROLE` via dynamic SQL in procedural languages (PL/Python, PL/Perl, etc.)
+- Any other server-side code that modifies the session role
+
+Such a change leaves the backend's real role out of step with its settings
+label:
 
 1. The connection's actual PostgreSQL role changes
 2. Subsequent queries on that connection see incorrect `current_user`
 3. RLS policies may return incorrect data
-4. The connection state becomes inconsistent with the pool's expectations
 
-**What We Cannot Prevent:**
-
-- `SET ROLE` inside stored procedures or functions (PL/pgSQL)
-- `SET ROLE` via dynamic SQL in procedural languages (PL/Python, PL/Perl, etc.)
-- Any server-side code that modifies the session role
-
-**What We Plan to Prevent (Future Work):**
-
-- Direct `SET ROLE` commands in simple queries (detected and rejected)
-- `SET SESSION AUTHORIZATION` commands
-
-**Client Responsibility:**
-
-Until query-level detection is implemented, it is the client's responsibility
-to ensure that:
-
-- Application code does not execute `SET ROLE` statements
-- Stored procedures and functions do not change session roles
-- If role changes are required within procedures, they must `RESET ROLE` before returning
-
-If your application legitimately requires role changes within procedures, ensure
-they are properly scoped and reset before the procedure returns.
+The [session-state scrubber](#session-state-scrubber) detects this on idle
+connections (its `session_state` checker reads `current_setting('role')` and
+`session_user` explicitly) and replaces the backend, but it is a sampler, not
+a guarantee. It remains the application's responsibility that procedures and
+functions which change the session role `RESET ROLE` before returning.
 
 ### Session Variable Considerations
 
@@ -804,7 +826,7 @@ Session variables set via `SET` commands affect connection routing:
 
 ## ConnectionPoolManager
 
-The `Manager` in `go/services/multipooler/connpoolmanager/` orchestrates all pool types,
+The `Manager` in `go/services/multipooler/internal/connpoolmanager/` orchestrates all pool types,
 providing:
 
 1. **Per-User Pool Management** - Lazy creation of user pools on first request
@@ -816,10 +838,30 @@ providing:
 7. **Inactive Pool GC** - Automatically removes user pools after configurable inactivity
 8. **Metrics** - Exposes per-user pool statistics including demand and activity
 
+### Close, Reopen, and Stale Pools
+
+The manager has three lifecycle states: closed, running, and reopening.
+
+- **`Close`** is terminal: acquisitions afterwards fail with `ErrManagerClosed`
+  until a fresh `Open`.
+- **`CloseForReopen` + `Open`** replaces every pool, including the admin pool.
+  The multipooler manager does this (`reopenConnections`) after PostgreSQL
+  restarts, to replace stale sockets. `Open` re-derives the global capacity
+  from the server. Reserved connections do not survive a reopen.
+- Every acquisition goes through `withReopenRetry`. A request that races a
+  reopen (it sees `ErrManagerClosed` or `connpool.ErrPoolClosed`) waits for the
+  paired `Open`, honoring its context, and retries against the fresh pools
+  instead of surfacing the transient error (at most 4 such retries).
+- **Stale credentials.** A user pool keeps the SCRAM keys it was created with.
+  If a dial fails with an authentication error (SQLSTATE class 28, typically
+  after a password rotation), the pool is evicted (`evictUserPool`) and the
+  operation is retried once on a pool rebuilt from the triggering session's
+  keys. See [SCRAM Key Passthrough](./scram_passthrough_design.md).
+
 ### Usage
 
 ```go
-import "github.com/multigres/multigres/go/services/multipooler/connpoolmanager"
+import "github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 
 // Create config with viper registry
 cfg := connpoolmanager.NewConfig(reg)
@@ -827,49 +869,70 @@ cfg := connpoolmanager.NewConfig(reg)
 // Register flags before parsing
 cfg.RegisterFlags(cmd.Flags())
 
-// After flag parsing, create and open the manager
-mgr := cfg.NewManager()
+// After flag parsing, resolve the admin password (Open panics without it),
+// then create and open the manager
+if err := cfg.ResolvePgPassword(); err != nil { /* fail startup */ }
+mgr := cfg.NewManager(logger)
 connConfig := &connpoolmanager.ConnectionConfig{
     SocketFile: socketFilePath,
     Port:       pgPort,
     Database:   database,
 }
-mgr.Open(ctx, logger, connConfig)
+mgr.Open(ctx, connConfig)
 defer mgr.Close()
 
-// Get connections as needed
+// Get connections as needed. clientKey/serverKey are the session's SCRAM
+// passthrough keys (nil for internal callers running as the admin user).
 adminConn, _ := mgr.GetAdminConn(ctx)
-regularConn, _ := mgr.GetRegularConn(ctx, user)
-regularConnWithSettings, _ := mgr.GetRegularConnWithSettings(ctx, settings, user)
-reservedConn, _ := mgr.NewReservedConn(ctx, settings, user)
+regularConn, _ := mgr.GetRegularConn(ctx, user, clientKey, serverKey)
+regularConnWithSettings, _ := mgr.GetRegularConnWithSettings(ctx, settings, user, clientKey, serverKey)
+reservedConn, _ := mgr.NewReservedConn(ctx, settings, user, clientKey, serverKey)
 
 // Resume a reserved connection by ID
 conn, ok := mgr.GetReservedConn(connID, user)
 ```
 
+The SCRAM keys are consumed only when the call creates the user's pool; later
+calls reuse the existing pool whatever keys they carry.
+
 ### Interface for Testing
 
-The `PoolManager` interface allows components to mock the manager in tests:
+The `PoolManager` interface (`interface.go`) allows components to mock the
+manager in tests. Its main methods:
 
 ```go
 type PoolManager interface {
-    Open(ctx context.Context, logger *slog.Logger, connConfig *ConnectionConfig)
+    Open(ctx context.Context, connConfig *ConnectionConfig)
     Close()
+    // First half of a reopen (Close + Open, e.g. after a PostgreSQL restart):
+    // requests racing the reopen wait for the Open and retry instead of failing.
+    CloseForReopen()
+
+    PgUser() string
+    PgDatabase() string
+    PgPassword() (string, bool)
 
     // Admin pool operations
     GetAdminConn(ctx context.Context) (admin.PooledConn, error)
 
     // Regular pool operations (per-user)
-    GetRegularConn(ctx context.Context, user string) (regular.PooledConn, error)
-    GetRegularConnWithSettings(ctx context.Context, settings map[string]string, user string) (regular.PooledConn, error)
+    GetRegularConn(ctx context.Context, user string, clientKey, serverKey []byte) (regular.PooledConn, error)
+    GetRegularConnWithSettings(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte) (regular.PooledConn, error)
 
     // Reserved pool operations (per-user). Optional ReservedConnOption
     // values (e.g. WithValidate) are forwarded to the underlying reserved
     // pool to enable stale-socket retry during acquisition.
-    NewReservedConn(ctx context.Context, settings map[string]string, user string, opts ...reserved.ReservedConnOption) (*reserved.Conn, error)
+    NewReservedConn(ctx context.Context, settings map[string]string, user string, clientKey, serverKey []byte, opts ...reserved.ReservedConnOption) (*reserved.Conn, error)
+    NewLogicalReplicationConn(ctx context.Context, user string, clientKey, serverKey []byte) (*reserved.Conn, error)
     GetReservedConn(connID int64, user string) (*reserved.Conn, bool)
 
+    // Drain (see graceful_drain_design.md)
+    WaitForDrain(ctx context.Context) error
+    WaitForReservedDrain(ctx context.Context) error
+    CloseReservedConnections(ctx context.Context) int
+
     Stats() ManagerStats
+    CredentialQueryRecorder() CredentialQueryRecorder
 }
 ```
 
@@ -883,7 +946,7 @@ These flags control how pool capacities are distributed across users:
 
 | Flag                               | Default | Description                                    |
 | ---------------------------------- | ------- | ---------------------------------------------- |
-| `--connpool-global-capacity`       | 100     | Total PostgreSQL connections to manage         |
+| `--connpool-global-capacity`       | derived | Total PostgreSQL connections to manage         |
 | `--connpool-reserved-ratio`        | 0.2     | Fraction of global capacity for reserved pools |
 | `--connpool-elastic-quotas`        | true    | Let classes borrow each other's unused share   |
 | `--connpool-rebalance-interval`    | 10s     | How often to run rebalancing                   |
@@ -891,25 +954,39 @@ These flags control how pool capacities are distributed across users:
 | `--connpool-inactive-timeout`      | 5m      | Remove user pools after this inactivity        |
 | `--connpool-min-capacity-per-user` | 10      | Minimum connections per user (floor guarantee) |
 
+`--connpool-global-capacity` (env `CONNPOOL_GLOBAL_CAPACITY`) has a flag
+default of 100, but when it is not set explicitly the capacity is derived from
+the server's `max_connections` (see
+[Two Separate Resources](#two-separate-resources)).
+`--connpool-elastic-quotas` can also be set via `CONNPOOL_ELASTIC_QUOTAS`.
+
 Derived values:
 
 ```text
 globalRegularCapacity  = globalCapacity * (1 - reservedRatio)
-globalReservedCapacity = globalCapacity * reservedRatio
+globalReservedCapacity = globalCapacity - globalRegularCapacity
 ```
 
 ### Admin Pool Flags
 
-| Flag                        | Default    | Env Var                                        | Description                                            |
-| --------------------------- | ---------- | ---------------------------------------------- | ------------------------------------------------------ |
-| `--connpool-admin-user`     | `postgres` | `CONNPOOL_ADMIN_USER`, `POSTGRES_USER`         | PostgreSQL superuser for admin and internal operations |
-| (no password flag)          | -          | `CONNPOOL_ADMIN_PASSWORD`, `POSTGRES_PASSWORD` | PostgreSQL superuser password (env or file only)       |
-| `--connpool-admin-capacity` | 5          | -                                              | Maximum admin connections                              |
+<!-- markdownlint-disable MD013 -->
+
+| Flag                             | Default    | Env Var                                                  | Description                                            |
+| -------------------------------- | ---------- | -------------------------------------------------------- | ------------------------------------------------------ |
+| `--connpool-admin-user`          | `postgres` | `CONNPOOL_ADMIN_USER`, `POSTGRES_USER`                   | PostgreSQL superuser for admin and internal operations |
+| (no password flag)               | -          | `CONNPOOL_ADMIN_PASSWORD`, `POSTGRES_PASSWORD`           | PostgreSQL superuser password (env or file only)       |
+| `--connpool-admin-password-file` | -          | `CONNPOOL_ADMIN_PASSWORD_FILE`, `POSTGRES_PASSWORD_FILE` | File holding the superuser password (plaintext)        |
+| `--connpool-admin-capacity`      | 5          | -                                                        | Maximum admin connections                              |
+
+<!-- markdownlint-enable MD013 -->
 
 `CONNPOOL_ADMIN_USER` takes precedence over `POSTGRES_USER`, and `CONNPOOL_ADMIN_PASSWORD`
-takes precedence over `POSTGRES_PASSWORD` when both are set. There is deliberately no
+takes precedence over `POSTGRES_PASSWORD` when both are set. An explicitly set
+password file takes precedence over both password env vars. There is deliberately no
 password CLI flag — a password on the command line is visible in `ps` and shell
-history; use the env vars or `--connpool-admin-password-file`.
+history; use the env vars or `--connpool-admin-password-file`. Startup fails if
+no password source is configured, or if the chosen one is empty
+(`Config.ResolvePgPassword`).
 
 > **Deprecated:** `--connpool-admin-user`, `CONNPOOL_ADMIN_USER`, and
 > `CONNPOOL_ADMIN_PASSWORD` are deprecated and will be removed in a future release.
@@ -933,10 +1010,19 @@ demand. These flags control timeout behavior only:
 
 ### Other Flags
 
-| Flag                             | Default | Description                                             |
-| -------------------------------- | ------- | ------------------------------------------------------- |
-| `--connpool-settings-cache-size` | 1024    | Maximum number of unique settings combinations to cache |
-| `--connpool-dial-timeout`        | 5s      | Timeout for establishing new PostgreSQL connections     |
+<!-- markdownlint-disable MD013 -->
+
+| Flag                                | Default    | Description                                                                                                          |
+| ----------------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------- |
+| `--connpool-settings-cache-size`    | 1024       | Maximum number of unique settings combinations to cache                                                              |
+| `--connpool-dial-timeout`           | 5s         | Timeout for establishing new PostgreSQL connections                                                                  |
+| `--connpool-session-scrub-interval` | 10s        | Tick of the [session-state scrubber](#session-state-scrubber) (`0` disables)                                         |
+| `--connpool-drain-grace-period`     | 3s         | Drain wait before reserved connections are force-closed (see [graceful drain](./graceful_drain_design.md))           |
+| `--pg-client-sslmode`               | `prefer`   | TLS mode for the multipooler → PostgreSQL leg: `disable`, `prefer`, `require`, `verify-ca`, `verify-full` (TCP only) |
+| `--pg-client-sslrootcert`           | -          | PEM CA bundle for verifying the PostgreSQL server certificate (required for `verify-ca`/`verify-full`)               |
+| `--pg-client-sslnegotiation`        | `postgres` | `postgres` (SSLRequest handshake) or `direct` (TLS-first, PostgreSQL 17+)                                            |
+
+<!-- markdownlint-enable MD013 -->
 
 **Note:** Connection settings (socket file, port, database) use the existing multipooler flags
 (`--socket-file`, `--pg-port`, `--database`) and are passed to the connection pool manager
@@ -960,7 +1046,7 @@ With this configuration:
 - New users start with 10 connections each
 - Rebalancer adjusts capacities every 10 seconds based on 30-second peak demand
 - Demand window uses 3 buckets (30s ÷ 10s) to smooth allocation decisions
-- Each user is guaranteed at least 5 connections regardless of demand
+- Each user is guaranteed at least 10 connections (8 regular, 2 reserved) regardless of demand
 - Inactive user pools are garbage collected after 5 minutes
 
 ## Statistics
@@ -983,6 +1069,12 @@ type UserPoolStats struct {
     RegularDemand  int64 // Peak demand from tracker (0 if tracking not enabled)
     ReservedDemand int64 // Peak demand from tracker (0 if tracking not enabled)
     LastActivity   int64 // Unix nanos of last activity
+
+    // Aggregates across the regular and reserved pools
+    WaitCount int64         // Times a client had to wait for a connection
+    WaitTime  time.Duration // Total time clients spent waiting
+    GetCount  int64         // Total connections borrowed
+    Waiting   int           // Clients currently waiting
 }
 ```
 
@@ -1023,32 +1115,15 @@ architecture poses unacceptable security risks.
 - Audit logging with real-time detection of unauthorized role switches
 - Sandboxed execution environments for stored procedures
 
-### SET ROLE Detection
+### Certificate Authentication
 
-Currently, direct `SET ROLE` and `SET SESSION AUTHORIZATION` commands in client
-queries are not detected or rejected. Implementing query-level detection would:
-
-- Parse incoming queries to detect role-changing statements
-- Reject queries containing `SET ROLE` or `SET SESSION AUTHORIZATION`
-- Protect against accidental pool pollution from client code
-
-This detection would be implemented in Multigateway, which already parses
-queries and serves as the entry point for client connections.
-
-### Password Authentication Support
-
-Currently, per-user connection pools rely on trust/peer authentication
-configured in `pg_hba.conf`. This requires the connection pooler to run on the
-same host as PostgreSQL or have appropriate Unix socket access.
-
-Future improvements could add support for:
-
-- **Password-based authentication** - Store and use per-user credentials
-- **Certificate authentication** - Use client certificates for user identity
-- **External credential stores** - Integration with secret management systems
-
-This would enable more flexible deployment topologies where the connection
-pooler runs on separate hosts from PostgreSQL.
+Per-user pools authenticate with the SCRAM keys captured from the client's
+login to the gateway (see
+[SCRAM Key Passthrough](./scram_passthrough_design.md)); a user pool dialed
+without keys only succeeds for the configured admin user, which falls back to
+the admin password (`buildUserClientConfig`). Sessions that do not produce
+SCRAM keys — client-certificate authentication, for example — are not covered
+by that design and remain future work.
 
 ## Login Event Triggers
 
@@ -1095,6 +1170,14 @@ while the trigger is being fixed.
 
 - [Prepared Statements Design](./prepared_statements_design.md) - Extended Query
   Protocol and statement management
+- [Reserved Connection Lifecycle and Loss](./pooler_reserved_connection_lifecycle.md) -
+  how reservations end, and what a client sees when one is lost
+- [Graceful Drain](./graceful_drain_design.md) - draining pools on a
+  not-serving transition
+- [SCRAM Key Passthrough](./scram_passthrough_design.md) - how per-user pools
+  authenticate
+- [Session Settings](./session_settings.md) - settings tracking behind the
+  settings buckets
 
 ## References
 

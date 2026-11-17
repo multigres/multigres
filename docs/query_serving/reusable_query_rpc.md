@@ -4,6 +4,12 @@ Reusable query streams are always enabled.
 `--grpc-stream-workers=0` restores gRPC's goroutine-per-stream default
 without changing the query transport or its completion acknowledgement.
 
+Code: the wire contract and the shared server loop (`Serve`) live in
+`go/common/queryrpc/`; the pooler's handler is
+`go/services/multipooler/grpcpoolerservice/execute_stream.go`; the gateway's
+stream pool and typed receivers are
+`go/services/multigateway/poolergateway/execute_stream_*.go`.
+
 The gateway sends sequential SQL, portal, COPY and unary query-service operations
 over one bidirectional `ExecuteStream` RPC. This reuses HTTP/2 stream state and a
 grown server-handler stack; it does **not** merge SQL operations, pipeline
@@ -137,7 +143,7 @@ which `Serve` invokes for each typed operation. These handlers currently use
 status details, not per-call gRPC headers/trailers; any future header/trailer
 semantics must be represented per operation before enabling reuse for them.
 
-`--grpc-stream-workers=64` enables reusable server workers. Zero restores
+`--grpc-stream-workers` (default 64) sets the number of reusable server workers. Zero restores
 gRPC's default goroutine-per-stream behavior. Busy workers fall back to new
 goroutines, so the setting is not a SQL concurrency limit. Long-lived
 replication keepalive settings are unchanged.

@@ -11,7 +11,15 @@ to use Multigres for your applications, please refer to the
 - **[Working with us](./teamwork.md)**
 - **[Github workflow](./workflow.md)**
 - **[Contributing](./contributing.md)**
-- **[Multiadmin REST API and OpenAPI specification](./api/)**
+- **[Multiadmin REST API and OpenAPI specification](./api/README.md)**
+- **[Local cluster and the `multigres` CLI](./local-cluster.md)** — the
+  `multigres.yaml` schema, default topology and ports, what `cluster start`
+  does, and the admin command groups.
+- **[Topology](./topology.md)** — topology backends, the global and cell key
+  layout, and which component writes what.
+- **[Development guides](./development/README.md)** — the SQL parser and AST,
+  code generation, integration-test infrastructure, error handling, lint
+  rules, and the expression engine.
 
 ## Design Documents
 
@@ -20,14 +28,29 @@ Browse the design and reference docs by area:
 - **[Query serving](./query_serving/)** — connection pooling, prepared
   statements, transactions, session settings, plan caching, query
   cancellation, failover buffering, replica reads, listen/notify, etc.
+  Also covers
+  [client connection startup](./query_serving/client_connection_startup.md),
+  [row passthrough](./query_serving/row_passthrough.md),
+  [query observability](./query_serving/query_observability.md), and the
+  [reserved connection lifecycle](./query_serving/pooler_reserved_connection_lifecycle.md).
 - **[Prepared-statement design](./query_serving/prepared_statements_design.md)**
   — backend preparation, query identity, and DDL recovery. See
   [prepared-statement testing](./query_serving/testing_strategy.md#prepared-statement-preparation-and-ddl)
   for regression coverage and validation commands.
 - **[High availability](./ha/)** — consensus, failover, and the state model,
   plus the HA decision log.
+- **[Sharding](./sharding/)** — the sharding design, the
+  [sharding catalog](./sharding/catalog.md), tablegroup operations and DDL,
+  and routing rules.
+- **[Migration](./migration/)** — the
+  [migrator](./migration/migrator.md) and its
+  [SQL interface](./migration/migrator_sql_interface.md).
 - **[General](./general/)** — cross-cutting topics (e.g. serving state
-  management, [logging conventions](./general/logging.md)).
+  management, [logging conventions](./general/logging.md),
+  [observability](./general/observability.md),
+  [backups](./general/backups.md)).
+- **[Testing against supabase-postgres](./supabase-postgres-testing.md)** —
+  running the integration tests inside the supabase-postgres image.
 - **[Minigres](./general/minigres.md)** — the multigateway and multipooler in
   one process for a single-pooler database: how to run it, and where it
   diverges from Multigres and why.

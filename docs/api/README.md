@@ -1,7 +1,7 @@
 # Multiadmin REST API
 
 [Multiadmin OpenAPI 3.1 specification](./multiadmin.openapi.yaml) describes the
-18 annotated REST operations served by Vanguard on multiadmin's HTTP port.
+35 annotated REST operations served by Vanguard on multiadmin's HTTP port.
 Use the HTTP address of your multiadmin instance as the base URL.
 The web UI uses Connect; internal gRPC services and unannotated RPC paths are
 outside this contract.
@@ -98,6 +98,9 @@ Changing an HTTP status alone does not resolve an uncertain mutation outcome.
 
 These describe current handler behavior, including distinctions that are lost
 at proxy boundaries. The generated operation descriptions carry the same guidance.
+The migration, connection, and routing operations are not classified here:
+multiadmin forwards them to a multipooler (the Multigres Migrator for migrations
+and connections, the catalog primary for routing rules and fences).
 
 | Operations                                    | Current behavior and recovery                                                                                                                                                                                                                                                                                                                        |
 | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -186,28 +189,46 @@ The proto descriptions document these requirements.
 
 Each operation ID is prefixed with `multiadmin.MultiadminService.`.
 Orchestrator discovery is grouped under `cells` because it is scoped by cells.
+See [the migrator SQL interface](../migration/migrator_sql_interface.md) and
+[routing rules](../sharding/routing_rules.md) for what the `migrations`,
+`connections`, and `routing` operations act on.
 
-| Method | Path                                                                                           | Operation                  | Tag       |
-| ------ | ---------------------------------------------------------------------------------------------- | -------------------------- | --------- |
-| GET    | `/api/v1/cells/{name}`                                                                         | GetCell                    | cells     |
-| GET    | `/api/v1/databases/{name}`                                                                     | GetDatabase                | databases |
-| GET    | `/api/v1/cells`                                                                                | GetCellNames               | cells     |
-| GET    | `/api/v1/databases`                                                                            | GetDatabaseNames           | databases |
-| GET    | `/api/v1/databases/{database}/tablegroups`                                                     | ListDesiredTableGroups     | databases |
-| GET    | `/api/v1/gateways`                                                                             | GetGateways                | gateways  |
-| GET    | `/api/v1/poolers`                                                                              | GetPoolers                 | poolers   |
-| GET    | `/api/v1/orchs`                                                                                | GetOrchs                   | cells     |
-| POST   | `/api/v1/backups`                                                                              | Backup                     | backups   |
-| GET    | `/api/v1/jobs/{job_id}`                                                                        | GetBackupJobStatus         | jobs      |
-| GET    | `/api/v1/backups`                                                                              | GetBackups                 | backups   |
-| POST   | `/api/v1/backups/expire`                                                                       | ExpireBackups              | backups   |
-| POST   | `/api/v1/backups/verify`                                                                       | VerifyBackups              | backups   |
-| GET    | `/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/status`                                     | GetPoolerStatus            | poolers   |
-| POST   | `/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-restarts`                          | SetPostgresRestartsEnabled | poolers   |
-| GET    | `/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/queries`                                 | GetGatewayQueries          | gateways  |
-| GET    | `/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/consolidator`                            | GetGatewayConsolidator     | gateways  |
-| POST   | `/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/rule-change`    | ApplyCertifiedRuleChange   | shards    |
-| POST   | `/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/switch-primary` | SwitchPrimary              | shards    |
+| Method | Path                                                                                           | Operation                  | Tag         |
+| ------ | ---------------------------------------------------------------------------------------------- | -------------------------- | ----------- |
+| GET    | `/api/v1/cells/{name}`                                                                         | GetCell                    | cells       |
+| GET    | `/api/v1/databases/{name}`                                                                     | GetDatabase                | databases   |
+| GET    | `/api/v1/cells`                                                                                | GetCellNames               | cells       |
+| GET    | `/api/v1/databases`                                                                            | GetDatabaseNames           | databases   |
+| GET    | `/api/v1/databases/{database}/tablegroups`                                                     | ListDesiredTableGroups     | databases   |
+| GET    | `/api/v1/gateways`                                                                             | GetGateways                | gateways    |
+| GET    | `/api/v1/poolers`                                                                              | GetPoolers                 | poolers     |
+| GET    | `/api/v1/orchs`                                                                                | GetOrchs                   | cells       |
+| POST   | `/api/v1/backups`                                                                              | Backup                     | backups     |
+| GET    | `/api/v1/jobs/{job_id}`                                                                        | GetBackupJobStatus         | jobs        |
+| GET    | `/api/v1/backups`                                                                              | GetBackups                 | backups     |
+| POST   | `/api/v1/backups/expire`                                                                       | ExpireBackups              | backups     |
+| POST   | `/api/v1/backups/verify`                                                                       | VerifyBackups              | backups     |
+| GET    | `/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/status`                                     | GetPoolerStatus            | poolers     |
+| POST   | `/api/v1/poolers/{pooler_id.cell}/{pooler_id.name}/postgres-restarts`                          | SetPostgresRestartsEnabled | poolers     |
+| GET    | `/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/queries`                                 | GetGatewayQueries          | gateways    |
+| GET    | `/api/v1/gateways/{gateway_id.cell}/{gateway_id.name}/consolidator`                            | GetGatewayConsolidator     | gateways    |
+| POST   | `/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/rule-change`    | ApplyCertifiedRuleChange   | shards      |
+| POST   | `/api/v1/shards/{shard_ref.database}/{shard_ref.table_group}/{shard_ref.shard}/switch-primary` | SwitchPrimary              | shards      |
+| POST   | `/api/v1/migrations`                                                                           | CreateMigration            | migrations  |
+| GET    | `/api/v1/migrations/{ref.id}`                                                                  | GetMigration               | migrations  |
+| GET    | `/api/v1/migrations`                                                                           | ListMigrations             | migrations  |
+| GET    | `/api/v1/migrations/{id}/journal`                                                              | GetMigrationJournal        | migrations  |
+| POST   | `/api/v1/migrations/{ref.id}/direction`                                                        | SetMigrationDirection      | migrations  |
+| DELETE | `/api/v1/migrations/{ref.id}`                                                                  | DropMigration              | migrations  |
+| POST   | `/api/v1/connections`                                                                          | CreateConnection           | connections |
+| GET    | `/api/v1/connections/{ref.id}`                                                                 | GetConnection              | connections |
+| GET    | `/api/v1/connections`                                                                          | ListConnections            | connections |
+| DELETE | `/api/v1/connections/{ref.id}`                                                                 | DropConnection             | connections |
+| GET    | `/api/v1/databases/{database}/routing`                                                         | GetRoutingRules            | routing     |
+| PUT    | `/api/v1/databases/{database}/routing/operations/{operation_id}/rules`                         | SetRoutingRules            | routing     |
+| DELETE | `/api/v1/databases/{database}/routing/operations/{operation_id}/rules`                         | DeleteRoutingRules         | routing     |
+| POST   | `/api/v1/databases/{database}/routing/operations/{operation_id}/fence`                         | FenceScopes                | routing     |
+| POST   | `/api/v1/databases/{database}/routing/operations/{operation_id}/unfence`                       | UnfenceScopes              | routing     |
 
 ## Tests
 

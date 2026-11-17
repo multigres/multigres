@@ -17,6 +17,27 @@ position in the `database → table group → shard` tree, and a pooler holds
 exactly one database's shard. Each pooler carries its identity as
 `{database, table_group, shard}`.
 
+## Status
+
+This document is the design. Only part of it is implemented:
+
+- **Implemented:** the hierarchy itself (every pooler registers with a
+  `ShardRef{database, table_group, shard}`), shard names and key ranges
+  (`go/common/keyrange`), the sharding catalog that stores tablegroups and
+  their shards in the `multigres` schema of each database's catalog shard
+  ([catalog.md](catalog.md)), creating a tablegroup with a shard layout
+  ([tablegroup-operations.md](tablegroup-operations.md)), and the bookkeeping
+  for routing rules and admission fences ([routing_rules.md](routing_rules.md)).
+- **Not implemented:** placing a table in a tablegroup, sharding functions
+  (hash, range, lookup, multicol, reference), resolving a query to a shard,
+  scatter, and resharding. The catalog has tables for table membership, shard
+  indexes and shard keys, and the snapshot carries them, but nothing writes
+  them. The gateway caches the catalog snapshot, but its planner does not read
+  it: every statement is routed to the `default` tablegroup's `0-inf` shard.
+
+The [Proto](#proto) section below is the design sketch, not the committed
+schema; see the note there.
+
 ## Terms
 
 **Database** — the top of the hierarchy and the ownership boundary. Its table
@@ -41,8 +62,12 @@ ownership and routing that lives in the catalog; the **pooler cohort** is the
 physical processes (postgres + its multipoolers) that serve it. They map
 one-to-one, but the shard is metadata while the cohort is the running deployment.
 Identified by `(database, table_group,
-key_range)`; its name is derived from the range as `hex(start)-hex(end)` — so
-`[-, 0x80)` is `"-80"`, `[0x80, -)` is `"80-"`, and the full range is `"-"`.
+key_range)`; its name is derived from the range as `<start>-<end>`, where the
+start is `0` (the start of the keyspace) or a hex bound and the end is `inf`
+(the end of the keyspace) or a hex bound — so `[-, 0x80)` is `"0-80"`,
+`[0x80, -)` is `"80-inf"`, and the full range is `"0-inf"`. A hex bound is
+lowercase, of even length, and has no trailing zero byte, so every range has
+exactly one name (`keyrange.ShardName`, `keyrange.ParseShardName`).
 
 **ShardingFunction** — how a table's rows are placed:
 
@@ -93,6 +118,17 @@ regardless of how finely the range is split.
 
 ## Proto
 
+The messages below are the design sketch. The committed schema is
+`proto/shardingcatalog.proto`, which differs in shape: a `Snapshot` holds flat
+lists of `TableGroup`, `Shard`, `Table`, `ShardIndex`, `ShardKey`,
+`RoutingRule` and `Fence` that refer to each other by catalog id, and entities
+carry a lifecycle state. Instead of a `ShardingFunction` on each table, it
+models a database-wide named **shard index** (`type` is free text such as
+`hash` or `lookup`, with JSON `params`) and a **shard key** that binds a
+table's columns to a shard index with a role (`PRIMARY` places rows,
+`SECONDARY` only finds them). There is no `ShardingSchema` or `Database`
+message: a snapshot is the catalog of one database.
+
 ```proto
 // The complete routing catalog.
 message ShardingSchema {
@@ -126,8 +162,8 @@ message Table {
 }
 
 // One physical partition: a key range served by one pooler cohort. Identified
-// by (database, table_group, key_range); the name is derived from the range as
-// hex(start)-hex(end): "-80", "80-", "-".
+// by (database, table_group, key_range); the name is derived from the range:
+// "0-80", "80-inf", "0-inf".
 message Shard {
   clustermetadata.KeyRange key_range = 1; // start incl / end excl
 }
@@ -176,7 +212,7 @@ new wire types.
 
 ## Examples
 
-Keyranges are `hex(start)-hex(end)`: `-80` is `[0x00, 0x80)`, `80-` is
+Keyranges are written as shard names: `0-80` is `[0x00, 0x80)`, `80-inf` is
 `[0x80, +inf)`.
 
 ### Unsharded table
@@ -187,7 +223,7 @@ One table group, one full-range shard; every query routes there.
 Database{ name: "db2", table_groups: [
   TableGroup{ name: "default",
               tables: [{schema:"sc2", name:"t3"}],   // no function => unsharded
-              shards: [ {key_range: -} ] }
+              shards: [ {key_range: 0-inf} ] }
 ]}
 ```
 
@@ -196,7 +232,7 @@ Database{ name: "db2", table_groups: [
 ```text
 TableGroup{ name: "by_user",
   tables: [ {schema:"sc1", name:"t1", function:{hash:{}}, columns:["user_id"]} ],
-  shards: [ {key_range:-80}, {key_range:80-} ] }
+  shards: [ {key_range:0-80}, {key_range:80-inf} ] }
 ```
 
 `WHERE user_id = 42` → `hash(42)` → one shard. No `user_id` predicate → scatter
@@ -216,7 +252,7 @@ TableGroup{ name: "by_tenant_order",
              function:{multicol:{parts:[{function:{hash:{}}, bytes:2},
                                          {function:{hash:{}}, bytes:2}]}},
              columns:["tenant_id","order_id"]} ],
-  shards: [ {key_range:-80}, {key_range:80-} ] }
+  shards: [ {key_range:0-80}, {key_range:80-inf} ] }
 ```
 
 `WHERE tenant_id = 7 AND order_id = 42` fills all four bytes → one shard. Because
@@ -245,9 +281,9 @@ reference tables has none.
 
 ```text
 Database{ name: "db1", table_groups: [
-  TableGroup{ name: "by_user",        shards: [-80, 80-], tables: [ {..t1, function:{hash:{}},  columns:["user_id"]} ] },
-  TableGroup{ name: "events_by_time", shards: [-80, 80-], tables: [ {..events, function:{range:{}}, columns:["created_at"]} ] },
-  TableGroup{ name: "reference",      shards: [],         tables: [ {..countries, function:{reference:{}}} ] },
+  TableGroup{ name: "by_user",        shards: [0-80, 80-inf], tables: [ {..t1, function:{hash:{}},  columns:["user_id"]} ] },
+  TableGroup{ name: "events_by_time", shards: [0-80, 80-inf], tables: [ {..events, function:{range:{}}, columns:["created_at"]} ] },
+  TableGroup{ name: "reference",      shards: [],             tables: [ {..countries, function:{reference:{}}} ] },
 ]}
 ```
 
@@ -262,7 +298,7 @@ an open encoding choice.)
 ```text
 TableGroup{ name: "events_by_time",
   tables: [ {schema:"sc1", name:"events", function:{range:{}}, columns:["created_at"]} ],
-  shards: [ {key_range:[-,mid)}, {key_range:[mid,-)} ] }
+  shards: [ {key_range:0-mid}, {key_range:mid-inf} ] }
 ```
 
 `WHERE created_at BETWEEN … AND …` maps to a contiguous keyrange-id range and
@@ -270,16 +306,16 @@ hits only the overlapping shards.
 
 ### Resharding — a shard-list edit
 
-Split `-80` into `-40` and `40-80`. Only the shard list changes; table
+Split `0-80` into `0-40` and `40-80`. Only the shard list changes; table
 membership, functions, and columns are untouched, and the names are derived from
 the ranges.
 
 ```diff
  TableGroup{ name: "by_user", shards: [
--  {key_range: -80},
-+  {key_range: -40},
+-  {key_range: 0-80},
++  {key_range: 0-40},
 +  {key_range: 40-80},
-   {key_range: 80-},
+   {key_range: 80-inf},
 ]}
 ```
 
@@ -289,7 +325,7 @@ A `sales` group holds three tables that route on different columns but share one
 set of shards:
 
 ```text
-TableGroup{ name: "sales", shards: [-80, 80-], tables: [
+TableGroup{ name: "sales", shards: [0-80, 80-inf], tables: [
   {schema:"public", name:"invoice",              function:{hash:{}},                       columns:["customer_id"]},
   {schema:"public", name:"invoice_line",         function:{lookup:{table:"invoice_customer_idx",
                                                                    from_column:"invoice_id",
@@ -312,10 +348,10 @@ flowchart TD
     tg2[TableGroup events_by_time]
     tgr[TableGroup reference - no shards]
   end
-  tg1 --> s1["Shard -80 (pooler cohort)"]
-  tg1 --> s2["Shard 80- (pooler cohort)"]
-  tg2 --> s3["Shard -mid (pooler cohort)"]
-  tg2 --> s4["Shard mid- (pooler cohort)"]
+  tg1 --> s1["Shard 0-80 (pooler cohort)"]
+  tg1 --> s2["Shard 80-inf (pooler cohort)"]
+  tg2 --> s3["Shard 0-mid (pooler cohort)"]
+  tg2 --> s4["Shard mid-inf (pooler cohort)"]
   tgr -.->|replicated onto| s1
   tgr -.->|replicated onto| s2
   tgr -.->|replicated onto| s3
@@ -323,7 +359,7 @@ flowchart TD
   subgraph db2[Database db2]
     tg3[TableGroup default - unsharded]
   end
-  tg3 --> s5["Shard - (pooler cohort)"]
+  tg3 --> s5["Shard 0-inf (pooler cohort)"]
 ```
 
 ## Out of scope
@@ -331,8 +367,9 @@ flowchart TD
 - DDL / user-facing syntax for declaring sharding: see [ddl.md](ddl.md).
 - Resharding execution (cutover, data movement, consistency).
 - Cross-shard transactions (2PC) and cross-shard query planning.
-- Where the catalog is stored (topology vs postgres), and its committed proto or
-  table definitions.
+- The catalog's storage and its committed proto and table definitions: it is
+  stored in postgres, on each database's catalog shard, and described in
+  [catalog.md](catalog.md).
 
 The control plane that creates a tablegroup once declared (catalog intent,
 provisioner API, completion) is described in

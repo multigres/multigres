@@ -9,7 +9,11 @@ Table placement and shard keys will be added when their syntax lands.
 (grammar in `postgres.y`, nodes in `ast/sharding.go`). `CREATE TABLEGROUP` and
 `DROP TABLEGROUP` execute in the gateway when it runs with
 `--enable-tablegroup-ddl`; how they record intent, provision and complete is
-in [tablegroup-operations.md](tablegroup-operations.md). Without the flag,
+in [tablegroup-operations.md](tablegroup-operations.md). Only `CREATE
+TABLEGROUP` works end to end today: the catalog primary does not implement the
+`DropTableGroup` RPC yet, so `DROP TABLEGROUP` passes the gateway's checks and
+then fails with `feature_not_supported`. What this document says about
+dropping is the intended behavior. Without the flag,
 and for `ALTER TABLEGROUP`, the gateway rejects the statement with
 `feature_not_supported` rather than forwarding it to postgres, where it would
 fail with a syntax error. The rules below that go beyond syntax (coverage,
@@ -55,7 +59,10 @@ function body, nor in a read-only session, which includes every session on the
 gateway's replica-reads port. They return once the change is complete: for
 `CREATE`, every shard has a serving primary; for `DROP`, every shard has been
 torn down. Cancelling the statement only stops the wait; the change continues
-and is visible in `multigres.operations`. If the statement fails before it
+as a row of `multigres.operation` on the catalog shard (the statement's
+notices call it `multigres.operations`, which does not exist yet). The table
+has no `PUBLIC` grant; the operation is read with the catalog primary's
+`GetOperation` RPC. If the statement fails before it
 names its operation, for instance because the catalog primary is failing over,
 the change may still have been recorded: running it again with `IF NOT EXISTS`
 or `IF EXISTS` waits for it.

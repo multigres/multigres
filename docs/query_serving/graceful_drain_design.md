@@ -134,12 +134,22 @@ callbacks: creating a reserved connection is a single logical lend
 tracked by `OnReserve`/`OnRelease`, so it is counted once, under
 `reservedCount`.
 
+Logical-replication tunnels (`NewLogicalReplicationConn`) are the one
+exception: they fire neither `OnReserve` nor `OnRelease`, so a streaming
+walsender never holds up the drain, and `KillAllForDrain` skips them when the
+grace period expires. A walsender is a read-only WAL producer; the drain
+exists to stop client writes.
+
 ### Admission Control
 
 `QueryPoolerServer.StartRequest(target, RequestKind)` is the admission
-gate called by every gRPC handler before acquiring an executor. The
-handler classifies the request into one of three kinds, and the gate
-decides per kind and drain stage. Rejection returns `MTF01`, which the
+gate every query-path call passes before reaching the executor. The gate
+is applied by the `admittedQueryService` wrapper
+(`poolerserver/query_service.go`) returned from
+`QueryPoolerServer.QueryService()`, so it holds whatever the transport:
+the gRPC handlers and, in minigres, the gateway's direct in-process
+calls. Each method classifies the request into one of three kinds
+(`AdmissionKind`), and the gate decides per kind and drain stage. Rejection returns `MTF01`, which the
 gateway buffers and retries on the new primary.
 
 | `RequestKind`      | SERVING | drainReserved (stage 1) | drainRegular (stage 2) | NOT_SERVING      |
@@ -166,7 +176,7 @@ outcomes are possible:
   there is nothing for the gateway to buffer or auto-retry; only the
   client can replay it.
 
-Each gRPC handler reports `id = ReservedConnectionId > 0` (existing
+Each method reports `id = ReservedConnectionId > 0` (existing
 reserved) and, when `id == 0`, whether the request will create a new
 reservation — mirroring the executor's own reserve decision:
 
@@ -174,8 +184,9 @@ reservation — mirroring the executor's own reserve decision:
 | --------------------------- | ------------------------------------------ |
 | `StreamExecute`             | `ReservationOptions` reasons != 0          |
 | `ExecuteQuery`, `Describe`  | never (no reservation path) → single query |
-| `PortalStreamExecute`       | `MaxRows > 0` (suspendable cursor)         |
+| `PortalStreamExecute`       | `MaxRows > 0` or reasons != 0              |
 | `CopyBidiExecute`           | always (COPY pins a connection)            |
+| `StreamReplication`         | always (new reservation)                   |
 | `ConcludeTransaction`       | always existing reserved                   |
 | `DiscardTempTables`         | always existing reserved                   |
 | `ReleaseReservedConnection` | always existing reserved                   |
@@ -183,7 +194,10 @@ reservation — mirroring the executor's own reserve decision:
 | `StreamPoolerHealth`        | no gate (health streaming is independent)  |
 
 Each predicate matches what the executor actually does: a `MaxRows == 0`
-portal (fetch-all) runs on a pooled connection, so it is a single query;
+portal (fetch-all) with no reservation reasons runs on a pooled
+connection, so it is a single query (`PortalReserves` also counts
+reasons because a deferred `BEGIN` can be folded into the first portal
+as `ReasonTransaction` while `MaxRows == 0`);
 a COPY adds `ReasonCopy` pooler-side (the request's reservation reasons
 can be 0 for an autocommit COPY), so it is always classified as a
 reservation by `id` alone rather than by reasons.
@@ -203,9 +217,9 @@ them throughout the drain, so a wasted round-trip is pointless.
 ### Two-Stage Drain
 
 When `OnStateChange` receives `NOT_SERVING`, it runs two drain stages
-under one `gracePeriod`-bounded deadline (default 3s). The `poolerType`
-is **not** updated until the very end, so in-flight reserved-connection
-ops still see the old type and pass `checkTargetLocked` throughout.
+under one `gracePeriod`-bounded deadline (default 3s). The `routingRole`
+is **not** updated until the very end, so in-flight requests still see
+the old role and pass `checkTargetLocked` throughout.
 
 1. **Stage 1 — drain reserved**: set `drainPhase=drainReserved` (under
    mutex), then call `poolManager.WaitForReservedDrain(ctx)`. New
@@ -218,8 +232,8 @@ ops still see the old type and pass `checkTargetLocked` throughout.
    the wait blocks until the remaining in-flight single queries finish
    (the combined total reaches zero, since reserved is already zero).
 
-3. **Complete**: re-acquire the mutex, set `poolerType`,
-   `servingStatus=NOT_SERVING`, and `drainPhase=drainNone`.
+3. **Complete**: re-acquire the mutex, set `routingRole`,
+   `servingStatus` to the not-serving target, and `drainPhase=drainNone`.
 
 If the shared deadline expires in either stage, all reserved connections
 are force-closed via `poolManager.CloseReservedConnections()` (killing
@@ -231,10 +245,12 @@ exactly what the grace period bounds.
 A late operation (e.g. a `COMMIT`) that arrives after its reserved
 connection was force-closed is admitted by the gate (`ExistingReserved`)
 but finds the connection gone, and the executor returns `40001` so the
-client retries the whole transaction. See Admission Control above.
+client retries the whole transaction. See Admission Control above, and
+[Reserved Connection Lifecycle and Loss](./pooler_reserved_connection_lifecycle.md)
+for what the gateway does with that error.
 
 When `OnStateChange` receives `SERVING`, the transition is immediate:
-set `servingStatus=SERVING` and `drainPhase=drainNone`.
+set `routingRole`, `servingStatus=SERVING` and `drainPhase=drainNone`.
 
 ## Callback Plumbing
 
@@ -265,6 +281,14 @@ The drain grace period is configurable via the
 deadline shared by both drain stages: when it expires, remaining reserved
 connections are force-closed and the NOT_SERVING transition completes.
 
+## Metrics
+
+| Metric                         | Meaning                                                          |
+| ------------------------------ | ---------------------------------------------------------------- |
+| `mg.pooler.drain.duration`     | Wall-clock duration of the drain on a not-serving transition     |
+| `mg.pooler.drain.outcome`      | Drain events by outcome (graceful vs. force-close)               |
+| `mg.pooler.drain.force_closed` | Reserved connections force-closed because the grace period ended |
+
 ## Testing
 
 - **`connpoolmanager/drain_test.go`**: unit tests for the `regularAdd` and
@@ -277,7 +301,7 @@ connections are force-closed and the NOT_SERVING transition completes.
   two-stage drain behavior (single query served in stage 1, rejected in
   stage 2), grace-period expiry in both stages, and SERVING/NOT_SERVING
   round-trips
-- **`grpcpoolerservice/admission_test.go`**: the `admissionKind` classifier
+- **`poolerserver/admission_test.go`**: the `AdmissionKind` classifier
   (existing reserved / new reservation / single query)
 - **`poolergateway/pooler_gateway_test.go`**: the gateway `isSingleQuery`
   classifier that decides which requests skip proactive failover buffering
