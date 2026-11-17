@@ -582,7 +582,13 @@ func (g *GrpcServer) SetHTTPOnlyAuth(httpOnly bool) {
 // resolveAuthPlugin has already run (see Create()).
 func (g *GrpcServer) interceptors() []grpc.ServerOption {
 	interceptors := &serverInterceptorBuilder{}
+	// First, so that auth failures are logged with the RPC name too.
+	interceptors.Add(logContextStreamInterceptor, logContextUnaryInterceptor)
+	g.addAuthInterceptors(interceptors)
+	return interceptors.Build()
+}
 
+func (g *GrpcServer) addAuthInterceptors(interceptors *serverInterceptorBuilder) {
 	if !g.httpOnlyAuth && g.resolvedAuthPlugin() != nil {
 		interceptors.Add(
 			func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
@@ -593,8 +599,6 @@ func (g *GrpcServer) interceptors() []grpc.ServerOption {
 			},
 		)
 	}
-
-	return interceptors.Build()
 }
 
 // Serve starts the gRPC server and begins listening for requests
