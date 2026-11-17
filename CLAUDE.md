@@ -112,6 +112,15 @@ Do NOT add these lines to commit messages:
 - Linting: golangci-lint
 - Protobufs follow [Google Cloud API Design Guide](https://cloud.google.com/apis/design/)
 
+### Logging
+
+Log with the `*Context` methods (`InfoContext`, `ErrorContext`, ...) and a context derived from the caller's. Each line then carries `task`, naming the work it belongs to, and optionally `step`. `context.Background()` and `context.TODO()` drop both.
+
+- **RPCs** are tagged automatically: the gRPC interceptor sets `task` to `Service/Method`.
+- **Background work** (a loop, or a one-shot goroutine that outlives its caller) gets a short kebab-case name where it is launched: `go pm.runFoo(telemetry.WithTask(pm.ctx, "foo"), ...)`, or the parent context passed to `timer.NewPeriodicRunner`.
+- **Goroutines that help within a request** (cancellable waits, stream readers) keep the caller's `task`; don't tag them.
+- **Long tasks that do different things** set `step` with `telemetry.WithStep` where they dispatch each action, as the postgres monitor does with its remedial action. Code beneath the dispatch inherits the step; don't overwrite it.
+
 ## Reference Documentation
 
 @.claude/docs/architecture.md
