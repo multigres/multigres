@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -511,4 +512,44 @@ func TestConfig_GlobalCapacityExplicit(t *testing.T) {
 
 		assert.False(t, config.GlobalCapacityExplicit())
 	})
+}
+
+// TestConfig_SetBackingCredentialsSSLMode: the connection's sslmode is the pool's.
+func TestConfig_SetBackingCredentialsSSLMode(t *testing.T) {
+	for name, tc := range map[string]struct {
+		sslMode string
+		want    client.SSLMode
+	}{
+		"disable":   {"disable", client.SSLModeDisable},
+		"verify-ca": {"verify-ca", client.SSLModeVerifyCA},
+		"require":   {"require", client.SSLModeRequire},
+	} {
+		t.Run(name, func(t *testing.T) {
+			config := NewConfig(viperutil.NewRegistry())
+			cmd := &cobra.Command{}
+			config.RegisterFlags(cmd.Flags())
+			config.SetBackingCredentials("app", "secret", tc.sslMode, "", "")
+			got, err := config.PgSSLMode()
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// With sslrootcert=system, as in libpq, only verify-full is accepted; a weaker mode is refused
+// before the pool opens, not downgraded.
+func TestConfig_SetBackingCredentialsSystemRootCert(t *testing.T) {
+	configure := func(sslMode string) *Config {
+		config := NewConfig(viperutil.NewRegistry())
+		cmd := &cobra.Command{}
+		config.RegisterFlags(cmd.Flags())
+		config.SetBackingCredentials("app", "secret", sslMode, client.SystemRootCert, "")
+		return config
+	}
+
+	require.NoError(t, configure("verify-full").ValidatePGSSL("db.example.com"))
+	for _, mode := range []string{"disable", "prefer", "require", "verify-ca"} {
+		err := configure(mode).ValidatePGSSL("db.example.com")
+		require.ErrorContains(t, err, "sslrootcert=system", mode)
+	}
 }

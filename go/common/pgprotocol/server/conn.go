@@ -63,6 +63,10 @@ type Conn struct {
 	// conn is the underlying network connection.
 	conn net.Conn
 
+	// proxyClientAddress is true only after a trusted PROXY v2 address header.
+	proxyClientAddress  bool
+	proxyProtocolFailed bool
+
 	// bufferedReader is used for reading from the connection.
 	bufferedReader *bufio.Reader
 
@@ -486,6 +490,15 @@ func (c *Conn) UnsafeConnection() bool {
 	return c.unsafeConnection
 }
 
+// CanCreateMigration reports whether the authenticated role could itself
+// perform the logical-replication setup a migration drives. Trust-auth
+// connections used in tests have no cached credentials and fail closed to
+// false, matching the rest of the codebase's fail-closed handling of an
+// unverifiable privilege check.
+func (c *Conn) CanCreateMigration() bool {
+	return c.credentials != nil && c.credentials.CanCreateMigration
+}
+
 // LatchUnsafeConnection turns unsafe connection on for this connection. It is a
 // one-way latch (never turned off). Idempotent. Called from the connect-time
 // option handling and the `SET multigres.unsafe_connection` primitive.
@@ -693,7 +706,7 @@ func (c *Conn) abortWriterBuffering() {
 // applicable — make sense on the wire. Every other startup state (raw
 // plaintext or fully upgraded TLS) can carry the reply.
 func (c *Conn) canSendPlaintextStartupError() bool {
-	if c.directTLSFailed {
+	if c.directTLSFailed || c.proxyProtocolFailed {
 		return false
 	}
 	return !(c.sslDone && c.tlsConfig != nil && !c.tlsHandshakeComplete)
@@ -1146,7 +1159,9 @@ func (c *Conn) handleQuery() error {
 		return fmt.Errorf("reading query message: %w", err)
 	}
 
-	c.logger.Debug("received query", "query", queryStr)
+	// SQL can contain credentials. Leave SQL-aware logging to the handler,
+	// which can redact statements after parsing them.
+	c.logger.Debug("received query")
 
 	// Create a cancelable query context so cancel requests can interrupt this query.
 	queryCtx := c.BeginQueryCancel()
@@ -1222,7 +1237,8 @@ func (c *Conn) handleQuery() error {
 	})
 	if err != nil {
 		err = queryContextError(queryCtx, err)
-		c.logger.Error("query execution failed", "query", queryStr, "error", err)
+		// Diagnostics can echo SQL literals too; log only their SQLSTATE here.
+		c.logger.Error("query execution failed", "sqlstate", mterrors.ExtractSQLSTATE(err))
 		if passthroughRowInProgress {
 			return fmt.Errorf("%w: %w", errIncompleteDataRow, err)
 		}
@@ -1345,7 +1361,7 @@ func (c *Conn) handleParse() error {
 		return c.writeExtendedProtocolViolation("invalid Parse message", err)
 	}
 
-	c.logger.Debug("parse", "name", stmtName, "query", queryStr, "param_count", paramCount)
+	c.logger.Debug("parse", "name", stmtName, "param_count", paramCount)
 
 	// Call the handler to validate and prepare the statement.
 	// The handler is responsible for storing any state it needs.

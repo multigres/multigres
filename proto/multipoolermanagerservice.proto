@@ -108,6 +108,64 @@ service MultipoolerManager {
       returns (multipoolermanagerdata.ReconcileFollowersResponse);
 
   //
+  // Routing rules (catalog primary only)
+  //
+
+  // SetRoutingRules replaces every routing rule of an operation and advances
+  // the database's routing version, in one catalog write. A change that is
+  // already in effect returns the current version and writes nothing.
+  // Served only by the primary of the default tablegroup, which holds the
+  // catalog; any other pooler returns UNAVAILABLE, and the caller rediscovers
+  // the primary and retries. A stale expected_routing_version or a change the
+  // catalog does not allow returns FAILED_PRECONDITION.
+  //
+  // Every rule the change inserts or removes needs a FENCED admission fence
+  // of the same operation on both sides (see FenceScopes); a missing fence
+  // returns FAILED_PRECONDITION. A change already in effect needs none.
+  rpc SetRoutingRules(multipoolermanagerdata.SetRoutingRulesRequest)
+      returns (multipoolermanagerdata.SetRoutingRulesResponse);
+
+  // DeleteRoutingRules deletes every routing rule of an operation, with the
+  // same rules as SetRoutingRules.
+  rpc DeleteRoutingRules(multipoolermanagerdata.DeleteRoutingRulesRequest)
+      returns (multipoolermanagerdata.DeleteRoutingRulesResponse);
+
+  //
+  // Admission fences (catalog primary only)
+  //
+
+  // FenceScopes raises an operation's admission fences on a list of scopes
+  // (whole tablegroups or shards) and advances the database's routing
+  // version, in one catalog write: every fence the call writes takes the same
+  // version, and a call it refuses writes none. Served, refused and retried
+  // like SetRoutingRules: scopes the operation has already fenced are
+  // skipped, and a call whose every scope is already fenced returns the
+  // current version and writes nothing. A malformed list (empty, or with two
+  // overlapping scopes) returns INVALID_ARGUMENT; a stale
+  // expected_routing_version, a finished operation, a tablegroup being
+  // dropped, or a fence of another unfinished operation on an
+  // overlapping scope (a whole-tablegroup fence overlaps every shard fence of
+  // the tablegroup) returns FAILED_PRECONDITION.
+  //
+  // In this version FenceScopes records the fences as FENCED directly: it
+  // records intent and guarantees nothing. No pooler reads fences yet, so
+  // the scopes' application traffic is neither refused nor drained, and the
+  // caller must still quiesce it before changing routing rules.
+  rpc FenceScopes(multipoolermanagerdata.FenceScopesRequest)
+      returns (multipoolermanagerdata.FenceScopesResponse);
+
+  // UnfenceScopes lifts an operation's admission fences on a list of scopes:
+  // it deletes them in one catalog write, at one new routing version. Scopes
+  // the operation holds no fence on are skipped, and a call with none to
+  // lift returns the current version and writes nothing. An operation that
+  // has finished may still lift its fences. The expected version is checked
+  // against the versions the lifted fences were set at, not the catalog's
+  // routing version (see UnfenceScopesRequest); a fence set after it returns
+  // FAILED_PRECONDITION.
+  rpc UnfenceScopes(multipoolermanagerdata.UnfenceScopesRequest)
+      returns (multipoolermanagerdata.UnfenceScopesResponse);
+
+  //
   // PostgreSQL Configuration Reload
   //
 
@@ -117,6 +175,59 @@ service MultipoolerManager {
   // lets the caller verify its config-file change was re-read.
   rpc ReloadConfig(multipoolermanagerdata.ReloadConfigRequest)
       returns (multipoolermanagerdata.ReloadConfigResponse);
+
+  //
+  // Tablegroup operations
+  // Served only by the pooler that is primary for the catalog shard (the
+  // default tablegroup's 0-inf shard), which is the sole writer of the
+  // sharding catalog. Other poolers reject them with FAILED_PRECONDITION; a
+  // pooler that stops being the primary while the request is in flight
+  // returns UNAVAILABLE, and the caller rediscovers the primary and retries.
+  //
+
+  // CreateTableGroup records the intent to create a tablegroup: the tablegroup
+  // row in state creating, its shards in state preparing, and an operation row
+  // in state creating, all in one catalog transaction. The provisioner picks
+  // the tablegroup up through ListTableGroups, and the completion loop on the
+  // catalog primary marks everything active once every shard has a serving
+  // primary registered in topology. Idempotent on the name: a repeat while the
+  // tablegroup is still creating returns the existing operation.
+  rpc CreateTableGroup(multipoolermanagerdata.CreateTableGroupRequest)
+      returns (multipoolermanagerdata.CreateTableGroupResponse);
+
+  // GetOperation returns the current state of a catalog operation, with
+  // progress derived from topology for an in-flight tablegroup creation.
+  rpc GetOperation(multipoolermanagerdata.GetOperationRequest)
+      returns (multipoolermanagerdata.GetOperationResponse);
+
+  // DropTableGroup records the intent to drop a tablegroup. An active
+  // tablegroup moves to dropping with a drop_tablegroup operation, in one
+  // catalog transaction; ListTableGroups then reports it DROPPING so the
+  // provisioner tears it down and releases its provision claim, and the
+  // completion loop deletes the catalog rows once no pooler record carrying
+  // its id and no claim for it remain in topology. A tablegroup still
+  // being created has that creation cancelled instead. The default tablegroup
+  // and tablegroups that contain tables cannot be dropped. Idempotent: a
+  // repeat while dropping returns the existing operation.
+  rpc DropTableGroup(multipoolermanagerdata.DropTableGroupRequest)
+      returns (multipoolermanagerdata.DropTableGroupResponse);
+
+  // ListTableGroups returns every non-default tablegroup with its shard
+  // layout: creating and active ones for the provisioner to provision,
+  // dropping ones for it to remove. See ListTableGroupsResponse for why a
+  // missing tablegroup is never a removal signal.
+  rpc ListTableGroups(multipoolermanagerdata.ListTableGroupsRequest)
+      returns (multipoolermanagerdata.ListTableGroupsResponse);
+
+  // GetRoutingSnapshot returns the whole sharding catalog, every tablegroup
+  // state included, read in one transaction, or a note that the caller's copy
+  // at since_version is still current. Gateways keep the result cached and
+  // call it again when the health stream reports a newer routing_version.
+  // A pooler of the catalog shard that is not its elected primary answers
+  // UNAVAILABLE, for the caller to find the primary and ask again; a pooler
+  // off the catalog shard answers FAILED_PRECONDITION.
+  rpc GetRoutingSnapshot(multipoolermanagerdata.GetRoutingSnapshotRequest)
+      returns (multipoolermanagerdata.GetRoutingSnapshotResponse);
 
   // ManagerHealthStream is a bidirectional health stream between orchestrator
   // and pooler.

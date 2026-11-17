@@ -24,8 +24,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -35,7 +35,6 @@ import (
 // whatever the test pushes into resps. Closing resps makes Recv return io.EOF,
 // which is how a demoted pooler ends the stream.
 type fakeNotificationStream struct {
-	grpc.BidiStreamingClient[multipoolerpb.NotificationStreamRequest, multipoolerpb.NotificationStreamResponse]
 	ctx   context.Context
 	resps chan *multipoolerpb.NotificationStreamResponse
 
@@ -76,13 +75,13 @@ func (f *fakeNotificationStream) subscribed() []string {
 }
 
 type fakeNotificationClient struct {
-	multipoolerpb.MultipoolerServiceClient
+	queryservice.Pooler
 
 	mu      sync.Mutex
 	streams []*fakeNotificationStream
 }
 
-func (c *fakeNotificationClient) NotificationStream(ctx context.Context, _ ...grpc.CallOption) (grpc.BidiStreamingClient[multipoolerpb.NotificationStreamRequest, multipoolerpb.NotificationStreamResponse], error) {
+func (c *fakeNotificationClient) NotificationStream(ctx context.Context) (queryservice.NotificationStream, error) {
 	st := &fakeNotificationStream{ctx: ctx, resps: make(chan *multipoolerpb.NotificationStreamResponse, 16)}
 	c.mu.Lock()
 	c.streams = append(c.streams, st)
@@ -107,8 +106,8 @@ func (c *fakeNotificationClient) stream(i int) *fakeNotificationStream {
 // flowing without the client re-issuing LISTEN.
 func TestNotificationSession_ReconnectsAfterEOF(t *testing.T) {
 	client := &fakeNotificationClient{}
-	m := NewGRPCNotificationManager(
-		func() multipoolerpb.MultipoolerServiceClient { return client },
+	m := NewNotificationManager(
+		func() queryservice.Pooler { return client },
 		slog.New(slog.DiscardHandler), nil)
 	notifCh := make(chan *sqltypes.Notification, 8)
 
@@ -151,8 +150,8 @@ func TestNotificationSession_ReconnectsOnLeaderServing(t *testing.T) {
 	client := &fakeNotificationClient{}
 	var leaderKnown atomic.Bool
 	leaderKnown.Store(true)
-	m := NewGRPCNotificationManager(
-		func() multipoolerpb.MultipoolerServiceClient {
+	m := NewNotificationManager(
+		func() queryservice.Pooler {
 			if !leaderKnown.Load() {
 				return nil
 			}
@@ -187,8 +186,8 @@ func TestNotificationSession_ReconnectsOnLeaderServing(t *testing.T) {
 func TestNotificationSession_SubscribeWithoutLeaderIsRestored(t *testing.T) {
 	client := &fakeNotificationClient{}
 	var leaderKnown atomic.Bool
-	m := NewGRPCNotificationManager(
-		func() multipoolerpb.MultipoolerServiceClient {
+	m := NewNotificationManager(
+		func() queryservice.Pooler {
 			if !leaderKnown.Load() {
 				return nil
 			}
@@ -217,8 +216,8 @@ func TestNotificationSession_UnsubscribeWhileDisconnectedIsNotResurrected(t *tes
 	client := &fakeNotificationClient{}
 	var leaderKnown atomic.Bool
 	leaderKnown.Store(true)
-	m := NewGRPCNotificationManager(
-		func() multipoolerpb.MultipoolerServiceClient {
+	m := NewNotificationManager(
+		func() queryservice.Pooler {
 			if !leaderKnown.Load() {
 				return nil
 			}

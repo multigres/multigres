@@ -284,11 +284,9 @@ func (pb *PostgresBuilder) BuildIsolation(t *testing.T, ctx context.Context) err
 // pg_stat_activity as a defensive fallback for abrupt connection loss.
 func (pb *PostgresBuilder) installPIDMappingFunction(t *testing.T, pgPort int, password string) error {
 	t.Helper()
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		pgPort, password)
-	db, err := sql.Open("postgres", connStr)
+	db, err := openPostgres(pgPort, password)
 	if err != nil {
-		return fmt.Errorf("failed to connect: %w", err)
+		return err
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
@@ -486,9 +484,7 @@ $$`,
 // failures are logged and ignored.
 func (pb *PostgresBuilder) dumpIsolationDebugLog(t *testing.T, pgPort int, password string) {
 	t.Helper()
-	connStr := fmt.Sprintf("host=localhost port=%d user=postgres password=%s dbname=postgres sslmode=disable",
-		pgPort, password)
-	db, err := sql.Open("postgres", connStr)
+	db, err := openPostgres(pgPort, password)
 	if err != nil {
 		t.Logf("isolation_debug_log dump: connect failed: %v", err)
 		return

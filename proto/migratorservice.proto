@@ -196,6 +196,21 @@ message MigrationJournalEntry {
 message GetMigrationJournalRequest {
   int64 id = 1;
   string name = 2;
+  // caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+  // client is connected as. Set only on the gateway SQL path: it gates an
+  // ownership check against the migration's connection (migrations have no
+  // owner of their own — see CreateMigrationRequest.caller_role), so a
+  // caller who merely has database CREATE + pg_create_subscription (enough
+  // to pass the gateway's CanCreateMigration gate) cannot read another
+  // operator's journal (handoff LSNs, phase/event history). A caller that
+  // fails this check sees the same not-found error a nonexistent migration
+  // would produce. A dropped migration (addressable only by id, once its row
+  // is gone) has no connection left to check ownership against, so a
+  // non-empty caller_role is denied rather than trusted by default. Left
+  // empty on the CLI/multiadmin path, which has no SQL-authenticated
+  // identity to set it from; the check is skipped in that case, unchanged
+  // from before this field existed.
+  string caller_role = 3;
 }
 message GetMigrationJournalResponse {
   // entries are the migration's journal entries, oldest first.
@@ -270,13 +285,21 @@ message SetMigrationDirectionRequest {
   optional int64 wait_timeout_seconds = 4;
   // caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
   // client is connected as. Set only on the gateway SQL path (ALTER MIGRATION
-  // ... PHASE): it gates the destructive DropTables step a not-yet-started
-  // IMPORT runs, so a caller who merely has database CREATE +
-  // pg_create_subscription (enough to pass the gateway's migration-DDL
-  // authorization gate) cannot name an existing target table it does not own
-  // and have it dropped via the admin pool. Left empty on the CLI/multiadmin
-  // path, which has no SQL-authenticated identity to set it from; the check
-  // is skipped in that case, unchanged from before this field existed.
+  // ... PHASE): it gates two checks. First, an ownership check against the
+  // migration's connection (the same model CreateMigrationRequest.caller_role
+  // uses), re-verified here because a migration can be addressed by id/name
+  // alone — without this, a caller who merely has database CREATE +
+  // pg_create_subscription could flip another operator's migration to EXPORT
+  // (or trigger its not-yet-started IMPORT setup), reusing that connection's
+  // stored credentials for replication it was never authorized to drive. A
+  // caller that fails this first check sees the same not-found error a
+  // nonexistent migration would produce, so it cannot tell "doesn't exist"
+  // from "exists but not mine." Second, the destructive DropTables step a
+  // not-yet-started IMPORT runs, so that same caller cannot name an existing
+  // target table it does not own and have it dropped via the admin pool.
+  // Left empty on the CLI/multiadmin path, which has no SQL-authenticated
+  // identity to set it from; both checks are skipped in that case, unchanged
+  // from before this field existed.
   string caller_role = 5;
 }
 message SetMigrationDirectionResponse {
@@ -287,6 +310,18 @@ message SetMigrationDirectionResponse {
 // GetMigrationRequest addresses one migration by ref (id or name).
 message GetMigrationRequest {
   MigrationRef ref = 1;
+  // caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+  // client is connected as. Set only on the gateway SQL path: it gates an
+  // ownership check against the migration's connection (migrations have no
+  // owner of their own — see CreateMigrationRequest.caller_role), so a
+  // caller who merely has database CREATE + pg_create_subscription (enough
+  // to pass the gateway's CanCreateMigration gate) cannot read another
+  // operator's migration status. A caller that fails this check sees the
+  // same not-found error a nonexistent migration would produce. Left empty
+  // on the CLI/multiadmin path, which has no SQL-authenticated identity to
+  // set it from; the check is skipped in that case, unchanged from before
+  // this field existed.
+  string caller_role = 2;
 }
 message GetMigrationResponse {
   MigrationRecord migration = 1;
@@ -297,6 +332,17 @@ message GetMigrationResponse {
 // migration exists at a time today, so this returns 0 or 1 ids; fetch full
 // details for each via GetMigration.
 message ListMigrationsRequest {
+  // caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+  // client is connected as. Set only on the gateway SQL path: it filters the
+  // result to migrations whose connection callerRole owns (or whose
+  // OwnerRole predates ownership tracking), the same model
+  // GetMigrationRequest.caller_role uses, so a caller who merely has
+  // database CREATE + pg_create_subscription (enough to pass the gateway's
+  // CanCreateMigration gate) cannot enumerate every operator's migration
+  // ids. Left empty on the CLI/multiadmin path, which has no
+  // SQL-authenticated identity to set it from; every id is then returned
+  // unfiltered, unchanged from before this field existed.
+  string caller_role = 1;
 }
 message ListMigrationsResponse {
   repeated int64 ids = 1;
@@ -314,13 +360,17 @@ message DropMigrationRequest {
   bool force = 4;
   // caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
   // client is connected as. Set only on the gateway SQL path (DROP
-  // MIGRATION): it gates an ownership check against the migration's stored
-  // Migration.owner_role, so a caller who merely has database CREATE +
-  // pg_create_subscription (enough to pass the gateway's CanCreateMigration
-  // gate) cannot name another operator's migration and abort it. Left empty
-  // on the CLI/multiadmin path, which has no SQL-authenticated identity to
-  // set it from; the check is skipped in that case, unchanged from before
-  // this field existed.
+  // MIGRATION): it gates an ownership check against the migration's
+  // connection's stored Connection.owner_role (migrations have no owner of
+  // their own — see CreateMigrationRequest.caller_role), so a caller who
+  // merely has database CREATE + pg_create_subscription (enough to pass the
+  // gateway's CanCreateMigration gate) cannot name another operator's
+  // migration and abort it. A caller that fails this check sees the same
+  // not-found error a nonexistent migration would produce, so it cannot tell
+  // "doesn't exist" from "exists but not mine." Left empty on the
+  // CLI/multiadmin path, which has no SQL-authenticated identity to set it
+  // from; the check is skipped in that case, unchanged from before this
+  // field existed.
   string caller_role = 5;
 }
 message DropMigrationResponse {
@@ -328,10 +378,12 @@ message DropMigrationResponse {
   MigrationStatus status = 2;
 }
 
-// Connection is a stored, named source conninfo. It is scoped to the shard
-// whose Migrator created it — its row lives only in that shard's own
-// multigres.migration_connection, so which shard it belongs to is implied by
-// which Migrator you asked, not a field on the message. Every migration
+// Connection is a stored, named source conninfo: a row of
+// multigres.connections, the catalog table the Migrator shares with the other
+// users of named connections. The table exists on the catalog shard only, so
+// connections are created, read and dropped there; where the table is missing,
+// CreateConnection, GetConnection, ListConnections, DropConnection and
+// CreateMigration fail with FAILED_PRECONDITION. Every migration
 // references one by id via Migration.connection_name. Connections are
 // immutable once created: there is no in-place update, only create/drop —
 // so a migration's resolved source never changes underneath it except by
@@ -341,9 +393,18 @@ message Connection {
   // name is the unique, required identifier used to reference this connection
   // from Migration.connection_name.
   string name = 2;
-  // dsn is a full libpq conninfo (may include TLS options). Returned as-is on
-  // read paths, which may expose a password — same trust model as
-  // Migration.connection_name's resolved source; see that field's doc comment.
+  // dsn is a libpq conninfo, as keyword=value pairs or a postgres:// URI.
+  // CreateConnection checks it strictly and stores the checked structure, so a
+  // connection is self-contained: host, user and password are required, and the
+  // port, database and sslmode default to 5432, postgres and require (verify-full
+  // with sslrootcert=system). What is refused is listed in
+  // docs/migration/migrator_sql_interface.md; a string that fails is
+  // INVALID_ARGUMENT, and the message never carries a part of it.
+  // On read paths the dsn is the canonical rendering of the stored structure,
+  // which may differ in form from what was sent, and may expose a password: same
+  // trust model as Migration.connection_name's resolved source.
+  // An empty dsn in a listing means the stored connection cannot be read: drop it and
+  // create it again.
   string dsn = 3;
   google.protobuf.Timestamp created_at = 4;
   // owner_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
@@ -384,6 +445,19 @@ message CreateConnectionResponse {
 // GetConnectionRequest addresses one connection by ref (id or name).
 message GetConnectionRequest {
   ConnectionRef ref = 1;
+  // caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+  // client is connected as. Set only on the gateway SQL path: it gates an
+  // ownership check against the connection's stored owner_role, so a caller
+  // who merely has database CREATE + pg_create_subscription (enough to pass
+  // the gateway's CanCreateMigration gate) cannot read another operator's
+  // connection — including its DSN, a full libpq conninfo that may carry a
+  // password. A non-owner sees the same not-found response a nonexistent
+  // connection would produce (see DropConnectionRequest.caller_role), so a
+  // caller cannot tell "doesn't exist" from "exists but not mine." Left
+  // empty on the CLI/multiadmin path, which has no SQL-authenticated
+  // identity to set it from; the check is skipped in that case, unchanged
+  // from before this field existed.
+  string caller_role = 2;
 }
 message GetConnectionResponse {
   Connection connection = 1;
@@ -393,6 +467,16 @@ message GetConnectionResponse {
 // ListMigrationsRequest, which returns ids only) — there is no "fetch one at a
 // time" need here, and SHOW CONNECTIONS wants the whole table in one call.
 message ListConnectionsRequest {
+  // caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+  // client is connected as. Set only on the gateway SQL path (SHOW
+  // CONNECTION[S]): it filters the result to connections callerRole owns (or
+  // whose OwnerRole predates ownership tracking), so a caller who merely has
+  // database CREATE + pg_create_subscription (enough to pass the gateway's
+  // CanCreateMigration gate) cannot enumerate every operator's configured
+  // source host/dbname/user. Left empty on the CLI/multiadmin path, which has
+  // no SQL-authenticated identity to set it from; every connection is then
+  // returned unfiltered, unchanged from before this field existed.
+  string caller_role = 1;
 }
 message ListConnectionsResponse {
   repeated Connection connections = 1;
@@ -404,6 +488,20 @@ message ListConnectionsResponse {
 message DropConnectionRequest {
   ConnectionRef ref = 1;
   bool if_exists = 2;
+  // caller_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
+  // client is connected as. Set only on the gateway SQL path (DROP
+  // CONNECTION): it gates an ownership check against the connection's stored
+  // owner_role, so a caller who merely has database CREATE +
+  // pg_create_subscription (enough to pass the gateway's CanCreateMigration
+  // gate) cannot drop a connection it does not own. A non-owner sees the
+  // same not-found response a nonexistent connection would produce, so a
+  // caller cannot tell "doesn't exist" from "exists but not mine" — with
+  // if_exists set, that makes the drop a silent no-op rather than an error,
+  // same as for a connection that is genuinely absent. Left empty on the
+  // CLI/multiadmin path, which has no SQL-authenticated identity to set it
+  // from; the check is skipped in that case, unchanged from before this field
+  // existed.
+  string caller_role = 3;
 }
 message DropConnectionResponse {
 }

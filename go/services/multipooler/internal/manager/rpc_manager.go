@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -975,6 +976,14 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	if pm.pgctldClient == nil {
 		return false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "pgctld client not initialized")
 	}
+	// A data directory modified by a pg_rewind that did not complete cannot be
+	// rewound again or started; the node is waiting to be replaced.
+	if tainted, err := pm.rewindTainted().present(); err != nil {
+		return false, mterrors.Wrap(err, "failed to check rewind taint marker")
+	} else if tainted {
+		return false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"data directory was modified by a pg_rewind that did not complete; the node must be replaced")
+	}
 
 	// Callers must only reach here once the source (the new leader) is
 	// rewind-ready — it has checkpointed onto its current timeline. See the
@@ -990,7 +999,7 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	if wantRewind {
 		// pg_rewind rewinds to the last shared checkpoint, not the last common
 		// WAL position, so this pooler must not be trusted for quorum again
-		// until it catches back up — see ConsensusPromises.SetRecruitBlockedUntil.
+		// until it catches back up — see ConsensusPromises.EnsureRecruitBlockedUntilAtLeast.
 		// Measure the position now, before Pause() below closes the connection
 		// pool this needs, and while postgres is still up: pgctldStopWithEscalation
 		// further down leaves nothing left to query.
@@ -1029,14 +1038,8 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		if err != nil {
 			return false, mterrors.Wrap(err, "failed to read position before rewind")
 		}
-		floor := &clustermetadatapb.LsnPosition{
-			Position: &clustermetadatapb.RuleNumberPosition{
-				Decision: status.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber(),
-				Proposal: status.GetCurrentPosition().GetPosition().GetProposal().GetRuleNumber(),
-			},
-			Lsn: status.GetCurrentPosition().GetLsn(),
-		}
-		if err := pm.consensusMgr.Promises().SetRecruitBlockedUntil(ctx, floor); err != nil {
+		floor := commonconsensus.LsnPositionOf(status.GetCurrentPosition())
+		if err := pm.consensusMgr.Promises().EnsureRecruitBlockedUntilAtLeast(ctx, floor); err != nil {
 			return false, mterrors.Wrap(err, "failed to record recruit position floor")
 		}
 	}
@@ -1233,6 +1236,15 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 		return false, mterrors.Wrap(err, "failed to write rewind sentinel before pg_rewind")
 	}
 
+	// Resolve an earlier run whose outcome was never assessed before launching
+	// another: the new attempt marker would overwrite its evidence.
+	if tainted, err := pm.settleRewindAttempt(ctx); err != nil {
+		return false, mterrors.Wrap(err, "failed to settle earlier pg_rewind run")
+	} else if tainted {
+		return false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"an earlier pg_rewind modified the data directory and did not complete")
+	}
+
 	// Get application name for replication connection
 	pid := pm.servicePoolerID
 
@@ -1265,6 +1277,10 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 		if dryRunResp != nil {
 			pm.logger.ErrorContext(ctx, "pg_rewind dry-run failed", "error", err, "duration", dryRunDuration.String(), "output", dryRunResp.Output)
 		}
+		// A dry-run writes nothing, apart from the crash recovery pgctld runs first on
+		// a target that was not cleanly stopped. That recovery is legitimate and leaves
+		// the target cleanly stopped, so the directory is still intact and the run is
+		// retryable. The attempt marker is only written before the mutating call.
 		return false, mterrors.Wrap(err, "pg_rewind dry-run failed")
 	}
 
@@ -1272,12 +1288,21 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 	if dryRunResp.Output != "" && strings.Contains(dryRunResp.Output, "servers diverged at") {
 		pm.logger.InfoContext(ctx, "servers diverged, running pg_rewind with -R flag")
 
+		runID := uuid.NewString()
 		rewindReq := &pgctldpb.PgRewindRequest{
 			SourceHost:      sourceHost,
 			SourcePort:      sourcePort,
 			DryRun:          false,
 			ApplicationName: pid.AppName(),
 			ExtraArgs:       append([]string{"-R"}, rewindExtraArgs...),
+			RunId:           runID,
+		}
+		// The reference for telling, after a failure, whether pg_rewind modified the
+		// data directory (see rewind_sentinel.go), carrying the run id that is
+		// fenced before the directory is judged. It is written after the dry-run
+		// so that the crash recovery done there is not mistaken for the rewind.
+		if err := pm.rewindAttemptFor(runID).write(); err != nil {
+			return false, mterrors.Wrap(err, "failed to write rewind attempt marker before pg_rewind")
 		}
 		rewindStart := time.Now()
 		rewindResp, err := pm.pgctldClient.PgRewind(ctx, rewindReq)
@@ -1287,10 +1312,11 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 			if rewindResp != nil {
 				pm.logger.ErrorContext(ctx, "pg_rewind failed", "error", err, "duration", rewindDuration.String(), "output", rewindResp.Output)
 			}
-			return false, mterrors.Wrap(err, "pg_rewind failed")
+			return false, pm.failRewindRun(ctx, mterrors.Wrap(err, "pg_rewind failed"))
 		}
 
 		pm.logger.InfoContext(ctx, "pg_rewind completed", "duration", rewindDuration.String(), "dry_run_duration", dryRunDuration.String())
+		pm.passRewindRun(ctx)
 		return true, nil
 	}
 

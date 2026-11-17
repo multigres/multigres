@@ -46,7 +46,16 @@ const (
 	MultipoolerManager_ResignLeadership_FullMethodName           = "/multipoolermanager.MultipoolerManager/ResignLeadership"
 	MultipoolerManager_SetPostgresRestartsEnabled_FullMethodName = "/multipoolermanager.MultipoolerManager/SetPostgresRestartsEnabled"
 	MultipoolerManager_ReconcileFollowers_FullMethodName         = "/multipoolermanager.MultipoolerManager/ReconcileFollowers"
+	MultipoolerManager_SetRoutingRules_FullMethodName            = "/multipoolermanager.MultipoolerManager/SetRoutingRules"
+	MultipoolerManager_DeleteRoutingRules_FullMethodName         = "/multipoolermanager.MultipoolerManager/DeleteRoutingRules"
+	MultipoolerManager_FenceScopes_FullMethodName                = "/multipoolermanager.MultipoolerManager/FenceScopes"
+	MultipoolerManager_UnfenceScopes_FullMethodName              = "/multipoolermanager.MultipoolerManager/UnfenceScopes"
 	MultipoolerManager_ReloadConfig_FullMethodName               = "/multipoolermanager.MultipoolerManager/ReloadConfig"
+	MultipoolerManager_CreateTableGroup_FullMethodName           = "/multipoolermanager.MultipoolerManager/CreateTableGroup"
+	MultipoolerManager_GetOperation_FullMethodName               = "/multipoolermanager.MultipoolerManager/GetOperation"
+	MultipoolerManager_DropTableGroup_FullMethodName             = "/multipoolermanager.MultipoolerManager/DropTableGroup"
+	MultipoolerManager_ListTableGroups_FullMethodName            = "/multipoolermanager.MultipoolerManager/ListTableGroups"
+	MultipoolerManager_GetRoutingSnapshot_FullMethodName         = "/multipoolermanager.MultipoolerManager/GetRoutingSnapshot"
 	MultipoolerManager_ManagerHealthStream_FullMethodName        = "/multipoolermanager.MultipoolerManager/ManagerHealthStream"
 )
 
@@ -102,11 +111,87 @@ type MultipoolerManagerClient interface {
 	// can stream); it does NOT touch synchronized_standby_slots — a follower is
 	// added there only once it is streaming and caught up, via the cohort path.
 	ReconcileFollowers(ctx context.Context, in *multipoolermanagerdata.ReconcileFollowersRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ReconcileFollowersResponse, error)
+	// SetRoutingRules replaces every routing rule of an operation and advances
+	// the database's routing version, in one catalog write. A change that is
+	// already in effect returns the current version and writes nothing.
+	// Served only by the primary of the default tablegroup, which holds the
+	// catalog; any other pooler returns UNAVAILABLE, and the caller rediscovers
+	// the primary and retries. A stale expected_routing_version or a change the
+	// catalog does not allow returns FAILED_PRECONDITION.
+	//
+	// Every rule the change inserts or removes needs a FENCED admission fence
+	// of the same operation on both sides (see FenceScopes); a missing fence
+	// returns FAILED_PRECONDITION. A change already in effect needs none.
+	SetRoutingRules(ctx context.Context, in *multipoolermanagerdata.SetRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetRoutingRulesResponse, error)
+	// DeleteRoutingRules deletes every routing rule of an operation, with the
+	// same rules as SetRoutingRules.
+	DeleteRoutingRules(ctx context.Context, in *multipoolermanagerdata.DeleteRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error)
+	// FenceScopes raises an operation's admission fences on a list of scopes
+	// (whole tablegroups or shards) and advances the database's routing
+	// version, in one catalog write: every fence the call writes takes the same
+	// version, and a call it refuses writes none. Served, refused and retried
+	// like SetRoutingRules: scopes the operation has already fenced are
+	// skipped, and a call whose every scope is already fenced returns the
+	// current version and writes nothing. A malformed list (empty, or with two
+	// overlapping scopes) returns INVALID_ARGUMENT; a stale
+	// expected_routing_version, a finished operation, a tablegroup being
+	// dropped, or a fence of another unfinished operation on an
+	// overlapping scope (a whole-tablegroup fence overlaps every shard fence of
+	// the tablegroup) returns FAILED_PRECONDITION.
+	//
+	// In this version FenceScopes records the fences as FENCED directly: it
+	// records intent and guarantees nothing. No pooler reads fences yet, so
+	// the scopes' application traffic is neither refused nor drained, and the
+	// caller must still quiesce it before changing routing rules.
+	FenceScopes(ctx context.Context, in *multipoolermanagerdata.FenceScopesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.FenceScopesResponse, error)
+	// UnfenceScopes lifts an operation's admission fences on a list of scopes:
+	// it deletes them in one catalog write, at one new routing version. Scopes
+	// the operation holds no fence on are skipped, and a call with none to
+	// lift returns the current version and writes nothing. An operation that
+	// has finished may still lift its fences. The expected version is checked
+	// against the versions the lifted fences were set at, not the catalog's
+	// routing version (see UnfenceScopesRequest); a fence set after it returns
+	// FAILED_PRECONDITION.
+	UnfenceScopes(ctx context.Context, in *multipoolermanagerdata.UnfenceScopesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UnfenceScopesResponse, error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
 	// lets the caller verify its config-file change was re-read.
 	ReloadConfig(ctx context.Context, in *multipoolermanagerdata.ReloadConfigRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ReloadConfigResponse, error)
+	// CreateTableGroup records the intent to create a tablegroup: the tablegroup
+	// row in state creating, its shards in state preparing, and an operation row
+	// in state creating, all in one catalog transaction. The provisioner picks
+	// the tablegroup up through ListTableGroups, and the completion loop on the
+	// catalog primary marks everything active once every shard has a serving
+	// primary registered in topology. Idempotent on the name: a repeat while the
+	// tablegroup is still creating returns the existing operation.
+	CreateTableGroup(ctx context.Context, in *multipoolermanagerdata.CreateTableGroupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.CreateTableGroupResponse, error)
+	// GetOperation returns the current state of a catalog operation, with
+	// progress derived from topology for an in-flight tablegroup creation.
+	GetOperation(ctx context.Context, in *multipoolermanagerdata.GetOperationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetOperationResponse, error)
+	// DropTableGroup records the intent to drop a tablegroup. An active
+	// tablegroup moves to dropping with a drop_tablegroup operation, in one
+	// catalog transaction; ListTableGroups then reports it DROPPING so the
+	// provisioner tears it down and releases its provision claim, and the
+	// completion loop deletes the catalog rows once no pooler record carrying
+	// its id and no claim for it remain in topology. A tablegroup still
+	// being created has that creation cancelled instead. The default tablegroup
+	// and tablegroups that contain tables cannot be dropped. Idempotent: a
+	// repeat while dropping returns the existing operation.
+	DropTableGroup(ctx context.Context, in *multipoolermanagerdata.DropTableGroupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DropTableGroupResponse, error)
+	// ListTableGroups returns every non-default tablegroup with its shard
+	// layout: creating and active ones for the provisioner to provision,
+	// dropping ones for it to remove. See ListTableGroupsResponse for why a
+	// missing tablegroup is never a removal signal.
+	ListTableGroups(ctx context.Context, in *multipoolermanagerdata.ListTableGroupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ListTableGroupsResponse, error)
+	// GetRoutingSnapshot returns the whole sharding catalog, every tablegroup
+	// state included, read in one transaction, or a note that the caller's copy
+	// at since_version is still current. Gateways keep the result cached and
+	// call it again when the health stream reports a newer routing_version.
+	// A pooler of the catalog shard that is not its elected primary answers
+	// UNAVAILABLE, for the caller to find the primary and ask again; a pooler
+	// off the catalog shard answers FAILED_PRECONDITION.
+	GetRoutingSnapshot(ctx context.Context, in *multipoolermanagerdata.GetRoutingSnapshotRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetRoutingSnapshotResponse, error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
 	//
@@ -252,10 +337,100 @@ func (c *multipoolerManagerClient) ReconcileFollowers(ctx context.Context, in *m
 	return out, nil
 }
 
+func (c *multipoolerManagerClient) SetRoutingRules(ctx context.Context, in *multipoolermanagerdata.SetRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetRoutingRulesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.SetRoutingRulesResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_SetRoutingRules_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multipoolerManagerClient) DeleteRoutingRules(ctx context.Context, in *multipoolermanagerdata.DeleteRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.DeleteRoutingRulesResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_DeleteRoutingRules_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multipoolerManagerClient) FenceScopes(ctx context.Context, in *multipoolermanagerdata.FenceScopesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.FenceScopesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.FenceScopesResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_FenceScopes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multipoolerManagerClient) UnfenceScopes(ctx context.Context, in *multipoolermanagerdata.UnfenceScopesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UnfenceScopesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.UnfenceScopesResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_UnfenceScopes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multipoolerManagerClient) ReloadConfig(ctx context.Context, in *multipoolermanagerdata.ReloadConfigRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ReloadConfigResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.ReloadConfigResponse)
 	err := c.cc.Invoke(ctx, MultipoolerManager_ReloadConfig_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multipoolerManagerClient) CreateTableGroup(ctx context.Context, in *multipoolermanagerdata.CreateTableGroupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.CreateTableGroupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.CreateTableGroupResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_CreateTableGroup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multipoolerManagerClient) GetOperation(ctx context.Context, in *multipoolermanagerdata.GetOperationRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetOperationResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.GetOperationResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_GetOperation_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multipoolerManagerClient) DropTableGroup(ctx context.Context, in *multipoolermanagerdata.DropTableGroupRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DropTableGroupResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.DropTableGroupResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_DropTableGroup_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multipoolerManagerClient) ListTableGroups(ctx context.Context, in *multipoolermanagerdata.ListTableGroupsRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ListTableGroupsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.ListTableGroupsResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_ListTableGroups_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multipoolerManagerClient) GetRoutingSnapshot(ctx context.Context, in *multipoolermanagerdata.GetRoutingSnapshotRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.GetRoutingSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.GetRoutingSnapshotResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_GetRoutingSnapshot_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -327,11 +502,87 @@ type MultipoolerManagerServer interface {
 	// can stream); it does NOT touch synchronized_standby_slots — a follower is
 	// added there only once it is streaming and caught up, via the cohort path.
 	ReconcileFollowers(context.Context, *multipoolermanagerdata.ReconcileFollowersRequest) (*multipoolermanagerdata.ReconcileFollowersResponse, error)
+	// SetRoutingRules replaces every routing rule of an operation and advances
+	// the database's routing version, in one catalog write. A change that is
+	// already in effect returns the current version and writes nothing.
+	// Served only by the primary of the default tablegroup, which holds the
+	// catalog; any other pooler returns UNAVAILABLE, and the caller rediscovers
+	// the primary and retries. A stale expected_routing_version or a change the
+	// catalog does not allow returns FAILED_PRECONDITION.
+	//
+	// Every rule the change inserts or removes needs a FENCED admission fence
+	// of the same operation on both sides (see FenceScopes); a missing fence
+	// returns FAILED_PRECONDITION. A change already in effect needs none.
+	SetRoutingRules(context.Context, *multipoolermanagerdata.SetRoutingRulesRequest) (*multipoolermanagerdata.SetRoutingRulesResponse, error)
+	// DeleteRoutingRules deletes every routing rule of an operation, with the
+	// same rules as SetRoutingRules.
+	DeleteRoutingRules(context.Context, *multipoolermanagerdata.DeleteRoutingRulesRequest) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error)
+	// FenceScopes raises an operation's admission fences on a list of scopes
+	// (whole tablegroups or shards) and advances the database's routing
+	// version, in one catalog write: every fence the call writes takes the same
+	// version, and a call it refuses writes none. Served, refused and retried
+	// like SetRoutingRules: scopes the operation has already fenced are
+	// skipped, and a call whose every scope is already fenced returns the
+	// current version and writes nothing. A malformed list (empty, or with two
+	// overlapping scopes) returns INVALID_ARGUMENT; a stale
+	// expected_routing_version, a finished operation, a tablegroup being
+	// dropped, or a fence of another unfinished operation on an
+	// overlapping scope (a whole-tablegroup fence overlaps every shard fence of
+	// the tablegroup) returns FAILED_PRECONDITION.
+	//
+	// In this version FenceScopes records the fences as FENCED directly: it
+	// records intent and guarantees nothing. No pooler reads fences yet, so
+	// the scopes' application traffic is neither refused nor drained, and the
+	// caller must still quiesce it before changing routing rules.
+	FenceScopes(context.Context, *multipoolermanagerdata.FenceScopesRequest) (*multipoolermanagerdata.FenceScopesResponse, error)
+	// UnfenceScopes lifts an operation's admission fences on a list of scopes:
+	// it deletes them in one catalog write, at one new routing version. Scopes
+	// the operation holds no fence on are skipped, and a call with none to
+	// lift returns the current version and writes nothing. An operation that
+	// has finished may still lift its fences. The expected version is checked
+	// against the versions the lifted fences were set at, not the catalog's
+	// routing version (see UnfenceScopesRequest); a fence set after it returns
+	// FAILED_PRECONDITION.
+	UnfenceScopes(context.Context, *multipoolermanagerdata.UnfenceScopesRequest) (*multipoolermanagerdata.UnfenceScopesResponse, error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
 	// lets the caller verify its config-file change was re-read.
 	ReloadConfig(context.Context, *multipoolermanagerdata.ReloadConfigRequest) (*multipoolermanagerdata.ReloadConfigResponse, error)
+	// CreateTableGroup records the intent to create a tablegroup: the tablegroup
+	// row in state creating, its shards in state preparing, and an operation row
+	// in state creating, all in one catalog transaction. The provisioner picks
+	// the tablegroup up through ListTableGroups, and the completion loop on the
+	// catalog primary marks everything active once every shard has a serving
+	// primary registered in topology. Idempotent on the name: a repeat while the
+	// tablegroup is still creating returns the existing operation.
+	CreateTableGroup(context.Context, *multipoolermanagerdata.CreateTableGroupRequest) (*multipoolermanagerdata.CreateTableGroupResponse, error)
+	// GetOperation returns the current state of a catalog operation, with
+	// progress derived from topology for an in-flight tablegroup creation.
+	GetOperation(context.Context, *multipoolermanagerdata.GetOperationRequest) (*multipoolermanagerdata.GetOperationResponse, error)
+	// DropTableGroup records the intent to drop a tablegroup. An active
+	// tablegroup moves to dropping with a drop_tablegroup operation, in one
+	// catalog transaction; ListTableGroups then reports it DROPPING so the
+	// provisioner tears it down and releases its provision claim, and the
+	// completion loop deletes the catalog rows once no pooler record carrying
+	// its id and no claim for it remain in topology. A tablegroup still
+	// being created has that creation cancelled instead. The default tablegroup
+	// and tablegroups that contain tables cannot be dropped. Idempotent: a
+	// repeat while dropping returns the existing operation.
+	DropTableGroup(context.Context, *multipoolermanagerdata.DropTableGroupRequest) (*multipoolermanagerdata.DropTableGroupResponse, error)
+	// ListTableGroups returns every non-default tablegroup with its shard
+	// layout: creating and active ones for the provisioner to provision,
+	// dropping ones for it to remove. See ListTableGroupsResponse for why a
+	// missing tablegroup is never a removal signal.
+	ListTableGroups(context.Context, *multipoolermanagerdata.ListTableGroupsRequest) (*multipoolermanagerdata.ListTableGroupsResponse, error)
+	// GetRoutingSnapshot returns the whole sharding catalog, every tablegroup
+	// state included, read in one transaction, or a note that the caller's copy
+	// at since_version is still current. Gateways keep the result cached and
+	// call it again when the health stream reports a newer routing_version.
+	// A pooler of the catalog shard that is not its elected primary answers
+	// UNAVAILABLE, for the caller to find the primary and ask again; a pooler
+	// off the catalog shard answers FAILED_PRECONDITION.
+	GetRoutingSnapshot(context.Context, *multipoolermanagerdata.GetRoutingSnapshotRequest) (*multipoolermanagerdata.GetRoutingSnapshotResponse, error)
 	// ManagerHealthStream is a bidirectional health stream between orchestrator
 	// and pooler.
 	//
@@ -393,8 +644,35 @@ func (UnimplementedMultipoolerManagerServer) SetPostgresRestartsEnabled(context.
 func (UnimplementedMultipoolerManagerServer) ReconcileFollowers(context.Context, *multipoolermanagerdata.ReconcileFollowersRequest) (*multipoolermanagerdata.ReconcileFollowersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReconcileFollowers not implemented")
 }
+func (UnimplementedMultipoolerManagerServer) SetRoutingRules(context.Context, *multipoolermanagerdata.SetRoutingRulesRequest) (*multipoolermanagerdata.SetRoutingRulesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetRoutingRules not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) DeleteRoutingRules(context.Context, *multipoolermanagerdata.DeleteRoutingRulesRequest) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteRoutingRules not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) FenceScopes(context.Context, *multipoolermanagerdata.FenceScopesRequest) (*multipoolermanagerdata.FenceScopesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FenceScopes not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) UnfenceScopes(context.Context, *multipoolermanagerdata.UnfenceScopesRequest) (*multipoolermanagerdata.UnfenceScopesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UnfenceScopes not implemented")
+}
 func (UnimplementedMultipoolerManagerServer) ReloadConfig(context.Context, *multipoolermanagerdata.ReloadConfigRequest) (*multipoolermanagerdata.ReloadConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReloadConfig not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) CreateTableGroup(context.Context, *multipoolermanagerdata.CreateTableGroupRequest) (*multipoolermanagerdata.CreateTableGroupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateTableGroup not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) GetOperation(context.Context, *multipoolermanagerdata.GetOperationRequest) (*multipoolermanagerdata.GetOperationResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetOperation not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) DropTableGroup(context.Context, *multipoolermanagerdata.DropTableGroupRequest) (*multipoolermanagerdata.DropTableGroupResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DropTableGroup not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) ListTableGroups(context.Context, *multipoolermanagerdata.ListTableGroupsRequest) (*multipoolermanagerdata.ListTableGroupsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListTableGroups not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) GetRoutingSnapshot(context.Context, *multipoolermanagerdata.GetRoutingSnapshotRequest) (*multipoolermanagerdata.GetRoutingSnapshotResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRoutingSnapshot not implemented")
 }
 func (UnimplementedMultipoolerManagerServer) ManagerHealthStream(grpc.BidiStreamingServer[multipoolermanagerdata.ManagerHealthStreamClientMessage, multipoolermanagerdata.ManagerHealthStreamResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method ManagerHealthStream not implemented")
@@ -636,6 +914,78 @@ func _MultipoolerManager_ReconcileFollowers_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultipoolerManager_SetRoutingRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.SetRoutingRulesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).SetRoutingRules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_SetRoutingRules_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).SetRoutingRules(ctx, req.(*multipoolermanagerdata.SetRoutingRulesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultipoolerManager_DeleteRoutingRules_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.DeleteRoutingRulesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).DeleteRoutingRules(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_DeleteRoutingRules_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).DeleteRoutingRules(ctx, req.(*multipoolermanagerdata.DeleteRoutingRulesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultipoolerManager_FenceScopes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.FenceScopesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).FenceScopes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_FenceScopes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).FenceScopes(ctx, req.(*multipoolermanagerdata.FenceScopesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultipoolerManager_UnfenceScopes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.UnfenceScopesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).UnfenceScopes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_UnfenceScopes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).UnfenceScopes(ctx, req.(*multipoolermanagerdata.UnfenceScopesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultipoolerManager_ReloadConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.ReloadConfigRequest)
 	if err := dec(in); err != nil {
@@ -650,6 +1000,96 @@ func _MultipoolerManager_ReloadConfig_Handler(srv interface{}, ctx context.Conte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MultipoolerManagerServer).ReloadConfig(ctx, req.(*multipoolermanagerdata.ReloadConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultipoolerManager_CreateTableGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.CreateTableGroupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).CreateTableGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_CreateTableGroup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).CreateTableGroup(ctx, req.(*multipoolermanagerdata.CreateTableGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultipoolerManager_GetOperation_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.GetOperationRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).GetOperation(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_GetOperation_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).GetOperation(ctx, req.(*multipoolermanagerdata.GetOperationRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultipoolerManager_DropTableGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.DropTableGroupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).DropTableGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_DropTableGroup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).DropTableGroup(ctx, req.(*multipoolermanagerdata.DropTableGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultipoolerManager_ListTableGroups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.ListTableGroupsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).ListTableGroups(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_ListTableGroups_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).ListTableGroups(ctx, req.(*multipoolermanagerdata.ListTableGroupsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultipoolerManager_GetRoutingSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.GetRoutingSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).GetRoutingSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_GetRoutingSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).GetRoutingSnapshot(ctx, req.(*multipoolermanagerdata.GetRoutingSnapshotRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -717,8 +1157,44 @@ var MultipoolerManager_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MultipoolerManager_ReconcileFollowers_Handler,
 		},
 		{
+			MethodName: "SetRoutingRules",
+			Handler:    _MultipoolerManager_SetRoutingRules_Handler,
+		},
+		{
+			MethodName: "DeleteRoutingRules",
+			Handler:    _MultipoolerManager_DeleteRoutingRules_Handler,
+		},
+		{
+			MethodName: "FenceScopes",
+			Handler:    _MultipoolerManager_FenceScopes_Handler,
+		},
+		{
+			MethodName: "UnfenceScopes",
+			Handler:    _MultipoolerManager_UnfenceScopes_Handler,
+		},
+		{
 			MethodName: "ReloadConfig",
 			Handler:    _MultipoolerManager_ReloadConfig_Handler,
+		},
+		{
+			MethodName: "CreateTableGroup",
+			Handler:    _MultipoolerManager_CreateTableGroup_Handler,
+		},
+		{
+			MethodName: "GetOperation",
+			Handler:    _MultipoolerManager_GetOperation_Handler,
+		},
+		{
+			MethodName: "DropTableGroup",
+			Handler:    _MultipoolerManager_DropTableGroup_Handler,
+		},
+		{
+			MethodName: "ListTableGroups",
+			Handler:    _MultipoolerManager_ListTableGroups_Handler,
+		},
+		{
+			MethodName: "GetRoutingSnapshot",
+			Handler:    _MultipoolerManager_GetRoutingSnapshot_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

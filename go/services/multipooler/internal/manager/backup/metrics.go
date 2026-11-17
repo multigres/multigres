@@ -45,16 +45,18 @@ type Metrics struct {
 
 	// Observable gauges, registered against a HealthTracker via
 	// RegisterHealthCallback.
-	lastSuccessAge       metric.Float64ObservableGauge
-	completeCount        metric.Int64ObservableGauge
-	failuresSinceSuccess metric.Int64ObservableGauge
-	ready                metric.Int64ObservableGauge
-	archiveLag           metric.Float64ObservableGauge
-	lastArchiveAge       metric.Float64ObservableGauge
-	pendingSegments      metric.Int64ObservableGauge
-	inProgress           metric.Int64ObservableGauge
-	inProgressDuration   metric.Float64ObservableGauge
-	leaseHeld            metric.Int64ObservableGauge
+	lastSuccessAge            metric.Float64ObservableGauge
+	completeCount             metric.Int64ObservableGauge
+	failuresSinceSuccess      metric.Int64ObservableGauge
+	ready                     metric.Int64ObservableGauge
+	archiveLag                metric.Float64ObservableGauge
+	lastArchiveAge            metric.Float64ObservableGauge
+	pendingSegments           metric.Int64ObservableGauge
+	inProgress                metric.Int64ObservableGauge
+	inProgressDuration        metric.Float64ObservableGauge
+	restoreInProgress         metric.Int64ObservableGauge
+	restoreInProgressDuration metric.Float64ObservableGauge
+	leaseHeld                 metric.Int64ObservableGauge
 }
 
 // NewMetrics creates and registers the pgBackRest backup counters and declares
@@ -203,6 +205,19 @@ func NewMetrics() (*Metrics, error) {
 	)
 	errs = append(errs, err)
 
+	m.restoreInProgress, err = meter.Int64ObservableGauge(
+		"pgbackrest.restore.in_progress",
+		metric.WithDescription("1 if the pgBackRest restore command is currently running, 0 otherwise"),
+	)
+	errs = append(errs, err)
+
+	m.restoreInProgressDuration, err = meter.Float64ObservableGauge(
+		"pgbackrest.restore.in_progress_duration_seconds",
+		metric.WithDescription("Seconds the pgBackRest restore command has been running, excluding setup and PostgreSQL startup; 0 if none"),
+		metric.WithUnit("s"),
+	)
+	errs = append(errs, err)
+
 	m.leaseHeld, err = meter.Int64ObservableGauge(
 		"pgbackrest.backup.lease_held",
 		metric.WithDescription("1 if this pooler currently holds the backup lease, 0 otherwise"),
@@ -276,6 +291,15 @@ func (m *Metrics) RegisterHealthCallback(tracker *HealthTracker) error {
 			o.ObserveInt64(m.inProgress, inProgressVal)
 			o.ObserveFloat64(m.inProgressDuration, inProgressDur)
 
+			restoreInProgressVal := int64(0)
+			var restoreInProgressDur float64
+			if !snap.RestoreInProgressStart.IsZero() {
+				restoreInProgressVal = 1
+				restoreInProgressDur = now.Sub(snap.RestoreInProgressStart).Seconds()
+			}
+			o.ObserveInt64(m.restoreInProgress, restoreInProgressVal)
+			o.ObserveFloat64(m.restoreInProgressDuration, restoreInProgressDur)
+
 			leaseVal := int64(0)
 			if snap.LeaseHeld {
 				leaseVal = 1
@@ -285,7 +309,7 @@ func (m *Metrics) RegisterHealthCallback(tracker *HealthTracker) error {
 		},
 		m.lastSuccessAge, m.completeCount, m.failuresSinceSuccess, m.ready,
 		m.archiveLag, m.lastArchiveAge, m.pendingSegments,
-		m.inProgress, m.inProgressDuration, m.leaseHeld,
+		m.inProgress, m.inProgressDuration, m.restoreInProgress, m.restoreInProgressDuration, m.leaseHeld,
 	)
 	return err
 }

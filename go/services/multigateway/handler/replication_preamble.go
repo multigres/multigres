@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerservice "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -111,7 +112,7 @@ func parseNullTerminatedString(body []byte) (string, bool) {
 // Query is rejected outright instead.
 func runReplicationPreamble(
 	conn *server.Conn,
-	stream multipoolerservice.MultipoolerService_StreamReplicationClient,
+	stream queryservice.ReplicationStream,
 	admitFailoverSlots bool,
 ) (streaming bool, leftover []byte, err error) {
 	for {

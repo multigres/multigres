@@ -25,6 +25,7 @@ import (
 	pgClient "github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
 	"github.com/multigres/multigres/go/common/preparedstatement"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -394,7 +395,7 @@ type IExecute interface {
 		shard string,
 		state *handler.MultigatewayConnectionState,
 		init *multipoolerpb.StreamReplicationInit,
-	) (multipoolerpb.MultipoolerService_StreamReplicationClient, error)
+	) (queryservice.ReplicationStream, error)
 }
 
 // Primitive is the building block of the query execution plan.

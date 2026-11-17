@@ -44,6 +44,7 @@ const (
 	PlanTypeCloseCursorRoute            = "CloseCursorRoute"
 	PlanTypeClusterViewRoute            = "ClusterViewRoute"
 	PlanTypeDiscardAll                  = "DiscardAll"
+	PlanTypeTableGroupDDL               = "TableGroupDDL"
 	PlanTypeUnknown                     = "Unknown"
 )
 

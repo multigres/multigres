@@ -304,4 +304,8 @@ jit_provider = 'llvmjit'		# JIT library to use
 # Add settings for extensions here
 auto_explain.log_min_duration = 10s
 cron.database_name = 'postgres'
+# Run pg_cron jobs in background workers. Otherwise pg_cron connects through
+# libpq as the job owner, and since pg_hba.conf requires scram-sha-256
+# everywhere, jobs owned by roles without a password source fail to connect.
+cron.use_background_workers = on
 wal_log_hints = 'on'

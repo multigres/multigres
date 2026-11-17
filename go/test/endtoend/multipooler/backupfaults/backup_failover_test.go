@@ -86,7 +86,6 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 		shardsetup.WithS3Backup("multigres", "us-east-1", s3Server.Endpoint()),
-		shardsetup.WithLeaderFailoverGracePeriod("8s", "4s"),
 	)
 	defer cleanup()
 
@@ -175,7 +174,7 @@ func TestBackup_FailsDuringPrimaryFailover(t *testing.T) {
 
 	// Assertion 3: cluster is healthy — a new primary is elected and postgres is running.
 	// 60s budget rather than 30s: under Code Coverage's subprocess instrumentation,
-	// multiorch's election (grace period + promote + demote) gets CPU-starved on the
+	// multiorch's election (recruit + promote + demote) gets CPU-starved on the
 	// shared runner and can slip past 30s. The actual happy path is ~12s.
 	t.Log("Waiting for a new primary to be elected...")
 	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, originalPrimaryName, 60*time.Second)

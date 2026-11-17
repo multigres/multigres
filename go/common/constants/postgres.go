@@ -155,6 +155,35 @@ const (
 	// backups, and on the local volume so it survives a pod restart on the same PVC.
 	RewindSentinelFile = ".multigres-rewind-in-progress"
 
+	// RewindAttemptFile marks a pg_rewind run that has been launched and has not yet
+	// been assessed. Its modification time is the reference for detecting whether the
+	// run modified the data directory: pg_rewind writes no marker of its own before
+	// its point of no return, so any PGDATA entry newer than this file means the run
+	// started modifying it. Removed once the run succeeds or a failure is assessed as
+	// having left the directory untouched. Lives in pooler_dir for the same reasons
+	// as RewindSentinelFile.
+	RewindAttemptFile = ".multigres-rewind-attempt"
+
+	// RewindRunningFile is written by pgctld while a mutating pg_rewind it launched is
+	// running and removed once that process has exited, whatever the outcome. The
+	// pooler waits for it to disappear before it assesses a failed run: a call that
+	// failed on a timeout or cancellation can return while pg_rewind is still being
+	// killed and may still write. Lives in pooler_dir, which pgctld and the pooler
+	// share, for the same reasons as RewindSentinelFile.
+	RewindRunningFile = ".multigres-rewind-running"
+
+	// RewindTaintedFile is the durable verdict that a failed pg_rewind modified the
+	// data directory and did not complete. Such a directory is a mix of old and new
+	// files, so it must never be rewound again or started: the node is quarantined
+	// for replacement. Unlike the other rewind markers it lives in the data directory
+	// itself, because it describes that directory: replacing the directory (restore,
+	// re-init, volume wipe) removes the verdict with it. It is written only after
+	// pg_rewind has exited and a tainted directory is never rewound again, so
+	// pg_rewind, which removes files that exist only in the target, cannot delete
+	// it. It is excluded from pgBackRest backups so that a backup of a tainted node
+	// does not carry the verdict into a restored one.
+	RewindTaintedFile = ".multigres-rewind-tainted"
+
 	// RestoreSentinelFile marks an in-progress pgBackRest restore. Written before
 	// pgbackrest restore starts writing PGDATA and removed once the restore
 	// completes (or once the partial data directory is removed after a failed

@@ -16,9 +16,13 @@ package migration
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"testing"
 	"time"
+
+	"github.com/multigres/multigres/go/common/backingconn"
+	"github.com/multigres/multigres/go/common/mterrors"
 )
 
 // These fakes back the coordinator orchestration unit tests. They let a test drive
@@ -44,6 +48,8 @@ type fakeStore struct {
 	getErr           error
 	listErr          error
 	insertJournalErr error
+	// connErr, when set, is what GetConnectionByRef returns.
+	connErr error
 
 	updates int
 	deletes []int64
@@ -67,6 +73,9 @@ func (f *fakeStore) DeleteConnection(_ context.Context, id int64) error {
 }
 
 func (f *fakeStore) GetConnectionByRef(_ context.Context, ref Ref) (*Connection, error) {
+	if f.connErr != nil {
+		return nil, f.connErr
+	}
 	if ref.ID != 0 {
 		if c, ok := f.conns[ref.ID]; ok {
 			return c, nil
@@ -90,6 +99,9 @@ func (f *fakeStore) ListConnections(context.Context) ([]*Connection, error) {
 }
 
 func (f *fakeStore) EnsureSchema(context.Context) error { return f.ensureErr }
+
+// Forget is a no-op: fakeStore keeps no cache in front of its map.
+func (f *fakeStore) Forget() {}
 
 func (f *fakeStore) Insert(_ context.Context, m *Migration) error {
 	if f.insertErr != nil {
@@ -184,22 +196,49 @@ func (f *fakeStore) put(m *Migration) { f.migs[m.ID] = m }
 type fakeTarget struct {
 	log *[]string
 
-	applySchemaErr              error
-	disableTriggersErr          error
-	dropCheckConstraintsErr     error
-	dropDomainChecksErr         error
-	disableRulesErr             error
-	dropExprIndexesErr          error
-	dropGeneratedColsErr        error
-	checkDropPrivilegeErr       error
-	lastCallerRole              string
+	applySchemaErr          error
+	disableTriggersErr      error
+	dropCheckConstraintsErr error
+	dropDomainChecksErr     error
+	disableRulesErr         error
+	dropExprIndexesErr      error
+	dropGeneratedColsErr    error
+	checkDropPrivilegeErr   error
+	lastCallerRole          string
+	// subscribedWith is the conninfo of every CREATE SUBSCRIPTION handed to the local postgres.
+	subscribedWith []string
+	// checkConnectionOwnershipErr, when set, is wrapped as a stock
+	// insufficient-privilege PgDiagnostic (the same shape the real target
+	// returns for an ordinary denial) — not returned verbatim — so the
+	// production maskable/propagate-as-is split (see
+	// Coordinator.checkConnectionOwnership) treats it as a denial, not a
+	// backend failure.
 	checkConnectionOwnershipErr error
-	lastOwnerRole               string
-	dropTablesErr               error
-	createPubErr                error
-	dropPubErr                  error
-	createSubErr                error
-	dropSubErr                  error
+	// checkConnectionOwnershipAllow, when non-nil, overrides
+	// checkConnectionOwnershipErr's single blanket toggle: returns nil only
+	// for an ownerRole the map marks true, else a stock insufficient-privilege
+	// error — letting a test (e.g. ListConnections filtering) distinguish
+	// several differently-owned connections within one call.
+	checkConnectionOwnershipAllow map[string]bool
+	// checkConnectionOwnershipGenericErr, when set, is what
+	// CheckConnectionOwnership returns verbatim — NOT wrapped as a privilege
+	// denial — simulating a genuine backend/infra failure distinct from an
+	// ordinary ownership denial, so a test can assert that callers propagate
+	// it instead of masking/swallowing it.
+	checkConnectionOwnershipGenericErr error
+	// deniedConnectionOwnersErr, when set, is what DeniedConnectionOwners
+	// returns instead of a result — simulating a genuine backend failure in
+	// the batched ownership check, distinct from an ordinary privilege
+	// denial (checkConnectionOwnershipAllow), so a test can assert that
+	// ListConnections propagates the error instead of silently omitting
+	// rows.
+	deniedConnectionOwnersErr error
+	lastOwnerRole             string
+	dropTablesErr             error
+	createPubErr              error
+	dropPubErr                error
+	createSubErr              error
+	dropSubErr                error
 
 	status    *SubscriptionStatus
 	statusErr error
@@ -283,7 +322,31 @@ func (t *fakeTarget) CheckConnectionOwnership(_ context.Context, callerRole, own
 	t.record("CheckConnectionOwnership")
 	t.lastCallerRole = callerRole
 	t.lastOwnerRole = ownerRole
-	return t.checkConnectionOwnershipErr
+	if t.checkConnectionOwnershipGenericErr != nil {
+		return t.checkConnectionOwnershipGenericErr
+	}
+	if t.checkConnectionOwnershipErr != nil {
+		return mterrors.NewPgError("ERROR", mterrors.PgSSInsufficientPrivilege, t.checkConnectionOwnershipErr.Error(), "")
+	}
+	if t.checkConnectionOwnershipAllow != nil && !t.checkConnectionOwnershipAllow[ownerRole] {
+		return mterrors.NewPgError("ERROR", mterrors.PgSSInsufficientPrivilege,
+			fmt.Sprintf("role %q lacks privilege to use this connection", callerRole), "")
+	}
+	return nil
+}
+
+func (t *fakeTarget) DeniedConnectionOwners(_ context.Context, _ string, ownerRoles []string) (map[string]bool, error) {
+	t.record("DeniedConnectionOwners")
+	if t.deniedConnectionOwnersErr != nil {
+		return nil, t.deniedConnectionOwnersErr
+	}
+	denied := make(map[string]bool)
+	for _, r := range ownerRoles {
+		if t.checkConnectionOwnershipAllow != nil && !t.checkConnectionOwnershipAllow[r] {
+			denied[r] = true
+		}
+	}
+	return denied, nil
 }
 
 func (t *fakeTarget) DropTables(context.Context, []string) error {
@@ -301,8 +364,9 @@ func (t *fakeTarget) DropPublication(context.Context, string) error {
 	return t.dropPubErr
 }
 
-func (t *fakeTarget) CreateSubscription(context.Context, string, string, string, bool) error {
+func (t *fakeTarget) CreateSubscription(_ context.Context, _, conninfo, _ string, _ bool) error {
 	t.record("CreateSubscription")
+	t.subscribedWith = append(t.subscribedWith, conninfo)
 	return t.createSubErr
 }
 
@@ -383,6 +447,9 @@ type fakeSource struct {
 	resolved     []string
 	warnings     []string
 	validateErr  error
+	// onValidate, when set, runs at the start of Validate: a hook for a change that
+	// lands while the (slow) source validation is running.
+	onValidate func()
 
 	dumpSchema string
 	dumpErr    error
@@ -400,6 +467,10 @@ type fakeSource struct {
 	lagSeconds float64
 	lagPresent bool
 	lagErr     error
+	// onReplicationLag, when set, runs at the start of ReplicationLag: a hook
+	// for a change that lands while SetMigrationDirection's readiness wait is
+	// unlocked (e.g. simulating the connection's ownership changing mid-wait).
+	onReplicationLag func()
 
 	subExists    bool
 	subExistsErr error
@@ -421,6 +492,9 @@ func (s *fakeSource) record(name string) {
 }
 
 func (s *fakeSource) Validate([]string) (*SourceInfo, []string, []string, error) {
+	if s.onValidate != nil {
+		s.onValidate()
+	}
 	if s.validateErr != nil {
 		return nil, nil, nil, s.validateErr
 	}
@@ -496,6 +570,9 @@ func (s *fakeSource) CurrentLSN() (string, error) {
 }
 
 func (s *fakeSource) ReplicationLag(string) (uint64, float64, bool, error) {
+	if s.onReplicationLag != nil {
+		s.onReplicationLag()
+	}
 	return s.lag, s.lagSeconds, s.lagPresent, s.lagErr
 }
 
@@ -523,6 +600,20 @@ type testCoord struct {
 
 	// srcErr, when set, makes the source factory fail (source unreachable).
 	srcErr error
+
+	// dialed is the canonical rendering of every source the coordinator opened.
+	dialed []string
+}
+
+// infoOf is the conninfo of a test connection written as a libpq string: parsed and completed,
+// and not validated, so that a fixture can be invalid on purpose.
+func infoOf(dsn string) *backingconn.Conn {
+	conn, err := backingconn.ParseDSN(dsn)
+	if err != nil {
+		panic(err)
+	}
+	conn.Complete()
+	return conn
 }
 
 // defaultConnID is the id of the connection newTestCoord seeds by default
@@ -543,7 +634,7 @@ func newTestCoord(t *testing.T) *testCoord {
 	// that explicitly set slotReady/subExists to exercise the degraded path).
 	tc.tgt = &fakeTarget{log: &tc.log, slotReady: true}
 	tc.src = &fakeSource{log: &tc.log}
-	tc.store.conns[defaultConnID] = &Connection{ID: defaultConnID, Name: "src", DSN: "host=src dbname=app"}
+	tc.store.conns[defaultConnID] = &Connection{ID: defaultConnID, Name: "src", ConnInfo: infoOf("host=src port=5432 dbname=app user=u password=pw")}
 	c := &Coordinator{
 		store:            tc.store,
 		target:           tc.tgt,
@@ -553,7 +644,8 @@ func newTestCoord(t *testing.T) *testCoord {
 		releaseForExport: func(context.Context) error { return nil },
 		now:              func() time.Time { return time.Unix(1_700_000_000, 0) },
 	}
-	c.newSource = func(context.Context, string) (migrationSource, error) {
+	c.newSource = func(_ context.Context, src *backingconn.Conn) (migrationSource, error) {
+		tc.dialed = append(tc.dialed, src.DSN())
 		if tc.srcErr != nil {
 			return nil, tc.srcErr
 		}

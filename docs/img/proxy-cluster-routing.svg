@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1480" height="780" viewBox="0 0 1480 780" role="img" aria-labelledby="title description">
+  <title id="title">Shared routing across Multigres clusters</title>
+  <desc id="description">PostgreSQL clients connect to a shared proxy. The proxy handles SSLRequest and routes each connection to one destination Multigres cluster. It sends a PROXY v2 header followed by the original TLS stream to Multigateway, which terminates TLS and authenticates the client.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#426859" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; fill: #1b3028; }
+      .secondary { fill: #52655d; font-size: 23px; }
+      .connector { fill: none; stroke: #426859; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+      .cluster { fill: #f5f8f6; stroke: #d6dfda; stroke-width: 1.5; }
+      .gateway { fill: #fff; stroke: #c8d7ce; stroke-width: 1.5; }
+    </style>
+  </defs>
+  <rect width="1480" height="780" fill="#ffffff"/>
+
+  <text x="64" y="70" font-size="38" font-weight="600">Shared routing across Multigres clusters</text>
+  <text x="64" y="112" class="secondary">A shared entry point routes each connection to its destination cluster.</text>
+
+  <path d="M 300 427.5 H 440" class="connector" marker-end="url(#arrow)"/>
+  <text x="370" y="403" text-anchor="middle" class="secondary">Connect</text>
+
+  <path d="M 750 427.5 H 965" class="connector"/>
+  <path d="M 965 247.5 V 607.5" class="connector"/>
+  <path d="M 965 247.5 H 1036" class="connector" marker-end="url(#arrow)"/>
+  <path d="M 965 427.5 H 1036" class="connector" marker-end="url(#arrow)"/>
+  <path d="M 965 607.5 H 1036" class="connector" marker-end="url(#arrow)"/>
+  <circle cx="965" cy="427.5" r="4" fill="#426859"/>
+  <text x="850" y="395" text-anchor="middle" font-size="22">PROXY v2 + TLS</text>
+
+  <rect x="60" y="352.5" width="240" height="150" rx="16" fill="#f5f8f6" stroke="#d6dfda" stroke-width="1.5"/>
+  <text x="180" y="419" text-anchor="middle" font-size="29" font-weight="500">PostgreSQL</text>
+  <text x="180" y="456" text-anchor="middle" font-size="26">clients</text>
+
+  <rect x="440" y="330" width="310" height="195" rx="18" fill="#e7f4ed" stroke="#a4cbb4" stroke-width="1.5"/>
+  <text x="595" y="386" text-anchor="middle" font-size="32" font-weight="500">Shared proxy</text>
+  <text x="595" y="432" text-anchor="middle" class="secondary">Routes each connection</text>
+  <text x="595" y="468" text-anchor="middle" class="secondary">Handles SSLRequest</text>
+
+  <g>
+    <rect x="1040" y="170" width="380" height="155" rx="16" class="cluster"/>
+    <text x="1070" y="211" font-size="26" font-weight="500">Multigres cluster A</text>
+    <rect x="1070" y="232" width="320" height="64" rx="10" class="gateway"/>
+    <text x="1230" y="273" text-anchor="middle" font-size="27">Multigateway</text>
+  </g>
+  <g>
+    <rect x="1040" y="350" width="380" height="155" rx="16" class="cluster"/>
+    <text x="1070" y="391" font-size="26" font-weight="500">Multigres cluster B</text>
+    <rect x="1070" y="412" width="320" height="64" rx="10" class="gateway"/>
+    <text x="1230" y="453" text-anchor="middle" font-size="27">Multigateway</text>
+  </g>
+  <g>
+    <rect x="1040" y="530" width="380" height="155" rx="16" class="cluster"/>
+    <text x="1070" y="571" font-size="26" font-weight="500">Multigres cluster C</text>
+    <rect x="1070" y="592" width="320" height="64" rx="10" class="gateway"/>
+    <text x="1230" y="633" text-anchor="middle" font-size="27">Multigateway</text>
+  </g>
+
+  <line x1="64" y1="721" x2="1420" y2="721" stroke="#e0e7e3" stroke-width="1"/>
+  <text x="64" y="757" class="secondary">The proxy forwards the original TLS stream. Multigateway terminates TLS and authenticates the client.</text>
+</svg>

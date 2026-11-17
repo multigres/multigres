@@ -28,6 +28,7 @@ package parser
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/multigres/multigres/go/common/parser/ast"
 )
@@ -149,73 +150,47 @@ func makeRangeVarFromAnyName(names *ast.NodeList, position int) (*ast.RangeVar, 
 	return r, nil
 }
 
-// makeRangeVarFromQualifiedName constructs a RangeVar from a ColId and indirection list.
-// This mirrors PostgreSQL's makeRangeVarFromQualifiedName function which is used in
-// grammar rules that have "ColId indirection" patterns.
+// makeRangeVarFromQualifiedName constructs a RangeVar from the "ColId indirection"
+// form of qualified_name:
+//   - "schema" + [".table"] -> RangeVar{SchemaName: "schema", RelName: "table"}
+//   - "catalog" + [".schema", ".table"] -> RangeVar{CatalogName: "catalog", SchemaName: "schema", RelName: "table"}
 //
-// The function handles:
-//   - ColId alone: "table" -> RangeVar{RelName: "table"}
-//   - ColId + single indirection: "schema" + [".table"] -> RangeVar{SchemaName: "schema", RelName: "table"}
-//   - ColId + multiple indirections: "catalog" + [".schema", ".table"] -> RangeVar{CatalogName: "catalog", SchemaName: "schema", RelName: "table"}
+// As in PostgreSQL, an indirection element that is not a plain name (a subscript
+// or ".*") is a syntax error, and more than three dotted names is rejected.
 //
-// Parameters:
-//   - name: The initial ColId string
-//   - indirection: NodeList containing the indirection elements (can be nil)
-//   - position: Source location for error reporting
-//
-// Returns the constructed RangeVar.
-//
-// Ported from PostgreSQL's makeRangeVarFromQualifiedName function.
-func makeRangeVarFromQualifiedName(name string, indirection *ast.NodeList, position int) *ast.RangeVar {
-	r := &ast.RangeVar{
-		BaseNode: ast.BaseNode{Tag: ast.T_RangeVar, Loc: position},
-		Inh:      true, // Default to inheritance enabled (no ONLY)
-	}
-
-	// Start with the base name
+// Ported from PostgreSQL's makeRangeVarFromQualifiedName and check_qualified_name
+// (postgres/src/backend/parser/gram.y).
+func makeRangeVarFromQualifiedName(name string, indirection *ast.NodeList, position int) (*ast.RangeVar, error) {
 	names := []string{name}
-
-	// Add indirection elements
 	if indirection != nil {
 		for _, item := range indirection.Items {
-			if str, ok := item.(*ast.String); ok {
-				names = append(names, str.SVal)
+			str, ok := item.(*ast.String)
+			if !ok {
+				// check_qualified_name: parser_yyerror("syntax error")
+				return nil, errors.New("syntax error")
 			}
-			// Note: PostgreSQL also handles A_Star nodes for ".*" but we'll focus on String nodes for now
+			names = append(names, str.SVal)
 		}
 	}
 
-	// Build RangeVar based on number of names
+	r := &ast.RangeVar{
+		BaseNode:       ast.BaseNode{Tag: ast.T_RangeVar, Loc: position},
+		Inh:            true, // Default to inheritance enabled (no ONLY)
+		RelPersistence: ast.RELPERSISTENCE_PERMANENT,
+	}
+
 	switch len(names) {
-	case 1:
-		// Single name: just the relation name
-		r.CatalogName = ""
-		r.SchemaName = ""
-		r.RelName = names[0]
 	case 2:
-		// Two names: schema.relation
-		r.CatalogName = ""
 		r.SchemaName = names[0]
 		r.RelName = names[1]
 	case 3:
-		// Three names: catalog.schema.relation
 		r.CatalogName = names[0]
 		r.SchemaName = names[1]
 		r.RelName = names[2]
 	default:
-		// For more than 3 names, use the last as relation, second-to-last as schema, third-to-last as catalog
-		// This is a fallback - PostgreSQL would likely error on too many names
-		if len(names) >= 3 {
-			r.CatalogName = names[len(names)-3]
-			r.SchemaName = names[len(names)-2]
-			r.RelName = names[len(names)-1]
-		} else {
-			r.RelName = names[len(names)-1]
-		}
+		return nil, fmt.Errorf("improper qualified name (too many dotted names): %s", strings.Join(names, "."))
 	}
-
-	r.RelPersistence = ast.RELPERSISTENCE_PERMANENT
-	return r
+	return r, nil
 }
 
 // SplitColQualList separates a ColQualList (column qualifier list) into constraints and collate clauses.

@@ -41,6 +41,7 @@ const (
 	PgCtld_Version_FullMethodName            = "/pgctldservice.PgCtld/Version"
 	PgCtld_InitDataDir_FullMethodName        = "/pgctldservice.PgCtld/InitDataDir"
 	PgCtld_PgRewind_FullMethodName           = "/pgctldservice.PgCtld/PgRewind"
+	PgCtld_PgRewindAbort_FullMethodName      = "/pgctldservice.PgCtld/PgRewindAbort"
 	PgCtld_StopRestoreCommand_FullMethodName = "/pgctldservice.PgCtld/StopRestoreCommand"
 )
 
@@ -67,6 +68,12 @@ type PgCtldClient interface {
 	// PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
 	// This is used to resynchronize a server that diverged from the primary after a failback
 	PgRewind(ctx context.Context, in *PgRewindRequest, opts ...grpc.CallOption) (*PgRewindResponse, error)
+	// PgRewindAbort fences a PgRewind run id and makes sure no pg_rewind for it is
+	// running. A PgRewind request for a fenced id that arrives later is refused, so
+	// after this returns the caller knows the run can no longer modify the data
+	// directory. Without it, a caller whose PgRewind call ended early cannot tell a
+	// request that was never handled from one that is about to start.
+	PgRewindAbort(ctx context.Context, in *PgRewindAbortRequest, opts ...grpc.CallOption) (*PgRewindAbortResponse, error)
 	// StopRestoreCommand checks whether a restore_command invocation (run via
 	// the `pgctld restore-wrapper`, see RestoreCommandPIDFile) is currently
 	// running and, if so, terminates it. Postgres cannot cancel an in-flight
@@ -163,6 +170,16 @@ func (c *pgCtldClient) PgRewind(ctx context.Context, in *PgRewindRequest, opts .
 	return out, nil
 }
 
+func (c *pgCtldClient) PgRewindAbort(ctx context.Context, in *PgRewindAbortRequest, opts ...grpc.CallOption) (*PgRewindAbortResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PgRewindAbortResponse)
+	err := c.cc.Invoke(ctx, PgCtld_PgRewindAbort_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *pgCtldClient) StopRestoreCommand(ctx context.Context, in *StopRestoreCommandRequest, opts ...grpc.CallOption) (*StopRestoreCommandResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(StopRestoreCommandResponse)
@@ -196,6 +213,12 @@ type PgCtldServer interface {
 	// PgRewind rewinds a PostgreSQL data directory to an earlier point in the timeline
 	// This is used to resynchronize a server that diverged from the primary after a failback
 	PgRewind(context.Context, *PgRewindRequest) (*PgRewindResponse, error)
+	// PgRewindAbort fences a PgRewind run id and makes sure no pg_rewind for it is
+	// running. A PgRewind request for a fenced id that arrives later is refused, so
+	// after this returns the caller knows the run can no longer modify the data
+	// directory. Without it, a caller whose PgRewind call ended early cannot tell a
+	// request that was never handled from one that is about to start.
+	PgRewindAbort(context.Context, *PgRewindAbortRequest) (*PgRewindAbortResponse, error)
 	// StopRestoreCommand checks whether a restore_command invocation (run via
 	// the `pgctld restore-wrapper`, see RestoreCommandPIDFile) is currently
 	// running and, if so, terminates it. Postgres cannot cancel an in-flight
@@ -235,6 +258,9 @@ func (UnimplementedPgCtldServer) InitDataDir(context.Context, *InitDataDirReques
 }
 func (UnimplementedPgCtldServer) PgRewind(context.Context, *PgRewindRequest) (*PgRewindResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PgRewind not implemented")
+}
+func (UnimplementedPgCtldServer) PgRewindAbort(context.Context, *PgRewindAbortRequest) (*PgRewindAbortResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PgRewindAbort not implemented")
 }
 func (UnimplementedPgCtldServer) StopRestoreCommand(context.Context, *StopRestoreCommandRequest) (*StopRestoreCommandResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StopRestoreCommand not implemented")
@@ -404,6 +430,24 @@ func _PgCtld_PgRewind_Handler(srv interface{}, ctx context.Context, dec func(int
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PgCtld_PgRewindAbort_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PgRewindAbortRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PgCtldServer).PgRewindAbort(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PgCtld_PgRewindAbort_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PgCtldServer).PgRewindAbort(ctx, req.(*PgRewindAbortRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _PgCtld_StopRestoreCommand_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(StopRestoreCommandRequest)
 	if err := dec(in); err != nil {
@@ -460,6 +504,10 @@ var PgCtld_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PgRewind",
 			Handler:    _PgCtld_PgRewind_Handler,
+		},
+		{
+			MethodName: "PgRewindAbort",
+			Handler:    _PgCtld_PgRewindAbort_Handler,
 		},
 		{
 			MethodName: "StopRestoreCommand",

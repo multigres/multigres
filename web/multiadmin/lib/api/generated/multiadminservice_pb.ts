@@ -19,8 +19,9 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Duration, Message, proto3, protoInt64, Timestamp } from "@bufbuild/protobuf";
-import { Cell, ConsensusStatus, Database, ExternallyCertifiedRevocation, ID, Multigateway, Multiorch, Multipooler, RoutingRole, RulePosition, ShardRef, ShardRule } from "./clustermetadata_pb";
-import { Status } from "./multipoolermanagerdata_pb";
+import { RoutingRuleScope } from "./shardingcatalog_pb";
+import { Cell, ConsensusStatus, Database, ExternallyCertifiedRevocation, ID, KeyRange, Multigateway, Multiorch, Multipooler, RoutingRole, RulePosition, ShardRef, ShardRule } from "./clustermetadata_pb";
+import { Status, TableGroup } from "./multipoolermanagerdata_pb";
 import { ConsolidatorStats, QueryRegistrySnapshot } from "./multigatewaymanagerdata_pb";
 
 /**
@@ -124,6 +125,267 @@ proto3.util.setEnumType(BackupStatus, "multiadmin.BackupStatus", [
   { no: 2, name: "BACKUP_STATUS_COMPLETE" },
   { no: 3, name: "BACKUP_STATUS_FAILED" },
 ]);
+
+/**
+ * GetRoutingRulesRequest asks for a database's routing rules.
+ *
+ * @generated from message multiadmin.GetRoutingRulesRequest
+ */
+export class GetRoutingRulesRequest extends Message<GetRoutingRulesRequest> {
+  /**
+   * database is the database whose catalog holds the rules.
+   *
+   * @generated from field: string database = 1;
+   */
+  database = "";
+
+  constructor(data?: PartialMessage<GetRoutingRulesRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.GetRoutingRulesRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "database", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetRoutingRulesRequest {
+    return new GetRoutingRulesRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetRoutingRulesRequest {
+    return new GetRoutingRulesRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetRoutingRulesRequest {
+    return new GetRoutingRulesRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetRoutingRulesRequest | PlainMessage<GetRoutingRulesRequest> | undefined, b: GetRoutingRulesRequest | PlainMessage<GetRoutingRulesRequest> | undefined): boolean {
+    return proto3.util.equals(GetRoutingRulesRequest, a, b);
+  }
+}
+
+/**
+ * GetRoutingRulesResponse is a database's routing rules, read from one
+ * snapshot of its catalog.
+ *
+ * @generated from message multiadmin.GetRoutingRulesResponse
+ */
+export class GetRoutingRulesResponse extends Message<GetRoutingRulesResponse> {
+  /**
+   * routing_version is the catalog's routing version. It advances with every
+   * change to the catalog's contents, rule or not, so a rule change based on
+   * it fails if anything changed since it was read.
+   *
+   * @generated from field: int64 routing_version = 1;
+   */
+  routingVersion = protoInt64.zero;
+
+  /**
+   * plan_epoch advances when the inputs of query plans change.
+   *
+   * @generated from field: int64 plan_epoch = 2;
+   */
+  planEpoch = protoInt64.zero;
+
+  /**
+   * rules are the routing rules, in rule_id order.
+   *
+   * @generated from field: repeated multiadmin.RoutingRule rules = 3;
+   */
+  rules: RoutingRule[] = [];
+
+  constructor(data?: PartialMessage<GetRoutingRulesResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.GetRoutingRulesResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 2, name: "plan_epoch", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 3, name: "rules", kind: "message", T: RoutingRule, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetRoutingRulesResponse {
+    return new GetRoutingRulesResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetRoutingRulesResponse {
+    return new GetRoutingRulesResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetRoutingRulesResponse {
+    return new GetRoutingRulesResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: GetRoutingRulesResponse | PlainMessage<GetRoutingRulesResponse> | undefined, b: GetRoutingRulesResponse | PlainMessage<GetRoutingRulesResponse> | undefined): boolean {
+    return proto3.util.equals(GetRoutingRulesResponse, a, b);
+  }
+}
+
+/**
+ * RoutingRule is one routing rule, with the names a gateway routes by:
+ * traffic the catalog would send to the source is served by the target while
+ * the owning operation runs.
+ *
+ * @generated from message multiadmin.RoutingRule
+ */
+export class RoutingRule extends Message<RoutingRule> {
+  /**
+   * rule_id identifies the rule within its database's catalog.
+   *
+   * @generated from field: int64 rule_id = 1;
+   */
+  ruleId = protoInt64.zero;
+
+  /**
+   * operation_id is the operation that owns the rule (a UUID).
+   *
+   * @generated from field: string operation_id = 2;
+   */
+  operationId = "";
+
+  /**
+   * @generated from field: shardingcatalog.RoutingRuleScope scope = 3;
+   */
+  scope = RoutingRuleScope.UNSPECIFIED;
+
+  /**
+   * from_tablegroup is the tablegroup whose traffic the rule overrides.
+   *
+   * @generated from field: string from_tablegroup = 4;
+   */
+  fromTablegroup = "";
+
+  /**
+   * from_table is the overridden table. Set only for table rules.
+   *
+   * @generated from field: multiadmin.RoutingTableName from_table = 5;
+   */
+  fromTable?: RoutingTableName;
+
+  /**
+   * to_tablegroup is the tablegroup that serves the traffic.
+   *
+   * @generated from field: string to_tablegroup = 6;
+   */
+  toTablegroup = "";
+
+  /**
+   * to_shard is the shard that serves the traffic. Set only for shard rules;
+   * the rule covers exactly this shard's range.
+   *
+   * @generated from field: string to_shard = 7;
+   */
+  toShard = "";
+
+  /**
+   * to_key_range is to_shard's key range. An unset start or end is unbounded.
+   *
+   * @generated from field: clustermetadata.KeyRange to_key_range = 8;
+   */
+  toKeyRange?: KeyRange;
+
+  /**
+   * to_shard_key is the name of the table's shard key in the target
+   * tablegroup. Set only for table rules that change the key.
+   *
+   * @generated from field: string to_shard_key = 9;
+   */
+  toShardKey = "";
+
+  /**
+   * created_version is the routing version that introduced the rule.
+   *
+   * @generated from field: int64 created_version = 10;
+   */
+  createdVersion = protoInt64.zero;
+
+  constructor(data?: PartialMessage<RoutingRule>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.RoutingRule";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "rule_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 2, name: "operation_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 3, name: "scope", kind: "enum", T: proto3.getEnumType(RoutingRuleScope) },
+    { no: 4, name: "from_tablegroup", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 5, name: "from_table", kind: "message", T: RoutingTableName },
+    { no: 6, name: "to_tablegroup", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 7, name: "to_shard", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 8, name: "to_key_range", kind: "message", T: KeyRange },
+    { no: 9, name: "to_shard_key", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 10, name: "created_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RoutingRule {
+    return new RoutingRule().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RoutingRule {
+    return new RoutingRule().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RoutingRule {
+    return new RoutingRule().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RoutingRule | PlainMessage<RoutingRule> | undefined, b: RoutingRule | PlainMessage<RoutingRule> | undefined): boolean {
+    return proto3.util.equals(RoutingRule, a, b);
+  }
+}
+
+/**
+ * RoutingTableName names a table by schema and name.
+ *
+ * @generated from message multiadmin.RoutingTableName
+ */
+export class RoutingTableName extends Message<RoutingTableName> {
+  /**
+   * @generated from field: string schema = 1;
+   */
+  schema = "";
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name = "";
+
+  constructor(data?: PartialMessage<RoutingTableName>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.RoutingTableName";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "schema", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RoutingTableName {
+    return new RoutingTableName().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RoutingTableName {
+    return new RoutingTableName().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RoutingTableName {
+    return new RoutingTableName().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RoutingTableName | PlainMessage<RoutingTableName> | undefined, b: RoutingTableName | PlainMessage<RoutingTableName> | undefined): boolean {
+    return proto3.util.equals(RoutingTableName, a, b);
+  }
+}
 
 /**
  * GetCellRequest specifies the cell to retrieve
@@ -286,6 +548,86 @@ export class GetDatabaseResponse extends Message<GetDatabaseResponse> {
 
   static equals(a: GetDatabaseResponse | PlainMessage<GetDatabaseResponse> | undefined, b: GetDatabaseResponse | PlainMessage<GetDatabaseResponse> | undefined): boolean {
     return proto3.util.equals(GetDatabaseResponse, a, b);
+  }
+}
+
+/**
+ * ListDesiredTableGroupsRequest names the database whose tablegroups to list.
+ *
+ * @generated from message multiadmin.ListDesiredTableGroupsRequest
+ */
+export class ListDesiredTableGroupsRequest extends Message<ListDesiredTableGroupsRequest> {
+  /**
+   * database is the database name (required).
+   *
+   * @generated from field: string database = 1;
+   */
+  database = "";
+
+  constructor(data?: PartialMessage<ListDesiredTableGroupsRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.ListDesiredTableGroupsRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "database", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListDesiredTableGroupsRequest {
+    return new ListDesiredTableGroupsRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListDesiredTableGroupsRequest {
+    return new ListDesiredTableGroupsRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListDesiredTableGroupsRequest {
+    return new ListDesiredTableGroupsRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListDesiredTableGroupsRequest | PlainMessage<ListDesiredTableGroupsRequest> | undefined, b: ListDesiredTableGroupsRequest | PlainMessage<ListDesiredTableGroupsRequest> | undefined): boolean {
+    return proto3.util.equals(ListDesiredTableGroupsRequest, a, b);
+  }
+}
+
+/**
+ * ListDesiredTableGroupsResponse lists the catalog's tablegroups for the database.
+ *
+ * @generated from message multiadmin.ListDesiredTableGroupsResponse
+ */
+export class ListDesiredTableGroupsResponse extends Message<ListDesiredTableGroupsResponse> {
+  /**
+   * @generated from field: repeated multipoolermanagerdata.TableGroup table_groups = 1;
+   */
+  tableGroups: TableGroup[] = [];
+
+  constructor(data?: PartialMessage<ListDesiredTableGroupsResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multiadmin.ListDesiredTableGroupsResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "table_groups", kind: "message", T: TableGroup, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ListDesiredTableGroupsResponse {
+    return new ListDesiredTableGroupsResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ListDesiredTableGroupsResponse {
+    return new ListDesiredTableGroupsResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ListDesiredTableGroupsResponse {
+    return new ListDesiredTableGroupsResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ListDesiredTableGroupsResponse | PlainMessage<ListDesiredTableGroupsResponse> | undefined, b: ListDesiredTableGroupsResponse | PlainMessage<ListDesiredTableGroupsResponse> | undefined): boolean {
+    return proto3.util.equals(ListDesiredTableGroupsResponse, a, b);
   }
 }
 

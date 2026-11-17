@@ -180,3 +180,17 @@ func TestNewPgError_WithDetail(t *testing.T) {
 	require.Equal(t, "something failed", diag.Message)
 	require.Equal(t, "underlying cause", diag.Detail)
 }
+
+func TestIsReservedConnectionTerminated(t *testing.T) {
+	terminated := NewReservedConnectionTerminated(42)
+
+	require.True(t, IsReservedConnectionTerminated(terminated))
+	require.True(t, IsReservedConnectionTerminated(Wrapf(terminated, "describe failed")))
+
+	// A genuine PostgreSQL serialization failure shares the SQLSTATE but leaves the
+	// reservation intact, so it must not match.
+	require.False(t, IsReservedConnectionTerminated(
+		NewPgError("ERROR", PgSSSerializationFailure, "could not serialize access", "")))
+	require.False(t, IsReservedConnectionTerminated(errors.New("reserved connection terminated; please retry")))
+	require.False(t, IsReservedConnectionTerminated(nil))
+}

@@ -62,8 +62,10 @@ func analyzeProceduralBody(stmt ast.Stmt) error {
 		// A SQL-standard body (BEGIN ATOMIC … END / RETURN expr) is a parsed SQL
 		// tree in SQLBody, already walked by analyzeFunctionCalls at the top
 		// level; only the opaque `AS '…'` string body needs body analysis.
+		// That walk looks at function calls, not statement types, so the
+		// statement-level rejection is applied here.
 		if s.SQLBody != nil {
-			return nil
+			return rejectNestedTableGroupDDLInSQLBody(s.SQLBody)
 		}
 		body, lang, ok := createFunctionBody(s)
 		if !ok {
@@ -1360,6 +1362,9 @@ func analyzeBodyFragment(stmt ast.Stmt) error {
 	if err := rejectUnsupportedStatement(stmt); err != nil {
 		return err
 	}
+	if err := rejectNestedTableGroupDDL(stmt); err != nil {
+		return err
+	}
 	if err := checkRestrictedGUCChange(stmt); err != nil {
 		return err
 	}
@@ -1380,6 +1385,41 @@ func analyzeBodyFragment(stmt ast.Stmt) error {
 				"connection pooler cannot track, because a body may apply it conditionally or not at all")
 	}
 	return analyzeProceduralBody(stmt)
+}
+
+// rejectNestedTableGroupDDL rejects tablegroup DDL inside a function or DO
+// body. This is permanent, not part of the parse-only stub: tablegroup DDL
+// changes the shard map, which a single PostgreSQL backend running a function
+// cannot do. Dynamic SQL (EXECUTE '...') is opaque to the gateway and is left
+// to fail in postgres.
+func rejectNestedTableGroupDDL(stmt ast.Stmt) error {
+	if ast.IsTableGroupDDL(stmt) {
+		return mterrors.NewFeatureNotSupported("tablegroup DDL is not supported inside a function body")
+	}
+	return nil
+}
+
+// rejectNestedTableGroupDDLInSQLBody applies rejectNestedTableGroupDDL to a
+// SQL-standard body. BEGIN ATOMIC stores its statements as a one-item list
+// holding the statement list (see opt_routine_body in postgres.y); a bare
+// RETURN body is an expression and cannot contain DDL.
+func rejectNestedTableGroupDDLInSQLBody(body ast.Node) error {
+	outer, ok := body.(*ast.NodeList)
+	if !ok || outer.Len() != 1 {
+		return nil
+	}
+	inner, ok := outer.Items[0].(*ast.NodeList)
+	if !ok {
+		return nil
+	}
+	for _, item := range inner.Items {
+		if stmt, ok := item.(ast.Stmt); ok {
+			if err := rejectNestedTableGroupDDL(stmt); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // rejectBodySessionStateStmt rejects statement forms that mutate backend

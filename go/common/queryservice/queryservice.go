@@ -312,11 +312,11 @@ type QueryService interface {
 
 	// StreamReplication opens a replication tunnel to the pooler, sends the init
 	// message, waits for the backend to be opened (Ready), and returns the live
-	// bidi stream for the caller to pump opaque bytes through. Routing the init
-	// to the correct pooler and pumping the byte stream are the caller's
-	// responsibility.
+	// stream for the caller to pump opaque bytes through (see OpenReplication).
+	// Routing the init to the correct pooler and pumping the byte stream are
+	// the caller's responsibility.
 	StreamReplication(
 		ctx context.Context,
 		init *multipoolerpb.StreamReplicationInit,
-	) (multipoolerpb.MultipoolerService_StreamReplicationClient, error)
+	) (ReplicationStream, error)
 }

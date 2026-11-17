@@ -26,6 +26,7 @@ import (
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -350,30 +351,22 @@ func (s *ShardSetup) CreateMultiorchInstance(t *testing.T, name string, watchTar
 	httpPort := utils.GetFreePort(t)
 
 	instance := &ProcessInstance{
-		Name:                               name,
-		PoolerDir:                          orchDataDir,
-		LogFile:                            logFile,
-		GrpcPort:                           grpcPort,
-		HttpPort:                           httpPort,
-		Cell:                               config.CellName,
-		EtcdAddr:                           s.EtcdClientAddr,
-		WatchTargets:                       watchTargets,
-		ServiceID:                          name, // Use the instance name as the service ID
-		Binary:                             "multiorch",
-		Environment:                        os.Environ(),
-		LeaderFailoverGracePeriodBase:      config.LeaderFailoverGracePeriodBase,
-		LeaderFailoverGracePeriodMaxJitter: config.LeaderFailoverGracePeriodMaxJitter,
-		AllowUnsafeInitialCohort:           !config.RequireFailureSafeInitialCohort,
-		LogLevel:                           config.LogLevel,
+		Name:                     name,
+		PoolerDir:                orchDataDir,
+		LogFile:                  logFile,
+		GrpcPort:                 grpcPort,
+		HttpPort:                 httpPort,
+		Cell:                     config.CellName,
+		EtcdAddr:                 s.EtcdClientAddr,
+		WatchTargets:             watchTargets,
+		ServiceID:                name, // Use the instance name as the service ID
+		Binary:                   "multiorch",
+		Environment:              os.Environ(),
+		AllowUnsafeInitialCohort: !config.RequireFailureSafeInitialCohort,
+		LogLevel:                 config.LogLevel,
 	}
 
 	// Apply defaults if not specified (0s for fast tests)
-	if instance.LeaderFailoverGracePeriodBase == "" {
-		instance.LeaderFailoverGracePeriodBase = "0s"
-	}
-	if instance.LeaderFailoverGracePeriodMaxJitter == "" {
-		instance.LeaderFailoverGracePeriodMaxJitter = "0s"
-	}
 
 	s.MultiorchInstances[name] = instance
 
@@ -504,6 +497,12 @@ func (s *ShardSetup) Cleanup(testsFailed bool) {
 	// Close topology server (can do this immediately since context cancellation is async)
 	if s.TopoServer != nil {
 		s.TopoServer.Close()
+	}
+
+	// Release segments of postmasters that died uncleanly, even when the temp
+	// directory is preserved: nothing restarts postgres there afterwards.
+	if s.TempDir != "" {
+		testutil.ReleaseOrphanedSharedMemory(logf, s.TempDir)
 	}
 
 	// Clean up temp directory only if tests passed

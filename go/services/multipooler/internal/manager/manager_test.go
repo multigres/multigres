@@ -27,6 +27,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
@@ -37,6 +38,7 @@ import (
 	"github.com/multigres/multigres/go/tools/viperutil"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
 func TestManagerState_InitialState(t *testing.T) {
@@ -794,6 +796,25 @@ func TestNewMultipoolerManager_TableGroupAndShardValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNewMultipoolerManagerRefusesAnUnknownLeadershipMode: a mode this build
+// does not know is neither managed nor unmanaged, so the manager refuses it
+// before constructing anything.
+func TestNewMultipoolerManagerRefusesAnUnknownLeadershipMode(t *testing.T) {
+	ts, _ := memorytopo.NewServerAndFactory(t.Context(), "zone1")
+	t.Cleanup(func() { ts.Close() })
+	multipooler := &clustermetadatapb.Multipooler{
+		Id:             &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p"},
+		LeadershipMode: clustermetadatapb.LeadershipMode(99),
+		ShardRef:       &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard},
+	}
+
+	manager, err := NewMultipoolerManager(slog.New(slog.DiscardHandler), multipooler, &Config{TopoClient: ts})
+
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+	assert.Nil(t, manager)
 }
 
 // TestPause_PreservesPublisher verifies that Pause/resume does not stop the

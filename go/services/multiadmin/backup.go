@@ -119,6 +119,13 @@ func (s *MultiadminServer) findPoolerForMigration(ctx context.Context, target *c
 	return s.findPooler(ctx, target.GetDatabase(), target.GetTableGroup(), target.GetShard(), true, false)
 }
 
+// poolerNotFoundError is findPooler's answer when topology was read and holds
+// no pooler that fits. Topology that could not be read is a plain error, so
+// callers can tell "none exists" from "could not look".
+type poolerNotFoundError struct{ msg string }
+
+func (e poolerNotFoundError) Error() string { return e.msg }
+
 // findPooler finds a pooler for backup or migration operations. forceLeader
 // selects the serving consensus leader (highest rule wins if several claim
 // PRIMARY) rather than a serving follower. requireServing=false also admits a
@@ -222,7 +229,7 @@ func (s *MultiadminServer) findPooler(ctx context.Context, database, tableGroup,
 		if bestLeader != nil {
 			return bestLeader, nil
 		}
-		return nil, fmt.Errorf("serving leader pooler not found for database=%s, table_group=%s, shard=%s", database, tableGroup, shard)
+		return nil, poolerNotFound(fmt.Sprintf("serving leader pooler not found for database=%s, table_group=%s, shard=%s", database, tableGroup, shard), unreadCells)
 	}
 
 	for _, p := range poolers {
@@ -230,7 +237,16 @@ func (s *MultiadminServer) findPooler(ctx context.Context, database, tableGroup,
 			return p, nil
 		}
 	}
-	return nil, fmt.Errorf("serving follower pooler not found for database=%s, table_group=%s, shard=%s", database, tableGroup, shard)
+	return nil, poolerNotFound(fmt.Sprintf("serving follower pooler not found for database=%s, table_group=%s, shard=%s", database, tableGroup, shard), unreadCells)
+}
+
+// poolerNotFound is a poolerNotFoundError when every cell was read, and a plain
+// error naming the unread cells otherwise: a pooler may be hiding in one.
+func poolerNotFound(msg string, unreadCells []string) error {
+	if len(unreadCells) > 0 {
+		return fmt.Errorf("%s; cells %v could not be read", msg, unreadCells)
+	}
+	return poolerNotFoundError{msg: msg}
 }
 
 // GetBackupJobStatus checks the status of a backup or restore job

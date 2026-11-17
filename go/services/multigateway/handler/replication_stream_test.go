@@ -32,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/common/callerid"
 	"github.com/multigres/multigres/go/common/pgprotocol/protocol"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
+	"github.com/multigres/multigres/go/common/queryservice"
 	multipoolerservice "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
 )
@@ -187,7 +188,7 @@ func (e *fakeReplExecutor) StreamReplication(
 	conn *server.Conn,
 	state *MultigatewayConnectionState,
 	init *multipoolerservice.StreamReplicationInit,
-) (multipoolerservice.MultipoolerService_StreamReplicationClient, error) {
+) (queryservice.ReplicationStream, error) {
 	e.gotCtx = ctx
 	e.gotInit = init
 	if e.initErr != nil {

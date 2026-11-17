@@ -98,7 +98,6 @@ func TestPrimaryCrashWithUnarchivedWAL_NoDataLoss(t *testing.T) {
 		shardsetup.WithDatabase("postgres"),
 		shardsetup.WithCellName("test-cell"),
 		shardsetup.WithS3Backup("multigres", "us-east-1", s3Server.Endpoint()),
-		shardsetup.WithLeaderFailoverGracePeriod("8s", "4s"),
 	)
 	defer cleanup()
 

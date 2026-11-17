@@ -49,6 +49,11 @@ func newPoolerCache(
 	logger *slog.Logger,
 ) *store.PoolerCache {
 	matchesAnyTarget := func(p *clustermetadatapb.Multipooler) bool {
+		// Unmanaged poolers front an external postgres we neither repair nor
+		// elect, so they never enter the orchestrator's cache.
+		if !topoclient.IsManagedPooler(p) {
+			return false
+		}
 		for _, t := range targets() {
 			if t.MatchesShard(p.GetShardRef().GetDatabase(), p.GetShardRef().GetTableGroup(), p.GetShardRef().GetShard()) {
 				return true

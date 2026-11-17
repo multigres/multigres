@@ -466,6 +466,25 @@ func (c *Conn) MarkTempTainted() {
 	c.closeOnRelease.Store(true)
 }
 
+// MarkTempDiscardedInTransaction records that DISCARD TEMP ran in the open
+// transaction, so the temp table reservation must be settled against the
+// backend when the transaction concludes (see TakeTempDiscardedInTransaction).
+func (c *Conn) MarkTempDiscardedInTransaction() {
+	if c.reservedProps != nil {
+		c.reservedProps.TempDiscardedInTxn = true
+	}
+}
+
+// TakeTempDiscardedInTransaction reports whether DISCARD TEMP ran in the
+// transaction that just concluded, and clears the mark.
+func (c *Conn) TakeTempDiscardedInTransaction() bool {
+	if c.reservedProps == nil || !c.reservedProps.TempDiscardedInTxn {
+		return false
+	}
+	c.reservedProps.TempDiscardedInTxn = false
+	return true
+}
+
 // RemoveReservationReason removes a reason from the reservation bitmask.
 // If all reasons are removed, clears reservedProps.
 // Returns true if all reservation reasons are gone (connection should be released).

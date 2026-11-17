@@ -20,13 +20,17 @@ import (
 	"log/slog"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/sqltypes"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	migratorpb "github.com/multigres/multigres/go/pb/migrator"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
@@ -145,21 +149,48 @@ func TestGetMigrationJournal(t *testing.T) {
 
 func TestCreateConnection(t *testing.T) {
 	svc, qs := newTestService(t)
-	qs.AddQueryPattern(`INSERT INTO multigres\.migration_connection`, mock.MakeQueryResult(nil, nil))
+	qs.AddQueryPattern(`INSERT INTO multigres\.connections`, mock.MakeQueryResult(nil, nil))
 
 	resp, err := svc.CreateConnection(context.Background(), &migratorpb.CreateConnectionRequest{
-		Connection: &migratorpb.Connection{Name: "src", Dsn: "host=h dbname=app"},
+		Connection: &migratorpb.Connection{Name: "src", Dsn: "host=h dbname=app user=u password=p"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "src", resp.GetConnection().GetName())
 }
 
+// A connection is checked when it is created: the dsn is stored as the structure that was
+// validated, and a malformed one is the caller's error.
+func TestCreateConnectionValidatesAndNormalizes(t *testing.T) {
+	svc, qs := newTestService(t)
+	qs.AddQueryPattern(`INSERT INTO multigres\.connections`, mock.MakeQueryResult(nil, nil))
+
+	resp, err := svc.CreateConnection(context.Background(), &migratorpb.CreateConnectionRequest{
+		Connection: &migratorpb.Connection{Name: "src", Dsn: "postgres://alice:pw@db.example.com:5432/app?sslmode=require"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t,
+		`dbname='app' host='db.example.com' password='pw' port='5432' sslmode='require' user='alice'`,
+		resp.GetConnection().GetDsn(), "the dsn is the canonical rendering of what was validated")
+
+	// A connection that is not valid is the caller's error, and no value of it is in the message.
+	svc, _ = newTestService(t)
+	_, err = svc.CreateConnection(context.Background(), &migratorpb.CreateConnectionRequest{
+		Connection: &migratorpb.Connection{Name: "src", Dsn: "host=h dbname=app password=pw morepw"},
+	})
+	require.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err), "%v", err)
+	assert.NotContains(t, err.Error(), "pw")
+}
+
+// storedInfo is the conninfo column of a stored connection.
+const storedInfo = `{"host":["h"],"port":[5432],"dbname":"app","user":"u","password":"p","sslmode":"require"}`
+
 func TestGetConnection(t *testing.T) {
 	t.Run("found", func(t *testing.T) {
 		svc, qs := newTestService(t)
-		qs.AddQueryPattern(`FROM multigres\.migration_connection WHERE connection_id`, mock.MakeQueryResult(
-			[]string{"connection_id", "name", "dsn", "owner_role", "created_at"},
-			[][]any{{int64(1), "src", "host=h dbname=app", "", "2026-01-01T00:00:00Z"}},
+		qs.AddQueryPattern(`FROM multigres\.connections WHERE connection_id`, mock.MakeQueryResult(
+			[]string{"connection_id", "name", "dsn", "owner_role", "created_at", "conninfo"},
+			[][]any{{int64(1), "src", "host=h", "", "2026-01-01T00:00:00Z", storedInfo}},
 		))
 
 		resp, err := svc.GetConnection(context.Background(), &migratorpb.GetConnectionRequest{
@@ -171,7 +202,7 @@ func TestGetConnection(t *testing.T) {
 
 	t.Run("not found maps to NotFound", func(t *testing.T) {
 		svc, qs := newTestService(t)
-		qs.AddQueryPattern(`FROM multigres\.migration_connection WHERE connection_id`, mock.MakeQueryResult(nil, nil))
+		qs.AddQueryPattern(`FROM multigres\.connections WHERE connection_id`, mock.MakeQueryResult(nil, nil))
 
 		_, err := svc.GetConnection(context.Background(), &migratorpb.GetConnectionRequest{
 			Ref: &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Id{Id: 99}},
@@ -181,13 +212,67 @@ func TestGetConnection(t *testing.T) {
 	})
 }
 
+// TestAConnectionWithAnUnreadableConnInfoIsFailedPrecondition: a stored conninfo that this version cannot
+// read is a fact about the row, so Get answers FAILED_PRECONDITION naming the connection, and never
+// repeats a value of the conninfo, which holds the password.
+func TestAConnectionWithAnUnreadableConnInfoIsFailedPrecondition(t *testing.T) {
+	const conninfo = `{"host":["h"],"password":"s3cr3t","future":true}`
+	svc, qs := newTestService(t)
+	qs.AddQueryPattern(`FROM multigres\.connections WHERE connection_id`, mock.MakeQueryResult(
+		[]string{"connection_id", "name", "dsn", "owner_role", "created_at", "conninfo"},
+		[][]any{{int64(1), "src", "host=h", "", "2026-01-01T00:00:00Z", conninfo}},
+	))
+	_, err := svc.GetConnection(context.Background(), &migratorpb.GetConnectionRequest{
+		Ref: &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Id{Id: 1}},
+	})
+	require.Error(t, err)
+	assert.Equal(t, codes.FailedPrecondition, status.Code(err), "%v", err)
+	assert.Contains(t, err.Error(), `connection "src"`)
+	assert.NotContains(t, err.Error(), "s3cr3t")
+}
+
+// One connection that cannot be read does not keep the others from being listed: it is listed
+// with the columns that read fine (id, name, owner, creation time) and an empty dsn, and nothing
+// derived from what is stored.
+func TestListConnectionsListsAConnectionThatCannotBeReadWithAnEmptyDSN(t *testing.T) {
+	for name, unreadable := range map[string]string{
+		"no conninfo":           "",
+		"a conninfo not read":   `{"host":["h"],"password":"s3cr3t","future":true}`,
+		"a conninfo not a JSON": `not json s3cr3t`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc, qs := newTestService(t)
+			qs.AddQueryPattern(`FROM multigres\.connections$`, mock.MakeQueryResult(
+				[]string{"connection_id", "name", "dsn", "owner_role", "created_at", "conninfo"},
+				[][]any{
+					{int64(1), "good", "host=h", "alice", "2026-01-01T00:00:00Z", storedInfo},
+					{int64(2), "bad", "host=h password=s3cr3t", "bob", "2026-01-01T00:00:00Z", unreadable},
+				},
+			))
+			resp, err := svc.ListConnections(context.Background(), &migratorpb.ListConnectionsRequest{})
+			require.NoError(t, err)
+			require.Len(t, resp.GetConnections(), 2)
+
+			good, bad := resp.GetConnections()[0], resp.GetConnections()[1]
+			assert.Equal(t, "good", good.GetName())
+			assert.Equal(t, "alice", good.GetOwnerRole())
+			assert.Contains(t, good.GetDsn(), "host='h'")
+
+			assert.Empty(t, bad.GetDsn(), "nothing derived from the dsn or the conninfo is listed")
+			assert.Equal(t, &migratorpb.Connection{
+				Id: 2, Name: "bad", OwnerRole: "bob", CreatedAt: timestamppb.New(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)),
+			}, bad, "the columns that read fine are listed")
+		})
+	}
+}
+
 func TestListConnections(t *testing.T) {
 	svc, qs := newTestService(t)
-	qs.AddQueryPattern(`SELECT connection_id, name, dsn, owner_role, created_at\s*FROM multigres\.migration_connection$`, mock.MakeQueryResult(
-		[]string{"connection_id", "name", "dsn", "owner_role", "created_at"},
+	qs.AddQueryPattern(`SELECT connection_id, name, dsn, owner_role, created_at, coalesce\(conninfo::text, ''\)\s*FROM multigres\.connections$`, mock.MakeQueryResult(
+		[]string{"connection_id", "name", "dsn", "owner_role", "created_at", "conninfo"},
 		[][]any{
-			{int64(1), "a", "host=h1", "", "2026-01-01T00:00:00Z"},
-			{int64(2), "b", "host=h2", "", "2026-01-01T00:00:00Z"},
+			{int64(1), "a", "host=h1", "", "2026-01-01T00:00:00Z", storedInfo},
+			{int64(2), "b", "host=h2", "", "2026-01-01T00:00:00Z", storedInfo},
 		},
 	))
 
@@ -199,11 +284,11 @@ func TestListConnections(t *testing.T) {
 func TestDropConnection(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		svc, qs := newTestService(t)
-		qs.AddQueryPattern(`FROM multigres\.migration_connection WHERE connection_id`, mock.MakeQueryResult(
-			[]string{"connection_id", "name", "dsn", "owner_role", "created_at"},
-			[][]any{{int64(1), "src", "host=h", "", "2026-01-01T00:00:00Z"}},
+		qs.AddQueryPattern(`FROM multigres\.connections WHERE connection_id`, mock.MakeQueryResult(
+			[]string{"connection_id", "name", "dsn", "owner_role", "created_at", "conninfo"},
+			[][]any{{int64(1), "src", "host=h", "", "2026-01-01T00:00:00Z", storedInfo}},
 		))
-		qs.AddQueryPattern(`DELETE FROM multigres\.migration_connection`, mock.MakeQueryResult(nil, nil))
+		qs.AddQueryPattern(`DELETE FROM multigres\.connections`, mock.MakeQueryResult([]string{"deleted", "referenced"}, [][]any{{true, false}}))
 
 		_, err := svc.DropConnection(context.Background(), &migratorpb.DropConnectionRequest{
 			Ref: &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Id{Id: 1}},
@@ -211,9 +296,25 @@ func TestDropConnection(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("a connection that a migration references maps to FailedPrecondition", func(t *testing.T) {
+		svc, qs := newTestService(t)
+		qs.AddQueryPattern(`FROM multigres\.connections WHERE connection_id`, mock.MakeQueryResult(
+			[]string{"connection_id", "name", "dsn", "owner_role", "created_at", "conninfo"},
+			[][]any{{int64(1), "src", "host=h", "", "2026-01-01T00:00:00Z", storedInfo}},
+		))
+		qs.AddQueryPattern(`DELETE FROM multigres\.connections`, mock.MakeQueryResult([]string{"deleted", "referenced"}, [][]any{{false, true}}))
+
+		_, err := svc.DropConnection(context.Background(), &migratorpb.DropConnectionRequest{
+			Ref: &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Id{Id: 1}},
+		})
+		require.Error(t, err)
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+		assert.Contains(t, err.Error(), "referenced by a migration")
+	})
+
 	t.Run("missing without IfExists maps to NotFound", func(t *testing.T) {
 		svc, qs := newTestService(t)
-		qs.AddQueryPattern(`FROM multigres\.migration_connection WHERE connection_id`, mock.MakeQueryResult(nil, nil))
+		qs.AddQueryPattern(`FROM multigres\.connections WHERE connection_id`, mock.MakeQueryResult(nil, nil))
 
 		_, err := svc.DropConnection(context.Background(), &migratorpb.DropConnectionRequest{
 			Ref: &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Id{Id: 99}},
@@ -224,7 +325,7 @@ func TestDropConnection(t *testing.T) {
 
 	t.Run("missing with IfExists is a no-op success", func(t *testing.T) {
 		svc, qs := newTestService(t)
-		qs.AddQueryPattern(`FROM multigres\.migration_connection WHERE connection_id`, mock.MakeQueryResult(nil, nil))
+		qs.AddQueryPattern(`FROM multigres\.connections WHERE connection_id`, mock.MakeQueryResult(nil, nil))
 
 		_, err := svc.DropConnection(context.Background(), &migratorpb.DropConnectionRequest{
 			Ref:      &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Id{Id: 99}},
@@ -232,6 +333,64 @@ func TestDropConnection(t *testing.T) {
 		})
 		require.NoError(t, err)
 	})
+}
+
+// TestMigrationService_MissingConnectionsTable: connections are rows of
+// multigres.connections, which exists on the catalog shard only. On any other shard
+// the table is undefined, PostgreSQL says 42P01, and each handler that reads or writes
+// a connection answers FAILED_PRECONDITION saying where connections live. The text is
+// also true on the catalog shard, where the same error means the catalog ensure has
+// not completed.
+func TestMigrationService_MissingConnectionsTable(t *testing.T) {
+	svc, qs := newTestService(t)
+	qs.AddQueryPatternWithError(`multigres\.connections`, &mterrors.PgDiagnostic{
+		MessageType: 'E', Severity: "ERROR", Code: mterrors.PgSSUndefinedTable,
+		Message: `relation "multigres.connections" does not exist`,
+	})
+	ctx := context.Background()
+
+	cases := map[string]func() error{
+		"CreateMigration": func() error {
+			_, err := svc.CreateMigration(ctx, &migratorpb.CreateMigrationRequest{Migration: &migratorpb.MigrationRecord{
+				ConnectionName: "src",
+				Target:         &clustermetadatapb.ShardRef{Database: "app"},
+				Objects:        &migratorpb.SelectionObject{Object: &migratorpb.SelectionObject_Table{Table: &migratorpb.TableSpec{QualifiedNames: []string{"public.orders"}}}},
+			}})
+			return err
+		},
+		"CreateConnection": func() error {
+			_, err := svc.CreateConnection(ctx, &migratorpb.CreateConnectionRequest{
+				Connection: &migratorpb.Connection{Name: "src", Dsn: "host=src dbname=app user=u password=p"},
+			})
+			return err
+		},
+		"GetConnection": func() error {
+			_, err := svc.GetConnection(ctx, &migratorpb.GetConnectionRequest{
+				Ref: &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Name{Name: "src"}},
+			})
+			return err
+		},
+		"ListConnections": func() error {
+			_, err := svc.ListConnections(ctx, &migratorpb.ListConnectionsRequest{})
+			return err
+		},
+		"DropConnection": func() error {
+			_, err := svc.DropConnection(ctx, &migratorpb.DropConnectionRequest{
+				Ref: &migratorpb.ConnectionRef{Ref: &migratorpb.ConnectionRef_Id{Id: 1}},
+			})
+			return err
+		},
+	}
+	for name, call := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := call()
+			require.Error(t, err)
+			assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+			assert.Equal(t, errNoConnectionsTableMsg, status.Convert(err).Message())
+			assert.Contains(t, err.Error(), "catalog shard (tablegroup default, shard 0-inf)")
+			assert.NotContains(t, err.Error(), "not on the catalog shard")
+		})
+	}
 }
 
 // TestMigrationService_PrimaryGateError covers the one thing every handler in

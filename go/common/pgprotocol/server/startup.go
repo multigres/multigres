@@ -95,7 +95,8 @@ func parseReplicationMode(value string) (ReplicationMode, error) {
 // This includes SSL/GSSAPI encryption negotiation and processing the startup message.
 // Returns an error if the startup fails.
 //
-// Direct-TLS detection runs first, before any startup packet is read — the
+// Optional PROXY v2 parsing precedes direct-TLS detection. TLS detection
+// runs before any startup packet is read — the
 // same ordering as PostgreSQL 17, where ProcessSSLStartup peeks the first
 // byte ahead of ProcessStartupPacket (src/backend/tcop/backend_startup.c).
 // A client that opens with a TLS ClientHello (libpq sslnegotiation=direct,
@@ -103,6 +104,10 @@ func parseReplicationMode(value string) (ReplicationMode, error) {
 // TLS stream) is upgraded in maybeHandleDirectTLS; everyone else falls
 // through to the classic startup-packet dispatch untouched.
 func (c *Conn) handleStartup() error {
+	if err := c.maybeHandleProxyProtocol(); err != nil {
+		return mterrors.Wrapf(err, "PROXY protocol")
+	}
+	c.logger = c.logger.With("client_addr", c.RemoteAddr())
 	if err := c.maybeHandleDirectTLS(); err != nil {
 		return err
 	}

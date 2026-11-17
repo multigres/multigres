@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -29,12 +30,13 @@ import (
 
 const notificationAckTimeout = 10 * time.Second
 
-// GRPCNotificationManager implements handler.NotificationManager by keeping one
-// ordered gRPC notification stream per gateway client session (notifCh). A
-// single stream carries all channels for that session, so cross-channel
+// NotificationManager implements handler.NotificationManager by keeping one
+// ordered notification stream to the leader pooler per gateway client session
+// (notifCh), over gRPC or by direct calls (queryservice.Pooler). A single
+// stream carries all channels for that session, so cross-channel
 // notifications are delivered in the same order PostgreSQL emitted them.
-type GRPCNotificationManager struct {
-	getClient func() multipoolerpb.MultipoolerServiceClient
+type NotificationManager struct {
+	getPooler func() queryservice.Pooler
 	logger    *slog.Logger
 	metrics   *NotificationMetrics
 
@@ -42,14 +44,16 @@ type GRPCNotificationManager struct {
 	sessions map[chan *sqltypes.Notification]*notificationSession
 }
 
-// NewGRPCNotificationManager creates a notification manager backed by gRPC.
-func NewGRPCNotificationManager(
-	getClient func() multipoolerpb.MultipoolerServiceClient,
+// NewNotificationManager creates a notification manager that opens each
+// session's stream on the pooler getPooler returns (the current leader), or
+// fails the attempt when it returns nil.
+func NewNotificationManager(
+	getPooler func() queryservice.Pooler,
 	logger *slog.Logger,
 	metrics *NotificationMetrics,
-) *GRPCNotificationManager {
-	return &GRPCNotificationManager{
-		getClient: getClient,
+) *NotificationManager {
+	return &NotificationManager{
+		getPooler: getPooler,
 		logger:    logger,
 		metrics:   metrics,
 		sessions:  make(map[chan *sqltypes.Notification]*notificationSession),
@@ -57,7 +61,7 @@ func NewGRPCNotificationManager(
 }
 
 // Subscribe registers notifCh to receive notifications for pgChannel.
-func (m *GRPCNotificationManager) Subscribe(pgChannel string, notifCh chan *sqltypes.Notification) {
+func (m *NotificationManager) Subscribe(pgChannel string, notifCh chan *sqltypes.Notification) {
 	s := m.sessionFor(notifCh)
 	if err := s.update([]string{pgChannel}, nil, false); err != nil {
 		m.logger.Error("notification subscribe failed", "channel", pgChannel, "error", err)
@@ -65,7 +69,7 @@ func (m *GRPCNotificationManager) Subscribe(pgChannel string, notifCh chan *sqlt
 }
 
 // Unsubscribe removes notifCh from pgChannel subscribers.
-func (m *GRPCNotificationManager) Unsubscribe(pgChannel string, notifCh chan *sqltypes.Notification) {
+func (m *NotificationManager) Unsubscribe(pgChannel string, notifCh chan *sqltypes.Notification) {
 	s := m.lookupSession(notifCh)
 	if s == nil {
 		return
@@ -79,7 +83,7 @@ func (m *GRPCNotificationManager) Unsubscribe(pgChannel string, notifCh chan *sq
 }
 
 // UnsubscribeAll removes notifCh from all channels.
-func (m *GRPCNotificationManager) UnsubscribeAll(notifCh chan *sqltypes.Notification) {
+func (m *NotificationManager) UnsubscribeAll(notifCh chan *sqltypes.Notification) {
 	s := m.lookupSession(notifCh)
 	if s == nil {
 		return
@@ -97,7 +101,7 @@ func (m *GRPCNotificationManager) UnsubscribeAll(notifCh chan *sqltypes.Notifica
 // retry cadence a session has, so there is no timer here. Cheap and
 // non-blocking: it signals sessions and returns, so the health stream
 // goroutine never waits on a session's stream handshake.
-func (m *GRPCNotificationManager) OnLeaderServing(_ *clustermetadatapb.ShardRef) {
+func (m *NotificationManager) OnLeaderServing(_ *clustermetadatapb.ShardRef) {
 	m.mu.Lock()
 	sessions := make([]*notificationSession, 0, len(m.sessions))
 	for _, s := range m.sessions {
@@ -109,7 +113,7 @@ func (m *GRPCNotificationManager) OnLeaderServing(_ *clustermetadatapb.ShardRef)
 	}
 }
 
-func (m *GRPCNotificationManager) sessionFor(notifCh chan *sqltypes.Notification) *notificationSession {
+func (m *NotificationManager) sessionFor(notifCh chan *sqltypes.Notification) *notificationSession {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s := m.sessions[notifCh]; s != nil {
@@ -129,13 +133,13 @@ func (m *GRPCNotificationManager) sessionFor(notifCh chan *sqltypes.Notification
 	return s
 }
 
-func (m *GRPCNotificationManager) lookupSession(notifCh chan *sqltypes.Notification) *notificationSession {
+func (m *NotificationManager) lookupSession(notifCh chan *sqltypes.Notification) *notificationSession {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.sessions[notifCh]
 }
 
-func (m *GRPCNotificationManager) removeSession(notifCh chan *sqltypes.Notification) {
+func (m *NotificationManager) removeSession(notifCh chan *sqltypes.Notification) {
 	m.mu.Lock()
 	s := m.sessions[notifCh]
 	delete(m.sessions, notifCh)
@@ -154,7 +158,7 @@ func (m *GRPCNotificationManager) removeSession(notifCh chan *sqltypes.Notificat
 // load balancer observing the leader serving (OnLeaderServing). The stream
 // metric counts streams that have completed their (re)subscribe handshake.
 type notificationSession struct {
-	manager *GRPCNotificationManager
+	manager *NotificationManager
 	notifCh chan *sqltypes.Notification
 
 	// ctx lives for the whole session. stop cancels it, which also cancels
@@ -167,7 +171,7 @@ type notificationSession struct {
 
 	mu     sync.Mutex
 	cancel context.CancelFunc // cancels the current stream only
-	stream multipoolerpb.MultipoolerService_NotificationStreamClient
+	stream queryservice.NotificationStream
 	ready  chan struct{}
 	errs   chan error
 	active map[string]bool
@@ -245,12 +249,12 @@ func (s *notificationSession) closeStreamLocked() {
 // startLocked opens a stream to the current leader and resubscribes the
 // session's active channels. On failure no stream is left behind.
 func (s *notificationSession) startLocked() error {
-	client := s.manager.getClient()
-	if client == nil {
-		return errNoClient
+	pooler := s.manager.getPooler()
+	if pooler == nil {
+		return errNoPooler
 	}
 	ctx, cancel := context.WithCancel(s.ctx)
-	stream, err := client.NotificationStream(ctx)
+	stream, err := pooler.NotificationStream(ctx)
 	if err != nil {
 		cancel()
 		return err
@@ -335,7 +339,7 @@ func (s *notificationSession) waitReadyLocked() error {
 
 func (s *notificationSession) recvLoop(
 	ctx context.Context,
-	stream multipoolerpb.MultipoolerService_NotificationStreamClient,
+	stream queryservice.NotificationStream,
 	ready chan<- struct{},
 	errs chan<- error,
 ) {
@@ -385,5 +389,5 @@ func (s *notificationSession) recvLoop(
 	}
 }
 
-// errNoClient is a sentinel error for when no gRPC client is available.
-var errNoClient = errors.New("no gRPC client available for notifications")
+// errNoPooler is a sentinel error for when no leader pooler is available.
+var errNoPooler = errors.New("no pooler available for notifications")

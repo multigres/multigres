@@ -1127,8 +1127,11 @@ type PgRewindRequest struct {
 	// Application name for replication connection (used with -R flag)
 	// This identifies the standby in pg_stat_replication and synchronous_standby_names
 	ApplicationName string `protobuf:"bytes,5,opt,name=application_name,json=applicationName,proto3" json:"application_name,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Identifies a mutating run so that PgRewindAbort can fence it. Optional: a
+	// request without one cannot be fenced.
+	RunId         string `protobuf:"bytes,6,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PgRewindRequest) Reset() {
@@ -1196,6 +1199,13 @@ func (x *PgRewindRequest) GetApplicationName() string {
 	return ""
 }
 
+func (x *PgRewindRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
 type PgRewindResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Status message
@@ -1249,6 +1259,96 @@ func (x *PgRewindResponse) GetOutput() string {
 	return ""
 }
 
+type PgRewindAbortRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The run_id of the PgRewind request to fence.
+	RunId         string `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PgRewindAbortRequest) Reset() {
+	*x = PgRewindAbortRequest{}
+	mi := &file_pgctldservice_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PgRewindAbortRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PgRewindAbortRequest) ProtoMessage() {}
+
+func (x *PgRewindAbortRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pgctldservice_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PgRewindAbortRequest.ProtoReflect.Descriptor instead.
+func (*PgRewindAbortRequest) Descriptor() ([]byte, []int) {
+	return file_pgctldservice_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *PgRewindAbortRequest) GetRunId() string {
+	if x != nil {
+		return x.RunId
+	}
+	return ""
+}
+
+type PgRewindAbortResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// True if a pg_rewind for the run id was running and has been terminated.
+	Terminated    bool `protobuf:"varint,1,opt,name=terminated,proto3" json:"terminated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PgRewindAbortResponse) Reset() {
+	*x = PgRewindAbortResponse{}
+	mi := &file_pgctldservice_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PgRewindAbortResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PgRewindAbortResponse) ProtoMessage() {}
+
+func (x *PgRewindAbortResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pgctldservice_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PgRewindAbortResponse.ProtoReflect.Descriptor instead.
+func (*PgRewindAbortResponse) Descriptor() ([]byte, []int) {
+	return file_pgctldservice_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *PgRewindAbortResponse) GetTerminated() bool {
+	if x != nil {
+		return x.Terminated
+	}
+	return false
+}
+
 type StopRestoreCommandRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -1257,7 +1357,7 @@ type StopRestoreCommandRequest struct {
 
 func (x *StopRestoreCommandRequest) Reset() {
 	*x = StopRestoreCommandRequest{}
-	mi := &file_pgctldservice_proto_msgTypes[17]
+	mi := &file_pgctldservice_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1269,7 +1369,7 @@ func (x *StopRestoreCommandRequest) String() string {
 func (*StopRestoreCommandRequest) ProtoMessage() {}
 
 func (x *StopRestoreCommandRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pgctldservice_proto_msgTypes[17]
+	mi := &file_pgctldservice_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1282,7 +1382,7 @@ func (x *StopRestoreCommandRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopRestoreCommandRequest.ProtoReflect.Descriptor instead.
 func (*StopRestoreCommandRequest) Descriptor() ([]byte, []int) {
-	return file_pgctldservice_proto_rawDescGZIP(), []int{17}
+	return file_pgctldservice_proto_rawDescGZIP(), []int{19}
 }
 
 type StopRestoreCommandResponse struct {
@@ -1302,7 +1402,7 @@ type StopRestoreCommandResponse struct {
 
 func (x *StopRestoreCommandResponse) Reset() {
 	*x = StopRestoreCommandResponse{}
-	mi := &file_pgctldservice_proto_msgTypes[18]
+	mi := &file_pgctldservice_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1314,7 +1414,7 @@ func (x *StopRestoreCommandResponse) String() string {
 func (*StopRestoreCommandResponse) ProtoMessage() {}
 
 func (x *StopRestoreCommandResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pgctldservice_proto_msgTypes[18]
+	mi := &file_pgctldservice_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1327,7 +1427,7 @@ func (x *StopRestoreCommandResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StopRestoreCommandResponse.ProtoReflect.Descriptor instead.
 func (*StopRestoreCommandResponse) Descriptor() ([]byte, []int) {
-	return file_pgctldservice_proto_rawDescGZIP(), []int{18}
+	return file_pgctldservice_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *StopRestoreCommandResponse) GetFound() bool {
@@ -1429,7 +1529,7 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\n" +
 	"extra_args\x18\x03 \x03(\tR\textraArgs\"/\n" +
 	"\x13InitDataDirResponse\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage\"\xb6\x01\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\"\xcd\x01\n" +
 	"\x0fPgRewindRequest\x12\x1f\n" +
 	"\vsource_host\x18\x01 \x01(\tR\n" +
 	"sourceHost\x12\x1f\n" +
@@ -1438,10 +1538,17 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\adry_run\x18\x03 \x01(\bR\x06dryRun\x12\x1d\n" +
 	"\n" +
 	"extra_args\x18\x04 \x03(\tR\textraArgs\x12)\n" +
-	"\x10application_name\x18\x05 \x01(\tR\x0fapplicationName\"D\n" +
+	"\x10application_name\x18\x05 \x01(\tR\x0fapplicationName\x12\x15\n" +
+	"\x06run_id\x18\x06 \x01(\tR\x05runId\"D\n" +
 	"\x10PgRewindResponse\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\x12\x16\n" +
-	"\x06output\x18\x02 \x01(\tR\x06output\"\x1b\n" +
+	"\x06output\x18\x02 \x01(\tR\x06output\"-\n" +
+	"\x14PgRewindAbortRequest\x12\x15\n" +
+	"\x06run_id\x18\x01 \x01(\tR\x05runId\"7\n" +
+	"\x15PgRewindAbortResponse\x12\x1e\n" +
+	"\n" +
+	"terminated\x18\x01 \x01(\bR\n" +
+	"terminated\"\x1b\n" +
 	"\x19StopRestoreCommandRequest\"d\n" +
 	"\x1aStopRestoreCommandResponse\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x12\x16\n" +
@@ -1453,7 +1560,7 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\bSTARTING\x10\x02\x12\v\n" +
 	"\aRUNNING\x10\x03\x12\f\n" +
 	"\bSTOPPING\x10\x04\x12\x13\n" +
-	"\x0fNOT_INITIALIZED\x10\x052\xcf\x05\n" +
+	"\x0fNOT_INITIALIZED\x10\x052\xab\x06\n" +
 	"\x06PgCtld\x12B\n" +
 	"\x05Start\x12\x1b.pgctldservice.StartRequest\x1a\x1c.pgctldservice.StartResponse\x12?\n" +
 	"\x04Stop\x12\x1a.pgctldservice.StopRequest\x1a\x1b.pgctldservice.StopResponse\x12H\n" +
@@ -1462,7 +1569,8 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\x06Status\x12\x1c.pgctldservice.StatusRequest\x1a\x1d.pgctldservice.StatusResponse\x12H\n" +
 	"\aVersion\x12\x1d.pgctldservice.VersionRequest\x1a\x1e.pgctldservice.VersionResponse\x12T\n" +
 	"\vInitDataDir\x12!.pgctldservice.InitDataDirRequest\x1a\".pgctldservice.InitDataDirResponse\x12K\n" +
-	"\bPgRewind\x12\x1e.pgctldservice.PgRewindRequest\x1a\x1f.pgctldservice.PgRewindResponse\x12i\n" +
+	"\bPgRewind\x12\x1e.pgctldservice.PgRewindRequest\x1a\x1f.pgctldservice.PgRewindResponse\x12Z\n" +
+	"\rPgRewindAbort\x12#.pgctldservice.PgRewindAbortRequest\x1a$.pgctldservice.PgRewindAbortResponse\x12i\n" +
 	"\x12StopRestoreCommand\x12(.pgctldservice.StopRestoreCommandRequest\x1a).pgctldservice.StopRestoreCommandResponseB4Z2github.com/multigres/multigres/go/pb/pgctldserviceb\x06proto3"
 
 var (
@@ -1478,7 +1586,7 @@ func file_pgctldservice_proto_rawDescGZIP() []byte {
 }
 
 var file_pgctldservice_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_pgctldservice_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_pgctldservice_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_pgctldservice_proto_goTypes = []any{
 	(ServerStatus)(0),                  // 0: pgctldservice.ServerStatus
 	(*StartRequest)(nil),               // 1: pgctldservice.StartRequest
@@ -1498,18 +1606,20 @@ var file_pgctldservice_proto_goTypes = []any{
 	(*InitDataDirResponse)(nil),        // 15: pgctldservice.InitDataDirResponse
 	(*PgRewindRequest)(nil),            // 16: pgctldservice.PgRewindRequest
 	(*PgRewindResponse)(nil),           // 17: pgctldservice.PgRewindResponse
-	(*StopRestoreCommandRequest)(nil),  // 18: pgctldservice.StopRestoreCommandRequest
-	(*StopRestoreCommandResponse)(nil), // 19: pgctldservice.StopRestoreCommandResponse
-	(*durationpb.Duration)(nil),        // 20: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil),      // 21: google.protobuf.Timestamp
+	(*PgRewindAbortRequest)(nil),       // 18: pgctldservice.PgRewindAbortRequest
+	(*PgRewindAbortResponse)(nil),      // 19: pgctldservice.PgRewindAbortResponse
+	(*StopRestoreCommandRequest)(nil),  // 20: pgctldservice.StopRestoreCommandRequest
+	(*StopRestoreCommandResponse)(nil), // 21: pgctldservice.StopRestoreCommandResponse
+	(*durationpb.Duration)(nil),        // 22: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),      // 23: google.protobuf.Timestamp
 }
 var file_pgctldservice_proto_depIdxs = []int32{
-	20, // 0: pgctldservice.StopRequest.timeout:type_name -> google.protobuf.Duration
-	20, // 1: pgctldservice.RestartRequest.timeout:type_name -> google.protobuf.Duration
+	22, // 0: pgctldservice.StopRequest.timeout:type_name -> google.protobuf.Duration
+	22, // 1: pgctldservice.RestartRequest.timeout:type_name -> google.protobuf.Duration
 	0,  // 2: pgctldservice.StatusResponse.status:type_name -> pgctldservice.ServerStatus
-	20, // 3: pgctldservice.StatusResponse.uptime:type_name -> google.protobuf.Duration
+	22, // 3: pgctldservice.StatusResponse.uptime:type_name -> google.protobuf.Duration
 	11, // 4: pgctldservice.StatusResponse.pgbackrest_status:type_name -> pgctldservice.PgBackRestStatus
-	21, // 5: pgctldservice.PgBackRestStatus.last_started:type_name -> google.protobuf.Timestamp
+	23, // 5: pgctldservice.PgBackRestStatus.last_started:type_name -> google.protobuf.Timestamp
 	1,  // 6: pgctldservice.PgCtld.Start:input_type -> pgctldservice.StartRequest
 	3,  // 7: pgctldservice.PgCtld.Stop:input_type -> pgctldservice.StopRequest
 	5,  // 8: pgctldservice.PgCtld.Restart:input_type -> pgctldservice.RestartRequest
@@ -1518,18 +1628,20 @@ var file_pgctldservice_proto_depIdxs = []int32{
 	12, // 11: pgctldservice.PgCtld.Version:input_type -> pgctldservice.VersionRequest
 	14, // 12: pgctldservice.PgCtld.InitDataDir:input_type -> pgctldservice.InitDataDirRequest
 	16, // 13: pgctldservice.PgCtld.PgRewind:input_type -> pgctldservice.PgRewindRequest
-	18, // 14: pgctldservice.PgCtld.StopRestoreCommand:input_type -> pgctldservice.StopRestoreCommandRequest
-	2,  // 15: pgctldservice.PgCtld.Start:output_type -> pgctldservice.StartResponse
-	4,  // 16: pgctldservice.PgCtld.Stop:output_type -> pgctldservice.StopResponse
-	6,  // 17: pgctldservice.PgCtld.Restart:output_type -> pgctldservice.RestartResponse
-	8,  // 18: pgctldservice.PgCtld.ReloadConfig:output_type -> pgctldservice.ReloadConfigResponse
-	10, // 19: pgctldservice.PgCtld.Status:output_type -> pgctldservice.StatusResponse
-	13, // 20: pgctldservice.PgCtld.Version:output_type -> pgctldservice.VersionResponse
-	15, // 21: pgctldservice.PgCtld.InitDataDir:output_type -> pgctldservice.InitDataDirResponse
-	17, // 22: pgctldservice.PgCtld.PgRewind:output_type -> pgctldservice.PgRewindResponse
-	19, // 23: pgctldservice.PgCtld.StopRestoreCommand:output_type -> pgctldservice.StopRestoreCommandResponse
-	15, // [15:24] is the sub-list for method output_type
-	6,  // [6:15] is the sub-list for method input_type
+	18, // 14: pgctldservice.PgCtld.PgRewindAbort:input_type -> pgctldservice.PgRewindAbortRequest
+	20, // 15: pgctldservice.PgCtld.StopRestoreCommand:input_type -> pgctldservice.StopRestoreCommandRequest
+	2,  // 16: pgctldservice.PgCtld.Start:output_type -> pgctldservice.StartResponse
+	4,  // 17: pgctldservice.PgCtld.Stop:output_type -> pgctldservice.StopResponse
+	6,  // 18: pgctldservice.PgCtld.Restart:output_type -> pgctldservice.RestartResponse
+	8,  // 19: pgctldservice.PgCtld.ReloadConfig:output_type -> pgctldservice.ReloadConfigResponse
+	10, // 20: pgctldservice.PgCtld.Status:output_type -> pgctldservice.StatusResponse
+	13, // 21: pgctldservice.PgCtld.Version:output_type -> pgctldservice.VersionResponse
+	15, // 22: pgctldservice.PgCtld.InitDataDir:output_type -> pgctldservice.InitDataDirResponse
+	17, // 23: pgctldservice.PgCtld.PgRewind:output_type -> pgctldservice.PgRewindResponse
+	19, // 24: pgctldservice.PgCtld.PgRewindAbort:output_type -> pgctldservice.PgRewindAbortResponse
+	21, // 25: pgctldservice.PgCtld.StopRestoreCommand:output_type -> pgctldservice.StopRestoreCommandResponse
+	16, // [16:26] is the sub-list for method output_type
+	6,  // [6:16] is the sub-list for method input_type
 	6,  // [6:6] is the sub-list for extension type_name
 	6,  // [6:6] is the sub-list for extension extendee
 	0,  // [0:6] is the sub-list for field type_name
@@ -1547,7 +1659,7 @@ func file_pgctldservice_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pgctldservice_proto_rawDesc), len(file_pgctldservice_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   19,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

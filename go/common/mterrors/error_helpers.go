@@ -47,6 +47,20 @@ func IsCachedPlanError(err error) bool {
 		strings.Contains(diag.Message, "cached plan must not change result type")
 }
 
+// IsReplicationSlotActiveError reports whether err is PostgreSQL's SQLSTATE
+// 55006 "replication slot ... is active for PID ..." — raised by
+// pg_drop_replication_slot when the walsender serving the slot has not yet
+// noticed its subscriber disconnect and released it. Transient: retrying
+// after a short backoff lets the drop succeed once the walsender exits.
+func IsReplicationSlotActiveError(err error) bool {
+	var diag *PgDiagnostic
+	if !errors.As(err, &diag) {
+		return false
+	}
+	return diag.Code == PgSSObjectInUse &&
+		strings.Contains(diag.Message, "replication slot")
+}
+
 // IsStalePreparedStatementError reports whether err is one a stale, shared
 // backend prepared statement can raise after a schema change, and which
 // re-Parsing the statement can recover:

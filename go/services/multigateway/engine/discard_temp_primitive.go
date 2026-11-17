@@ -61,10 +61,11 @@ func (d *DiscardTempPrimitive) StreamExecute(
 	// If the session has a temp table reservation, use the dedicated RPC
 	// to remove the temp table reason on the multipooler side.
 	if state.HasTempTableReservation() {
-		// Clear any deferred BEGIN — DISCARD TEMP cannot run inside a
-		// transaction (PG rejects it), so a pending BEGIN that was never
-		// sent to PG should be discarded.
-		state.PendingBeginQuery = ""
+		// A deferred BEGIN stays pending: the transaction has not started on any
+		// backend yet, and its first statement will start it with its options
+		// (isolation level, read only). Dropping it would leave a client that is in a
+		// transaction with no BEGIN behind it, and the transaction would start as a
+		// plain BEGIN.
 		return exec.DiscardTempTables(ctx, conn, state, callback)
 	}
 

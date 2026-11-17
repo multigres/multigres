@@ -60,6 +60,29 @@ func TestSwitchPrimary_NoPrimaryFound(t *testing.T) {
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
 
+func TestSwitchPrimary_IgnoresUnmanagedPoolers(t *testing.T) {
+	ctx := t.Context()
+	s := newTestServer(t, "cell1")
+
+	// The only primary is unmanaged: its leadership is external, so there is
+	// nothing for multigres to resign.
+	primary := makeRoutedPooler("cell1", "mp-unmanaged", clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY)
+	primary.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNMANAGED
+	replica := makeRoutedPooler("cell1", "mp-replica", clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA)
+	require.NoError(t, s.ts.CreateMultipooler(ctx, primary))
+	require.NoError(t, s.ts.CreateMultipooler(ctx, replica))
+
+	fc := rpcclient.NewFakeClient()
+	s.SetRPCClient(fc)
+
+	_, err := s.SwitchPrimary(ctx, &multiadminpb.SwitchPrimaryRequest{
+		ShardRef: &clustermetadatapb.ShardRef{Database: "db1", TableGroup: "default", Shard: "0-inf"},
+	})
+	require.Error(t, err)
+	assert.Equal(t, codes.NotFound, status.Code(err))
+	assert.Empty(t, fc.GetCallLog())
+}
+
 func TestSwitchPrimary_NoStandby(t *testing.T) {
 	ctx := t.Context()
 	s := newTestServer(t, "cell1")

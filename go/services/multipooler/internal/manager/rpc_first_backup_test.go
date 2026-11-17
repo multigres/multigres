@@ -76,6 +76,10 @@ func (s *stubPgctldClient) PgRewind(_ context.Context, _ *pgctldpb.PgRewindReque
 	return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "stub: not available")
 }
 
+func (s *stubPgctldClient) PgRewindAbort(_ context.Context, _ *pgctldpb.PgRewindAbortRequest, _ ...grpc.CallOption) (*pgctldpb.PgRewindAbortResponse, error) {
+	return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "stub: not available")
+}
+
 func (s *stubPgctldClient) StopRestoreCommand(_ context.Context, _ *pgctldpb.StopRestoreCommandRequest, _ ...grpc.CallOption) (*pgctldpb.StopRestoreCommandResponse, error) {
 	return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "stub: not available")
 }
@@ -127,6 +131,10 @@ func (s *successStubPgctldClient) InitDataDir(context.Context, *pgctldpb.InitDat
 
 func (s *successStubPgctldClient) PgRewind(context.Context, *pgctldpb.PgRewindRequest, ...grpc.CallOption) (*pgctldpb.PgRewindResponse, error) {
 	return &pgctldpb.PgRewindResponse{}, nil
+}
+
+func (s *successStubPgctldClient) PgRewindAbort(context.Context, *pgctldpb.PgRewindAbortRequest, ...grpc.CallOption) (*pgctldpb.PgRewindAbortResponse, error) {
+	return &pgctldpb.PgRewindAbortResponse{}, nil
 }
 
 func (s *successStubPgctldClient) StopRestoreCommand(context.Context, *pgctldpb.StopRestoreCommandRequest, ...grpc.CallOption) (*pgctldpb.StopRestoreCommandResponse, error) {

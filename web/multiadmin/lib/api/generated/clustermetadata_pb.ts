@@ -270,12 +270,22 @@ export enum LeadershipMode {
    * @generated from enum value: LEADERSHIP_MODE_STATIC = 2;
    */
   STATIC = 2,
+
+  /**
+   * LEADERSHIP_MODE_UNMANAGED: the pooler fronts an external PostgreSQL that
+   * multigres neither starts, replicates, backs up nor elects. Its leadership
+   * is decided outside multigres.
+   *
+   * @generated from enum value: LEADERSHIP_MODE_UNMANAGED = 3;
+   */
+  UNMANAGED = 3,
 }
 // Retrieve enum metadata with: proto3.getEnumType(LeadershipMode)
 proto3.util.setEnumType(LeadershipMode, "clustermetadata.LeadershipMode", [
   { no: 0, name: "LEADERSHIP_MODE_UNSPECIFIED" },
   { no: 1, name: "LEADERSHIP_MODE_CONSENSUS" },
   { no: 2, name: "LEADERSHIP_MODE_STATIC" },
+  { no: 3, name: "LEADERSHIP_MODE_UNMANAGED" },
 ]);
 
 /**
@@ -644,6 +654,83 @@ export class ShardInitClaim extends Message<ShardInitClaim> {
 
   static equals(a: ShardInitClaim | PlainMessage<ShardInitClaim> | undefined, b: ShardInitClaim | PlainMessage<ShardInitClaim> | undefined): boolean {
     return proto3.util.equals(ShardInitClaim, a, b);
+  }
+}
+
+/**
+ * TableGroupProvisionClaim records that a provisioner holds resources (pods,
+ * volumes, pooler records) for one incarnation of a tablegroup, identified by
+ * its sharding-catalog id. It is a create-if-not-exists node in the global
+ * topology at databases/<database>/TableGroupClaims/<tablegroup_id>.
+ *
+ * The provisioner writes it before it provisions anything for the id and
+ * deletes it only after everything it provisioned is gone, including the
+ * poolers' topology records. The catalog primary completes a drop, and deletes
+ * the tablegroup's catalog rows, only once no claim and no pooler record for
+ * the id remain, so a provisioner that has started work on an id always gets
+ * to see the id in state dropping before the id disappears.
+ *
+ * @generated from message clustermetadata.TableGroupProvisionClaim
+ */
+export class TableGroupProvisionClaim extends Message<TableGroupProvisionClaim> {
+  /**
+   * provisioner identifies who holds the claim, in the provisioner's own
+   * terms, for example the operator's cluster identity. A claim for an id is
+   * owned by one provisioner; a second provisioner cannot take it over.
+   *
+   * @generated from field: string provisioner = 1;
+   */
+  provisioner = "";
+
+  /**
+   * tablegroup_id is the catalog id the claim is for. It is also the node's
+   * name in the path.
+   *
+   * @generated from field: int64 tablegroup_id = 2;
+   */
+  tablegroupId = protoInt64.zero;
+
+  /**
+   * tablegroup_name is the name the id had when claimed, for operators
+   * reading the topology.
+   *
+   * @generated from field: string tablegroup_name = 3;
+   */
+  tablegroupName = "";
+
+  /**
+   * @generated from field: google.protobuf.Timestamp claimed_at = 4;
+   */
+  claimedAt?: Timestamp;
+
+  constructor(data?: PartialMessage<TableGroupProvisionClaim>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "clustermetadata.TableGroupProvisionClaim";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "provisioner", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 2, name: "tablegroup_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 3, name: "tablegroup_name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "claimed_at", kind: "message", T: Timestamp },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): TableGroupProvisionClaim {
+    return new TableGroupProvisionClaim().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): TableGroupProvisionClaim {
+    return new TableGroupProvisionClaim().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): TableGroupProvisionClaim {
+    return new TableGroupProvisionClaim().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: TableGroupProvisionClaim | PlainMessage<TableGroupProvisionClaim> | undefined, b: TableGroupProvisionClaim | PlainMessage<TableGroupProvisionClaim> | undefined): boolean {
+    return proto3.util.equals(TableGroupProvisionClaim, a, b);
   }
 }
 
@@ -1027,11 +1114,25 @@ export class Multipooler extends Message<Multipooler> {
    * leadership_mode is how this pooler gets its leadership. It is fixed for
    * the life of the process. A static leader (minigres) is the only pooler of
    * its shard: callers such as multiadmin use it for work they would
-   * otherwise send to a replica, such as backups.
+   * otherwise send to a replica, such as backups. An unmanaged pooler fronts a
+   * PostgreSQL that multigres does not manage, so multiorch never elects it.
    *
    * @generated from field: clustermetadata.LeadershipMode leadership_mode = 14;
    */
   leadershipMode = LeadershipMode.UNSPECIFIED;
+
+  /**
+   * tablegroup_id is the catalog identity (multigres.tablegroup.tablegroup_id)
+   * of the tablegroup this pooler serves, when the provisioner knows it. Zero
+   * when unknown, which is always the case for the default tablegroup and for
+   * tablegroups configured outside the catalog. The tablegroup creation loop
+   * only counts a pooler toward a tablegroup's readiness when this matches, so
+   * poolers left over from a dropped tablegroup of the same name never count
+   * toward a new one.
+   *
+   * @generated from field: int64 tablegroup_id = 15;
+   */
+  tablegroupId = protoInt64.zero;
 
   constructor(data?: PartialMessage<Multipooler>) {
     super();
@@ -1053,6 +1154,7 @@ export class Multipooler extends Message<Multipooler> {
     { no: 12, name: "lifecycle_status", kind: "message", T: PoolerLifecycle },
     { no: 13, name: "routing_state", kind: "message", T: RoutingState },
     { no: 14, name: "leadership_mode", kind: "enum", T: proto3.getEnumType(LeadershipMode) },
+    { no: 15, name: "tablegroup_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Multipooler {

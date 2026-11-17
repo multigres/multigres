@@ -184,6 +184,13 @@ type MultigatewayConnectionState struct {
 	// targetReplica is true when this connection arrived on the replica-reads
 	// listener port. Set once at connection initialization, never changed.
 	targetReplica bool
+
+	// pipelining is set once an extended-protocol Execute completes and
+	// cleared at the next Sync or when a simple query ends, like PostgreSQL's
+	// XACT_FLAGS_PIPELINING: the statements in between share one implicit
+	// transaction, so a statement that cannot run in a transaction block is
+	// refused there.
+	pipelining bool
 }
 
 // savepointFrame snapshots the SessionSettings map at the moment a savepoint
@@ -333,9 +340,13 @@ func (m *MultigatewayConnectionState) HoldCursorsDeclaredInTxn() []string {
 }
 
 // RestoreOpenHoldCursorsToBeginSnapshot restores the OpenHoldCursors set
-// to the snapshot captured by BeginTransaction at the depth-0 frame.
-// Cursors declared after BEGIN are dropped (PG closed them at ROLLBACK);
-// cursors that existed before BEGIN are kept (PG preserves them).
+// to the *intersection* of the snapshot captured by BeginTransaction at the
+// depth-0 frame with the current open set, as RollbackToSavepoint does for a
+// savepoint. Cursors declared after BEGIN are dropped (PG closed them at
+// ROLLBACK); cursors that existed before BEGIN are kept (PG preserves them),
+// unless they were CLOSE'd inside the transaction: CLOSE is not transactional
+// in PostgreSQL, so they stay closed after ROLLBACK, and the multipooler-side
+// portal pin was already dropped by the CLOSE.
 //
 // Falls back to clearing the set entirely when there is no BEGIN-level
 // frame on the stack — matches the previous ClearOpenHoldCursors behavior
@@ -350,7 +361,9 @@ func (m *MultigatewayConnectionState) RestoreOpenHoldCursorsToBeginSnapshot() {
 	snapshot := m.savepoints[0].openHoldCursors
 	restored := make(map[string]bool, len(snapshot))
 	for cur := range snapshot {
-		restored[cur] = true
+		if m.OpenHoldCursors[cur] {
+			restored[cur] = true
+		}
 	}
 	m.OpenHoldCursors = restored
 }
@@ -938,6 +951,22 @@ func (m *MultigatewayConnectionState) InitIdleSessionTimeout(defaultValue time.D
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.idleSessionTimeout = NewGatewayManagedVariable(defaultValue)
+}
+
+// Pipelining reports whether an earlier Execute of the current extended-protocol
+// pipeline has completed, so the next statement runs in its implicit
+// transaction.
+func (m *MultigatewayConnectionState) Pipelining() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pipelining
+}
+
+// SetPipelining sets or clears Pipelining.
+func (m *MultigatewayConnectionState) SetPipelining(pipelining bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pipelining = pipelining
 }
 
 // TargetReplica returns true if this connection targets a replica.

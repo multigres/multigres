@@ -216,6 +216,37 @@ type MultipoolerClient interface {
 	SetPostgresRestartsEnabled(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest) (*multipoolermanagerdatapb.SetPostgresRestartsEnabledResponse, error)
 
 	//
+	// Manager Service Methods - Routing Rules
+	//
+
+	// GetRoutingSnapshot reads the sharding catalog snapshot, routing rules
+	// included, from the catalog primary pooler.
+	GetRoutingSnapshot(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.GetRoutingSnapshotRequest) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error)
+
+	// SetRoutingRules replaces every routing rule of an operation on the
+	// catalog primary pooler.
+	SetRoutingRules(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.SetRoutingRulesRequest) (*multipoolermanagerdatapb.SetRoutingRulesResponse, error)
+
+	// DeleteRoutingRules deletes every routing rule of an operation on the
+	// catalog primary pooler.
+	DeleteRoutingRules(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.DeleteRoutingRulesRequest) (*multipoolermanagerdatapb.DeleteRoutingRulesResponse, error)
+
+	// FenceScopes raises an operation's admission fences on a list of scopes
+	// on the catalog primary pooler.
+	FenceScopes(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.FenceScopesRequest) (*multipoolermanagerdatapb.FenceScopesResponse, error)
+
+	// UnfenceScopes lifts an operation's admission fences on a list of scopes
+	// on the catalog primary pooler.
+	UnfenceScopes(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.UnfenceScopesRequest) (*multipoolermanagerdatapb.UnfenceScopesResponse, error)
+
+	//
+	// Manager Service Methods - Tablegroup operations (catalog primary only)
+	//
+
+	// ListTableGroups returns the tablegroups a provisioner should have provisioned.
+	ListTableGroups(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.ListTableGroupsRequest) (*multipoolermanagerdatapb.ListTableGroupsResponse, error)
+
+	//
 	// Manager Service Methods - PostgreSQL Configuration Reload
 	//
 

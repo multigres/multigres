@@ -61,14 +61,14 @@ type grpcQueryService struct {
 	copyStreams map[uint64]multipoolerservice.MultipoolerService_CopyBidiExecuteClient
 }
 
-// newGRPCQueryService creates a new QueryService that uses gRPC to communicate
+// newGRPCQueryService creates a new Pooler that uses gRPC to communicate
 // with a multipooler instance. Reusable streams are always enabled; the stream
 // pool selects dedicated RPCs only when per-call semantics require it.
 func newGRPCQueryService(
 	conn *grpc.ClientConn,
 	poolerID topoclient.ComponentID,
 	logger *slog.Logger,
-) queryservice.QueryService {
+) queryservice.Pooler {
 	client := multipoolerservice.NewMultipoolerServiceClient(conn)
 	return &grpcQueryService{
 		executeStreams: newStreamPool(client, conn),
@@ -917,7 +917,7 @@ func (g *grpcQueryService) ReleaseReservedConnection(
 func (g *grpcQueryService) StreamReplication(
 	ctx context.Context,
 	init *multipoolerservice.StreamReplicationInit,
-) (multipoolerservice.MultipoolerService_StreamReplicationClient, error) {
+) (queryservice.ReplicationStream, error) {
 	g.logger.DebugContext(ctx, "opening replication stream",
 		"pooler_id", g.poolerID,
 		"mode", init.GetMode().String(),
@@ -940,31 +940,11 @@ func (g *grpcQueryService) StreamReplication(
 		}
 	}()
 
-	// The Init message MUST be the first message on the stream.
-	if err := stream.Send(&multipoolerservice.StreamReplicationRequest{
-		Msg: &multipoolerservice.StreamReplicationRequest_Init{Init: init},
-	}); err != nil {
-		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to send replication Init")
-	}
-
-	// Await the backend-opened handshake.
-	resp, err := stream.Recv()
-	if err != nil {
-		return nil, mterrors.Wrapf(mterrors.FromGRPC(err), "failed to receive replication Ready")
-	}
-
-	// A structured backend error: surface the PgDiagnostic directly (recoverable
-	// via errors.As) so a caller can later re-emit it verbatim as an
-	// ErrorResponse. This method itself only performs the open handshake.
-	if replErr := resp.GetError(); replErr != nil {
-		if diag := replErr.GetDiagnostic(); diag != nil {
-			return nil, mterrors.PgDiagnosticFromProto(diag)
-		}
-		return nil, mterrors.New(mtrpcpb.Code_INTERNAL, "replication stream returned an error without a diagnostic")
-	}
-
-	if resp.GetReady() == nil {
-		return nil, mterrors.New(mtrpcpb.Code_INTERNAL, "expected Ready as the first replication response")
+	// The shared open handshake: init first, then Ready or a structured
+	// backend error, surfaced as its PgDiagnostic so a caller can re-emit it
+	// verbatim as an ErrorResponse.
+	if err := queryservice.OpenReplication(stream, init, mterrors.FromGRPC); err != nil {
+		return nil, err
 	}
 
 	success = true
@@ -1158,3 +1138,30 @@ func (g *grpcQueryService) CopyOutStream(
 
 // Ensure grpcQueryService implements queryservice.QueryService
 var _ queryservice.QueryService = (*grpcQueryService)(nil)
+
+// GetAuthCredentials fetches a role's credentials. FromGRPC restores any
+// *PgDiagnostic attached by the multipooler so the gateway can read its
+// SQLSTATE.
+func (g *grpcQueryService) GetAuthCredentials(ctx context.Context, req *multipoolerservice.GetAuthCredentialsRequest) (*multipoolerservice.GetAuthCredentialsResponse, error) {
+	resp, err := g.client.GetAuthCredentials(ctx, req)
+	return resp, mterrors.FromGRPC(err)
+}
+
+// SubscribeHealth opens the pooler's health stream.
+func (g *grpcQueryService) SubscribeHealth(ctx context.Context) (func() (*multipoolerservice.StreamPoolerHealthResponse, error), error) {
+	stream, err := g.client.StreamPoolerHealth(ctx, &multipoolerservice.StreamPoolerHealthRequest{})
+	if err != nil {
+		return nil, err
+	}
+	return stream.Recv, nil
+}
+
+// NotificationStream opens the pooler's LISTEN/NOTIFY stream; the gRPC stream
+// is itself a queryservice.NotificationStream.
+func (g *grpcQueryService) NotificationStream(ctx context.Context) (queryservice.NotificationStream, error) {
+	stream, err := g.client.NotificationStream(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return stream, nil
+}

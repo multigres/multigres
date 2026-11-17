@@ -51,6 +51,13 @@ service PgCtld {
   // This is used to resynchronize a server that diverged from the primary after a failback
   rpc PgRewind(PgRewindRequest) returns (PgRewindResponse);
 
+  // PgRewindAbort fences a PgRewind run id and makes sure no pg_rewind for it is
+  // running. A PgRewind request for a fenced id that arrives later is refused, so
+  // after this returns the caller knows the run can no longer modify the data
+  // directory. Without it, a caller whose PgRewind call ended early cannot tell a
+  // request that was never handled from one that is about to start.
+  rpc PgRewindAbort(PgRewindAbortRequest) returns (PgRewindAbortResponse);
+
   // StopRestoreCommand checks whether a restore_command invocation (run via
   // the `pgctld restore-wrapper`, see RestoreCommandPIDFile) is currently
   // running and, if so, terminates it. Postgres cannot cancel an in-flight
@@ -297,12 +304,26 @@ message PgRewindRequest {
   // Application name for replication connection (used with -R flag)
   // This identifies the standby in pg_stat_replication and synchronous_standby_names
   string application_name = 5;
+
+  // Identifies a mutating run so that PgRewindAbort can fence it. Optional: a
+  // request without one cannot be fenced.
+  string run_id = 6;
 }
 
 message PgRewindResponse {
   // Status message
   string message = 1;
   string output = 2;
+}
+
+message PgRewindAbortRequest {
+  // The run_id of the PgRewind request to fence.
+  string run_id = 1;
+}
+
+message PgRewindAbortResponse {
+  // True if a pg_rewind for the run id was running and has been terminated.
+  bool terminated = 1;
 }
 
 message StopRestoreCommandRequest {

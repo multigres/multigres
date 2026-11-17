@@ -22,6 +22,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
@@ -352,6 +353,41 @@ func gaugeFloat64(t *testing.T, reader *sdkmetric.ManualReader, name string) (fl
 		}
 	}
 	return 0, false
+}
+
+func TestMetrics_RestoreInProgressMultipleReaders(t *testing.T) {
+	readers := []*sdkmetric.ManualReader{sdkmetric.NewManualReader(), sdkmetric.NewManualReader()}
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(readers[0]), sdkmetric.WithReader(readers[1]))
+	previous := otel.GetMeterProvider()
+	otel.SetMeterProvider(provider)
+	t.Cleanup(func() {
+		assert.NoError(t, provider.Shutdown(context.Background()))
+		otel.SetMeterProvider(previous)
+	})
+	m, err := NewMetrics()
+	require.NoError(t, err)
+	tr := NewHealthTracker()
+	// A restore over the alert threshold. Collection derives elapsed time
+	// from this timestamp, with no dependence on the health polling cadence.
+	tr.restoreInProgressStart = time.Now().Add(-31 * time.Minute)
+	require.NoError(t, m.RegisterHealthCallback(tr))
+	for _, reader := range readers {
+		elapsed, ok := gaugeFloat64(t, reader, "pgbackrest.restore.in_progress_duration_seconds")
+		require.True(t, ok)
+		assert.GreaterOrEqual(t, elapsed, float64(31*60))
+		active, ok := gaugeInt64(t, reader, "pgbackrest.restore.in_progress")
+		require.True(t, ok)
+		assert.Equal(t, int64(1), active, "readers must independently observe the running restore")
+	}
+	tr.RestoreFinished()
+	for _, reader := range readers {
+		elapsed, ok := gaugeFloat64(t, reader, "pgbackrest.restore.in_progress_duration_seconds")
+		require.True(t, ok)
+		assert.Zero(t, elapsed)
+		active, ok := gaugeInt64(t, reader, "pgbackrest.restore.in_progress")
+		require.True(t, ok)
+		assert.Zero(t, active)
+	}
 }
 
 // TestMetrics_HealthGauges_Populated exercises the gauge callback with a fully

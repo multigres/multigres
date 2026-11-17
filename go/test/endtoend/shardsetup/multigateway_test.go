@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -88,4 +89,30 @@ func TestMultigatewaySetup(t *testing.T) {
 	require.NoError(t, err, "failed to drop table via multigateway")
 
 	t.Log("Multigateway setup test passed - infrastructure is ready")
+}
+
+// TestMultigateway_ShutdownUnderLoad sends SIGTERM to the multigateway while
+// clients run queries through it, and checks that it shuts down cleanly for
+// them: until it exits, their queries succeed or their connections end. The
+// poolers keep running, so the gateway has every reason to keep routing while
+// its client connections drain.
+func TestMultigateway_ShutdownUnderLoad(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping multigateway shutdown test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping")
+	}
+	setup, cleanup := NewIsolated(t, WithMultigateway())
+	defer cleanup()
+
+	dsn := GetTestUserDSN("localhost", setup.MultigatewayPgPort, "sslmode=disable", "connect_timeout=5")
+	refused := clustersetup.QueriesRefusedDuringShutdown(t, dsn, 4, func() {
+		exitErr, stopped := setup.Multigateway.Process.Terminate(utils.WithTimeout(t, 60*time.Second))
+		require.True(t, stopped, "multigateway must exit after SIGTERM")
+		assert.NoError(t, exitErr, "multigateway must exit cleanly")
+	})
+	if len(refused) > 0 {
+		t.Errorf("%d queries were refused on an open connection during shutdown; first: %v", len(refused), refused[0])
+	}
 }

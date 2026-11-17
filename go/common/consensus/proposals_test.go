@@ -1886,7 +1886,7 @@ func TestBuildSafeProposal_CohortReplacementRejectedWithUndecidedOutgoingRule(t 
 // with a builder that, like the failover builder, keeps the outgoing rule's
 // cohort and policy.
 func TestRecruitmentThroughUndecidedProposal(t *testing.T) {
-	zone1 := poolerIDs.zone1
+	zone1, zone2, zone3 := poolerIDs.zone1, poolerIDs.zone2, poolerIDs.zone3
 	rev := revocation(5, ruleNum(3, 1))
 	id := func(ids ...*clustermetadatapb.ID) []*clustermetadatapb.ID { return ids }
 
@@ -1909,22 +1909,62 @@ func TestRecruitmentThroughUndecidedProposal(t *testing.T) {
 		wantErr  string // empty means a proposal is built
 	}{
 		{
-			// Safety rests on the decision's cohort, so a majority of it suffices
-			// even though the proposal's five-member cohort is mostly unrecruited.
-			name:     "a majority of the decision's cohort suffices when the proposal adds members",
+			// The proposal may be decided, after which {c, d, e} could commit on their
+			// own under its policy.
+			name:     "a majority of the decision's cohort is not enough when the proposal adds members",
 			decision: makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c),
 			proposal: makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c, zone1.d, zone1.e),
 			recruits: id(zone1.a, zone1.b),
 			build:    keepOutgoing,
+			wantErr:  "insufficient undecided proposal cohort recruitment: revocation not satisfied: un-recruited cohort poolers [zone1_pooler-c, zone1_pooler-d, zone1_pooler-e] could independently satisfy AT_LEAST_N(N=2)",
 		},
 		{
-			// While the proposal is undecided a write needs the decision's cohort
-			// too, so the unrecruited new members d and e cannot commit on their own.
-			name:     "the proposal's unrecruited new members do not block recruitment",
+			// The unrecruited new members d and e could commit on their own under
+			// the proposal's policy if it was decided.
+			name:     "the proposal's unrecruited new members can block recruitment",
 			decision: makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c),
 			proposal: makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c, zone1.d, zone1.e),
 			recruits: id(zone1.a, zone1.b, zone1.c),
 			build:    keepOutgoing,
+			wantErr:  "insufficient undecided proposal cohort recruitment: revocation not satisfied: un-recruited cohort poolers [zone1_pooler-d, zone1_pooler-e] could independently satisfy AT_LEAST_N(N=2)",
+		},
+		{
+			// With a recruited, only one unrecruited new member remains, which cannot
+			// commit alone.
+			name:     "recruits that leave the proposal's cohort unable to commit suffice",
+			decision: makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c),
+			proposal: makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c, zone1.d, zone1.e),
+			recruits: id(zone1.a, zone1.b, zone1.c, zone1.d),
+			build:    keepOutgoing,
+		},
+		{
+			// A removal is decided under the incoming policy, which b and c satisfy,
+			// and nothing in its cohort is left unrecruited.
+			name:     "recruiting a removal's whole cohort suffices",
+			decision: makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c),
+			proposal: makeRule(ruleNum(3, 1), atLeast(2), zone1.b, zone1.c),
+			recruits: id(zone1.b, zone1.c),
+			build:    keepOutgoing,
+		},
+		{
+			// The decision's policy needs 3 acks, which {d, e} cannot give, but the
+			// proposal's policy needs only 2, which they can, once it is decided.
+			name:     "a proposal that lowers N is judged by its own policy",
+			decision: makeRule(ruleNum(3, 0), atLeast(3), zone1.a, zone1.b, zone1.c, zone1.d, zone1.e),
+			proposal: makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c, zone1.d, zone1.e),
+			recruits: id(zone1.a, zone1.b, zone1.c),
+			build:    keepOutgoing,
+			wantErr:  "insufficient undecided proposal cohort recruitment: revocation not satisfied: un-recruited cohort poolers [zone1_pooler-d, zone1_pooler-e] could independently satisfy AT_LEAST_N(N=2)",
+		},
+		{
+			// The unrecruited zone2 and zone3 members span two cells, which satisfies the
+			// proposal's policy once it is decided.
+			name:     "a multi-cell proposal that adds a cell can block recruitment",
+			decision: makeRule(ruleNum(3, 0), multiCell(2), zone1.a, zone2.a, zone2.b),
+			proposal: makeRule(ruleNum(3, 1), multiCell(2), zone1.a, zone2.a, zone2.b, zone3.a),
+			recruits: id(zone1.a, zone2.a),
+			build:    keepOutgoing,
+			wantErr:  "insufficient undecided proposal cohort recruitment: revocation not satisfied: un-recruited cohort poolers [zone2_pooler-b, zone3_pooler-a] could independently satisfy MULTI_CELL_AT_LEAST_N(N=2)",
 		},
 		{
 			// Deciding the proposal needs 3 acks under the "Both" policy (the
@@ -2526,4 +2566,50 @@ func TestCohortIntersect_NilIDSkipped(t *testing.T) {
 	result := cohortIntersect(cohort, statuses)
 	require.Len(t, result, 1)
 	assert.Equal(t, "a", result[0].GetName())
+}
+
+// A change that adds a member may already be decided on the leader and one old
+// member, after which writes commit under the new policy alone, e.g. on the
+// leader and the added member. Recruits that have not learned the decision still
+// look like an undecided proposal, so recruiting {a, b} must be refused: the
+// change may be decided on {a, c} and a write on {c, d}.
+func TestRecruitmentThroughUndecidedProposal_DecidedChangeThenWrite(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	rev := revocation(5, ruleNum(3, 1))
+	decision := makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c)
+	proposal := makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c, zone1.d)
+
+	// a holds the change but has not learned it is decided; b never saw it.
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatusWithProposal(zone1.a, &clustermetadatapb.RulePosition{Decision: decision, Proposal: proposal}, rev, "0/2000000"),
+		makeStatusWithProposal(zone1.b, &clustermetadatapb.RulePosition{Decision: decision}, rev, "0/1000000"),
+	}
+
+	_, err := BuildSafeProposal(rev, statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return proposeFirstEligible(makeRule(ruleNum(5, 0), r.OutgoingRule.GetDurabilityPolicy(), r.OutgoingRule.GetCohortMembers()...))(r)
+	})
+
+	require.Error(t, err, "{c, d} may hold a decided write that the recruits {a, b} do not see")
+}
+
+// Only a holds the change. Under the decision's policy it also needs c, and c is
+// recruited without it, so the change cannot have been decided and the recruits
+// need not freeze the proposal's cohort.
+func TestRecruitmentThroughUndecidedProposal_ProvablyUndecided(t *testing.T) {
+	zone1 := poolerIDs.zone1
+	rev := revocation(5, ruleNum(3, 1))
+	decision := makeRule(ruleNum(3, 0), atLeast(2), zone1.a, zone1.b, zone1.c)
+	proposal := makeRule(ruleNum(3, 1), atLeast(2), zone1.a, zone1.b, zone1.c, zone1.d, zone1.e)
+	statuses := []*clustermetadatapb.ConsensusStatus{
+		makeStatusWithProposal(zone1.a, &clustermetadatapb.RulePosition{Decision: decision, Proposal: proposal}, rev, "0/2000000"),
+		makeStatusWithProposal(zone1.b, &clustermetadatapb.RulePosition{Decision: decision}, rev, "0/1000000"),
+		makeStatusWithProposal(zone1.c, &clustermetadatapb.RulePosition{Decision: decision}, rev, "0/1000000"),
+	}
+
+	built, err := BuildSafeProposal(rev, statuses, func(r RecruitmentResult) (*consensusdatapb.CoordinatorProposal, error) {
+		return proposeFirstEligible(makeRule(ruleNum(5, 0), r.OutgoingRule.GetDurabilityPolicy(), r.OutgoingRule.GetCohortMembers()...))(r)
+	})
+
+	require.NoError(t, err)
+	assert.NotNil(t, built)
 }

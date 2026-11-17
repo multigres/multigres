@@ -19,7 +19,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/baggage"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 func TestNewContext_RoundTrip(t *testing.T) {
@@ -69,4 +73,35 @@ func TestNewContext_NilIsNoop(t *testing.T) {
 
 func TestFromContext_Absent(t *testing.T) {
 	assert.Nil(t, FromContext(context.Background()))
+}
+
+func TestAnnotateSpan(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	ctx, span := tp.Tracer("test").Start(context.Background(), "op")
+	AnnotateSpan(ctx, New("alice", "checkout-service"))
+	span.End()
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+	assert.Contains(t, spans[0].Attributes, attribute.String(KeyAuthenticatedUser, "alice"))
+	assert.Contains(t, spans[0].Attributes, attribute.String(KeyApplicationName, "checkout-service"))
+}
+
+func TestAnnotateSpan_NoOp(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	t.Cleanup(func() { _ = tp.Shutdown(context.Background()) })
+
+	// No caller: the span gets no caller attributes.
+	ctx, span := tp.Tracer("test").Start(context.Background(), "op")
+	AnnotateSpan(ctx, nil)
+	span.End()
+	require.Len(t, exporter.GetSpans(), 1)
+	assert.Empty(t, exporter.GetSpans()[0].Attributes)
+
+	// No recording span: nothing to annotate, and no panic.
+	AnnotateSpan(context.Background(), New("alice", "app"))
 }

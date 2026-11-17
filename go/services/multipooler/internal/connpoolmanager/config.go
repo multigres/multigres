@@ -68,9 +68,10 @@ type ConnectionConfig struct {
 type pgPasswordSource int
 
 const (
-	pwSourceNone pgPasswordSource = iota
-	pwSourceEnv                   // CONNPOOL_ADMIN_PASSWORD / POSTGRES_PASSWORD env var
-	pwSourceFile                  // password file path (flag or env var)
+	pwSourceNone    pgPasswordSource = iota
+	pwSourceEnv                      // CONNPOOL_ADMIN_PASSWORD / POSTGRES_PASSWORD env var
+	pwSourceFile                     // password file path (flag or env var)
+	pwSourceBacking                  // the credential of a backing connection (unmanaged poolers)
 )
 
 // Config holds viper-backed configuration values for the connection pool manager.
@@ -728,4 +729,21 @@ func (c *Config) NewManager(logger *slog.Logger) *Manager {
 	}
 	mgr.setLifecycle(lifecycleClosed) // Manager is closed until Open() is called
 	return mgr
+}
+
+// SetBackingCredentials installs the credentials and TLS settings of an unmanaged pooler's
+// external backend. It is a startup-only hook: the password stays in the in-memory cache and
+// never becomes a flag or config value. The mode is the connection's own (backingconn.Complete
+// has filled it in); an empty root cert or negotiation keeps the configured default.
+func (c *Config) SetBackingCredentials(user, password, sslMode, sslRootCert, sslNegotiation string) {
+	c.pgUser.Set(user)
+	c.pgPasswordCached = password
+	c.pgPasswordSource = pwSourceBacking
+	c.pgSSLMode.Set(sslMode)
+	if sslRootCert != "" {
+		c.pgSSLRootCert.Set(sslRootCert)
+	}
+	if sslNegotiation != "" {
+		c.pgSSLNegotiation.Set(sslNegotiation)
+	}
 }

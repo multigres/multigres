@@ -26,9 +26,10 @@
 //
 //   - Direct TLS is accepted whenever TLS is configured; there is no
 //     opt-in knob (PG 17 likewise has no GUC for it).
-//   - ALPN ("postgresql", RFC 7301) is MANDATORY for direct connections.
-//     A client that completes the handshake without negotiating it is
-//     rejected as a protocol violation. This is PG's cross-protocol-attack
+//   - ALPN ("postgresql", RFC 7301) is required for direct connections.
+//     TLSOffload permits missing ALPN after a trusted PROXY v2 address header.
+//     Without that exception, a handshake without ALPN is rejected as a
+//     protocol violation. This is PG's cross-protocol-attack
 //     hardening: without ALPN, a generic TLS client (e.g. an HTTPS client
 //     coaxed into connecting here) could be replayed against the database.
 //     Negotiated (SSLRequest) connections keep ALPN optional, matching PG's
@@ -37,10 +38,10 @@
 //     anything: the peer is speaking TLS, so a plaintext ErrorResponse
 //     would be unintelligible garbage. PostgreSQL also rejects silently.
 //
-// This is the server half of the Envoy SSLRequest-offload model (MINT-37):
+// This is the server half of the proxy SSLRequest-offload model:
 // an edge proxy can answer the client's SSLRequest itself and forward the
 // raw TLS byte stream, which the gateway then sees as a direct TLS
-// connection.
+// connection. Enable TLSOffload for clients that do not send ALPN.
 
 package server
 
@@ -89,7 +90,7 @@ func (c *Conn) maybeHandleDirectTLS() error {
 
 // handleDirectTLS performs the server-side direct TLS upgrade: handshake
 // first (replaying any ClientHello bytes the peek pulled into the buffered
-// reader), mandatory ALPN check second. On success c.conn is the *tls.Conn
+// reader), ALPN policy check second. On success c.conn is the *tls.Conn
 // and the caller reads the startup packet (or cancel request) over the
 // encrypted channel.
 func (c *Conn) handleDirectTLS() error {
@@ -124,8 +125,8 @@ func (c *Conn) handleDirectTLS() error {
 		return fmt.Errorf("direct TLS: %w", err)
 	}
 
-	// ALPN is mandatory for direct TLS connections (PG 17 parity; see the
-	// package comment). A client that offered a non-"postgresql" ALPN list
+	// Direct TLS requires ALPN unless a trusted proxy offloads SSLRequest.
+	// A client that offered a non-"postgresql" ALPN list
 	// already failed the handshake above with a no_application_protocol
 	// alert; this branch catches clients that offered no ALPN at all.
 	//
@@ -137,7 +138,8 @@ func (c *Conn) handleDirectTLS() error {
 	// strictly more debuggable for the operator of a misconfigured client,
 	// and wire-safe because the bytes are encrypted.
 	connState := tlsConn.ConnectionState()
-	if connState.NegotiatedProtocol != protocol.ALPNProtocol {
+	allowMissingALPN := connState.NegotiatedProtocol == "" && c.listener.tlsOffload && c.proxyClientAddress
+	if connState.NegotiatedProtocol != protocol.ALPNProtocol && !allowMissingALPN {
 		c.metrics().RecordDirectTLSRejected(c.ctx, DirectTLSRejectedReasonNoALPN)
 		c.logger.Warn("rejecting direct TLS connection: no ALPN protocol negotiated",
 			"remote_addr", c.RemoteAddr())

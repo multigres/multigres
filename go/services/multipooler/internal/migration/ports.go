@@ -39,6 +39,7 @@ type migrationStore interface {
 	DeleteConnection(ctx context.Context, id int64) error
 	GetConnectionByRef(ctx context.Context, ref Ref) (*Connection, error)
 	ListConnections(ctx context.Context) ([]*Connection, error)
+	Forget()
 }
 
 // migrationTarget is the subset of *target the Coordinator uses: the local
@@ -53,6 +54,7 @@ type migrationTarget interface {
 	DropUserGeneratedColumns(ctx context.Context, tables []string) error
 	CheckDropPrivilege(ctx context.Context, tables []string, callerRole string) error
 	CheckConnectionOwnership(ctx context.Context, callerRole, ownerRole string) error
+	DeniedConnectionOwners(ctx context.Context, callerRole string, ownerRoles []string) (map[string]bool, error)
 	DropTables(ctx context.Context, tables []string) error
 	CreatePublication(ctx context.Context, name string, tables []string) error
 	DropPublication(ctx context.Context, name string) error

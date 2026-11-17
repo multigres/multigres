@@ -30,6 +30,7 @@ const (
 	PgSSFeatureNotSupported       = "0A000" // feature_not_supported
 	PgSSInvalidTextRepresentation = "22P02" // invalid_text_representation
 	PgSSInvalidParameterValue     = "22023" // invalid_parameter_value
+	PgSSForeignKeyViolation       = "23503" // foreign_key_violation
 	PgSSUndefinedFunction         = "42883" // undefined_function
 	PgSSUndefinedTable            = "42P01" // undefined_table
 	PgSSActiveTransaction         = "25001" // active_sql_transaction
@@ -50,6 +51,12 @@ const (
 	PgSSInternalError             = "XX000" // internal_error
 	PgSSReadOnlyTransaction       = "25006" // read_only_sql_transaction
 	PgSSSerializationFailure      = "40001" // serialization_failure
+	PgSSObjectInUse               = "55006" // object_in_use
+
+	PgSSDuplicateObject              = "42710" // duplicate_object
+	PgSSObjectNotInPrerequisiteState = "55000" // object_not_in_prerequisite_state
+	PgSSOperatorIntervention         = "57000" // operator_intervention
+	PgSSSystemError                  = "58000" // system_error
 )
 
 // PostgreSQL data exceptions raised by scalar evaluation.
@@ -117,7 +124,7 @@ func NewIdleSessionTimeout() *PgDiagnostic {
 // to buffer or auto-retry inside the cluster — only the client can replay it.
 func NewReservedConnectionTerminated(reservedConnID uint64) *PgDiagnostic {
 	return NewPgError("ERROR", PgSSSerializationFailure,
-		"reserved connection terminated; please retry",
+		reservedConnectionTerminatedMessage,
 		fmt.Sprintf("reserved connection %d was terminated", reservedConnID))
 }
 
@@ -135,6 +142,38 @@ func NewSessionStateLost(lostState string) *PgDiagnostic {
 	return NewPgError("FATAL", PgSSAdminShutdown,
 		"terminating connection because the backend holding its session state was lost",
 		"Lost session state: "+lostState+".")
+}
+
+const reservedConnectionTerminatedMessage = "reserved connection terminated; please retry"
+
+// IsReservedConnectionTerminated reports whether err is the diagnostic built by
+// NewReservedConnectionTerminated, i.e. the multipooler no longer holds the
+// reserved connection the request named. It matches the SQLSTATE together with
+// the message (which Multigres generates, so it is not localized): a bare 40001
+// is also what PostgreSQL itself raises for a real serialization failure, and
+// that one leaves the reservation intact.
+func IsReservedConnectionTerminated(err error) bool {
+	var diag *PgDiagnostic
+	return errors.As(err, &diag) &&
+		diag.Code == PgSSSerializationFailure &&
+		diag.Message == reservedConnectionTerminatedMessage
+}
+
+// NewInTransactionBlock creates the PgDiagnostic for a statement that cannot
+// run inside a transaction block, as PostgreSQL's PreventInTransactionBlock
+// raises it. SQLSTATE 25001 (active_sql_transaction).
+func NewInTransactionBlock(statement string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSActiveTransaction,
+		statement+" cannot run inside a transaction block", "")
+}
+
+// NewInPipeline creates the PgDiagnostic for a statement that cannot run
+// inside a transaction block, sent after another statement of the same
+// extended-protocol pipeline (before its Sync), as PostgreSQL's
+// PreventInTransactionBlock raises it. SQLSTATE 25001 (active_sql_transaction).
+func NewInPipeline(statement string) *PgDiagnostic {
+	return NewPgError("ERROR", PgSSActiveTransaction,
+		statement+" cannot be executed within a pipeline", "")
 }
 
 // NewAuthenticationTimeout creates a PgDiagnostic for an authentication_timeout
@@ -266,6 +305,18 @@ var (
 		ID: "MTF01", Severity: "ERROR",
 		Format:      "planned failover in progress",
 		Description: "The pooler is transitioning during a planned failover. The query will be retried automatically.",
+	}
+
+	// MTF02 is returned by multipooler when its target is fenced: an operation
+	// moving the target's data has closed it to new application work, before
+	// any of the work ran. Unlike MTF01 there is no new leader to wait for:
+	// the change that lifts a fence advances the sharding catalog's
+	// routing_version, so the gateway waits for a newer snapshot, resolves the
+	// target again and retries.
+	MTF02 = &MTError{
+		ID: "MTF02", Severity: "ERROR",
+		Format:      "fenced: the target is closed to application traffic while an operation moves its data",
+		Description: "The target was fenced by an operation moving its data. The query is retried automatically once the gateway sees the new routing; if this error reaches the client, retry the query.",
 	}
 )
 

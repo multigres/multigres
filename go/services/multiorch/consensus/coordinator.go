@@ -266,18 +266,23 @@ func (c *Coordinator) GetShardNodes(ctx context.Context, cell string, database s
 		return nil, mterrors.Wrap(err, "failed to get multipoolers from topology")
 	}
 
-	if len(poolers) == 0 {
-		return nil, mterrors.Errorf(mtrpcpb.Code_NOT_FOUND,
-			"no multipoolers found for shard %s in cell %s", shardID, cell)
-	}
-
 	// Convert topology poolers to PoolerHealthState instances
 	poolerHealths := make([]*multiorchdatapb.PoolerHealthState, 0, len(poolers))
 	for _, poolerInfo := range poolers {
+		if !topoclient.IsManagedPooler(poolerInfo.Multipooler) {
+			continue
+		}
 		ph := &multiorchdatapb.PoolerHealthState{
 			Multipooler: poolerInfo.Multipooler,
 		}
 		poolerHealths = append(poolerHealths, ph)
+	}
+
+	// Checked after filtering, so a shard whose only poolers are unmanaged
+	// reads the same as a shard with no poolers.
+	if len(poolerHealths) == 0 {
+		return nil, mterrors.Errorf(mtrpcpb.Code_NOT_FOUND,
+			"no managed multipoolers found for shard %s in cell %s", shardID, cell)
 	}
 
 	return poolerHealths, nil

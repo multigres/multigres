@@ -696,29 +696,15 @@ func ruleNamesCohortMember(rule *clustermetadatapb.ShardRule, selfID *clustermet
 
 // recruitPositionFloorIfOutstanding returns the recorded recruit-position
 // floor (see ConsensusPromises.GetRecruitBlockedUntil) if pos hasn't caught
-// up to it yet, or nil if there's no floor or it's satisfied. Rule position
-// takes precedence over LSN (mirroring consensus.ComparePoolerPosition); LSN
-// only breaks a tie between equal rule positions. Fails closed on a parse
-// error. No explicit clearing — omitted from ConsensusStatus once satisfied.
+// up to it yet, or nil if there's no floor or it's satisfied. Ordered by
+// consensus.CompareLsnPositions; fails closed on a parse error. No explicit clearing —
+// omitted from ConsensusStatus once satisfied.
 func (cm *ConsensusManager) recruitPositionFloorIfOutstanding(pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.LsnPosition {
 	floor := cm.promises.GetRecruitBlockedUntil()
 	if floor == nil {
 		return nil
 	}
-	current := consensus.RuleNumberPositionOf(pos.GetPosition())
-	floorPos := consensus.RuleNumberPosition{
-		Decision: floor.GetPosition().GetDecision(),
-		Proposal: floor.GetPosition().GetProposal(),
-	}
-	if cmp := current.Compare(floorPos); cmp != 0 {
-		if cmp > 0 {
-			return nil
-		}
-		return floor
-	}
-	currentLSN, errA := pgutil.ParseLSN(pos.GetLsn())
-	floorLSN, errB := pgutil.ParseLSN(floor.GetLsn())
-	if errA != nil || errB != nil || currentLSN < floorLSN {
+	if cmp, err := consensus.CompareLsnPositions(consensus.LsnPositionOf(pos), floor); err != nil || cmp < 0 {
 		return floor
 	}
 	return nil

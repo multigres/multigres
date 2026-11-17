@@ -123,6 +123,13 @@ type poolerRecord struct {
 	tr           *toporeg.TopoReg
 }
 
+// unmanaged reports whether the pooler fronts an external PostgreSQL, by the
+// rule multiorch uses (topoclient.IsManagedPooler). The leadership mode never
+// changes for the lifetime of the process.
+func (r *poolerRecord) unmanaged() bool {
+	return !topoclient.IsManagedPooler(r.desired.Load())
+}
+
 // newPoolerRecord returns a poolerRecord seeded with initial as the desired
 // state. The caller hands ownership of initial to the record; further access
 // must go through Snapshot, Mutate, or the typed accessors.
@@ -149,6 +156,9 @@ func (r *poolerRecord) ShardRef() *clustermetadatapb.ShardRef { return r.desired
 
 // PoolerDir returns the on-disk pooler directory. Effectively immutable.
 func (r *poolerRecord) PoolerDir() string { return r.desired.Load().PoolerDir }
+
+// TableGroupID is the catalog id of this pooler's tablegroup, 0 when unknown.
+func (r *poolerRecord) TableGroupID() int64 { return r.desired.Load().TablegroupId }
 
 // PgDataDir returns the PostgreSQL data directory. Effectively immutable.
 func (r *poolerRecord) PgDataDir() string { return r.desired.Load().PgDataDir }

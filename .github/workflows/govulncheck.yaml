@@ -8,6 +8,7 @@ name: Go vulnerability check
       - "go.mod"
       - "go.sum"
       - ".github/workflows/govulncheck.yaml"
+      - ".github/scripts/test_govulncheck_sarif.py"
   workflow_dispatch: {}
 
 permissions: {}
@@ -27,6 +28,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Test SARIF normalization
+        run: python3 .github/scripts/test_govulncheck_sarif.py
+
       - name: Install Go
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
@@ -40,16 +44,21 @@ jobs:
         continue-on-error: true
         run: govulncheck -format sarif ./... > govulncheck.sarif
 
-      - name: Deduplicate SARIF rule tags
+      - name: Deduplicate SARIF rule tags and stacks
         # govulncheck v1.3.0 (latest) emits duplicate values in
         # rules[].properties.tags, e.g. ["CVE-XXXX-YYYY","CVE-XXXX-YYYY"]. The
         # SARIF upload validator rejects them because `tags` is declared with
         # uniqueItems, failing the job even though the scan itself succeeded.
-        # Dedupe the tags so the upload validates. Leave non-JSON output (e.g. a
+        # results[].stacks can also contain identical entries, rejected by the
+        # same uniqueItems constraint. Remove exact duplicates only, retaining
+        # every distinct stack and result. Leave non-JSON output (e.g. a
         # hard govulncheck error) untouched so the upload step surfaces it.
         run: |
           if jq -e . govulncheck.sarif >/dev/null 2>&1; then
-            jq '.runs |= map(.tool.driver.rules |= map(if .properties.tags then .properties.tags |= unique else . end))' \
+            jq '.runs |= map(
+              (if .tool.driver.rules then .tool.driver.rules |= map(if .properties.tags then .properties.tags |= unique else . end) else . end) |
+              (if .results then .results |= map(if .stacks then .stacks |= unique else . end) else . end)
+            )' \
               govulncheck.sarif > govulncheck.sarif.tmp
             mv govulncheck.sarif.tmp govulncheck.sarif
           fi

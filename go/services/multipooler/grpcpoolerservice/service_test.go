@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/common/protoutil"
+	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	multipoolerpb "github.com/multigres/multigres/go/pb/multipoolerservice"
 	"github.com/multigres/multigres/go/pb/query"
@@ -213,7 +214,7 @@ func (m *mockCopyQueryService) ReleaseReservedConnection(context.Context, *query
 	return nil, nil
 }
 
-func (m *mockCopyQueryService) StreamReplication(context.Context, *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+func (m *mockCopyQueryService) StreamReplication(context.Context, *multipoolerpb.StreamReplicationInit) (queryservice.ReplicationStream, error) {
 	return nil, nil
 }
 

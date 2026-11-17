@@ -63,7 +63,7 @@ type Gateway interface {
 	// for the init's target, sends the Init, awaits Ready, and returns the live
 	// bidi stream. Unlike the query path it is not buffered across failover: a
 	// replication stream is pinned to one pooler for its lifetime.
-	StreamReplication(ctx context.Context, init *multipoolerpb.StreamReplicationInit) (multipoolerpb.MultipoolerService_StreamReplicationClient, error)
+	StreamReplication(ctx context.Context, init *multipoolerpb.StreamReplicationInit) (queryservice.ReplicationStream, error)
 }
 
 // modeRequiresLeader reports whether a mode must route to the consensus
@@ -86,6 +86,8 @@ const (
 const transactionReadOnlyOptionName = "transaction_read_only"
 
 // classifyError determines whether an error is eligible for failover buffering.
+// MTF02 (a fenced target) never is: no new leader ends a fence, so the
+// scatterconn waits for newer routing and retries it instead, in every mode.
 // Only PRIMARY traffic is buffered, and only for:
 //   - no writable primary in the gateway's current routing view
 //   - MTF01: multipooler signals planned failover (SERVING_RDONLY)
@@ -151,6 +153,13 @@ type PoolerGatewayOpts struct {
 	// LocalPooler, when set, is the only pooler the gateway uses: every other
 	// pooler in the topology is ignored. minigres sets it. Optional.
 	LocalPooler *LocalPooler
+	// OnCatalogShardHealth is called on every health update from a pooler of
+	// a database's catalog shard (the default tablegroup's 0-inf shard), after
+	// the load balancer has processed it. primary is whether the update is a
+	// live report of the routing primary; rule and routingVersion are the
+	// consensus rule it is primary under and the sharding catalog version it
+	// carries, both unset unless primary. Optional.
+	OnCatalogShardHealth func(database string, primary bool, rule *clustermetadatapb.RuleNumber, routingVersion int64)
 }
 
 // LocalPooler is the pooler running in the same process as the gateway: the
@@ -159,14 +168,15 @@ type LocalPooler struct {
 	// ID returns the pooler's topology ID. It is read when poolers are
 	// discovered, after flags are parsed.
 	ID func() *clustermetadatapb.ID
-	// DialOptions connect to the pooler's query service in the same process,
-	// replacing the topology address and DialOpt.
-	DialOptions []grpc.DialOption
 	// Record, when set, returns the pooler's record, read when the gateway
 	// starts. The gateway then learns of its pooler from it instead of the
 	// topology: the fields it uses (ID, shard) never change, and role and
 	// serving status come from the health stream. Optional.
 	Record func() *clustermetadatapb.Multipooler
+	// Service is the pooler's query service, credential lookup, health,
+	// notifications and replication, which the gateway calls directly: it
+	// opens no gRPC connection to the local pooler.
+	Service queryservice.Pooler
 }
 
 // isLocal reports whether pooler is the local pooler.
@@ -237,6 +247,16 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 		Cache:           cache,
 	})
 
+	onHealthUpdate := lb.onPoolerHealthUpdate
+	if opts.OnCatalogShardHealth != nil {
+		onHealthUpdate = func(conn *poolerConnection) {
+			lb.onPoolerHealthUpdate(conn)
+			if database, primary, rule, version, ok := catalogShardHealth(conn); ok {
+				opts.OnCatalogShardHealth(database, primary, rule, version)
+			}
+		}
+	}
+
 	// Start pooler discovery. The cache owns the per-pooler *poolerConnection
 	// rider: OnLive constructs the connection, OnUpdate refreshes topology
 	// metadata, and OnGone closes it. Routing leadership and buffer drain come
@@ -245,7 +265,7 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 	// load balancing wants immediate visibility into membership changes.
 	cache.Start(poolerwatch.Hooks[*poolerConnection]{
 		OnLive: func(p *clustermetadatapb.Multipooler, _ *poolerConnection) *poolerConnection {
-			conn, err := newPoolerConnection(opts.Ctx, p, opts.Logger, opts.DialOpt, opts.LocalPooler, lb.onPoolerHealthUpdate)
+			conn, err := newPoolerConnection(opts.Ctx, p, opts.Logger, opts.DialOpt, opts.LocalPooler, onHealthUpdate)
 			if err != nil {
 				opts.Logger.ErrorContext(opts.Ctx, "failed to create pooler connection",
 					"pooler_id", topoclient.ComponentIDString(p.Id), "error", err)
@@ -276,6 +296,29 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 		cache:        cache,
 		logger:       opts.Logger,
 	}
+}
+
+// catalogShardHealth classifies a health update for OnCatalogShardHealth. ok
+// is false for a pooler outside a catalog shard. primary is the same live
+// routing-primary rule the load balancer applies (see onPoolerHealthUpdate);
+// rule and version are the reported consensus rule and routing_version, both
+// unset unless primary.
+func catalogShardHealth(conn *poolerConnection) (database string, primary bool, rule *clustermetadatapb.RuleNumber, version int64, ok bool) {
+	ref := conn.PoolerInfo().GetShardRef()
+	if ref.GetTableGroup() != constants.DefaultTableGroup || ref.GetShard() != constants.DefaultShard {
+		return "", false, nil, 0, false
+	}
+	health := conn.Health()
+	if health == nil {
+		return "", false, nil, 0, false
+	}
+	primary = health.LastError == nil &&
+		health.RoutingState.GetRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY
+	if primary {
+		rule = health.RoutingState.GetRule()
+		version = health.RoutingVersion
+	}
+	return ref.GetDatabase(), primary, rule, version, true
 }
 
 // isSingleQuery reports whether a request is a single autocommit query — no
@@ -455,9 +498,10 @@ func isClientDrivenFailure(err error) bool {
 // recordUnbufferedFailure feeds the buffer's classification-gap alarm: an
 // error classifyError passed through as actionFail while the shard's buffer
 // was active. The buffer itself checks the shard state so idle-shard failures
-// (ordinary query errors) cost one map lookup and record nothing.
+// (ordinary query errors) cost one map lookup and record nothing. MTF02 is no
+// gap: a fence is not a failover, and the scatterconn retries it.
 func (pg *PoolerGateway) recordUnbufferedFailure(ctx context.Context, sk *clustermetadatapb.ShardRef, err error) {
-	if pg.buffer == nil || isClientDrivenFailure(err) {
+	if pg.buffer == nil || isClientDrivenFailure(err) || mterrors.IsErrorCode(err, mterrors.MTF02.ID) {
 		return
 	}
 	pg.buffer.RecordUnbufferedFailure(ctx, sk, mterrors.Code(err).String())
@@ -701,9 +745,7 @@ func (pg *PoolerGateway) GetAuthCredentials(ctx context.Context, req *multipoole
 	var resp *multipoolerpb.GetAuthCredentialsResponse
 	err := pg.withBuffering(ctx, target, false, false, func(conn *poolerConnection) error {
 		var err error
-		resp, err = conn.ServiceClient().GetAuthCredentials(ctx, req)
-		// Convert gRPC error so classifyError can read the PgDiagnostic SQLSTATE.
-		err = mterrors.FromGRPC(err)
+		resp, err = conn.pooler.GetAuthCredentials(ctx, req)
 		// Authentication has no query side effects. A generic UNAVAILABLE from
 		// the selected pooler is therefore safe to turn into the same typed
 		// pre-execution signal used by query connection acquisition.
@@ -905,7 +947,7 @@ func (pg *PoolerGateway) ReleaseReservedConnection(
 func (pg *PoolerGateway) StreamReplication(
 	ctx context.Context,
 	init *multipoolerpb.StreamReplicationInit,
-) (multipoolerpb.MultipoolerService_StreamReplicationClient, error) {
+) (queryservice.ReplicationStream, error) {
 	target, _ := proto.Clone(init.GetTarget()).(*query.Target)
 	if target == nil {
 		target = &query.Target{}

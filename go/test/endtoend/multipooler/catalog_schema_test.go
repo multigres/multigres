@@ -46,14 +46,22 @@ var catalogFormat1Columns = map[string][]string{
 		"operation_id", "kind", "state", "request", "initiating_role", "cancel_requested",
 		"last_error", "created_at", "updated_at",
 	},
+	"routing_rule": {
+		"rule_id", "operation_id", "scope", "from_tablegroup_id", "from_table_id", "to_tablegroup_id",
+		"to_shard_id", "to_shard_key_id", "created_at", "created_version",
+	},
+	"connections":     {"connection_id", "name", "dsn", "owner_role", "created_at", "conninfo"},
+	"admission_fence": {"fence_id", "operation_id", "tablegroup_id", "shard_id", "state", "version"},
 }
 
 // legacyCatalogSQL replaces the format 1 catalog with the pre-versioning
 // layout and rows that older binaries bootstrapped.
 const legacyCatalogSQL = `BEGIN;
-DROP TABLE multigres.shard_key_column, multigres.shard_key, multigres.shard_index,
+DROP VIEW IF EXISTS multigres.stat_migration;
+ALTER TABLE multigres.migration DROP CONSTRAINT IF EXISTS migration_connections_fkey;
+DROP TABLE multigres.admission_fence, multigres.routing_rule, multigres.shard_key_column, multigres.shard_key, multigres.shard_index,
 	multigres.tablegroup_table, multigres.shard, multigres.tablegroup, multigres.operation,
-	multigres.catalog_state;
+	multigres.connections, multigres.catalog_state;
 CREATE TABLE multigres.tablegroup (
 	oid BIGSERIAL PRIMARY KEY,
 	name TEXT NOT NULL UNIQUE,
@@ -121,6 +129,10 @@ func requireCatalogFormat1(t *testing.T, db *sql.DB) {
 		assert.Equal(t, strings.Join(want, ","), cols.String, "multigres.%s columns", table)
 	}
 
+	// multigres.migration references the connections table by a foreign key, which the
+	// migrator's schema ensure adds on this (the catalog) shard, right after the catalog.
+	requireMigrationForeignKey(t, db)
+
 	var formatVersion int
 	var routingVersion, planEpoch int64
 	require.NoError(t, db.QueryRow(`SELECT format_version, routing_version, plan_epoch FROM multigres.catalog_state`).
@@ -153,11 +165,30 @@ func requireCatalogFormat1(t *testing.T, db *sql.DB) {
 		  AND pg_get_constraintdef(oid) LIKE '%type%'`).Scan(&typeChecks))
 	assert.Zero(t, typeChecks, "shard_index.type must not be limited to a fixed list")
 
-	for _, table := range []string{"tablegroup_table", "shard_index", "shard_key", "shard_key_column", "operation"} {
+	for _, table := range []string{"tablegroup_table", "shard_index", "shard_key", "shard_key_column", "operation", "connections", "routing_rule", "admission_fence"} {
 		var n int
 		require.NoError(t, db.QueryRow(`SELECT count(*) FROM multigres.`+table).Scan(&n))
 		assert.Zero(t, n, "multigres.%s should start empty", table)
 	}
+}
+
+// requireMigrationForeignKey waits until multigres.migration has exactly one foreign key,
+// to multigres.connections(connection_id). The migrator's schema ensure adds it right after
+// the catalog ensure: at bootstrap, before the first backup, and on every pooler open. It
+// waits because a standby gets it by replication, and after a restart the pooler adds it
+// when it opens.
+func requireMigrationForeignKey(t *testing.T, db *sql.DB) {
+	t.Helper()
+	const want = "FOREIGN KEY (connection_id) REFERENCES multigres.connections(connection_id)"
+	var defs sql.NullString
+	require.Eventually(t, func() bool {
+		defs = sql.NullString{}
+		if err := db.QueryRow(`SELECT string_agg(pg_get_constraintdef(oid), '; ' ORDER BY oid)
+			FROM pg_constraint WHERE conrelid = to_regclass('multigres.migration') AND contype = 'f'`).Scan(&defs); err != nil {
+			return false
+		}
+		return strings.TrimSuffix(defs.String, " NOT VALID") == want
+	}, 45*time.Second, 250*time.Millisecond, "multigres.migration should reference multigres.connections (have %q)", defs.String)
 }
 
 // waitForCatalogFormat waits until db reports the given catalog format.
@@ -329,21 +360,21 @@ func TestCatalogSchema_UpgradeFromLegacy(t *testing.T) {
 	requireCatalogFormat1(t, standbyDB)
 
 	// A catalog table missing from an existing catalog is recreated on the next
-	// open, with no format change. operation has no dependents.
-	_, err = primaryDB.Exec(`DROP TABLE multigres.operation`)
+	// open, with no format change. routing_rule has no dependents.
+	_, err = primaryDB.Exec(`DROP TABLE multigres.routing_rule`)
 	require.NoError(t, err)
 	restartMultipooler(t, primary)
 	require.Eventually(t, func() bool {
 		var exists bool
-		err := primaryDB.QueryRow(`SELECT to_regclass('multigres.operation') IS NOT NULL`).Scan(&exists)
+		err := primaryDB.QueryRow(`SELECT to_regclass('multigres.routing_rule') IS NOT NULL`).Scan(&exists)
 		return err == nil && exists
-	}, 30*time.Second, 200*time.Millisecond, "open should recreate the missing operation table")
+	}, 30*time.Second, 200*time.Millisecond, "open should recreate the missing routing_rule table")
 	assert.Equal(t, 1, catalogFormatVersion(t, primaryDB), "recreating a table must not change the format")
 	assert.Equal(t, upgraded, catalogSnapshot(t, primaryDB), "recreating a table must not touch the seeded rows")
 	requireCatalogFormat1(t, primaryDB)
 	require.Eventually(t, func() bool {
 		var exists bool
-		err := standbyDB.QueryRow(`SELECT to_regclass('multigres.operation') IS NOT NULL`).Scan(&exists)
+		err := standbyDB.QueryRow(`SELECT to_regclass('multigres.routing_rule') IS NOT NULL`).Scan(&exists)
 		return err == nil && exists
 	}, 30*time.Second, 200*time.Millisecond, "the recreated table should replicate to the standby")
 	requireCatalogFormat1(t, standbyDB)

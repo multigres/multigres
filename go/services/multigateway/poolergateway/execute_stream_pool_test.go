@@ -529,7 +529,10 @@ func TestOperationDeadlineDuringRecvReportsDeadlineExceeded(t *testing.T) {
 		if req.Query == "wait" {
 			close(started)
 			<-stream.Context().Done()
-			return stream.Context().Err()
+			// Match the real handler's gRPC error conversion. The server's
+			// deadline can fire before the caller's timer, so the completion
+			// must carry its own status instead of relying on caller-side remapping.
+			return status.FromContextError(stream.Context().Err()).Err()
 		}
 		return nil
 	}}

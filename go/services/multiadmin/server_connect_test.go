@@ -250,3 +250,15 @@ func TestConnectAdapterMigrationForwarders(t *testing.T) {
 	_, err = adapter.DropMigration(ctx, connect.NewRequest(&migratorpb.DropMigrationRequest{}))
 	assert.ErrorContains(t, err, "no leader pooler")
 }
+
+// TestConnectAdapterListDesiredTableGroups covers the Connect-protocol wrapper
+// for ListDesiredTableGroups: with no catalog primary registered, it forwards
+// to MultiadminServer and surfaces its NotFound error unchanged.
+func TestConnectAdapterListDesiredTableGroups(t *testing.T) {
+	adapter := newTestAdapter(t)
+	_, err := adapter.ListDesiredTableGroups(t.Context(), connect.NewRequest(&multiadminpb.ListDesiredTableGroupsRequest{Database: "postgres"}))
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	assert.Equal(t, codes.NotFound, st.Code())
+}

@@ -151,10 +151,37 @@ func (pm *MultipoolerManager) MigrationCoordinatorIfPrimary(ctx context.Context)
 	return coord, nil
 }
 
-// ensureMigrationSchema runs EnsureSchema at most once per process. The table
-// is normally created at shard bootstrap and replicated in; this covers
-// shards bootstrapped before the table existed. Primary-only, since the
-// caller has already passed primary guardrails.
+// forgetMigrationState makes the next migration call on this pooler start from
+// what postgres holds rather than from what the coordinator remembers. The
+// coordinator outlives role changes, and what it remembers is only right for
+// the primary tenure it was read in; see Coordinator.ForgetCachedMigrations.
+// Called on every promotion, before pg_promote, so nothing read on this node
+// before it became primary can survive into its tenure: the coordinator is
+// gated to a postgres that is out of recovery, so it cannot reload the cache
+// until the promotion has landed.
+func (pm *MultipoolerManager) forgetMigrationState() {
+	pm.mu.Lock()
+	coord := pm.migrationCoord
+	pm.migrationSchemaEnsured = false
+	pm.mu.Unlock()
+	if coord != nil {
+		coord.ForgetCachedMigrations()
+	}
+}
+
+// ensureMigrationSchema runs EnsureSchema at most once per primary tenure
+// (forgetMigrationState resets it on promotion). The schema is normally
+// created at shard bootstrap and replicated in, and on the catalog shard
+// ensureSidecarSchemas re-ensures it on every open (see
+// ensureCatalogMigrationSchema); this covers shards bootstrapped before a table
+// existed. Primary-only, since the caller has already passed primary
+// guardrails.
+//
+// EnsureSchema reports ErrNoConnectionsTable when multigres.connections is
+// absent. Off the catalog shard that is the normal state, and the schema is
+// ensured. On the catalog shard it means the catalog ensure has not completed
+// (it failed or timed out when the pooler opened), so it is retried on the next
+// call rather than leaving stat_migration uncreated until a restart.
 func (pm *MultipoolerManager) ensureMigrationSchema(ctx context.Context, coord *migration.Coordinator) {
 	pm.mu.Lock()
 	ensured := pm.migrationSchemaEnsured
@@ -163,8 +190,10 @@ func (pm *MultipoolerManager) ensureMigrationSchema(ctx context.Context, coord *
 		return
 	}
 	if err := coord.EnsureSchema(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "ensure migration schema failed", "error", err)
-		return // not marked ensured; retried on next call
+		if !errors.Is(err, migration.ErrNoConnectionsTable) || pm.isCatalogShard() {
+			pm.logger.WarnContext(ctx, "ensure migration schema failed", "error", err)
+			return // not marked ensured; retried on next call
+		}
 	}
 	pm.mu.Lock()
 	pm.migrationSchemaEnsured = true
@@ -244,6 +273,12 @@ func (pm *MultipoolerManager) migrationServingHold() bool {
 // mid-migration. It is a single count over a tiny table and never touches
 // the state-manager lock.
 func (pm *MultipoolerManager) refreshMigrationHold(ctx context.Context) {
+	if pm.IsUnmanaged() {
+		// An unmanaged pooler's database is external: no migration state of ours lives
+		// there, so nothing holds it, and it is never queried for that state.
+		pm.migrationImportHold.Store(int32(migrationHoldNotHeld))
+		return
+	}
 	qs := pm.internalQueryService()
 	if qs == nil {
 		// Connection pools not yet open at startup, or otherwise unavailable: the
@@ -358,9 +393,10 @@ func (pm *MultipoolerManager) releaseForMigrationExport(ctx context.Context) err
 }
 
 // runMigrationReconcile is the reconcile poller. Each tick, if this pooler is
-// the primary, it advances in-flight migrations and resumes coordination,
-// which is what picks a migration up on a newly promoted primary. On a
-// standby every tick is a cheap no-op.
+// the primary of the catalog shard, it advances in-flight migrations and
+// resumes coordination, which is what picks a migration up on a newly promoted
+// primary. On a standby every tick is a cheap no-op, and it does nothing off the
+// catalog shard, where migrations are not supported.
 func (pm *MultipoolerManager) runMigrationReconcile(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -372,6 +408,11 @@ func (pm *MultipoolerManager) runMigrationReconcile(ctx context.Context, interva
 			coord, err := pm.MigrationCoordinatorIfPrimary(ctx)
 			if err != nil {
 				continue // not primary, or query service not ready
+			}
+			if !pm.isCatalogShard() {
+				// Migrations run on the catalog shard: their connections live in
+				// multigres.connections, which exists there only.
+				continue
 			}
 			if err := coord.Reconcile(ctx); err != nil {
 				pm.logger.WarnContext(ctx, "migration reconcile failed", "error", err)

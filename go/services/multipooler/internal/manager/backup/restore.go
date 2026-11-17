@@ -92,6 +92,8 @@ func (e *Engine) Restore(ctx context.Context, backupID, poolerDir string) error 
 	args = append(args, "restore")
 
 	cmd := e.pgbackrestCmd(restoreCtx, args...)
+	e.health.RestoreStarted()
+	defer e.health.RestoreFinished()
 	output, err := safeCombinedOutput(cmd)
 	if err != nil {
 		return mterrors.New(mtrpcpb.Code_INTERNAL,

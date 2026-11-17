@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
@@ -68,6 +69,16 @@ type healthStreamer struct {
 	// replicationLagNs holds the most recent replication lag in nanoseconds.
 	// Zero on the primary or when not yet measured. Updated via SetReplicationLag.
 	replicationLagNs atomic.Int64
+
+	// catalog is the sharding catalog's versions as last read on the catalog
+	// primary (see refreshCatalogVersions), and catalogRule the consensus rule
+	// the pooler was the primary under when they were read. They are
+	// published only while routing PRIMARY under that same rule, so a pooler
+	// demoted and promoted again (perhaps with its data rewound to a lower
+	// version) never advertises a version from an earlier term. Protected by
+	// mu.
+	catalog     catalogVersions
+	catalogRule *clustermetadatapb.RuleNumber
 
 	// metrics publishes replication lag and serving-state transitions as OTel
 	// metrics. Always non-nil after newHealthStreamer.
@@ -180,15 +191,50 @@ func (hs *healthStreamer) SetReplicationLag(lagNs int64) {
 	hs.replicationLagNs.Store(lagNs)
 }
 
+// observeCatalogVersions records catalog versions read, or written, while
+// this pooler was the catalog primary under rule, and broadcasts them when
+// they changed.
+//
+// A reading under a rule other than the one the pooler now routes as primary
+// under is dropped: it raced a demotion or promotion, and the data it came
+// from may have been rewound since. A reading under a newer rule than the
+// stored one replaces it whatever its version, since a new term starts from
+// what its own catalog holds. Within one rule the version only grows, so a
+// read that raced a newer write and returns an older version is ignored.
+func (hs *healthStreamer) observeCatalogVersions(rule *clustermetadatapb.RuleNumber, v catalogVersions) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	if hs.routingState.GetRole() != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY ||
+		commonconsensus.CompareRuleNumbers(rule, hs.routingState.GetRule()) != 0 {
+		return
+	}
+	if commonconsensus.CompareRuleNumbers(rule, hs.catalogRule) == 0 &&
+		(v == hs.catalog || v.routingVersion < hs.catalog.routingVersion) {
+		return
+	}
+	hs.catalog, hs.catalogRule = v, rule
+	hs.broadcastLocked()
+}
+
 // buildStateLocked builds the current health state. Caller must hold hs.mu.
 func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
-	return &poolerserver.HealthState{
+	state := &poolerserver.HealthState{
 		PoolerID:                    hs.poolerID,
 		ServingStatus:               hs.servingStatus,
 		RoutingState:                hs.routingState,
 		RecommendedStalenessTimeout: hs.recommendedStalenessTimeout,
 		ReplicationLagNs:            hs.replicationLagNs.Load(),
 	}
+	// Only the routing primary speaks for the catalog, and only for versions
+	// read under its current rule: a demoted pooler stops reporting them in
+	// the same broadcast that drops its PRIMARY role, and a re-promoted one
+	// reports nothing until it has read its catalog under the new rule.
+	if hs.routingState.GetRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY &&
+		commonconsensus.CompareRuleNumbers(hs.catalogRule, hs.routingState.GetRule()) == 0 {
+		state.RoutingVersion = hs.catalog.routingVersion
+		state.PlanEpoch = hs.catalog.planEpoch
+	}
+	return state
 }
 
 // broadcastLocked sends the current health state to all registered clients.

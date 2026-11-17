@@ -90,6 +90,31 @@ message ShardInitClaim {
   repeated ID cohort_members = 2;
 }
 
+// TableGroupProvisionClaim records that a provisioner holds resources (pods,
+// volumes, pooler records) for one incarnation of a tablegroup, identified by
+// its sharding-catalog id. It is a create-if-not-exists node in the global
+// topology at databases/<database>/TableGroupClaims/<tablegroup_id>.
+//
+// The provisioner writes it before it provisions anything for the id and
+// deletes it only after everything it provisioned is gone, including the
+// poolers' topology records. The catalog primary completes a drop, and deletes
+// the tablegroup's catalog rows, only once no claim and no pooler record for
+// the id remain, so a provisioner that has started work on an id always gets
+// to see the id in state dropping before the id disappears.
+message TableGroupProvisionClaim {
+  // provisioner identifies who holds the claim, in the provisioner's own
+  // terms, for example the operator's cluster identity. A claim for an id is
+  // owned by one provisioner; a second provisioner cannot take it over.
+  string provisioner = 1;
+  // tablegroup_id is the catalog id the claim is for. It is also the node's
+  // name in the path.
+  int64 tablegroup_id = 2;
+  // tablegroup_name is the name the id had when claimed, for operators
+  // reading the topology.
+  string tablegroup_name = 3;
+  google.protobuf.Timestamp claimed_at = 4;
+}
+
 // BackupLocation specifies where backups are stored
 message BackupLocation {
   oneof location {
@@ -235,8 +260,17 @@ message Multipooler {
   // leadership_mode is how this pooler gets its leadership. It is fixed for
   // the life of the process. A static leader (minigres) is the only pooler of
   // its shard: callers such as multiadmin use it for work they would
-  // otherwise send to a replica, such as backups.
+  // otherwise send to a replica, such as backups. An unmanaged pooler fronts a
+  // PostgreSQL that multigres does not manage, so multiorch never elects it.
   LeadershipMode leadership_mode = 14;
+  // tablegroup_id is the catalog identity (multigres.tablegroup.tablegroup_id)
+  // of the tablegroup this pooler serves, when the provisioner knows it. Zero
+  // when unknown, which is always the case for the default tablegroup and for
+  // tablegroups configured outside the catalog. The tablegroup creation loop
+  // only counts a pooler toward a tablegroup's readiness when this matches, so
+  // poolers left over from a dropped tablegroup of the same name never count
+  // toward a new one.
+  int64 tablegroup_id = 15;
 }
 
 // Multigateway represents metadata about a running multigateway component instance in the cluster.
@@ -599,6 +633,11 @@ enum LeadershipMode {
   // LEADERSHIP_MODE_STATIC: the pooler is the only pooler of its shard and
   // leads it without consensus (minigres).
   LEADERSHIP_MODE_STATIC = 2;
+
+  // LEADERSHIP_MODE_UNMANAGED: the pooler fronts an external PostgreSQL that
+  // multigres neither starts, replicates, backs up nor elects. Its leadership
+  // is decided outside multigres.
+  LEADERSHIP_MODE_UNMANAGED = 3;
 }
 
 // RoutingRole is a pooler's role for query ROUTING and HA purposes. It is about

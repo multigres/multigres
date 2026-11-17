@@ -338,3 +338,14 @@ func TestNewFeatureNotSupported(t *testing.T) {
 	assert.Equal(t, "0A", diag.SQLSTATEClass())
 	assert.Contains(t, diag.Error(), msg)
 }
+
+func TestPgDiagnosticProtoFromError(t *testing.T) {
+	diag := NewPgError("ERROR", PgSSAuthFailed, "denied", "")
+	got := PgDiagnosticProtoFromError(Wrapf(diag, "open backend"))
+	require.NotNil(t, got, "a wrapped diagnostic is found")
+	assert.Equal(t, diag.Code, got.Code)
+	assert.Equal(t, diag.Message, got.Message)
+
+	assert.Nil(t, PgDiagnosticProtoFromError(errors.New("dial tcp: connection refused")))
+	assert.Nil(t, PgDiagnosticProtoFromError(nil))
+}
