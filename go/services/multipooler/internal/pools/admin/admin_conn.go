@@ -332,9 +332,10 @@ func (tc *TxConn) Rollback(ctx context.Context) error {
 // context cancellation can interrupt a blocking network read.
 //
 // When the context is cancelled while a query is blocked waiting for PostgreSQL
-// (e.g. an INSERT waiting for synchronous standby acknowledgement), the underlying
-// connection is force-closed to unblock the goroutine's read. The goroutine is
-// waited on before returning to prevent goroutine leaks.
+// (e.g. an INSERT waiting for synchronous standby acknowledgement), the server is
+// asked to cancel the query, and the connection is force-closed to unblock the
+// goroutine's read. The goroutine is waited on before returning to prevent
+// goroutine leaks.
 //
 // ForceClose is used instead of Close to avoid a concurrent write race: the
 // goroutine may hold bufmu while reading from the buffered reader, and Close
@@ -356,6 +357,12 @@ func execQueryWithContextCancel(ctx context.Context, conn *client.Conn, op func(
 
 	select {
 	case <-ctx.Done():
+		// Ask the server to end the query first: closing the socket alone doesn't stop
+		// a backend waiting for a synchronous standby ack, so each timed-out write would
+		// leave a backend running, holding locks and a connection slot. A write cancelled
+		// in that wait has already committed locally, and becomes visible on this node
+		// without the ack, as it would after a restart.
+		cancelOnServer(ctx, conn.SendCancelRequest)
 		// Force-close the connection to unblock the goroutine's blocking network read.
 		conn.ForceClose()
 		// Wait for the goroutine to finish (it returns quickly after ForceClose).
