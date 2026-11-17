@@ -24,8 +24,8 @@ This document is the design. Only part of it is implemented:
 - **Implemented:** the hierarchy itself (every pooler registers with a
   `ShardRef{database, table_group, shard}`), shard names and key ranges
   (`go/common/keyrange`), the sharding catalog that stores tablegroups and
-  their shards in the `multigres` schema of each database's catalog shard
-  ([catalog.md](catalog.md)), creating a tablegroup with a shard layout
+  their shards in the `multigres` schema of each database's catalog shard,
+  creating a tablegroup with a shard layout
   ([tablegroup-operations.md](tablegroup-operations.md)), and the bookkeeping
   for routing rules and admission fences ([routing_rules.md](routing_rules.md)).
 - **Not implemented:** placing a table in a tablegroup, sharding functions
@@ -368,8 +368,7 @@ flowchart TD
 - Resharding execution (cutover, data movement, consistency).
 - Cross-shard transactions (2PC) and cross-shard query planning.
 - The catalog's storage and its committed proto and table definitions: it is
-  stored in postgres, on each database's catalog shard, and described in
-  [catalog.md](catalog.md).
+  stored in postgres, on each database's catalog shard.
 
 The control plane that creates a tablegroup once declared (catalog intent,
 provisioner API, completion) is described in

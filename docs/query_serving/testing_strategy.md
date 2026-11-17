@@ -672,8 +672,8 @@ describes selection and environment overrides. The default run checks the
 curated I/O selection against the gateway; set `POSTGREST_FULL_BASELINE=1` to
 also recheck direct PostgreSQL. These correctness tests do not measure latency
 or validate mixed-version gateway/pooler deployments. See
-[protocol compatibility](prepared_statements_design.md#prepare-only-protocol-compatibility)
-for the prepare-only wire contract.
+[eager-parse request](prepared_statements_design.md#eager-parse-request)
+for the eager-parse wire contract.
 
 ## Coverage tracking and reproducibility
 

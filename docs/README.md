@@ -18,8 +18,8 @@ to use Multigres for your applications, please refer to the
 - **[Topology](./topology.md)** — topology backends, the global and cell key
   layout, and which component writes what.
 - **[Development guides](./development/README.md)** — the SQL parser and AST,
-  code generation, integration-test infrastructure, error handling, lint
-  rules, and the expression engine.
+  code generation, integration-test infrastructure, error handling, and lint
+  rules.
 
 ## Design Documents
 
@@ -39,11 +39,9 @@ Browse the design and reference docs by area:
   for regression coverage and validation commands.
 - **[High availability](./ha/)** — consensus, failover, and the state model,
   plus the HA decision log.
-- **[Sharding](./sharding/)** — the sharding design, the
-  [sharding catalog](./sharding/catalog.md), tablegroup operations and DDL,
-  and routing rules.
-- **[Migration](./migration/)** — the
-  [migrator](./migration/migrator.md) and its
+- **[Sharding](./sharding/)** — the sharding design, tablegroup operations
+  and DDL, and routing rules.
+- **[Migration](./migration/)** — the migrator's
   [SQL interface](./migration/migrator_sql_interface.md).
 - **[General](./general/)** — cross-cutting topics (e.g. serving state
   management, [logging conventions](./general/logging.md),
