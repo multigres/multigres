@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/switcher"
 	"github.com/multigres/multigres/go/tools/pgutil"
+	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/timer"
 )
 
@@ -97,7 +98,7 @@ func newPoller(queryService executor.InternalQueryService, metrics *Metrics, log
 		logger:       logger,
 		interval:     interval,
 		now:          time.Now,
-		runner:       timer.NewPeriodicRunner(context.TODO(), interval),
+		runner:       timer.NewPeriodicRunner(telemetry.WithTask(context.TODO(), "replication-stats-poller"), interval),
 		lastSentLSN:  make(map[string]pgutil.LSN),
 		lastAdvance:  make(map[string]time.Time),
 	}

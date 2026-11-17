@@ -23,6 +23,7 @@ import (
 
 	commonbackup "github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // listCacheTTL bounds how stale the informational backup list may be. A
@@ -66,7 +67,7 @@ func (c *listCache) get(ctx context.Context, ttl, timeout time.Duration, load fu
 	if f == nil {
 		f = &listFlight{done: make(chan struct{})}
 		c.flight = f
-		loadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
+		loadCtx, cancel := context.WithTimeout(telemetry.WithTask(context.WithoutCancel(ctx), "backup-list-load"), timeout)
 		go func() {
 			defer cancel()
 			value, err := load(loadCtx)

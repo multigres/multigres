@@ -535,3 +535,26 @@ func TestPeriodicRunnerUpdateIntervalWhenStopped(t *testing.T) {
 
 	runner.Stop()
 }
+
+// Callers tag loops via the parent context, so its values must reach the callback.
+func TestPeriodicRunnerCallbackInheritsParentValues(t *testing.T) {
+	type key struct{}
+	parent := context.WithValue(t.Context(), key{}, "tagged")
+
+	got := make(chan any, 1)
+	runner := NewPeriodicRunner(parent, time.Millisecond)
+	runner.StartWithOptions(func(ctx context.Context) {
+		select {
+		case got <- ctx.Value(key{}):
+		default:
+		}
+	}, WithFastStart())
+	defer runner.Stop()
+
+	select {
+	case v := <-got:
+		assert.Equal(t, "tagged", v)
+	case <-time.After(5 * time.Second):
+		t.Fatal("callback did not run")
+	}
+}

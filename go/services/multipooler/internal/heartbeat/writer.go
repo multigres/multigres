@@ -26,6 +26,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/switcher"
 	"github.com/multigres/multigres/go/tools/pgutil"
+	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/timer"
 )
 
@@ -74,7 +75,7 @@ func NewWriter(queryService executor.InternalQueryService, logger *slog.Logger, 
 	if intervalMs <= 0 {
 		interval = defaultHeartbeatInterval
 	}
-	runner := timer.NewPeriodicRunner(context.TODO(), interval)
+	runner := timer.NewPeriodicRunner(telemetry.WithTask(context.TODO(), "heartbeat-writer"), interval)
 	return &Writer{
 		queryService: queryService,
 		logger:       logger,

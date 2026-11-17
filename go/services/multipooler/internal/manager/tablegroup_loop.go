@@ -24,6 +24,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 // The tablegroup completion loop.
@@ -83,7 +84,7 @@ func (pm *MultipoolerManager) startTableGroupOperationsLocked() {
 	if !pm.isCatalogShard() {
 		return
 	}
-	go pm.runTableGroupOperations(pm.ctx)
+	go pm.runTableGroupOperations(telemetry.WithTask(pm.ctx, "tablegroup-operations"))
 }
 
 // runTableGroupOperations runs a pass immediately and then every

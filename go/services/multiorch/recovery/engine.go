@@ -32,6 +32,7 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
+	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/timer"
 )
 
@@ -248,9 +249,9 @@ func NewEngine(
 		recruitmentBackoff: ha.DefaultBackoffSchedule(),
 		shutdownCtx:        ctx,
 		cancel:             cancel,
-		bookkeepingRunner:  timer.NewPeriodicRunner(ctx, config.GetBookkeepingInterval()),
-		recoveryRunner:     timer.NewPeriodicRunner(ctx, config.GetRecoveryCycleInterval()),
-		leaderInfoRunner:   timer.NewPeriodicRunner(ctx, leaderInfoPropagationInterval),
+		bookkeepingRunner:  timer.NewPeriodicRunner(telemetry.WithTask(ctx, "bookkeeping"), config.GetBookkeepingInterval()),
+		recoveryRunner:     timer.NewPeriodicRunner(telemetry.WithTask(ctx, "recovery-cycle"), config.GetRecoveryCycleInterval()),
+		leaderInfoRunner:   timer.NewPeriodicRunner(telemetry.WithTask(ctx, "leader-info-propagation"), leaderInfoPropagationInterval),
 	}
 
 	// HealthStreamFactory is cache-agnostic — it holds no cache reference. The
@@ -316,7 +317,7 @@ func (re *Engine) Start() error {
 
 	// Start bookkeeping runner
 	re.bookkeepingRunner.Start(func(ctx context.Context) {
-		re.runBookkeeping()
+		re.runBookkeeping(ctx)
 	}, nil)
 
 	// Start recovery runner with dynamic interval support
