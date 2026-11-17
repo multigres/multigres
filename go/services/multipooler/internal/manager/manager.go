@@ -1239,12 +1239,12 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 			// copy of the record instead.
 			cached, cacheErr := pm.loadDatabaseCache()
 			if cacheErr != nil {
-				pm.logger.Warn("cannot use the copy of the database record", "error", cacheErr)
+				pm.logger.WarnContext(timeoutCtx, "cannot use the copy of the database record", "error", cacheErr)
 			}
 			if cached == nil {
 				continue // Will retry with backoff
 			}
-			pm.logger.Warn("database record unavailable from topology; using the copy kept by this static leader", "database", database, "error", err)
+			pm.logger.WarnContext(timeoutCtx, "database record unavailable from topology; using the copy kept by this static leader", "database", database, "error", err)
 			db = cached
 		}
 

@@ -83,7 +83,7 @@ func TestCleanupOldShutdownEntries_OldTombstoneRemoved(t *testing.T) {
 	_, err := re.ts.GetMultipooler(context.Background(), p.Id)
 	require.NoError(t, err, "pooler should exist in topology before cleanup")
 
-	re.cleanupOldShutdownEntries()
+	re.cleanupOldShutdownEntries(t.Context())
 
 	_, err = re.ts.GetMultipooler(context.Background(), p.Id)
 	require.Error(t, err, "topology entry should have been hard-deleted")
@@ -97,7 +97,7 @@ func TestCleanupOldShutdownEntries_YoungTombstoneRetained(t *testing.T) {
 	// leave it alone so a recently-shutdown pooler is not prematurely purged.
 	poolerwatch.SeedTombstoneForTest(t, re.poolerCache, p.Id, time.Now())
 
-	re.cleanupOldShutdownEntries()
+	re.cleanupOldShutdownEntries(t.Context())
 
 	_, err := re.ts.GetMultipooler(context.Background(), p.Id)
 	require.NoError(t, err, "young tombstone must not trigger topology deletion")
@@ -115,7 +115,7 @@ func TestCleanupOldShutdownEntries_MixedTombstones(t *testing.T) {
 		time.Now().Add(-shutdownEtcdCleanupAge-time.Minute))
 	poolerwatch.SeedTombstoneForTest(t, re.poolerCache, young.Id, time.Now())
 
-	re.cleanupOldShutdownEntries()
+	re.cleanupOldShutdownEntries(t.Context())
 
 	_, err := re.ts.GetMultipooler(context.Background(), old.Id)
 	assert.Error(t, err, "old tombstone's topology entry must be deleted")
@@ -128,5 +128,5 @@ func TestCleanupOldShutdownEntries_NoTombstones(t *testing.T) {
 	// RPCs). Important because a healthy cluster routinely has nothing to
 	// clean up on most ticks.
 	re := newBookkeepingTestEngine(t)
-	re.cleanupOldShutdownEntries()
+	re.cleanupOldShutdownEntries(t.Context())
 }

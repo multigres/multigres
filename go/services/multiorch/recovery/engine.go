@@ -317,7 +317,7 @@ func (re *Engine) Start() error {
 
 	// Start bookkeeping runner
 	re.bookkeepingRunner.Start(func(ctx context.Context) {
-		re.runBookkeeping()
+		re.runBookkeeping(ctx)
 	}, nil)
 
 	// Start recovery runner with dynamic interval support

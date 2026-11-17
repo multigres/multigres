@@ -154,7 +154,7 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 
 	tsNano, receiveLSN, haveReceiveLSN, quorumCommitLSN, haveQuorumCommitLSN, quorumCommitTs, haveQuorumCommitTs, err := r.fetchMostRecentHeartbeat(readCtx)
 	if err != nil {
-		r.recordError(err)
+		r.recordError(ctx, err)
 		return
 	}
 	// Read the clock once so lag and the advance timestamps reflect the same instant.
@@ -278,11 +278,11 @@ func (r *Reader) QuorumCommitTs() (time.Time, bool) {
 }
 
 // recordError keeps track of the lastKnown error for reporting to Status().
-func (r *Reader) recordError(err error) {
+func (r *Reader) recordError(ctx context.Context, err error) {
 	r.lagMu.Lock()
 	r.lastKnownError = err
 	r.lagMu.Unlock()
-	r.logger.Error("failed to read heartbeat", "error", err)
+	r.logger.ErrorContext(ctx, "failed to read heartbeat", "error", err)
 	r.readErrors.Add(1)
 }
 
