@@ -47,6 +47,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 	"github.com/multigres/multigres/go/services/multipooler/internal/replicationstats"
 	"github.com/multigres/multigres/go/tools/ctxutil"
+	"github.com/multigres/multigres/go/tools/errlog"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -263,6 +264,10 @@ type MultipoolerManager struct {
 	// guarded by pm.mu.
 	migrationCoord         *migration.Coordinator
 	migrationSchemaEnsured bool
+	// migrationSchemaFailures dedupes the ensure-schema failure log, which
+	// is hit from the reconcile poller and from migration RPC goroutines. It
+	// locks internally.
+	migrationSchemaFailures errlog.Dedupe
 
 	// connectionDir replaces the sharding catalog as the directory of backing connections
 	// the default primary serves. Nil outside tests.

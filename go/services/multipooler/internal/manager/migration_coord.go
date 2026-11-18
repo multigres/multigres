@@ -18,12 +18,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
+	"github.com/multigres/multigres/go/tools/errlog"
 	"github.com/multigres/multigres/go/tools/pgutil"
 	"github.com/multigres/multigres/go/tools/retry"
 )
@@ -164,6 +166,7 @@ func (pm *MultipoolerManager) forgetMigrationState() {
 	coord := pm.migrationCoord
 	pm.migrationSchemaEnsured = false
 	pm.mu.Unlock()
+	pm.migrationSchemaFailures.Reset()
 	if coord != nil {
 		coord.ForgetCachedMigrations()
 	}
@@ -189,11 +192,14 @@ func (pm *MultipoolerManager) ensureMigrationSchema(ctx context.Context, coord *
 	if ensured {
 		return
 	}
-	if err := coord.EnsureSchema(ctx); err != nil {
-		if !errors.Is(err, migration.ErrNoConnectionsTable) || pm.isCatalogShard() {
-			pm.logger.WarnContext(ctx, "ensure migration schema failed", "error", err)
-			return // not marked ensured; retried on next call
-		}
+	err := coord.EnsureSchema(ctx)
+	if err != nil && errors.Is(err, migration.ErrNoConnectionsTable) && !pm.isCatalogShard() {
+		err = nil
+	}
+	pm.migrationSchemaFailures.Observe(ctx, pm.logger, "", slog.LevelWarn,
+		"ensure migration schema failed", "ensure migration schema succeeded again", err)
+	if err != nil {
+		return // not marked ensured; retried on next call
 	}
 	pm.mu.Lock()
 	pm.migrationSchemaEnsured = true
@@ -400,18 +406,27 @@ func (pm *MultipoolerManager) releaseForMigrationExport(ctx context.Context) err
 func (pm *MultipoolerManager) runMigrationReconcile(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	// Each failure is logged when it starts or its error text changes, and once
+	// when it clears. The probe and the reconcile track separately so one
+	// failing does not hide the other.
+	var probeFailures, reconcileFailures errlog.Dedupe
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := pm.checkPrimaryGuardrails(ctx); err != nil {
-				// A role mismatch is an expected timer skip. A failed probe
-				// must remain visible rather than looking like a standby.
-				if !isRoleMismatch(err) {
-					pm.logger.ErrorContext(ctx, "failed to check recovery status for migration reconcile",
-						"operation", "migration_reconcile", "error", err)
-				}
+			err := pm.checkPrimaryGuardrails(ctx)
+			// A role mismatch is an expected timer skip. A failed probe
+			// must remain visible rather than looking like a standby.
+			probeErr := err
+			if isRoleMismatch(err) {
+				probeErr = nil
+			}
+			probeFailures.Observe(ctx, pm.logger, "", slog.LevelError,
+				"failed to check recovery status for migration reconcile",
+				"recovery status check for migration reconcile succeeded again",
+				probeErr, "operation", "migration_reconcile")
+			if err != nil {
 				continue
 			}
 			coord := pm.migrationCoordinator()
@@ -424,9 +439,9 @@ func (pm *MultipoolerManager) runMigrationReconcile(ctx context.Context, interva
 				// multigres.connections, which exists there only.
 				continue
 			}
-			if err := coord.Reconcile(ctx); err != nil {
-				pm.logger.WarnContext(ctx, "migration reconcile failed", "error", err)
-			}
+			reconcileFailures.Observe(ctx, pm.logger, "", slog.LevelWarn,
+				"migration reconcile failed", "migration reconcile succeeded again",
+				coord.Reconcile(ctx))
 		}
 	}
 }
