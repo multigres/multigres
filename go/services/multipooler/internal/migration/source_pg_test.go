@@ -254,4 +254,25 @@ func TestSourceFencing_RealPostgres(t *testing.T) {
 		require.NoError(t, src.SetReadOnly(false))
 		require.Eventually(t, func() bool { return readOnly() == "off" }, 10*time.Second, 50*time.Millisecond)
 	})
+
+	t.Run("every primitive reports a lost connection", func(t *testing.T) {
+		dead, err := newSource(ctx, infoOf(pgDSN(port, "postgres", "appdb")))
+		require.NoError(t, err)
+		require.NoError(t, dead.conn.Close(ctx))
+
+		_, err = dead.PublicHasConnect()
+		require.Error(t, err)
+		_, err = dead.RolesHadConnect([]string{"app"})
+		require.Error(t, err)
+		_, err = dead.RoleConnLimits([]string{"app"})
+		require.Error(t, err)
+		require.Error(t, dead.RevokeConnect([]string{"app"}))
+		require.Error(t, dead.GrantConnect([]string{"app"}, true, nil))
+		require.Error(t, dead.GrantConnect(nil, false, map[string]int32{"app": -1}))
+		require.Error(t, dead.SetConnLimits(map[string]int32{"app": 1}))
+		require.Error(t, dead.checkQuiesceRoles([]string{"app"}))
+		require.Error(t, dead.TerminateClientBackends())
+		require.Error(t, dead.SetReadOnly(true))
+		require.Error(t, dead.setSessionReadOnly(true))
+	})
 }

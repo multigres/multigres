@@ -383,38 +383,19 @@ func TestCacheStore_NoopWhenCacheNotLoaded(t *testing.T) {
 	require.Nil(t, s.cache)
 }
 
-// TestMarshalQuiesceRoles covers both branches of each quiesce marshal
-// helper: the degenerate empty-input case (the "[]"/"{}" column default) and
-// the non-empty json.Marshal success path, which Insert/Update/scanMigration's
-// round-trip tests otherwise always exercise through the empty case only.
-func TestMarshalQuiesceRoles(t *testing.T) {
-	empty, err := marshalQuiesceRoles(nil)
-	require.NoError(t, err)
-	require.Equal(t, "[]", empty)
+// TestMarshalQuiesceColumn covers both branches for each column type: the
+// empty-input case (the "[]"/"{}" column default) and the non-empty encoding,
+// which Insert/Update/scanMigration's round-trip tests otherwise exercise
+// through the empty case only.
+func TestMarshalQuiesceColumn(t *testing.T) {
+	require.Equal(t, "[]", marshalQuiesceColumn([]string(nil), "[]"))
+	require.JSONEq(t, `["app","reporting"]`, marshalQuiesceColumn([]string{"app", "reporting"}, "[]"))
 
-	nonEmpty, err := marshalQuiesceRoles([]string{"app", "reporting"})
-	require.NoError(t, err)
-	require.JSONEq(t, `["app","reporting"]`, nonEmpty)
-}
+	require.Equal(t, "{}", marshalQuiesceColumn(map[string]int32(nil), "{}"))
+	require.JSONEq(t, `{"app":0,"reporting":-1}`, marshalQuiesceColumn(map[string]int32{"app": 0, "reporting": -1}, "{}"))
 
-func TestMarshalQuiesceRoleConnLimits(t *testing.T) {
-	empty, err := marshalQuiesceRoleConnLimits(nil)
-	require.NoError(t, err)
-	require.Equal(t, "{}", empty)
-
-	nonEmpty, err := marshalQuiesceRoleConnLimits(map[string]int32{"app": 0, "reporting": -1})
-	require.NoError(t, err)
-	require.JSONEq(t, `{"app":0,"reporting":-1}`, nonEmpty)
-}
-
-func TestMarshalQuiesceRolesHadConnect(t *testing.T) {
-	empty, err := marshalQuiesceRolesHadConnect(nil)
-	require.NoError(t, err)
-	require.Equal(t, "{}", empty)
-
-	nonEmpty, err := marshalQuiesceRolesHadConnect(map[string]bool{"app": true, "reporting": false})
-	require.NoError(t, err)
-	require.JSONEq(t, `{"app":true,"reporting":false}`, nonEmpty)
+	require.Equal(t, "{}", marshalQuiesceColumn(map[string]bool(nil), "{}"))
+	require.JSONEq(t, `{"app":true,"reporting":false}`, marshalQuiesceColumn(map[string]bool{"app": true, "reporting": false}, "{}"))
 }
 
 func TestStorePersistsDirection(t *testing.T) {

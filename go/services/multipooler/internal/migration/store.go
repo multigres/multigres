@@ -138,18 +138,9 @@ const insertMigrationSQL = `INSERT INTO multigres.migration
 // Insert writes a new migration row and its table list atomically. created_at
 // defaults to now(); streaming_since starts NULL.
 func (s *Store) Insert(ctx context.Context, m *Migration) error {
-	quiesceRolesJSON, err := marshalQuiesceRoles(m.QuiesceRoles)
-	if err != nil {
-		return err
-	}
-	connLimitsJSON, err := marshalQuiesceRoleConnLimits(m.QuiesceRoleConnLimits)
-	if err != nil {
-		return err
-	}
-	hadConnectJSON, err := marshalQuiesceRolesHadConnect(m.QuiesceRolesHadConnect)
-	if err != nil {
-		return err
-	}
+	quiesceRolesJSON := marshalQuiesceColumn(m.QuiesceRoles, "[]")
+	connLimitsJSON := marshalQuiesceColumn(m.QuiesceRoleConnLimits, "{}")
+	hadConnectJSON := marshalQuiesceColumn(m.QuiesceRolesHadConnect, "{}")
 	tx, err := s.qs.BeginAdmin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin insert migration: %w", err)
@@ -197,14 +188,8 @@ func (s *Store) Update(ctx context.Context, m *Migration) error {
 	if m.StreamingSince != nil {
 		streamingSince = *m.StreamingSince
 	}
-	connLimitsJSON, err := marshalQuiesceRoleConnLimits(m.QuiesceRoleConnLimits)
-	if err != nil {
-		return err
-	}
-	hadConnectJSON, err := marshalQuiesceRolesHadConnect(m.QuiesceRolesHadConnect)
-	if err != nil {
-		return err
-	}
+	connLimitsJSON := marshalQuiesceColumn(m.QuiesceRoleConnLimits, "{}")
+	hadConnectJSON := marshalQuiesceColumn(m.QuiesceRolesHadConnect, "{}")
 	tx, err := s.qs.BeginAdmin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin update migration: %w", err)
@@ -707,48 +692,16 @@ func scanMigration(row *sqltypes.Row) (*Migration, error) {
 	return &m, nil
 }
 
-// marshalQuiesceRoles encodes the quiesce-role list as the JSON array text
-// stored in multigres.migration.quiesce_roles. A nil/empty list encodes as
-// the column default, "[]".
-func marshalQuiesceRoles(roles []string) (string, error) {
-	if len(roles) == 0 {
-		return "[]", nil
+// marshalQuiesceColumn encodes a quiesce column value (the role list, the
+// connection-limit map or the prior-CONNECT map) as the JSON text stored in
+// its column. A nil/empty value encodes as the column default, empty ("[]" or
+// "{}"). These types always marshal, so there is no error to return.
+func marshalQuiesceColumn[T []string | map[string]int32 | map[string]bool](v T, empty string) string {
+	if len(v) == 0 {
+		return empty
 	}
-	b, err := json.Marshal(roles)
-	if err != nil {
-		return "", fmt.Errorf("marshal quiesce_roles: %w", err)
-	}
-	return string(b), nil
-}
-
-// marshalQuiesceRoleConnLimits encodes the quiesce-role connection-limit
-// map as the JSON object text stored in
-// multigres.migration.quiesce_role_conn_limits. A nil/empty map encodes as
-// the column default, "{}".
-func marshalQuiesceRoleConnLimits(limits map[string]int32) (string, error) {
-	if len(limits) == 0 {
-		return "{}", nil
-	}
-	b, err := json.Marshal(limits)
-	if err != nil {
-		return "", fmt.Errorf("marshal quiesce_role_conn_limits: %w", err)
-	}
-	return string(b), nil
-}
-
-// marshalQuiesceRolesHadConnect encodes the quiesce-role prior-CONNECT map
-// as the JSON object text stored in
-// multigres.migration.quiesce_roles_had_connect. A nil/empty map encodes as
-// the column default, "{}".
-func marshalQuiesceRolesHadConnect(hadConnect map[string]bool) (string, error) {
-	if len(hadConnect) == 0 {
-		return "{}", nil
-	}
-	b, err := json.Marshal(hadConnect)
-	if err != nil {
-		return "", fmt.Errorf("marshal quiesce_roles_had_connect: %w", err)
-	}
-	return string(b), nil
+	b, _ := json.Marshal(v)
+	return string(b)
 }
 
 // nullableString maps an empty string to a SQL NULL — used for migration.name,
