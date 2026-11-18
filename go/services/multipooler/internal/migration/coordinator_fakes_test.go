@@ -242,6 +242,8 @@ type fakeTarget struct {
 
 	status    *SubscriptionStatus
 	statusErr error
+	// statusErrBySub fails SubscriptionStatus for the named subscriptions only.
+	statusErrBySub map[string]error
 
 	subExists     bool
 	subExistsErr  error
@@ -375,7 +377,10 @@ func (t *fakeTarget) DropSubscription(context.Context, string) error {
 	return t.dropSubErr
 }
 
-func (t *fakeTarget) SubscriptionStatus(context.Context, string) (*SubscriptionStatus, error) {
+func (t *fakeTarget) SubscriptionStatus(_ context.Context, sub string) (*SubscriptionStatus, error) {
+	if err := t.statusErrBySub[sub]; err != nil {
+		return nil, err
+	}
 	if t.statusErr != nil {
 		return nil, t.statusErr
 	}

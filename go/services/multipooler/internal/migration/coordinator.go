@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/tools/errlog"
 )
 
 // Coordinator drives table migrations on the shard primary: it persists state in
@@ -66,6 +68,11 @@ type Coordinator struct {
 
 	now func() time.Time
 
+	// reconcileFailures dedupes the per-migration reconcile failure log, keyed
+	// by the decimal migration ID. It locks internally, so
+	// ForgetCachedMigrations resets it without taking mu.
+	reconcileFailures errlog.Dedupe
+
 	// mu serializes state transitions so concurrent operator calls on the same
 	// migration cannot interleave phase writes.
 	mu sync.Mutex
@@ -100,6 +107,7 @@ func NewCoordinator(qs executor.InternalQueryService, logger *slog.Logger, targe
 // promotion never waits behind a migration operation or a slow load.
 func (c *Coordinator) ForgetCachedMigrations() {
 	c.store.Forget()
+	c.reconcileFailures.Reset()
 }
 
 // EnsureSchema creates the migration table if absent (covers shards bootstrapped
@@ -1806,11 +1814,15 @@ func (c *Coordinator) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	listed := make(map[string]bool, len(ms))
 	for _, m := range ms {
-		if err := c.reconcileLocked(ctx, m); err != nil {
-			c.logger.WarnContext(ctx, "reconcile migration failed", "migration", m.ID, "error", err)
-		}
+		key := strconv.FormatInt(m.ID, 10)
+		listed[key] = true
+		c.reconcileFailures.Observe(ctx, c.logger, key, slog.LevelWarn,
+			"reconcile migration failed", "reconcile migration succeeded again",
+			c.reconcileLocked(ctx, m), "migration", m.ID)
 	}
+	c.reconcileFailures.Retain(func(key string) bool { return listed[key] })
 	return nil
 }
 

@@ -47,6 +47,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 	"github.com/multigres/multigres/go/services/multipooler/internal/replicationstats"
 	"github.com/multigres/multigres/go/tools/ctxutil"
+	"github.com/multigres/multigres/go/tools/errlog"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -263,6 +264,10 @@ type MultipoolerManager struct {
 	// guarded by pm.mu.
 	migrationCoord         *migration.Coordinator
 	migrationSchemaEnsured bool
+	// migrationSchemaFailures dedupes the ensure-schema failure log, which
+	// is hit from the reconcile poller and from migration RPC goroutines. It
+	// locks internally.
+	migrationSchemaFailures errlog.Dedupe
 
 	// connectionDir replaces the sharding catalog as the directory of backing connections
 	// the default primary serves. Nil outside tests.
@@ -1118,23 +1123,37 @@ func (pm *MultipoolerManager) checkReady() error {
 	}
 }
 
+// roleMismatchError identifies a valid role observation that does not permit
+// the requested operation. It is distinct from a failed role probe, even if
+// that failure happens to carry the same RPC code.
+type roleMismatchError struct {
+	message string
+}
+
+func (e *roleMismatchError) Error() string { return e.message }
+
+func (e *roleMismatchError) ErrorCode() mtrpcpb.Code { return mtrpcpb.Code_FAILED_PRECONDITION }
+
+func isRoleMismatch(err error) bool {
+	var mismatch *roleMismatchError
+	return errors.As(err, &mismatch)
+}
+
 // checkReplicaGuardrails verifies that PostgreSQL is in recovery mode (a standby),
 // the authoritative precondition for replication-related operations. The physical
 // recovery state — not the topology PoolerType label — is what governs whether a
 // standby replication op is valid, so a demoted-but-not-yet-relabeled pooler
 // (still labeled PRIMARY, already in recovery) is correctly treated as a standby.
+// It only validates; callers decide whether a rejection warrants a log.
 func (pm *MultipoolerManager) checkReplicaGuardrails(ctx context.Context) error {
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
 	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "failed to check if instance is in recovery", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
 	}
 
 	if pgMode.OutOfRecovery() {
-		pm.logger.ErrorContext(ctx, "replication operation called on non-standby instance", "service_id", pm.serviceID.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
+		return &roleMismatchError{message: fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String())}
 	}
 
 	return nil
@@ -1142,17 +1161,15 @@ func (pm *MultipoolerManager) checkReplicaGuardrails(ctx context.Context) error 
 
 // checkPrimaryGuardrails verifies that PostgreSQL is not in recovery mode.
 // This is the canonical guardrail for primary-only operations.
+// It only validates; callers decide whether a rejection warrants a log.
 func (pm *MultipoolerManager) checkPrimaryGuardrails(ctx context.Context) error {
 	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "failed to check if instance is in recovery", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
 	}
 
 	if !pgMode.OutOfRecovery() {
-		pm.logger.ErrorContext(ctx, "primary operation called on standby instance", "service_id", pm.serviceID.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("operation not allowed: the PostgreSQL instance is in standby mode (service_id: %s)", pm.serviceID.String()))
+		return &roleMismatchError{message: fmt.Sprintf("operation not allowed: the PostgreSQL instance is in standby mode (service_id: %s)", pm.serviceID.String())}
 	}
 
 	return nil
