@@ -11,7 +11,13 @@ This page describes what is implemented today: the rule table, how a rule
 change is validated, the admission fences a rule change requires, how rules
 and fences reach gateways in the catalog snapshot, and the RPCs that set and
 read them. Gateways don't apply rules yet, and poolers don't enforce fences
-yet; both come later.
+yet; both come later. The gateway already handles the refusal a fenced pooler
+will give (see [Admission fences](#admission-fences)).
+
+No code creates an operation that moves data yet: the only operations the
+catalog primary records are tablegroup creations, so the `import` and reshard
+operations this page refers to exist only as rows a caller of these RPCs would
+have to provide.
 
 ## Rules
 
@@ -67,7 +73,10 @@ it. A scope has at most one fence, in one of two states:
 A fence row exists only while its scope is fenced: lifting a fence deletes it.
 Each row records the `routing_version` the fence was set at. Fences an
 operation never lifted are to be removed when it completes (not implemented
-yet).
+yet). The one cleanup that exists is on a tablegroup's drop: when the
+completion loop deletes a `dropping` tablegroup, it deletes the fences that
+finished operations left on it in the same write, and a fence that an
+unfinished operation still holds keeps the tablegroup from being deleted.
 
 `FenceScopes` raises an operation's fences on a list of scopes and
 `UnfenceScopes` lifts them. Each call is one catalog write through
@@ -115,6 +124,19 @@ must still quiesce the affected application traffic before changing rules. A
 later change makes `FenceScopes` write the whole list as `FENCING`, refresh
 and drain every pooler of every scope in parallel, and only then write the
 list as `FENCED`.
+
+The gateway side of enforcement is in place
+(`go/services/multigateway/executor/fence.go`). A pooler that refuses work on
+a fenced target is to answer `MTF02`; nothing returns it yet. When a statement
+is refused with it, the gateway waits until its cached catalog snapshot has a
+`routing_version` newer than the one the statement was planned against and no
+longer fences that tablegroup and shard, then plans and runs the statement
+again. The total wait of one statement is bounded by `--buffer-window`,
+whether or not failover buffering is enabled; when it runs out, the client
+gets the `MTF02`. A statement is not retried, and the client gets the `MTF02`
+at once, when the session is in a transaction or a pipeline, when an earlier
+step of its plan already ran on a pooler, or when output has already reached
+the client. Minigres has no catalog cache and runs every statement once.
 
 ## API
 

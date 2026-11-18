@@ -45,7 +45,8 @@ out and replace them with positional parameter markers.
 
 - Walks the AST and replaces every `A_Const` leaf (a literal value) with a
   `$1`, `$2`, ... parameter reference in order of appearance
-- Returns the normalized SQL string (used as the cache key) and the extracted
+- Returns a `NormalizeResult` holding the normalized SQL string (used, with
+  the database name, as the cache key), the normalized AST, and the extracted
   bind values (used at execution time)
 
 **Example**:
@@ -61,15 +62,17 @@ Bind:   [42, 'us-east']
 Normalization is intentionally skipped for nodes where the literal value
 affects planning, not just execution:
 
-| Node type          | Reason                                                                                                                                        |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `NULL` constants   | Semantic keyword; `WHERE x = NULL` and `WHERE x = $1` can mean different things                                                               |
-| `VariableSetStmt`  | `SET work_mem = '64MB'` — value is part of the command                                                                                        |
-| `VariableShowStmt` | `SHOW <variable>` — name is the operand                                                                                                       |
-| `DefElem`          | Used inside DDL option lists where literal values affect the DDL itself                                                                       |
-| `SELECT INTO`      | Temp-table variants use a different primitive (`TempTableRoute`); non-temp variants are DDL-like, so caching is skipped for all `SELECT INTO` |
+| Node type                        | Reason                                                                                                                                                                                                                                                                                                                                    |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NULL` constants                 | Semantic keyword; `WHERE x = NULL` and `WHERE x = $1` can mean different things                                                                                                                                                                                                                                                           |
+| `VariableSetStmt`                | `SET work_mem = '64MB'` — value is part of the command                                                                                                                                                                                                                                                                                    |
+| `VariableShowStmt`               | `SHOW <variable>` — name is the operand                                                                                                                                                                                                                                                                                                   |
+| `DefElem`                        | Used inside DDL option lists where literal values affect the DDL itself                                                                                                                                                                                                                                                                   |
+| Planner-inspected function calls | `set_config`, `current_setting`, `pg_create_physical_replication_slot` and `pg_create_logical_replication_slot` (bare or `pg_catalog.`-qualified): the planner reads their arguments as literals. The one exception is the value argument of `set_config(name, value, true)`, which is parameterized so per-request values share one plan |
 
-Queries that cannot be normalized fall through to the normal (uncached) path.
+Separately, the executor's `isCacheable` check keeps some statements off the
+cache entirely (see [Cacheable Statements](#cacheable-statements)); those are
+planned directly, without normalization.
 
 ### Cross-Protocol Unification
 
@@ -135,9 +138,10 @@ The store is partitioned into independent shards. Each shard has its own lock,
 so concurrent reads and writes across different shards proceed without
 contention. A shard is selected by hashing the cache key.
 
-A `singleflight` group prevents thundering-herd problems: if many goroutines
-miss the cache simultaneously for the same key, only one plans the query; the
-rest wait for the result.
+The vendored store also carries a `singleflight` group, but the plan cache
+does not use it: the executor does a plain `Get`, plans on a miss, and `Put`s
+the result. Goroutines that miss simultaneously for the same key each plan the
+query, and the entries overwrite each other.
 
 ### Memory Accounting
 
@@ -145,15 +149,17 @@ The cache is capacity-bounded by memory. Each `Plan` reports its memory cost
 via `CachedSize(bool) int64`, which accounts for:
 
 - The `Plan` struct overhead
-- The length of the normalized SQL string
-- An estimate of the normalized AST tree (~10× the query string length)
+- The length of the original SQL string, the plan type and the table names
+- For a `Route` (or a `ClusterViewRoute` wrapping one): the query, tablegroup
+  and shard strings, plus an estimate of the normalized AST tree (~10× the
+  query string length)
 
 The cache enforces the configured memory limit and evicts entries when the
 limit is reached.
 
 ## Invalidation
 
-Schema changes (DDL) can invalidate all cached plans. Iterating through the
+Some events invalidate all cached plans. Iterating through the
 entire cache to remove entries would be O(n) and would require holding locks.
 
 Instead, the cache uses **epoch-based invalidation**:
@@ -163,10 +169,18 @@ Instead, the cache uses **epoch-based invalidation**:
 - `Invalidate()` increments the epoch counter in O(1)
 - `Get()` compares the entry's epoch against the current epoch; a stale entry
   is treated as a cache miss and the caller replans
+- `Put()` takes the epoch explicitly. The executor captures `Epoch()` before
+  planning and stamps the entry with that value, so a plan built while an
+  invalidation was in flight is stale on its first `Get`
 
-This means DDL statements (ALTER TABLE, CREATE INDEX, DROP TABLE, etc.) call
-`Invalidate()`, and all subsequent `Get()` calls see a clean slate without
+After `Invalidate()`, all subsequent `Get()` calls see a clean slate without
 any locking or iteration.
+
+The only caller today is `Executor.InvalidatePlanCache`, which
+`multigateway/init.go` invokes on a configuration reload, because a dynamic
+flag that affects planning (`--enable-slot-based-replication`) may have
+changed. DDL does not invalidate the cache; see
+[Schema Tracking for Cache Invalidation](#schema-tracking-for-cache-invalidation).
 
 ## Configuration
 
@@ -184,7 +198,8 @@ entirely; all queries fall through to the uncached planning path.
 
 Only DML statements that go through `planDefault()` are cached:
 
-- `SELECT` (excluding `SELECT INTO` temporary tables)
+- `SELECT` (excluding every `SELECT INTO`, and the recognized
+  `multigres.stat_migration` query, whose literal filter the planner must see)
 - `INSERT`
 - `UPDATE`
 - `DELETE`
@@ -195,7 +210,10 @@ Statements that bypass the cache:
 - Transaction control (`BEGIN`, `COMMIT`, `ROLLBACK`)
 - Session commands (`SET`, `SHOW`)
 - `LISTEN` / `NOTIFY`
-- Any statement where normalization is skipped
+- Every statement on a connection that enabled `multigres.unsafe_connection`:
+  its plan is built with the unsafe-statement rejections suppressed, so it
+  must not be served to another connection (see
+  [unsafe statement rejection](unsafe_statement_rejection.md#per-connection-unsafe-mode-multigresunsafe_connection))
 
 ### Simple Protocol Path (`StreamExecute`)
 
@@ -225,8 +243,10 @@ Client sends: SELECT * FROM orders WHERE id = 7
 
 Extended protocol queries already arrive with `$1`, `$2`, … placeholders and
 bind values in separate Bind messages. The normalized SQL is effectively the
-parameterized query text itself. The executor looks up the cache using that
-text, and on a miss plans it and caches the result. On subsequent executions
+parameterized query text itself. The executor looks up the cache using the
+statement's canonical SQL
+(`PreparedStatementInfo.CanonicalSQLAndFingerprint()`), and on a miss plans it
+and caches the result. On subsequent executions
 (or on simple-protocol executions of the same shape), the cached plan is
 reused.
 
@@ -326,7 +346,9 @@ up quickly after an invalidation event.
 
 ### Schema Tracking for Cache Invalidation
 
-`planCache.Invalidate()` exists and works correctly, but nothing calls it yet.
+`planCache.Invalidate()` exists and works correctly, but nothing calls it on
+schema changes (its only caller is the configuration-reload path described
+under [Invalidation](#invalidation)).
 Wiring up DDL detection to trigger invalidation is **deliberately deferred**:
 the planner does not currently consume schema information. Routing decisions
 are derived from the query text and the tablegroup topology, not from table
