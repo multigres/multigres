@@ -405,10 +405,20 @@ func (pm *MultipoolerManager) runMigrationReconcile(ctx context.Context, interva
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			coord, err := pm.MigrationCoordinatorIfPrimary(ctx)
-			if err != nil {
-				continue // not primary, or query service not ready
+			if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+				// A role mismatch is an expected timer skip. A failed probe
+				// must remain visible rather than looking like a standby.
+				if !isRoleMismatch(err) {
+					pm.logger.ErrorContext(ctx, "failed to check recovery status for migration reconcile",
+						"operation", "migration_reconcile", "error", err)
+				}
+				continue
 			}
+			coord := pm.migrationCoordinator()
+			if coord == nil {
+				continue // query service not ready
+			}
+			pm.ensureMigrationSchema(ctx, coord)
 			if !pm.isCatalogShard() {
 				// Migrations run on the catalog shard: their connections live in
 				// multigres.connections, which exists there only.
