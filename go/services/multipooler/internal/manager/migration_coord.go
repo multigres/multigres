@@ -370,7 +370,7 @@ func (pm *MultipoolerManager) releaseForMigrationExport(ctx context.Context) err
 		return err
 	}
 	defer pm.actionLock.Release(lockCtx)
-	divergenceHold := !pm.IsUnmanaged() && pm.consensusMgr.SuspectedDivergence()
+	divergenceHold := !pm.IsUnmanaged() && pm.rewindRequired()
 	return pm.stateManager.ReconcileMigrationHold(lockCtx, divergenceHold || pm.migrationServingHold())
 }
 

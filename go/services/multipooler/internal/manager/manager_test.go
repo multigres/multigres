@@ -966,7 +966,32 @@ func TestOpen_UnwritablePendingRewindDirectoryHoldsServing(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, health)
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, health.ServingStatus)
+	assert.True(t, fresh.rewindRequired())
+	assert.False(t, fresh.consensusMgr.SuspectedDivergence())
+}
+
+func TestOpen_RewindCheckRetryFindsUnreadablePendingMarker(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can traverse a directory without execute permission")
+	}
+	mockQS := mock.NewQueryService()
+	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	pm, dir := setupManagerWithMockDB(t, mockQS, &fakeRuleStore{pos: makeRulePosition(3)})
+	withLock(t, pm, func(ctx context.Context) {
+		require.NoError(t, pm.markSuspectedDivergence(ctx))
+	})
+	require.NoError(t, os.Chmod(dir, 0o600))
+	t.Cleanup(func() { assert.NoError(t, os.Chmod(dir, 0o700)) })
+
+	fresh := restartManagerForTest(t, pm)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, fresh.record.ServingStatus())
+	assert.False(t, fresh.consensusMgr.SuspectedDivergence())
+
+	require.NoError(t, os.Chmod(dir, 0o700))
+	require.NoError(t, fresh.retryPendingRewindWrite(t.Context()))
 	assert.True(t, fresh.consensusMgr.SuspectedDivergence())
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, fresh.record.ServingStatus())
 }
 
 func TestOpen_RewindHoldSurvivesCrashBeforeMarkerWrite(t *testing.T) {
@@ -1000,7 +1025,8 @@ func TestOpen_RewindHoldSurvivesCrashBeforeMarkerWrite(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, health)
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, health.ServingStatus)
-	assert.True(t, fresh.consensusMgr.SuspectedDivergence())
+	assert.True(t, fresh.rewindRequired())
+	assert.False(t, fresh.consensusMgr.SuspectedDivergence())
 
 	state := postgresState{pgctldAvailable: true, postgresRunning: true, pgMode: pgmode.Primary}
 	withLock(t, fresh, func(ctx context.Context) {
@@ -1058,18 +1084,19 @@ func TestOpen_BlockedRewindGuardRetriesBeforeReleasingHold(t *testing.T) {
 
 	withLock(t, fresh, func(ctx context.Context) {
 		require.ErrorContains(t, fresh.clearSuspectedDivergence(ctx), "failed to arm rewind guard")
-		assert.True(t, fresh.consensusMgr.SuspectedDivergence())
+		assert.True(t, fresh.rewindRequired())
 	})
 
 	require.NoError(t, os.Remove(guard))
 	require.NoError(t, fresh.retryPendingRewindWrite(t.Context()))
 	require.FileExists(t, guard)
-	require.FileExists(t, fresh.rewindPending().path)
+	require.NoFileExists(t, fresh.rewindPending().path)
+	assert.False(t, fresh.consensusMgr.SuspectedDivergence())
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, fresh.record.ServingStatus())
 
 	withLock(t, fresh, func(ctx context.Context) {
 		require.NoError(t, fresh.clearSuspectedDivergence(ctx))
-		assert.False(t, fresh.consensusMgr.SuspectedDivergence())
+		assert.False(t, fresh.rewindRequired())
 	})
 	assert.NoFileExists(t, fresh.rewindPending().path)
 	assert.FileExists(t, guard, "clearing one incident must leave the guard armed for the next one")

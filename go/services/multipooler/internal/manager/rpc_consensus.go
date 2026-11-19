@@ -191,7 +191,7 @@ func (pm *MultipoolerManager) ResignLeadership(ctx context.Context, req *multipo
 
 	// Step 6: Resume serving if there is no pre-existing hold. A planned
 	// resignation changes the local role but cannot establish WAL authority.
-	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence(), pm.migrationServingHold()); err != nil {
+	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.rewindRequired(), pm.migrationServingHold()); err != nil {
 		return nil, mterrors.Wrap(err, "failed to re-enable serving after resign")
 	}
 
@@ -898,7 +898,7 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	// entrypoint) before the no-op position gate, so it covers this apply path as
 	// well as the no-op path that never reaches here.
 
-	if pm.consensusMgr.SuspectedDivergence() {
+	if pm.rewindRequired() {
 		// Demoting a (likely diverged) stale primary restarts it as a standby of the
 		// new leader, which requires a pg_rewind. Defer that until the leader is
 		// rewind-ready — it has checkpointed onto its current timeline, relayed here
@@ -978,7 +978,7 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	// the published writable signal immediately rather than waiting a monitor
 	// cycle. Re-enable reads only after the restart path has cleared suspected
 	// divergence.
-	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence(), pm.migrationServingHold()); err != nil {
+	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.rewindRequired(), pm.migrationServingHold()); err != nil {
 		pm.logger.WarnContext(ctx, "failed to update postgres mode to InRecovery after SetPrimary", "error", err)
 	}
 

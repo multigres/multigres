@@ -45,16 +45,17 @@ func TestCheckPendingRewindOnOpen_StaticLeader(t *testing.T) {
 		pm := newSentinelTestManager(t)
 		require.NoError(t, pm.rewindPending().write())
 
-		pending, err := pm.checkPendingRewindOnOpen()
+		pending, unclean, err := pm.checkPendingRewindOnOpen()
 		require.NoError(t, err)
 		assert.True(t, pending)
+		assert.False(t, unclean)
 		assert.NoFileExists(t, pm.rewindGuard().path)
 	})
 	t.Run("missing pooler directory", func(t *testing.T) {
 		pm := newSentinelTestManager(t)
 		require.NoError(t, os.Remove(pm.record.PoolerDir()))
 
-		_, err := pm.checkPendingRewindOnOpen()
+		_, _, err := pm.checkPendingRewindOnOpen()
 		require.ErrorIs(t, err, os.ErrNotExist)
 	})
 	t.Run("pooler path points to a regular file", func(t *testing.T) {
@@ -63,7 +64,7 @@ func TestCheckPendingRewindOnOpen_StaticLeader(t *testing.T) {
 		require.NoError(t, os.Remove(dir))
 		require.NoError(t, os.WriteFile(dir, []byte("not a directory"), 0o600))
 
-		_, err := pm.checkPendingRewindOnOpen()
+		_, _, err := pm.checkPendingRewindOnOpen()
 		require.Error(t, err)
 	})
 }

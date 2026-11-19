@@ -159,9 +159,14 @@ type MultipoolerManager struct {
 	// pgMonitor manages the PostgreSQL monitoring loop. See periodicRunner.
 	pgMonitor periodicRunner
 
-	// rewindPendingWriteFailed schedules marker persistence on the next monitor
-	// tick, even when no rewind source is available. Writes hold the action lock.
-	rewindPendingWriteFailed atomic.Bool
+	// rewindPersistenceFailed schedules a retry of the startup checks or the
+	// pending marker write. Writes hold the action lock.
+	rewindPersistenceFailed atomic.Bool
+
+	// rewindGuardHold keeps serving paused after an unclean exit or an
+	// inconclusive startup check. Only explicit divergence evidence changes
+	// PostgreSQL's crash-recovery mode. Writes hold the action lock.
+	rewindGuardHold atomic.Bool
 
 	// Only coordinated poolers can miss a leadership change while down.
 	rewindGuardRequired bool
@@ -635,12 +640,13 @@ func (pm *MultipoolerManager) Open(ctx context.Context) {
 	}
 	// A coordinated pooler can lose knowledge of a newer leader on crash.
 	// Restore its rewind hold and arm the guard before publishing startup health.
-	pending, err := pm.checkPendingRewindOnOpen()
+	pending, unclean, err := pm.checkPendingRewindOnOpen()
+	pm.rewindGuardHold.Store(unclean || err != nil)
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "failed to check pending rewind on open; holding serving", "error", err)
-		pm.rewindPendingWriteFailed.Store(true)
+		pm.rewindPersistenceFailed.Store(true)
 	}
-	if pending || err != nil {
+	if pending {
 		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
 			pm.logger.ErrorContext(ctx, "failed to restore suspected divergence on open", "error", err)
 			return
@@ -745,7 +751,7 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 		go pm.runCatalogVersionRefresh(pm.ctx, catalogVersionRefreshInterval)
 	}
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		divergenceHold := !pm.IsUnmanaged() && pm.consensusMgr.SuspectedDivergence()
+		divergenceHold := !pm.IsUnmanaged() && pm.rewindRequired()
 		s.ServingStatus = reconciledServingStatus(targetServingStatus, divergenceHold || pm.migrationServingHold())
 	}); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to transition serving status on open", "target", targetServingStatus, "error", err)

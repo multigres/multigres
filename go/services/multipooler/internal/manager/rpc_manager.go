@@ -875,7 +875,7 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 	// Publish the physical standby role, but keep the node DRAINING while its WAL
 	// remains rewind-suspect. The rewind path re-enables reads after it clears the
 	// flag.
-	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence(), pm.migrationServingHold()); err != nil {
+	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.rewindRequired(), pm.migrationServingHold()); err != nil {
 		return mterrors.Wrap(err, "failed to publish standby state after demote")
 	}
 
@@ -994,9 +994,9 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	// surviving timeline branched), so we never restart-without-rewind here; the
 	// pg_rewind dry-run (cheap when there's no divergence) runs whenever divergence
 	// is suspected.
-	wantRewind := pm.consensusMgr.SuspectedDivergence()
-	if wantRewind && pm.rewindPendingWriteFailed.Load() {
-		if err := pm.persistPendingRewind(); err != nil {
+	wantRewind := pm.rewindRequired()
+	if wantRewind && pm.rewindPersistenceFailed.Load() {
+		if err := pm.retryRewindPersistenceLocked(ctx); err != nil {
 			return false, err
 		}
 	}
