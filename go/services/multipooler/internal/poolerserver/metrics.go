@@ -46,7 +46,7 @@ func newDrainStats() *drainStats {
 
 	s.duration, err = s.meter.Float64Histogram(
 		"mg.pooler.drain.duration",
-		metric.WithDescription("Wall-clock duration of graceful drain on not-serving transition"),
+		metric.WithDescription("Wall-clock duration of a graceful drain: a not-serving transition, or an admission fence closing the gate"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.1, 0.5, 1, 2, 5, 10, 30, 60),
 	)
@@ -80,25 +80,34 @@ const (
 	drainOutcomeForceClose = "force_close"
 )
 
-// recordDrain records a completed drain event with its wall-clock duration
-// and outcome.
-func (s *drainStats) recordDrain(ctx context.Context, seconds float64, outcome string, role servingstate.RoutingRole) {
-	attrs := drainAttributes(role)
+// Drain reasons, the reason attribute of every drain metric: the not-serving
+// transition of a failover or shutdown, or an admission fence closing the
+// gate (see fence_gate.go).
+const (
+	drainReasonFailover = "failover"
+	drainReasonFence    = "fence"
+)
+
+// recordDrain records a completed drain event with its wall-clock duration,
+// outcome and reason.
+func (s *drainStats) recordDrain(ctx context.Context, seconds float64, outcome, reason string, role servingstate.RoutingRole) {
+	attrs := drainAttributes(reason, role)
 	s.duration.Record(ctx, seconds, metric.WithAttributes(attrs...))
 	s.outcome.Add(ctx, 1, metric.WithAttributes(append(attrs, attribute.String("outcome", outcome))...))
 }
 
 // recordForceClosed adds to the count of connections force-closed across
 // all drain events.
-func (s *drainStats) recordForceClosed(ctx context.Context, n int, role servingstate.RoutingRole) {
+func (s *drainStats) recordForceClosed(ctx context.Context, n int, reason string, role servingstate.RoutingRole) {
 	if n <= 0 {
 		return
 	}
-	s.forceClosed.Add(ctx, int64(n), metric.WithAttributes(drainAttributes(role)...))
+	s.forceClosed.Add(ctx, int64(n), metric.WithAttributes(drainAttributes(reason, role)...))
 }
 
-func drainAttributes(role servingstate.RoutingRole) []attribute.KeyValue {
+func drainAttributes(reason string, role servingstate.RoutingRole) []attribute.KeyValue {
 	return []attribute.KeyValue{
+		attribute.String("reason", reason),
 		attribute.String("routing_role", role.String()),
 	}
 }

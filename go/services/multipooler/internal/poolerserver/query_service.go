@@ -131,8 +131,13 @@ func (a *admittedQueryService) PortalStreamExecute(ctx context.Context, target *
 	return exec.PortalStreamExecute(ctx, target, preparedStatement, portal, options, portalOptions, reservationOptions, callback)
 }
 
+// Describe is admitted past the fence gate: it runs no application work (see
+// startUnfencedRequest).
 func (a *admittedQueryService) Describe(ctx context.Context, target *query.Target, preparedStatement *query.PreparedStatement, portal *query.Portal, options *query.ExecuteOptions) (*query.StatementDescription, error) {
-	exec, err := a.admit(target, AdmissionKind(options.GetReservedConnectionId(), false))
+	if err := a.s.startUnfencedRequest(target, AdmissionKind(options.GetReservedConnectionId(), false)); err != nil {
+		return nil, err
+	}
+	exec, err := a.s.Executor()
 	if err != nil {
 		return nil, err
 	}

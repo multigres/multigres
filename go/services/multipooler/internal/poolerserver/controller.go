@@ -16,6 +16,7 @@ package poolerserver
 
 import (
 	"context"
+	"time"
 
 	"github.com/multigres/multigres/go/common/queryservice"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -54,13 +55,38 @@ type PoolerController interface {
 	OnStateChange(ctx context.Context, state servingstate.State) error
 
 	// StartRequest checks whether a request should be admitted, based on its
-	// RequestKind and the pooler's drain phase. It returns MTF01 (which the
-	// gateway buffers and retries on the new primary) when rejected. Existing
+	// RequestKind, the pooler's drain phase and, on a primary, the fence gate.
+	// It returns MTF01 (which the gateway buffers and retries on the new
+	// primary) when the drain rejects it, and MTF02 when the fence gate does. Existing
 	// reserved-connection ops are always admitted (the connection's existence is
 	// the real gate); during a graceful drain, single queries are served until
 	// the reserved pool has drained, while new reservations are rejected
 	// throughout. See StartRequest for the full admission matrix.
 	StartRequest(target *query.Target, kind RequestKind) error
+
+	// EnableFenceGate arms the admission fence gate: a primary refuses new
+	// application work with MTF02 until a fence read is applied, and again
+	// after each promotion. See fence_gate.go.
+	EnableFenceGate()
+
+	// FenceEpoch returns the fence gate's epoch, which a fence read takes
+	// before it reads the catalog and passes to ApplyFence.
+	FenceEpoch() uint64
+
+	// ApplyFence applies a fence read taken at epoch: fenced closes the gate,
+	// draining a primary bounded by drainTimeout (the grace period when not
+	// positive), and otherwise it opens. A read taken before the gate was last
+	// reset fails with ABORTED. Calls must be serialized.
+	ApplyFence(ctx context.Context, epoch uint64, fenced bool, drainTimeout time.Duration) error
+
+	// FenceGateChanged receives a value whenever the fence gate is armed,
+	// reset (the pooler became primary) or closed.
+	FenceGateChanged() <-chan struct{}
+
+	// FenceReadState reports what the fence gate of a primary needs: unread,
+	// a fence read before it admits work; closed, a periodic re-read for a
+	// missed unfence. Both are false on a replica.
+	FenceReadState() (unread, closed bool)
 
 	// AwaitStateChange blocks until the pooler's routing role and serving status
 	// match the given targets, or ctx is cancelled. Used by the health streamer to
