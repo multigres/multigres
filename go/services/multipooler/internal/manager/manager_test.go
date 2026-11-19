@@ -944,21 +944,46 @@ func TestOpen_HonorsMigrationHoldOnRestart(t *testing.T) {
 		"Open must hold serving (DRAINING) when an IMPORT migration is in progress on this shard, not publish SERVING unreconciled")
 }
 
-func TestOpen_PendingRewindReadErrorHoldsServing(t *testing.T) {
+func TestOpen_UnwritablePendingRewindDirectoryHoldsServing(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write to a read-only directory")
+	}
 	mockQS := mock.NewQueryService()
 	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
 	pm, dir := setupManagerWithMockDB(t, mockQS, &fakeRuleStore{pos: makeRulePosition(3)})
-	// A symlink loop makes the marker unreadable, not absent.
+	require.NoError(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { assert.NoError(t, os.Chmod(dir, 0o700)) })
+	withLock(t, pm, func(ctx context.Context) {
+		require.Error(t, pm.markSuspectedDivergence(ctx))
+	})
+	pending, err := pm.rewindPending().present()
+	require.NoError(t, err)
+	require.False(t, pending, "an unwritable directory can still report an absent marker")
+
+	fresh := restartManagerForTest(t, pm)
+	health, err := fresh.GetHealthState(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, health)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, health.ServingStatus)
+	assert.True(t, fresh.consensusMgr.SuspectedDivergence())
+}
+
+func TestOpen_DanglingPendingRewindMarkerHoldsServing(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	pm, dir := setupManagerWithMockDB(t, mockQS, &fakeRuleStore{pos: makeRulePosition(3)})
+	// A dangling marker symlink must hold serving even though stat sees no file.
 	marker := filepath.Join(dir, constants.RewindPendingFile)
-	require.NoError(t, os.Symlink(marker, marker))
+	require.NoError(t, os.Symlink(filepath.Join(dir, "missing-marker-target"), marker))
 
 	fresh := restartManagerForTest(t, pm)
 	health, err := fresh.GetHealthState(t.Context())
 	require.NoError(t, err)
 	require.NotNil(t, health)
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, health.ServingStatus,
-		"an unreadable pending rewind marker must not allow reads on startup")
+		"a dangling pending rewind marker must not allow reads on startup")
 }
 
 // TestPause_RestartsBackupHealthPoller verifies that the backup-health poller

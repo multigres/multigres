@@ -58,14 +58,77 @@ func (pm *MultipoolerManager) rewindPending() sentinel {
 	return pm.newSentinel(constants.RewindPendingFile, "WAL divergence suspected\n")
 }
 
+// checkPendingRewindOnOpen verifies that an absent marker is meaningful. A
+// read-only or full pooler directory could have prevented a prior process from
+// recording divergence, even if stat can report that the marker is absent.
+func (pm *MultipoolerManager) checkPendingRewindOnOpen() (bool, error) {
+	pending := pm.rewindPending()
+	// Treat any entry at the marker path as a hold, including a broken symlink.
+	if _, err := os.Lstat(pending.path); err == nil {
+		return true, nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return false, err
+	}
+
+	dir := filepath.Dir(pending.path)
+	// Use a temporary file so a crash during the probe cannot leave a rewind
+	// hold on an otherwise healthy pooler.
+	probe, err := os.CreateTemp(dir, ".rewind-pending-probe-*")
+	if err != nil {
+		return false, err
+	}
+	defer os.Remove(probe.Name())
+	defer probe.Close()
+	if _, err := probe.WriteString(pending.contents); err != nil {
+		return false, err
+	}
+	if err := probe.Sync(); err != nil {
+		return false, err
+	}
+	return false, fsyncPath(dir)
+}
+
+// persistPendingRewind records the hold and remembers any failure for retry.
+// The caller holds the action lock.
+func (pm *MultipoolerManager) persistPendingRewind() error {
+	err := pm.rewindPending().write()
+	pm.rewindPendingWriteFailed.Store(err != nil)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to write pending rewind marker")
+	}
+	return nil
+}
+
+// retryPendingRewindWrite runs independently of PostgreSQL and its leader so
+// neither reachability nor rewind readiness can prevent recording the hold.
+func (pm *MultipoolerManager) retryPendingRewindWrite(ctx context.Context) error {
+	if !pm.rewindPendingWriteFailed.Load() || !pm.consensusMgr.SuspectedDivergence() {
+		return nil
+	}
+	lockCtx, err := pm.actionLock.Acquire(ctx, "retry pending rewind marker")
+	if err != nil {
+		return err
+	}
+	defer pm.actionLock.Release(lockCtx)
+	if !pm.rewindPendingWriteFailed.Load() || !pm.consensusMgr.SuspectedDivergence() {
+		return nil
+	}
+	retryCtx, cancel := context.WithTimeout(lockCtx, defaultRemedialActionTimeout)
+	defer cancel()
+	return pm.markSuspectedDivergence(retryCtx)
+}
+
 // clearSuspectedDivergence releases the durable hold before the in-memory one.
 // A failed removal leaves serving held so a retry can complete the cleanup.
 func (pm *MultipoolerManager) clearSuspectedDivergence(ctx context.Context) error {
 	if err := pm.rewindPending().remove(); err != nil {
 		return mterrors.Wrap(err, "failed to remove pending rewind marker")
 	}
-	_, err := pm.consensusMgr.SetSuspectedDivergence(ctx, false)
-	return err
+	if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, false); err != nil {
+		return err
+	}
+	pm.rewindPendingWriteFailed.Store(false)
+	return nil
 }
 
 // A failed pg_rewind is not always a ruined data directory. pg_rewind only starts

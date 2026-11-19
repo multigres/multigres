@@ -745,6 +745,57 @@ func TestMarkSuspectedDivergenceDrainsServing(t *testing.T) {
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, pm.record.ServingStatus())
 }
 
+func TestMonitor_RetriesPendingRewindWriteWithUnreachableLeader(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+	pm, _ := setupManagerWithMockDB(t, mockQS, &fakeRuleStore{pos: makeRulePosition(3)})
+	leader := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "new-leader"}
+	position := makeRulePosition(4).GetPosition()
+	position.GetDecision().LeaderId = leader
+	dialed := false
+	pm.leaderReachableFn = func(string, int32) bool {
+		dialed = true
+		return false
+	}
+
+	blockPendingRewindMarker(t, pm)
+	withLock(t, pm, func(ctx context.Context) {
+		require.NoError(t, pm.consensusMgr.RecordTermPrimary(ctx, &clustermetadatapb.ReplicationPrimary{
+			Position:    position,
+			Primary:     &clustermetadatapb.PoolerAddress{Id: leader, Host: "new-leader", PostgresPort: 5432},
+			RewindReady: true,
+		}))
+		err := pm.takeRemedialAction(ctx, remedialActionDemoteStalePrimary, postgresState{postgresRunning: true})
+		require.ErrorContains(t, err, "failed to write pending rewind marker")
+		_, err = pm.restartAsStandbyLocked(ctx, "new-leader", 5432)
+		require.ErrorContains(t, err, "failed to write pending rewind marker")
+	})
+	assert.False(t, dialed, "the failed marker write must stop the demote before preflight")
+	assert.True(t, pm.consensusMgr.SuspectedDivergence())
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, pm.record.ServingStatus())
+
+	_, err := pm.monitorPostgresIteration(t.Context())
+	require.ErrorContains(t, err, "failed to write pending rewind marker")
+
+	// Restore the ability to write while both pgctld and the source remain
+	// unavailable. Neither should prevent the monitor persisting the hold.
+	require.NoError(t, os.RemoveAll(pm.rewindPending().path))
+	pm.pgctldClient = &mockPgctldClient{statusError: assert.AnError}
+	_, err = pm.monitorPostgresIteration(t.Context())
+	require.ErrorIs(t, err, assert.AnError)
+	pending, err := pm.rewindPending().present()
+	require.NoError(t, err)
+	require.True(t, pending)
+	assert.False(t, dialed)
+
+	fresh := restartManagerForTest(t, pm)
+	health, err := fresh.GetHealthState(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, health)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, health.ServingStatus)
+}
+
 // TestShouldRewindForDivergence verifies the up-path rewind gate: suspected
 // divergence, a different non-revoked leader known to rewind toward, that leader
 // rewind-ready, and the backoff elapsed. Any missing condition holds instead.

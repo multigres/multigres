@@ -368,6 +368,11 @@ func (pm *MultipoolerManager) monitorPostgresIteration(noTimeoutCtx context.Cont
 		return postgresState{}, err
 	}
 
+	if err := pm.retryPendingRewindWrite(noTimeoutCtx); err != nil {
+		pm.logger.ErrorContext(noTimeoutCtx, "failed to persist pending rewind; will retry", "error", err)
+		return postgresState{}, err
+	}
+
 	// Discover current state and decide on an action, bounded to
 	// defaultRemedialActionTimeout. Kept alive (not re-derived) across the
 	// post-lock re-check below, so detection and redetection share one 30s
@@ -1286,7 +1291,7 @@ func (pm *MultipoolerManager) markSuspectedDivergence(ctx context.Context) error
 	// Keep the in-memory hold even if persistence fails, and still attempt to
 	// stop serving. Neither a disk error nor a state-transition error makes the
 	// WAL safe to read.
-	persistErr := pm.rewindPending().write()
+	persistErr := pm.persistPendingRewind()
 	if pm.stateManager == nil {
 		return persistErr
 	}
@@ -1409,6 +1414,7 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 		// staleStandbyDemoteTarget above, so by here it is safe to rewind.
 		if err := pm.markSuspectedDivergence(ctx); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set suspected divergence", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			return err
 		}
 		if _, err := pm.restartAsStandbyLocked(ctx, target.GetHost(), target.GetPostgresPort()); err != nil {
 			pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to restart stale primary as standby", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun

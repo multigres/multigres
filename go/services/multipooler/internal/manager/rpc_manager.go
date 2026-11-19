@@ -995,6 +995,11 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	// pg_rewind dry-run (cheap when there's no divergence) runs whenever divergence
 	// is suspected.
 	wantRewind := pm.consensusMgr.SuspectedDivergence()
+	if wantRewind && pm.rewindPendingWriteFailed.Load() {
+		if err := pm.persistPendingRewind(); err != nil {
+			return false, err
+		}
+	}
 
 	// pg_rewind reads from the source over a live connection, so with the source
 	// down the rewind below can only fail, after postgres has already been stopped.

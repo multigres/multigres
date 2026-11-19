@@ -159,6 +159,10 @@ type MultipoolerManager struct {
 	// pgMonitor manages the PostgreSQL monitoring loop. See periodicRunner.
 	pgMonitor periodicRunner
 
+	// rewindPendingWriteFailed schedules marker persistence on the next monitor
+	// tick, even when no rewind source is available. Writes hold the action lock.
+	rewindPendingWriteFailed atomic.Bool
+
 	// promotionInProgress is set while pg_promote() has been called but postgres has not yet
 	// transitioned to primary mode. Cleared when promotion completes (success or failure).
 	// Reported in the health status so multiorch can suppress spurious PrimaryIsDead detection.
@@ -616,9 +620,10 @@ func (pm *MultipoolerManager) Open(ctx context.Context) {
 	// Restore the divergence hold before publishing startup health. A deferred
 	// rewind can leave postgres running, so database readiness alone is not enough
 	// to permit reads. An unreadable marker is not proof that the WAL is safe.
-	pending, err := pm.rewindPending().present()
+	pending, err := pm.checkPendingRewindOnOpen()
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "failed to check pending rewind on open; holding serving", "error", err)
+		pm.rewindPendingWriteFailed.Store(true)
 	}
 	if pending || err != nil {
 		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
