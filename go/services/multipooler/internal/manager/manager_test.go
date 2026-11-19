@@ -1025,11 +1025,54 @@ func TestOpen_CleanPoolerShutdownDoesNotRestoreRewindHold(t *testing.T) {
 	require.NoFileExists(t, pm.rewindGuard().path)
 
 	fresh := openManagerAfterRestartForTest(t, pm, snapshot)
+	// A second Open on the same manager must not mistake its own guard for
+	// evidence that the previous process crashed.
+	withLock(t, fresh, func(ctx context.Context) { fresh.Open(ctx) })
 	health, err := fresh.GetHealthState(t.Context())
 	require.NoError(t, err)
 	require.NotNil(t, health)
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, health.ServingStatus)
 	assert.False(t, fresh.consensusMgr.SuspectedDivergence())
+}
+
+func TestOpen_BlockedRewindGuardRetriesBeforeReleasingHold(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	pm, _ := setupManagerWithMockDB(t, mockQS, &fakeRuleStore{pos: makeRulePosition(3)})
+	snapshot := pm.record.Snapshot()
+	pm.ShutdownForTest(t.Context())
+	guard := pm.rewindGuard().path
+	require.NoFileExists(t, guard)
+
+	// A directory at the guard path makes the atomic replacement fail.
+	require.NoError(t, os.Mkdir(guard, 0o700))
+	fresh := openManagerAfterRestartForTest(t, pm, snapshot)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, fresh.record.ServingStatus())
+
+	cancelledCtx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, fresh.retryPendingRewindWrite(cancelledCtx), context.Canceled)
+	require.ErrorContains(t, fresh.retryPendingRewindWrite(t.Context()), "failed to arm rewind guard")
+	require.NoFileExists(t, fresh.rewindPending().path)
+
+	withLock(t, fresh, func(ctx context.Context) {
+		require.ErrorContains(t, fresh.clearSuspectedDivergence(ctx), "failed to arm rewind guard")
+		assert.True(t, fresh.consensusMgr.SuspectedDivergence())
+	})
+
+	require.NoError(t, os.Remove(guard))
+	require.NoError(t, fresh.retryPendingRewindWrite(t.Context()))
+	require.FileExists(t, guard)
+	require.FileExists(t, fresh.rewindPending().path)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, fresh.record.ServingStatus())
+
+	withLock(t, fresh, func(ctx context.Context) {
+		require.NoError(t, fresh.clearSuspectedDivergence(ctx))
+		assert.False(t, fresh.consensusMgr.SuspectedDivergence())
+	})
+	assert.NoFileExists(t, fresh.rewindPending().path)
+	assert.FileExists(t, guard, "clearing one incident must leave the guard armed for the next one")
 }
 
 func TestOpen_DanglingPendingRewindMarkerHoldsServing(t *testing.T) {

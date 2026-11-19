@@ -40,6 +40,34 @@ func blockPendingRewindMarker(t *testing.T, pm *MultipoolerManager) {
 	require.NoError(t, os.MkdirAll(filepath.Join(pm.rewindPending().path, "child"), 0o700))
 }
 
+func TestCheckPendingRewindOnOpen_StaticLeader(t *testing.T) {
+	t.Run("existing marker", func(t *testing.T) {
+		pm := newSentinelTestManager(t)
+		require.NoError(t, pm.rewindPending().write())
+
+		pending, err := pm.checkPendingRewindOnOpen()
+		require.NoError(t, err)
+		assert.True(t, pending)
+		assert.NoFileExists(t, pm.rewindGuard().path)
+	})
+	t.Run("missing pooler directory", func(t *testing.T) {
+		pm := newSentinelTestManager(t)
+		require.NoError(t, os.Remove(pm.record.PoolerDir()))
+
+		_, err := pm.checkPendingRewindOnOpen()
+		require.ErrorIs(t, err, os.ErrNotExist)
+	})
+	t.Run("pooler path points to a regular file", func(t *testing.T) {
+		pm := newSentinelTestManager(t)
+		dir := pm.record.PoolerDir()
+		require.NoError(t, os.Remove(dir))
+		require.NoError(t, os.WriteFile(dir, []byte("not a directory"), 0o600))
+
+		_, err := pm.checkPendingRewindOnOpen()
+		require.Error(t, err)
+	})
+}
+
 // TestDiscoverPostgresState_RewindSentinel verifies discoverPostgresState surfaces
 // the on-disk rewind sentinel, the durable signal the monitor gates on.
 func TestDiscoverPostgresState_RewindSentinel(t *testing.T) {
