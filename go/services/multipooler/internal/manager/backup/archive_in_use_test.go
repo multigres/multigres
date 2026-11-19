@@ -16,6 +16,7 @@ package backup
 
 import (
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -24,6 +25,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	commonbackup "github.com/multigres/multigres/go/common/backup"
+	pb "github.com/multigres/multigres/go/pb/pgbackrestdservice"
 )
 
 const sha1Suffix = "-0123456789abcdef0123456789abcdef01234567.gz"
@@ -143,9 +147,7 @@ func TestArchiveInUse(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			stubRepoLs(t, tt.listings)
-			poolerDir := t.TempDir()
-			e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-			e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
+			e, _ := newTestEngine(t, t.TempDir(), "tg1", "0", "/tmp/backups")
 
 			got, err := e.ArchiveInUse(t.Context())
 
@@ -180,9 +182,7 @@ func TestArchiveInUse_ErrorsWhenArchiveCannotBeListed(t *testing.T) {
 			listings := maps.Clone(healthy)
 			tt.mutate(listings)
 			stubRepoLs(t, listings)
-			poolerDir := t.TempDir()
-			e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-			e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
+			e, _ := newTestEngine(t, t.TempDir(), "tg1", "0", "/tmp/backups")
 
 			inUse, err := e.ArchiveInUse(t.Context())
 
@@ -192,11 +192,107 @@ func TestArchiveInUse_ErrorsWhenArchiveCannotBeListed(t *testing.T) {
 	}
 }
 
-func TestArchiveInUse_ErrorsWhenConfigPathMissing(t *testing.T) {
-	e, _ := newTestEngine(t, t.TempDir(), "tg1", "0", "/tmp/backups")
+// An entry whose name pgBackRest does not write is not something a failed
+// bootstrap leaves, and the sidecar would refuse to list it: it counts as in use
+// instead of failing every classification.
+func TestArchiveInUse_UnexpectedNamesCountAsInUse(t *testing.T) {
+	const (
+		stanzaArchive = "archive/multigres"
+		idDir         = stanzaArchive + "/17-1"
+	)
+	tests := []struct {
+		name     string
+		listings map[string]string
+	}{
+		{name: "archive id of an unknown shape", listings: map[string]string{stanzaArchive: repoLsJSON("9.6-1:path")}},
+		{name: "archive id with a traversal", listings: map[string]string{stanzaArchive: repoLsJSON("..:path")}},
+		{name: "stray directory beside the archive id", listings: map[string]string{stanzaArchive: repoLsJSON("17-1:path", "stray:path")}},
+		{
+			name: "WAL directory of an unknown shape",
+			listings: map[string]string{
+				stanzaArchive: repoLsJSON("17-1:path"),
+				idDir:         repoLsJSON("0000000100000000:path", "tmp:path"),
+			},
+		},
+		{
+			name: "only WAL directory of an unknown shape",
+			listings: map[string]string{
+				stanzaArchive: repoLsJSON("17-1:path"),
+				idDir:         repoLsJSON("00000001:path"),
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := &fakeSidecar{}
+			e := newSidecarTestEngine(t, fake)
+			listings := tt.listings
+			fake.reply = func(_ pb.Command, _ []string, stdout, _ io.Writer) int {
+				fake.mu.Lock()
+				last := fake.calls[len(fake.calls)-1]
+				fake.mu.Unlock()
+				path := "archive/multigres"
+				if last.archiveID != "" {
+					path += "/" + last.archiveID
+				}
+				listing, ok := listings[path]
+				if !ok {
+					listing = repoLsJSON()
+				}
+				_, _ = io.WriteString(stdout, listing)
+				return 0
+			}
 
+			inUse, err := e.ArchiveInUse(t.Context())
+
+			require.NoError(t, err)
+			assert.True(t, inUse)
+			for _, c := range fake.calls {
+				assert.True(t, c.archiveID == "" || commonbackup.ValidArchiveID(c.archiveID), "only valid names are sent to the sidecar: %q", c.archiveID)
+				assert.True(t, c.walDir == "" || commonbackup.ValidWALDir(c.walDir), "only valid names are sent to the sidecar: %q", c.walDir)
+			}
+		})
+	}
+}
+
+// ArchiveInUse sends the sidecar structured fields, never a path, and every
+// call carries a deadline (the sidecar derives --io-timeout from it).
+func TestArchiveInUse_SendsStructuredFieldsWithADeadline(t *testing.T) {
+	fake := &fakeSidecar{}
+	fake.reply = func(_ pb.Command, _ []string, stdout, _ io.Writer) int {
+		fake.mu.Lock()
+		last := fake.calls[len(fake.calls)-1]
+		fake.mu.Unlock()
+		switch {
+		case last.archiveID == "":
+			_, _ = io.WriteString(stdout, repoLsJSON("17-1:path", "archive.info:file"))
+		case last.walDir == "":
+			_, _ = io.WriteString(stdout, repoLsJSON("0000000100000000:path"))
+		default:
+			_, _ = io.WriteString(stdout, repoLsJSON(walSegments("0000000100000000", 1)...))
+		}
+		return 0
+	}
+	e := newSidecarTestEngine(t, fake)
+
+	inUse, err := e.ArchiveInUse(t.Context())
+	require.NoError(t, err)
+	assert.False(t, inUse)
+
+	require.Len(t, fake.calls, 3)
+	want := []struct{ id, dir string }{{"", ""}, {"17-1", ""}, {"17-1", "0000000100000000"}}
+	for i, c := range fake.calls {
+		assert.Equal(t, pb.Command_COMMAND_REPO_LS, c.cmd)
+		assert.Equal(t, []string{"--output=json", "--log-level-console=off"}, c.args, "no path among the options")
+		assert.Equal(t, want[i].id, c.archiveID)
+		assert.Equal(t, want[i].dir, c.walDir)
+		assert.True(t, c.hasDeadline, "call %d has a deadline", i)
+		require.NoError(t, sidecarAllows(c.cmd, c.args))
+	}
+}
+
+func TestArchiveInUse_ErrorsWithoutBackupConfig(t *testing.T) {
+	e, _ := newTestEngine(t, t.TempDir(), "tg1", "0", "")
 	_, err := e.ArchiveInUse(t.Context())
-
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "pgbackrest config not found")
 }

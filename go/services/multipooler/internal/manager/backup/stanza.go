@@ -21,58 +21,73 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
-	"github.com/multigres/multigres/go/tools/executil"
+	pb "github.com/multigres/multigres/go/pb/pgbackrestdservice"
 )
-
-// stanzaDeleteTimeout bounds each command StanzaDelete runs.
-const stanzaDeleteTimeout = 30 * time.Second
 
 // StanzaCreate runs pgbackrest stanza-create. The operation is idempotent
 // and safe to run concurrently — no backup lease required.
 func (e *Engine) StanzaCreate(ctx context.Context) error {
 	defer e.listCache.Invalidate()
+	stanzaCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 
-	if err := e.runPgBackRestCmd(ctx, 5*time.Second, e.pgbackrestIOTimeoutCmd, "stanza-create"); err != nil {
-		return err
+	cmd := e.pgbackrestCmd(
+		"--stanza="+stanzaName,
+		"stanza-create")
+
+	output, err := e.output(stanzaCtx, cmd)
+	if err != nil {
+		return mterrors.New(mtrpcpb.Code_INTERNAL,
+			fmt.Sprintf("pgbackrest stanza-create failed for stanza %s: %v\nOutput: %s",
+				stanzaName, err, output))
 	}
 
 	e.logger.InfoContext(ctx, "pgbackrest stanza initialized", "stanza", stanzaName)
 	return nil
 }
 
-// StanzaDelete removes the stanza and its archived WAL. pgBackRest requires the
-// stanza to be stopped, so it runs `stop`, `stanza-delete --force` and `start`;
-// `start` always runs so the stop file never blocks later commands. Callers must
-// hold the backup lease and have checked that the repository holds no backups.
-func (e *Engine) StanzaDelete(ctx context.Context) (retErr error) {
+// StanzaDelete removes the stanza and its archived WAL through the sidecar,
+// which stops archiving, deletes the stanza and starts archiving again, and
+// fails when it cannot start it again. The sidecar also refuses unless the
+// repository holds no backup. Callers must hold the backup lease and have
+// checked that the repository holds no backups.
+func (e *Engine) StanzaDelete(ctx context.Context) error {
 	defer e.listCache.Invalidate()
-	if err := e.runPgBackRestCmd(ctx, stanzaDeleteTimeout, e.pgbackrestCmd, "stop"); err != nil {
-		return err
-	}
-	defer func() {
-		err := e.runPgBackRestCmd(context.WithoutCancel(ctx), stanzaDeleteTimeout, e.pgbackrestCmd, "start")
-		if err == nil {
-			return
+	runCtx, cancel := context.WithTimeout(ctx, sidecarResetDeadline())
+	defer cancel()
+	output, err := e.output(runCtx, &pgCmd{command: pb.Command_COMMAND_STANZA_DELETE})
+	if err != nil {
+		failure := mterrors.New(mtrpcpb.Code_INTERNAL,
+			fmt.Sprintf("pgbackrest stanza-delete failed for stanza %s: %v\nOutput: %s",
+				stanzaName, err, output))
+		if topoclient.IsLeaseAbandon(err) {
+			// Rebuilt as text above, so the request not to unlock the lease is kept.
+			return topoclient.AbandonLease(failure)
 		}
-		e.logger.ErrorContext(ctx, "failed to start the pgbackrest stanza again after stanza-delete", "stanza", stanzaName, "error", err)
-		if retErr == nil {
-			retErr = err
-		}
-	}()
-
-	if err := e.runPgBackRestCmd(ctx, stanzaDeleteTimeout, e.pgbackrestIOTimeoutCmd, "--force", "stanza-delete"); err != nil {
-		return err
+		return failure
 	}
 
 	e.logger.InfoContext(ctx, "pgbackrest stanza removed", "stanza", stanzaName)
 	return nil
 }
 
-// StanzaStart runs `pgbackrest start`, clearing a stop file left by an
-// interrupted StanzaDelete. It only warns when there is none.
-func (e *Engine) StanzaStart(ctx context.Context) error {
-	return e.runPgBackRestCmd(ctx, stanzaDeleteTimeout, e.pgbackrestCmd, "start")
+// ResetArchiveSpool has the sidecar clear the asynchronous archive-push state
+// of earlier attempts and lift any stop file an interrupted stanza reset left.
+// A new initdb restarts WAL numbering, so a stale acknowledgement would make
+// archive-push skip the new cluster's first segment and the archive check time
+// out. It needs no repository, so it can run before the first Configure.
+func (e *Engine) ResetArchiveSpool(ctx context.Context) error {
+	runCtx, cancel := context.WithTimeout(ctx, sidecarResetDeadline())
+	defer cancel()
+	output, err := e.output(runCtx, &pgCmd{command: pb.Command_COMMAND_ARCHIVE_SPOOL_RESET})
+	if err != nil {
+		return mterrors.New(mtrpcpb.Code_INTERNAL,
+			fmt.Sprintf("pgbackrest archive spool reset failed for stanza %s: %v\nOutput: %s",
+				stanzaName, err, output))
+	}
+	return nil
 }
 
 // IsStaleStanzaError reports whether err from StanzaCreate is error 028 (info
@@ -85,25 +100,4 @@ func IsStaleStanzaError(err error) bool {
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "[028]") || strings.Contains(msg, "[055]")
-}
-
-// runPgBackRestCmd runs a pgBackRest command for the stanza within timeout.
-// newCmd is pgbackrestIOTimeoutCmd for repository commands and pgbackrestCmd
-// for start and stop, which reject --io-timeout.
-func (e *Engine) runPgBackRestCmd(ctx context.Context, timeout time.Duration, newCmd func(context.Context, ...string) *executil.Cmd, args ...string) error {
-	configPath, err := e.requireConfigPath()
-	if err != nil {
-		return mterrors.Wrap(err, "failed to get pgbackrest config")
-	}
-
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	cmd := newCmd(runCtx, append([]string{"--stanza=" + stanzaName, "--config=" + configPath}, args...)...)
-	output, err := safeCombinedOutput(cmd)
-	if err != nil {
-		return mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("pgbackrest %s failed for stanza %s: %v\nOutput: %s",
-				args[len(args)-1], stanzaName, err, output))
-	}
-	return nil
 }

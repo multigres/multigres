@@ -15,13 +15,18 @@
 package cluster
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
+	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/utils"
 )
 
@@ -32,6 +37,9 @@ func TestRefreshCredentials(t *testing.T) {
 		envVars        map[string]string
 		wantErr        bool
 		wantErrContain string
+		// wantUntouched is a file, relative to the cluster directory, that a
+		// failed refresh must leave byte for byte as it was.
+		wantUntouched string
 	}{
 		{
 			name: "refresh credentials with session token",
@@ -41,12 +49,8 @@ func TestRefreshCredentials(t *testing.T) {
 					WithEndpoint("https://localhost:9443/").
 					WriteToDir(t, dir)
 
-				utils.WritePgBackrestConfig(t, dir, utils.PgBackrestOpts{
-					AccessKey:    "ASIAOLDACCESSKEY",
-					SecretKey:    "oldsecretkey",
-					SessionToken: "oldsessiontoken",
-					Bucket:       "test-bucket",
-				})
+				stoppedSidecar(t, dir, "pooler_001")
+				stoppedSidecar(t, dir, "pooler_002")
 			},
 			envVars: map[string]string{
 				"AWS_ACCESS_KEY_ID":     "ASIANEWACCESSKEY",
@@ -62,6 +66,23 @@ func TestRefreshCredentials(t *testing.T) {
 					WithS3Backup("test-bucket", "us-east-1").
 					WriteToDir(t, dir)
 
+				stoppedSidecar(t, dir, "pooler_001")
+				stoppedSidecar(t, dir, "pooler_002")
+			},
+			envVars: map[string]string{
+				"AWS_ACCESS_KEY_ID":     "AKIANEWACCESSKEY",
+				"AWS_SECRET_ACCESS_KEY": "newsecretkey",
+			},
+			wantErr: false,
+		},
+		{
+			// A cluster directory from before the sidecar holds the keys in the
+			// pooler's own pgbackrest.conf, which nothing reads any more.
+			name: "error when no pooler has a sidecar",
+			setupConfig: func(t *testing.T, dir string) {
+				utils.NewTestConfig().
+					WithS3Backup("test-bucket", "us-east-1").
+					WriteToDir(t, dir)
 				utils.WritePgBackrestConfig(t, dir, utils.PgBackrestOpts{
 					AccessKey: "AKIAOLDACCESSKEY",
 					SecretKey: "oldsecretkey",
@@ -72,7 +93,44 @@ func TestRefreshCredentials(t *testing.T) {
 				"AWS_ACCESS_KEY_ID":     "AKIANEWACCESSKEY",
 				"AWS_SECRET_ACCESS_KEY": "newsecretkey",
 			},
-			wantErr: false,
+			wantErr:        true,
+			wantErrContain: "not refreshed for 1 of 1 poolers (pooler_001)",
+			wantUntouched:  filepath.Join("data", "pooler_001", "pgbackrest", "pgbackrest.conf"),
+		},
+		{
+			// One pooler has its sidecar directory and one does not: the second
+			// keeps its old keys, so the refresh as a whole failed.
+			name: "error when one pooler has no sidecar directory",
+			setupConfig: func(t *testing.T, dir string) {
+				utils.NewTestConfig().
+					WithS3Backup("test-bucket", "us-east-1").
+					WriteToDir(t, dir)
+				stoppedSidecar(t, dir, "pooler_001")
+				require.NoError(t, os.MkdirAll(filepath.Join(dir, "data", "pooler_002"), 0o755))
+			},
+			envVars: map[string]string{
+				"AWS_ACCESS_KEY_ID":     "AKIANEWACCESSKEY",
+				"AWS_SECRET_ACCESS_KEY": "newsecretkey",
+			},
+			wantErr:        true,
+			wantErrContain: "not refreshed for 1 of 2 poolers (pooler_002)",
+		},
+		{
+			name: "error when one sidecar cannot be refreshed",
+			setupConfig: func(t *testing.T, dir string) {
+				utils.NewTestConfig().
+					WithS3Backup("test-bucket", "us-east-1").
+					WriteToDir(t, dir)
+				stoppedSidecar(t, dir, "pooler_001")
+				broken := stoppedSidecar(t, dir, "pooler_002")
+				require.NoError(t, os.WriteFile(filepath.Join(broken, "owner.json"), []byte("{not json"), 0o600))
+			},
+			envVars: map[string]string{
+				"AWS_ACCESS_KEY_ID":     "AKIANEWACCESSKEY",
+				"AWS_SECRET_ACCESS_KEY": "newsecretkey",
+			},
+			wantErr:        true,
+			wantErrContain: "not refreshed for 1 of 2 poolers (pooler_002)",
 		},
 		{
 			name: "error when no config file exists",
@@ -151,129 +209,157 @@ func TestRefreshCredentials(t *testing.T) {
 			// Setup config
 			tt.setupConfig(t, tmpDir)
 
-			// Set environment variables
+			// Start from an environment without any of the three, then set the
+			// ones this case names.
+			for _, k := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"} {
+				t.Setenv(k, "")
+				require.NoError(t, os.Unsetenv(k))
+			}
 			for k, v := range tt.envVars {
 				t.Setenv(k, v)
+			}
+			var before []byte
+			if tt.wantUntouched != "" {
+				var err error
+				before, err = os.ReadFile(filepath.Join(tmpDir, tt.wantUntouched))
+				require.NoError(t, err)
 			}
 
 			// Create command with config-path pointing to temp dir
 			cmd := &cobra.Command{}
+			cmd.SetContext(t.Context())
 			cmd.Flags().StringSlice("config-path", []string{tmpDir}, "config paths")
 
 			// Run refresh credentials
 			rcmd := &refreshCredentialsCmd{}
 			err := rcmd.runRefreshCredentials(cmd, nil)
 
-			// Check error
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error, got nil")
+				require.Error(t, err)
+				if tt.wantErrContain != "" {
+					require.ErrorContains(t, err, tt.wantErrContain)
 				}
-				if tt.wantErrContain != "" && !strings.Contains(err.Error(), tt.wantErrContain) {
-					t.Errorf("error = %v, want to contain %q", err, tt.wantErrContain)
+				if tt.wantUntouched != "" {
+					after, err := os.ReadFile(filepath.Join(tmpDir, tt.wantUntouched))
+					require.NoError(t, err)
+					require.Equal(t, string(before), string(after))
 				}
 				return
 			}
+			require.NoError(t, err)
 
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			// Verify pgbackrest.conf files were updated in all pooler directories
-			poolerDirs, err := filepath.Glob(filepath.Join(tmpDir, "data", "pooler_*"))
-			if err != nil {
-				t.Fatalf("failed to find pooler directories: %v", err)
-			}
-
-			if len(poolerDirs) == 0 {
-				t.Fatal("no pooler directories found")
-			}
-
-			for _, poolerDir := range poolerDirs {
-				pgbackrestConf := filepath.Join(poolerDir, "pgbackrest", "pgbackrest.conf")
-				content, err := os.ReadFile(pgbackrestConf)
-				if err != nil {
-					t.Fatalf("failed to read pgbackrest.conf: %v", err)
-				}
-
-				contentStr := string(content)
-
-				// Verify new credentials are present
-				if accessKey := tt.envVars["AWS_ACCESS_KEY_ID"]; accessKey != "" {
-					if !strings.Contains(contentStr, "repo1-s3-key="+accessKey) {
-						t.Errorf("pgbackrest.conf missing new access key: %s", accessKey)
-					}
-				}
-
-				if secretKey := tt.envVars["AWS_SECRET_ACCESS_KEY"]; secretKey != "" {
-					if !strings.Contains(contentStr, "repo1-s3-key-secret="+secretKey) {
-						t.Errorf("pgbackrest.conf missing new secret key")
-					}
-				}
-
-				if sessionToken := tt.envVars["AWS_SESSION_TOKEN"]; sessionToken != "" {
-					if !strings.Contains(contentStr, "repo1-s3-token="+sessionToken) {
-						t.Errorf("pgbackrest.conf missing new session token")
-					}
-				}
-
-				// Verify permissions are still restrictive (0600)
-				info, err := os.Stat(pgbackrestConf)
-				if err != nil {
-					t.Fatalf("failed to stat pgbackrest.conf: %v", err)
-				}
-
-				if info.Mode().Perm() != 0o600 {
-					t.Errorf("pgbackrest.conf permissions = %o, want 0600", info.Mode().Perm())
-				}
+			// Every sidecar's key directory holds the new keys as one bundle.
+			bundles, err := filepath.Glob(filepath.Join(tmpDir, "data", "pgbackrestd-pooler_*", "s3-keys", "credentials.json"))
+			require.NoError(t, err)
+			require.Len(t, bundles, 2)
+			for _, bundle := range bundles {
+				raw, err := os.ReadFile(bundle)
+				require.NoError(t, err)
+				var keys map[string]string
+				require.NoError(t, json.Unmarshal(raw, &keys))
+				require.Equal(t, map[string]string{
+					"access_key_id":     tt.envVars["AWS_ACCESS_KEY_ID"],
+					"secret_access_key": tt.envVars["AWS_SECRET_ACCESS_KEY"],
+					"session_token":     tt.envVars["AWS_SESSION_TOKEN"],
+				}, keys)
+				info, err := os.Stat(bundle)
+				require.NoError(t, err)
+				require.Equal(t, os.FileMode(0o600), info.Mode().Perm())
 			}
 		})
 	}
 }
 
-func TestMaskCredential(t *testing.T) {
-	tests := []struct {
-		name  string
-		input string
-		want  string
-	}{
-		{
-			name:  "long credential",
-			input: "AKIAIOSFODNN7EXAMPLE",
-			want:  "AKIA************MPLE",
-		},
-		{
-			name:  "short credential (8 chars)",
-			input: "12345678",
-			want:  "12345678",
-		},
-		{
-			name:  "credential with 9 chars",
-			input: "123456789",
-			want:  "1234*6789",
-		},
-		{
-			name:  "credential with 10 chars",
-			input: "1234567890",
-			want:  "1234**7890",
-		},
-		{
-			name:  "very short credential (4 chars)",
-			input: "1234",
-			want:  "1234",
-		},
-		{
-			name:  "empty string",
-			input: "",
-			want:  "",
-		},
+// stoppedSidecar lays out a pooler directory and the directory of its
+// pgbackrestd sidecar, with no sidecar process, and returns the latter.
+func stoppedSidecar(t *testing.T, clusterDir, pooler string) string {
+	t.Helper()
+	poolerDir := filepath.Join(clusterDir, "data", pooler)
+	require.NoError(t, os.MkdirAll(poolerDir, 0o755))
+	sidecarDir := local.NewPgBackRestdPaths(poolerDir).Dir
+	require.NoError(t, os.MkdirAll(sidecarDir, 0o700))
+	return sidecarDir
+}
+
+// A pooler directory the cluster's configuration does not name is a leftover:
+// without a sidecar directory it is skipped. One the configuration names is a
+// pooler of this cluster, and the same gap fails the refresh.
+func TestRefreshCredentials_ConfiguredPoolersMustAllHaveASidecar(t *testing.T) {
+	run := func(t *testing.T, named ...string) error {
+		t.Helper()
+		dir := t.TempDir()
+		utils.NewTestConfig().WithS3Backup("test-bucket", "us-east-1").WriteToDir(t, dir)
+		stoppedSidecar(t, dir, "pooler_001")
+		require.NoError(t, os.MkdirAll(filepath.Join(dir, "data", "pooler_old"), 0o755))
+
+		configFile := filepath.Join(dir, "multigres.yaml")
+		raw, err := os.ReadFile(configFile)
+		require.NoError(t, err)
+		var config map[string]any
+		require.NoError(t, yaml.Unmarshal(raw, &config))
+		cells := map[string]any{}
+		for i, name := range named {
+			cells[fmt.Sprintf("zone%d", i+1)] = map[string]any{
+				"pgctld": map[string]any{"pooler-dir": filepath.Join(dir, "data", name)},
+			}
+		}
+		config["provisioner-config"].(map[string]any)["cells"] = cells
+		raw, err = yaml.Marshal(config)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(configFile, raw, 0o644))
+
+		t.Setenv("AWS_ACCESS_KEY_ID", "AKIANEWACCESSKEY")
+		t.Setenv("AWS_SECRET_ACCESS_KEY", "newsecretkey")
+		t.Setenv("AWS_SESSION_TOKEN", "")
+		cmd := &cobra.Command{}
+		cmd.SetContext(t.Context())
+		cmd.Flags().StringSlice("config-path", []string{dir}, "config paths")
+		return (&refreshCredentialsCmd{}).runRefreshCredentials(cmd, nil)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := maskCredential(tt.input)
-			if got != tt.want {
-				t.Errorf("maskCredential(%q) = %q, want %q", tt.input, got, tt.want)
+	t.Run("a leftover directory is skipped", func(t *testing.T) {
+		require.NoError(t, run(t, "pooler_001"))
+	})
+	t.Run("a configured pooler without a sidecar fails the refresh", func(t *testing.T) {
+		require.ErrorContains(t, run(t, "pooler_001", "pooler_old"), "not refreshed for 1 of 2 poolers (pooler_old)")
+	})
+}
+
+// Nothing of a key, a secret or a token reaches the terminal: not a short one
+// in full, and not the ends of a long one.
+func TestRefreshCredentials_PrintsNoCredentialMaterial(t *testing.T) {
+	for name, creds := range map[string][3]string{
+		"short": {"AKSHORT1", "s3cr3t", "tok3n"},
+		"long":  {"AKQXZZZZQQQQXXXXYYJW", "Zq7pabcdefghijklmnopqrstuvwxyz0123456789Kx9v", "Yw3mabcdefghijklmnopqrstuvwxyz0123456789Jt5b"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			utils.NewTestConfig().WithS3Backup("test-bucket", "us-east-1").WriteToDir(t, dir)
+			stoppedSidecar(t, dir, "pooler_001")
+			t.Setenv("AWS_ACCESS_KEY_ID", creds[0])
+			t.Setenv("AWS_SECRET_ACCESS_KEY", creds[1])
+			t.Setenv("AWS_SESSION_TOKEN", creds[2])
+
+			read, write, err := os.Pipe()
+			require.NoError(t, err)
+			stdout := os.Stdout
+			os.Stdout = write
+			cmd := &cobra.Command{}
+			cmd.SetContext(t.Context())
+			cmd.Flags().StringSlice("config-path", []string{dir}, "config paths")
+			runErr := (&refreshCredentialsCmd{}).runRefreshCredentials(cmd, nil)
+			os.Stdout = stdout
+			require.NoError(t, write.Close())
+			out, err := io.ReadAll(read)
+			require.NoError(t, err)
+			require.NoError(t, runErr)
+
+			printed := string(out)
+			require.Contains(t, printed, "AWS_SECRET_ACCESS_KEY: set")
+			for _, secret := range creds {
+				for _, part := range []string{secret, secret[:4], secret[len(secret)-4:]} {
+					require.NotContains(t, printed, part, "the output shows part of a credential")
+				}
 			}
 		})
 	}

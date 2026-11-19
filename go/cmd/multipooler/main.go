@@ -25,6 +25,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/removedflags"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multipooler"
@@ -59,6 +60,12 @@ func newStandaloneMultipooler(tel *telemetry.Telemetry) *standaloneMultipooler {
 		// included, on its one gRPC server.
 		QueryGrpcServer: s.grpcServer,
 	}
+	// The removed pgBackRest settings were config file keys as well as flags.
+	// The file is read while servenv starts, and loading it fails if it sets
+	// one.
+	reg.SetConfigPreparer(func(settings map[string]any) (map[string]any, error) {
+		return nil, removedflags.CheckConfig(settings, constants.ServiceMultipooler, removedflags.Multipooler)
+	})
 	// The multipooler's settings share the process's registry, so a
 	// configuration file loaded by servenv reaches them.
 	s.mp = multipooler.NewMultipooler(tel, reg, resources, "/", false)
@@ -74,6 +81,14 @@ func (s *standaloneMultipooler) registerFlags(cmd *cobra.Command) {
 }
 
 func (s *standaloneMultipooler) preRun(cmd *cobra.Command) error {
+	// First, before logging, configuration or telemetry are set up: a pod that
+	// passes a removed pgBackRest flag has no sidecar and must not start.
+	if err := removedflags.Check(cmd.Flags(), constants.ServiceMultipooler, removedflags.Multipooler); err != nil {
+		return err
+	}
+	if err := removedflags.CheckEnv(os.LookupEnv, constants.ServiceMultipooler); err != nil {
+		return err
+	}
 	return s.senv.CobraPreRunE(cmd)
 }
 

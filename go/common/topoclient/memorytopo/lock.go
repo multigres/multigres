@@ -242,7 +242,7 @@ func (ld *memoryTopoLockDescriptor) Check(ctx context.Context) error {
 
 	n := ld.c.factory.nodeByPath(ld.c.cell, ld.dirPath)
 	if n == nil || n.lock != ld.lockCh {
-		return fmt.Errorf("lock lost for %v", ld.dirPath)
+		return fmt.Errorf("%w: lock lost for %v", topoclient.ErrLeaseGone, ld.dirPath)
 	}
 	return nil
 }

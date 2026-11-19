@@ -18,14 +18,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
+	"io"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	commonbackup "github.com/multigres/multigres/go/common/backup"
+	"github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	pb "github.com/multigres/multigres/go/pb/pgbackrestdservice"
 )
 
 // TestStanzaCreate_ExecPaths drives StanzaCreate against a stubbed pgbackrest,
@@ -45,7 +47,6 @@ func TestStanzaCreate_ExecPaths(t *testing.T) {
 			stubPgbackrest(t, fmt.Sprintf("#!/bin/bash\nexit %d\n", tt.exitCode))
 			poolerDir := t.TempDir()
 			e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
-			e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 			err := e.StanzaCreate(context.Background())
 			if tt.wantErr {
@@ -58,124 +59,114 @@ func TestStanzaCreate_ExecPaths(t *testing.T) {
 	}
 }
 
-// TestStanzaDelete_ExecPaths checks the command sequence and that the stanza is
-// started again after a failed delete.
-func TestStanzaDelete_ExecPaths(t *testing.T) {
+// StanzaDelete is one sidecar command: the sidecar stops archiving, deletes the
+// stanza and starts it again, so no stop or start comes from this side.
+func TestStanzaDelete_IsOneSidecarCommand(t *testing.T) {
+	fake := &fakeSidecar{}
+	e := newSidecarTestEngine(t, fake)
+
+	require.NoError(t, e.StanzaDelete(t.Context()))
+
+	require.Len(t, fake.calls, 1)
+	call := fake.calls[0]
+	assert.Equal(t, pb.Command_COMMAND_STANZA_DELETE, call.cmd)
+	assert.Empty(t, call.args, "the sidecar takes no options for a delete")
+	assert.True(t, call.hasDeadline, "the call is bounded by the sidecar's whole sequence")
+}
+
+func TestStanzaDelete_Errors(t *testing.T) {
 	tests := []struct {
-		name        string
-		failOn      string
-		wantErr     bool
-		errContains string
-		wantCalls   []string
+		name  string
+		reply func(pb.Command, []string, io.Writer, io.Writer) int
+		err   error
+		want  string
 	}{
 		{
-			name:      "stops, deletes with --force, then starts",
-			wantCalls: []string{"stop", "--force_stanza-delete", "start"},
+			name: "stanza-delete failing",
+			reply: func(_ pb.Command, _ []string, _, stderr io.Writer) int {
+				_, _ = io.WriteString(stderr, "ERROR: [055]: boom")
+				return 55
+			},
+			want: "pgbackrest stanza-delete failed",
 		},
-		{
-			name:        "starts the stanza again when the delete fails",
-			failOn:      "stanza-delete",
-			wantErr:     true,
-			errContains: "pgbackrest stanza-delete failed",
-			wantCalls:   []string{"stop", "--force_stanza-delete", "start"},
-		},
-		{
-			name:        "does not delete when stop fails",
-			failOn:      "stop",
-			wantErr:     true,
-			errContains: "pgbackrest stop failed",
-			wantCalls:   []string{"stop"},
-		},
+		{name: "start failing after the delete", err: errors.New("pgbackrest start failed; WAL archiving is stopped"), want: "WAL archiving is stopped"},
+		{name: "sidecar unreachable", err: fmt.Errorf("%w: dial", ErrRunNotDelivered), want: "pgbackrest stanza-delete failed"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			callLog := filepath.Join(t.TempDir(), "calls")
-			stubPgbackrest(t, fmt.Sprintf(`#!/bin/bash
-args=("$@")
-last="${args[${#args[@]}-1]}"
-case "$*" in
-  *--force*stanza-delete*) echo "--force stanza-delete" >> %[1]s ;;
-  *) echo "$last" >> %[1]s ;;
-esac
-if [ "$last" = %[2]q ]; then exit 1; fi
-exit 0
-`, callLog, tt.failOn))
-			poolerDir := t.TempDir()
-			e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
-			e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
-
-			err := e.StanzaDelete(context.Background())
-			if tt.wantErr {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), tt.errContains)
-			} else {
-				require.NoError(t, err)
+			fake := &fakeSidecar{reply: tt.reply, err: tt.err}
+			e := newSidecarTestEngine(t, fake)
+			err := e.StanzaDelete(t.Context())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.want)
+			if tt.name == "stanza-delete failing" {
+				assert.Contains(t, err.Error(), "[055]", "the sidecar's output reaches the caller")
 			}
-
-			data, readErr := os.ReadFile(callLog)
-			require.NoError(t, readErr)
-			require.Equal(t, tt.wantCalls, strings.Fields(strings.ReplaceAll(strings.TrimSpace(string(data)), "--force stanza-delete", "--force_stanza-delete")))
 		})
 	}
 }
 
-// TestStanzaDelete_IOTimeoutOnlyOnRepoCommands checks stanza-delete gets
-// --io-timeout while stop and start, which reject it, do not.
-func TestStanzaDelete_IOTimeoutOnlyOnRepoCommands(t *testing.T) {
-	callLog := filepath.Join(t.TempDir(), "calls")
-	stubPgbackrest(t, fmt.Sprintf("#!/bin/bash\necho \"$*\" >> %s\n", callLog))
-	poolerDir := t.TempDir()
-	e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
+func TestStanzaDelete_InvalidatesTheListCache(t *testing.T) {
+	fake := &fakeSidecar{}
+	e := newSidecarTestEngine(t, fake)
+	e.listCache.mu.Lock()
+	e.listCache.value = []*multipoolermanagerdata.BackupMetadata{{BackupId: "stale"}}
+	e.listCache.expires = time.Now().Add(time.Hour)
+	e.listCache.mu.Unlock()
 
-	require.NoError(t, e.StanzaDelete(context.Background()))
+	require.NoError(t, e.StanzaDelete(t.Context()))
 
-	data, err := os.ReadFile(callLog)
-	require.NoError(t, err)
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	require.Len(t, lines, 3)
-	assert.NotContains(t, lines[0], "--io-timeout")
-	assert.True(t, strings.HasPrefix(lines[1], "--io-timeout=19 "), lines[1])
-	assert.Contains(t, lines[1], "stanza-delete")
-	assert.NotContains(t, lines[2], "--io-timeout")
+	e.listCache.mu.Lock()
+	defer e.listCache.mu.Unlock()
+	assert.Nil(t, e.listCache.value, "a delete drops what the cache holds")
 }
 
-func TestStanzaDelete_StartFailureAfterSuccessfulDeleteIsReturned(t *testing.T) {
-	stubPgbackrest(t, "#!/bin/bash\nlast=\"${@: -1}\"\nif [ \"$last\" = start ]; then exit 1; fi\nexit 0\n")
-	poolerDir := t.TempDir()
-	e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
+func TestResetArchiveSpool_IsOneSidecarCommand(t *testing.T) {
+	fake := &fakeSidecar{}
+	e := newSidecarTestEngine(t, fake)
 
-	err := e.StanzaDelete(context.Background())
+	require.NoError(t, e.ResetArchiveSpool(t.Context()))
+
+	require.Len(t, fake.calls, 1)
+	assert.Equal(t, pb.Command_COMMAND_ARCHIVE_SPOOL_RESET, fake.calls[0].cmd)
+	assert.Empty(t, fake.calls[0].args)
+	assert.True(t, fake.calls[0].hasDeadline)
+}
+
+func TestResetArchiveSpool_ErrorOnFailure(t *testing.T) {
+	fake := &fakeSidecar{reply: func(pb.Command, []string, io.Writer, io.Writer) int { return 1 }}
+	e := newSidecarTestEngine(t, fake)
+	err := e.ResetArchiveSpool(t.Context())
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "pgbackrest start failed")
+	assert.Contains(t, err.Error(), "archive spool reset failed")
 }
 
-func TestStanzaStart(t *testing.T) {
-	callLog := filepath.Join(t.TempDir(), "calls")
-	stubPgbackrest(t, fmt.Sprintf("#!/bin/bash\necho \"$*\" >> %s\n", callLog))
-	poolerDir := t.TempDir()
-	e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
-
-	require.NoError(t, e.StanzaStart(context.Background()))
-
-	data, err := os.ReadFile(callLog)
-	require.NoError(t, err)
-	line := strings.TrimSpace(string(data))
-	assert.True(t, strings.HasSuffix(line, " start"), line)
-	assert.NotContains(t, line, "--io-timeout", "start rejects --io-timeout")
-}
-
-func TestStanzaStart_ErrorOnFailure(t *testing.T) {
-	stubPgbackrest(t, "#!/bin/bash\nexit 1\n")
-	poolerDir := t.TempDir()
-	e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
-
-	err := e.StanzaStart(context.Background())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "pgbackrest start failed")
+// The deadline is the sum of every wait the sidecar's supervised sequence is
+// specified to make, term by term from the shared constants: dropping or
+// changing one of them fails here.
+func TestSidecarResetDeadlineSumsEveryWaitOfTheSequence(t *testing.T) {
+	const (
+		drain   = commonbackup.ResetDrainWait
+		step    = commonbackup.ResetStepTimeout
+		settle  = commonbackup.WorkerStopWait
+		info    = commonbackup.InfoTimeout
+		starts  = commonbackup.StartAttempts
+		delays  = commonbackup.StartRetryDelay
+		attempt = step + settle
+	)
+	want := drain +
+		settle + // the pause of the 8432 server
+		attempt + // start
+		attempt + // stop
+		settle + // worker barrier
+		info + settle + // the preflight info and its settlement
+		attempt + // stanza-delete
+		settle + // worker barrier
+		starts*attempt + (starts-1)*delays + // the unwind's starts
+		resetMargin
+	assert.Equal(t, want, sidecarResetDeadline())
+	assert.Equal(t, 30*time.Second+15*time.Second+45*time.Second+45*time.Second+15*time.Second+45*time.Second+45*time.Second+15*time.Second+3*45*time.Second+2*time.Second+30*time.Second,
+		sidecarResetDeadline(), "the figure, for a reader: 7m2s")
 }
 
 func TestIsStaleStanzaError(t *testing.T) {
@@ -195,95 +186,4 @@ func TestIsStaleStanzaError(t *testing.T) {
 			assert.Equal(t, tt.want, IsStaleStanzaError(tt.err))
 		})
 	}
-}
-
-func TestStanzaDelete_ErrorsWhenConfigPathMissing(t *testing.T) {
-	e, _ := newTestEngine(t, t.TempDir(), "", "", "/tmp/backups")
-	err := e.StanzaDelete(context.Background())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not yet generated")
-}
-
-func TestStanzaCreate_ErrorsWhenConfigPathMissing(t *testing.T) {
-	e, _ := newTestEngine(t, t.TempDir(), "", "", "/tmp/backups")
-	err := e.StanzaCreate(context.Background())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not yet generated")
-}
-
-// TestSetPgpassPath_PropagatesToCommand verifies SetPgpassPath exports
-// PGPASSFILE to pgbackrest's environment. The stub echoes the variable and
-// fails, so the error output reveals what the command saw.
-func TestSetPgpassPath_PropagatesToCommand(t *testing.T) {
-	stubPgbackrest(t, "#!/bin/bash\necho \"PGPASSFILE=$PGPASSFILE\"\nexit 1\n")
-	poolerDir := t.TempDir()
-	e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
-	e.SetPgpassPath("/tmp/test.pgpass")
-
-	err := e.StanzaCreate(context.Background())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "PGPASSFILE=/tmp/test.pgpass")
-}
-
-// TestStanzaDelete_StartRunsAfterContextIsCancelled checks the stanza is started
-// again even if the caller's context is cancelled during the delete.
-func TestStanzaDelete_StartRunsAfterContextIsCancelled(t *testing.T) {
-	dir := t.TempDir()
-	callLog := filepath.Join(dir, "calls")
-	deleteStarted := filepath.Join(dir, "delete-started")
-	stubPgbackrest(t, fmt.Sprintf(`#!/bin/bash
-last="${@: -1}"
-echo "$last" >> %[1]s
-if [ "$last" = stanza-delete ]; then
-  touch %[2]s
-  exec sleep 30
-fi
-exit 0
-`, callLog, deleteStarted))
-	poolerDir := t.TempDir()
-	e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	errCh := make(chan error, 1)
-	go func() { errCh <- e.StanzaDelete(ctx) }()
-
-	require.Eventually(t, func() bool {
-		_, err := os.Stat(deleteStarted)
-		return err == nil
-	}, 10*time.Second, 20*time.Millisecond)
-	cancel()
-
-	select {
-	case err := <-errCh:
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "pgbackrest stanza-delete failed")
-	case <-time.After(10 * time.Second):
-		t.Fatal("StanzaDelete did not return after its context was cancelled")
-	}
-
-	data, err := os.ReadFile(callLog)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"stop", "stanza-delete", "start"}, strings.Fields(string(data)))
-}
-
-func TestStanzaDelete_DeleteErrorWinsWhenStartAlsoFails(t *testing.T) {
-	stubPgbackrest(t, "#!/bin/bash\nlast=\"${@: -1}\"\nif [ \"$last\" = stanza-delete ] || [ \"$last\" = start ]; then exit 1; fi\nexit 0\n")
-	poolerDir := t.TempDir()
-	e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
-
-	err := e.StanzaDelete(context.Background())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "pgbackrest stanza-delete failed")
-	assert.NotContains(t, err.Error(), "pgbackrest start failed")
-}
-
-func TestStanzaStart_ErrorsWhenConfigPathMissing(t *testing.T) {
-	e, _ := newTestEngine(t, t.TempDir(), "", "", "/tmp/backups")
-	err := e.StanzaStart(context.Background())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "not yet generated")
 }

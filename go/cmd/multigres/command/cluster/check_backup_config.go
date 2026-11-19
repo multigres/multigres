@@ -80,7 +80,8 @@ func (ccmd *checkBackupConfigCmd) runCheckBackupConfig(cmd *cobra.Command, args 
 	fmt.Println("Checking S3 backup configuration...")
 	fmt.Println()
 
-	var bucket, region, endpoint, keyPrefix string
+	var bucket, region, endpoint, keyPrefix, caFile string
+	var skipTLSVerify bool
 	var useConfig bool
 
 	// Check if --backup-url flag was explicitly provided on command line
@@ -143,6 +144,8 @@ func (ccmd *checkBackupConfigCmd) runCheckBackupConfig(cmd *cobra.Command, args 
 		region, _ = s3Config["region"].(string)
 		endpoint, _ = s3Config["endpoint"].(string)
 		keyPrefix, _ = s3Config["key-prefix"].(string)
+		caFile, _ = s3Config["ca-file"].(string)
+		skipTLSVerify, _ = s3Config["skip-tls-verify"].(bool)
 
 		// Check if using env credentials (can be string or bool)
 		useEnvCreds := false
@@ -176,13 +179,15 @@ func (ccmd *checkBackupConfigCmd) runCheckBackupConfig(cmd *cobra.Command, args 
 	defer cancel()
 
 	err = s3tools.ValidateAccess(ctx, s3tools.ValidationConfig{
-		Bucket:       bucket,
-		Region:       region,
-		Endpoint:     endpoint,
-		KeyPrefix:    keyPrefix,
-		AccessKey:    creds.AccessKey,
-		SecretKey:    creds.SecretKey,
-		SessionToken: creds.SessionToken,
+		Bucket:        bucket,
+		Region:        region,
+		Endpoint:      endpoint,
+		KeyPrefix:     keyPrefix,
+		AccessKey:     creds.AccessKey,
+		SecretKey:     creds.SecretKey,
+		SessionToken:  creds.SessionToken,
+		CAFile:        caFile,
+		SkipTLSVerify: skipTLSVerify,
 	})
 	if err != nil {
 		fmt.Printf("✗ S3 validation failed: %v\n", err)

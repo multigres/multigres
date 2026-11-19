@@ -17,12 +17,15 @@ package cluster
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/multigres/multigres/go/test/s3mock"
 )
 
 func TestInitCommandLocalBackup(t *testing.T) {
@@ -267,4 +270,82 @@ func TestInitCommandInvalidTopology(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown --topology")
 	assert.NoFileExists(t, filepath.Join(configPath, "multigres.yaml"))
+}
+
+// A self-hosted S3 service with a self-signed certificate: init validates the
+// bucket with the certificate verified against --s3-ca-file, the same way the
+// sidecar will, and records the endpoint and the CA in the config. Without the
+// CA the certificate is not trusted, local endpoint or not, and verification
+// goes off only with the explicit flag, which is recorded and warned about.
+func TestInitCommandSelfHostedS3(t *testing.T) {
+	s3Server, err := s3mock.NewServer(0)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s3Server.Stop() })
+	require.NoError(t, s3Server.CreateBucket("self-hosted"))
+	caFile := filepath.Join(t.TempDir(), "s3-ca.pem")
+	require.NoError(t, os.WriteFile(caFile, s3Server.CertPEM(), 0o600))
+	t.Setenv("AWS_ACCESS_KEY_ID", "test-access-key")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "test-secret-key")
+	t.Setenv("AWS_SESSION_TOKEN", "")
+
+	initWith := func(t *testing.T, extra ...string) (map[string]any, error) {
+		t.Helper()
+		// A short directory: the cluster's socket paths hang off it.
+		configPath, err := os.MkdirTemp("/tmp", "mt-init-s3-")
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = os.RemoveAll(configPath) })
+		rootCmd := &cobra.Command{Use: "test", SilenceUsage: true, SilenceErrors: true}
+		rootCmd.PersistentFlags().StringSlice("config-path", []string{}, "config paths")
+		clusterCmd := &cobra.Command{Use: "cluster"}
+		rootCmd.AddCommand(clusterCmd)
+		AddInitCommand(clusterCmd)
+		rootCmd.SetArgs(append([]string{
+			"cluster", "init", "--config-path", configPath,
+			"--backup-url", "s3://self-hosted/backups/", "--region", "us-east-1",
+			"--s3-endpoint", s3Server.Endpoint(),
+		}, extra...))
+		if err := rootCmd.Execute(); err != nil {
+			return nil, err
+		}
+		data, err := os.ReadFile(filepath.Join(configPath, "multigres.yaml"))
+		require.NoError(t, err)
+		var config MultigresConfig
+		require.NoError(t, yaml.Unmarshal(data, &config))
+		backupConfig, ok := config.ProvisionerConfig["backup"].(map[string]any)
+		require.True(t, ok)
+		s3Config, ok := backupConfig["s3"].(map[string]any)
+		require.True(t, ok, "backup config: %v", backupConfig)
+		return s3Config, nil
+	}
+
+	t.Run("a plaintext endpoint is refused", func(t *testing.T) {
+		plain := "http://" + strings.TrimPrefix(s3Server.Endpoint(), "https://")
+		for _, extra := range [][]string{{"--s3-endpoint", plain}, {"--s3-endpoint", plain, "--s3-skip-tls-verify"}} {
+			_, err := initWith(t, extra...)
+			require.ErrorContains(t, err, "--s3-endpoint")
+			require.ErrorContains(t, err, "must be an https URL")
+		}
+	})
+
+	t.Run("with the CA file", func(t *testing.T) {
+		s3Config, err := initWith(t, "--s3-ca-file", caFile)
+		require.NoError(t, err)
+		assert.Equal(t, s3Server.Endpoint(), s3Config["endpoint"])
+		assert.Equal(t, caFile, s3Config["ca-file"])
+		assert.NotContains(t, s3Config, "skip-tls-verify", "verification stays on")
+	})
+	t.Run("without it the certificate is not trusted", func(t *testing.T) {
+		_, err := initWith(t)
+		require.ErrorContains(t, err, "certificate")
+	})
+	t.Run("verification off only when asked", func(t *testing.T) {
+		s3Config, err := initWith(t, "--s3-skip-tls-verify")
+		require.NoError(t, err)
+		assert.Equal(t, true, s3Config["skip-tls-verify"])
+		assert.NotContains(t, s3Config, "ca-file")
+	})
+	t.Run("a CA and verification off together are refused", func(t *testing.T) {
+		_, err := initWith(t, "--s3-ca-file", caFile, "--s3-skip-tls-verify")
+		require.ErrorContains(t, err, "cannot be combined")
+	})
 }

@@ -36,7 +36,7 @@ const (
 	// MinPgBackrestVersion is the minimum supported pgBackRest version, in
 	// semver form (with a leading "v") so it can be compared directly with
 	// golang.org/x/mod/semver. Keep in sync with docs/building.md.
-	MinPgBackrestVersion = "v2.57.0"
+	MinPgBackrestVersion = "v2.59.0"
 
 	// SidecarHostRequirement is what --sandbox=required demands of a host,
 	// shown wherever a binary or the local provisioner refuses to start without

@@ -24,16 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCheck(t *testing.T) {
-	// The real `pgbackrest check` invocation is exercised by integration
-	// tests (endtoend/multipooler). This validates the config-missing guard.
-	t.Run("errors when pgbackrest config is missing", func(t *testing.T) {
-		e := &Engine{}
-		err := e.Check(context.Background())
-		require.Error(t, err)
-	})
-}
-
 // TestCheck_ExecPaths drives Check against a stubbed `pgbackrest` binary on
 // PATH. Unlike verify, check relies on pgBackRest's exit code, so this covers
 // the success (exit 0) and failure (non-zero) paths the in-process unit test
@@ -66,7 +56,6 @@ func TestCheck_ExecPaths(t *testing.T) {
 
 			poolerDir := t.TempDir()
 			e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
-			e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 			err := e.Check(context.Background())
 			if tt.wantErr {

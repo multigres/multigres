@@ -56,6 +56,12 @@ type S3Backup struct {
 	Endpoint          string `yaml:"endpoint,omitempty"`
 	KeyPrefix         string `yaml:"key-prefix,omitempty"`
 	UseEnvCredentials bool   `yaml:"use-env-credentials,omitempty"`
+	// CAFile is a PEM file of the certificate authorities that verify the
+	// endpoint's TLS certificate, for a self-hosted S3 service behind a
+	// private CA or with a self-signed certificate. SkipTLSVerify turns the
+	// verification off instead; the two cannot be combined.
+	CAFile        string `yaml:"ca-file,omitempty"`
+	SkipTLSVerify bool   `yaml:"skip-tls-verify,omitempty"`
 }
 
 // DefaultCipherKeyFileName is the filename of the backup cipher key file the
@@ -176,19 +182,18 @@ type MultiadminConfig struct {
 
 // PgctldConfig holds pgctld service configuration
 type PgctldConfig struct {
-	Path              string `yaml:"path"`
-	HttpPort          int    `yaml:"http-port"`           // HTTP port for health endpoints
-	PoolerDir         string `yaml:"pooler-dir"`          // Base directory for this pgctld instance
-	GrpcPort          int    `yaml:"grpc-port"`           // gRPC port for pgctld server
-	GRPCSocketFile    string `yaml:"grpc-socket-file"`    // Unix socket file path for gRPC
-	PgPort            int    `yaml:"pg-port"`             // PostgreSQL port
-	PgDatabase        string `yaml:"pg-database"`         // PostgreSQL database name
-	PgUser            string `yaml:"pg-user"`             // PostgreSQL username
-	PgPassword        string `yaml:"pg-password"`         // PostgreSQL password (default: "postgres")
-	Timeout           int    `yaml:"timeout"`             // Operation timeout in seconds
-	LogLevel          string `yaml:"log-level"`           // Log level
-	PgBackRestPort    int    `yaml:"pgbackrest-port"`     // pgBackRest TLS server port
-	PgBackRestCertDir string `yaml:"pgbackrest-cert-dir"` // pgBackRest TLS certificate directory
+	Path           string `yaml:"path"`
+	HttpPort       int    `yaml:"http-port"`        // HTTP port for health endpoints
+	PoolerDir      string `yaml:"pooler-dir"`       // Base directory for this pgctld instance
+	GrpcPort       int    `yaml:"grpc-port"`        // gRPC port for pgctld server
+	GRPCSocketFile string `yaml:"grpc-socket-file"` // Unix socket file path for gRPC
+	PgPort         int    `yaml:"pg-port"`          // PostgreSQL port
+	PgDatabase     string `yaml:"pg-database"`      // PostgreSQL database name
+	PgUser         string `yaml:"pg-user"`          // PostgreSQL username
+	PgPassword     string `yaml:"pg-password"`      // PostgreSQL password (default: "postgres")
+	Timeout        int    `yaml:"timeout"`          // Operation timeout in seconds
+	LogLevel       string `yaml:"log-level"`        // Log level
+	PgBackRestPort int    `yaml:"pgbackrest-port"`  // pgBackRest TLS server port
 }
 
 // LoadConfig loads the provisioner-specific configuration from the given config paths
@@ -264,6 +269,8 @@ func buildBackupConfig(backupConfig map[string]string, baseDir string) BackupCon
 			Endpoint:          backupConfig["s3-endpoint"],
 			KeyPrefix:         backupConfig["s3-key-prefix"],
 			UseEnvCredentials: backupConfig["s3-use-env-credentials"] == "true",
+			CAFile:            backupConfig["s3-ca-file"],
+			SkipTLSVerify:     backupConfig["s3-skip-tls-verify"] == "true",
 		}
 	}
 
@@ -316,19 +323,18 @@ func defaultMultigresCells(binDir, baseDir, dbName, tableGroup, shard string) ([
 				RecoveryCycleInterval:     "500ms",
 			},
 			Pgctld: PgctldConfig{
-				Path:              filepath.Join(binDir, "pgctld"),
-				HttpPort:          ports.DefaultPgctldHTTP + i,
-				PoolerDir:         GeneratePoolerDir(baseDir, serviceID),
-				GrpcPort:          ports.DefaultPgctldGRPC + i,
-				GRPCSocketFile:    filepath.Join(baseDir, "sockets", "pgctld-"+zone+".sock"),
-				PgPort:            ports.DefaultLocalPostgresPort + i,
-				PgDatabase:        dbName,
-				PgUser:            constants.DefaultPostgresUser,
-				PgPassword:        "postgres",
-				Timeout:           30,
-				LogLevel:          "info",
-				PgBackRestPort:    ports.DefaultPgbackRestPort + i,
-				PgBackRestCertDir: filepath.Join(baseDir, "certs", "pgbackrest"),
+				Path:           filepath.Join(binDir, "pgctld"),
+				HttpPort:       ports.DefaultPgctldHTTP + i,
+				PoolerDir:      GeneratePoolerDir(baseDir, serviceID),
+				GrpcPort:       ports.DefaultPgctldGRPC + i,
+				GRPCSocketFile: filepath.Join(baseDir, "sockets", "pgctld-"+zone+".sock"),
+				PgPort:         ports.DefaultLocalPostgresPort + i,
+				PgDatabase:     dbName,
+				PgUser:         constants.DefaultPostgresUser,
+				PgPassword:     "postgres",
+				Timeout:        30,
+				LogLevel:       "info",
+				PgBackRestPort: ports.DefaultPgbackRestPort + i,
 			},
 		}
 	}
@@ -359,19 +365,18 @@ func defaultMinigresCells(binDir, baseDir, dbName, tableGroup, shard string) ([]
 				LogLevel:   "info",
 			},
 			Pgctld: PgctldConfig{
-				Path:              filepath.Join(binDir, "pgctld"),
-				HttpPort:          ports.DefaultPgctldHTTP,
-				PoolerDir:         GeneratePoolerDir(baseDir, serviceID),
-				GrpcPort:          ports.DefaultPgctldGRPC,
-				GRPCSocketFile:    filepath.Join(baseDir, "sockets", "pgctld-"+zone+".sock"),
-				PgPort:            ports.DefaultLocalPostgresPort,
-				PgDatabase:        dbName,
-				PgUser:            constants.DefaultPostgresUser,
-				PgPassword:        "postgres",
-				Timeout:           30,
-				LogLevel:          "info",
-				PgBackRestPort:    ports.DefaultPgbackRestPort,
-				PgBackRestCertDir: filepath.Join(baseDir, "certs", "pgbackrest"),
+				Path:           filepath.Join(binDir, "pgctld"),
+				HttpPort:       ports.DefaultPgctldHTTP,
+				PoolerDir:      GeneratePoolerDir(baseDir, serviceID),
+				GrpcPort:       ports.DefaultPgctldGRPC,
+				GRPCSocketFile: filepath.Join(baseDir, "sockets", "pgctld-"+zone+".sock"),
+				PgPort:         ports.DefaultLocalPostgresPort,
+				PgDatabase:     dbName,
+				PgUser:         constants.DefaultPostgresUser,
+				PgPassword:     "postgres",
+				Timeout:        30,
+				LogLevel:       "info",
+				PgBackRestPort: ports.DefaultPgbackRestPort,
 			},
 		},
 	}
@@ -471,6 +476,18 @@ func (p *localProvisioner) getServiceConfig(service string) map[string]any {
 	}
 }
 
+// pgctldPassword returns the cell's postgres password. It is read on its own
+// and kept out of getCellServiceConfig's map: every value read from that map
+// would otherwise be tainted by the credential sitting beside it, and the
+// ports and paths that are printed while provisioning are not secret.
+func (p *localProvisioner) pgctldPassword(cellName string) (string, error) {
+	cellServices, exists := p.config.Cells[cellName]
+	if !exists {
+		return "", fmt.Errorf("cell %s not found in configuration", cellName)
+	}
+	return cellServices.Pgctld.PgPassword, nil
+}
+
 // getCellServiceConfig gets the configuration for a specific service in a specific cell
 func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[string]any, error) {
 	cellServices, exists := p.config.Cells[cellName]
@@ -523,19 +540,17 @@ func (p *localProvisioner) getCellServiceConfig(cellName, service string) (map[s
 		}, nil
 	case constants.ServicePgctld:
 		return map[string]any{
-			"path":                cellServices.Pgctld.Path,
-			"http_port":           cellServices.Pgctld.HttpPort,
-			"pooler_dir":          cellServices.Pgctld.PoolerDir,
-			"grpc_port":           cellServices.Pgctld.GrpcPort,
-			"grpc_socket_file":    cellServices.Pgctld.GRPCSocketFile,
-			"pg_port":             cellServices.Pgctld.PgPort,
-			"pg_database":         cellServices.Pgctld.PgDatabase,
-			"pg_user":             cellServices.Pgctld.PgUser,
-			"password":            cellServices.Pgctld.PgPassword,
-			"timeout":             cellServices.Pgctld.Timeout,
-			"log_level":           cellServices.Pgctld.LogLevel,
-			"pgbackrest_port":     cellServices.Pgctld.PgBackRestPort,
-			"pgbackrest_cert_dir": cellServices.Pgctld.PgBackRestCertDir,
+			"path":             cellServices.Pgctld.Path,
+			"http_port":        cellServices.Pgctld.HttpPort,
+			"pooler_dir":       cellServices.Pgctld.PoolerDir,
+			"grpc_port":        cellServices.Pgctld.GrpcPort,
+			"grpc_socket_file": cellServices.Pgctld.GRPCSocketFile,
+			"pg_port":          cellServices.Pgctld.PgPort,
+			"pg_database":      cellServices.Pgctld.PgDatabase,
+			"pg_user":          cellServices.Pgctld.PgUser,
+			"timeout":          cellServices.Pgctld.Timeout,
+			"log_level":        cellServices.Pgctld.LogLevel,
+			"pgbackrest_port":  cellServices.Pgctld.PgBackRestPort,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown service %s", service)

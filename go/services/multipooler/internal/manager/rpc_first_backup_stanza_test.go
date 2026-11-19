@@ -15,6 +15,8 @@
 package manager
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,14 +28,18 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	pb "github.com/multigres/multigres/go/pb/pgbackrestdservice"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 )
 
-// stanzaStub is a fake pgbackrest: it answers `info` with canned JSON, fails
-// stanza-create with the configured error until the stanza is deleted (or always,
-// with failAlways), fails any command in failCommands, and logs each command word.
+// stanzaStub is a fake pgbackrest behind the sidecar: it answers `info` with
+// canned JSON, fails stanza-create with the configured error until the stanza is
+// deleted (or always, with failAlways), fails any command in failCommands, and
+// logs each command word. The sidecar owns stop and start, so a stanza delete is
+// one command here.
 type stanzaStub struct {
 	callLog    string
 	listingDir string
@@ -82,13 +88,9 @@ exit 0
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 	poolerDir := filepath.Join(tmpDir, "pooler")
-	pgbackrestDir := filepath.Join(poolerDir, "pgbackrest")
-	require.NoError(t, os.MkdirAll(pgbackrestDir, 0o755))
-	configPath := filepath.Join(pgbackrestDir, "pgbackrest.conf")
-	require.NoError(t, os.WriteFile(configPath, []byte("[global]\nlog-path=/tmp/pgbackrest/logs\n"), 0o600))
+	require.NoError(t, os.MkdirAll(poolerDir, 0o755))
 
 	pm := createTestManagerWithBackupLocation(t, poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA, tmpDir)
-	pm.backup.SetConfigPath(configPath)
 	return &stanzaStub{callLog: callLog, listingDir: listingDir, pm: pm}
 }
 
@@ -175,7 +177,7 @@ func TestPrepareStanzaLocked(t *testing.T) {
 			name:      "stanza without backups is reset first",
 			marked:    true,
 			info:      stanzaInfoJSON(noValidBackups),
-			wantCalls: []string{"info", "repo-ls", "stop", "stanza-delete", "start", "stanza-create"},
+			wantCalls: []string{"info", "repo-ls", "stanza-delete", "stanza-create"},
 		},
 		{
 			name:      "complete backup of this shard skips stanza work",
@@ -195,7 +197,7 @@ func TestPrepareStanzaLocked(t *testing.T) {
 			marked:    true,
 			info:      stanzaInfoJSON(missingStanzaPath),
 			createErr: "ERROR: [055]: unable to open missing file backup.info",
-			wantCalls: []string{"info", "stanza-create", "repo-ls", "stop", "stanza-delete", "start", "stanza-create"},
+			wantCalls: []string{"info", "stanza-create", "repo-ls", "stanza-delete", "stanza-create"},
 		},
 		{
 			name:        "stale stanza after a reset is not reset twice",
@@ -205,7 +207,7 @@ func TestPrepareStanzaLocked(t *testing.T) {
 			failAlways:  true,
 			wantErrCode: mtrpcpb.Code_INTERNAL,
 			wantErr:     "failed to create pgbackrest stanza",
-			wantCalls:   []string{"info", "repo-ls", "stop", "stanza-delete", "start", "stanza-create"},
+			wantCalls:   []string{"info", "repo-ls", "stanza-delete", "stanza-create"},
 		},
 		{
 			name:        "unrelated stanza-create failure does not delete anything",
@@ -232,29 +234,20 @@ func TestPrepareStanzaLocked(t *testing.T) {
 			wantCalls:   []string{"info"},
 		},
 		{
-			name:        "stanza is not created when stop fails before the reset",
-			marked:      true,
-			info:        stanzaInfoJSON(noValidBackups),
-			failOn:      []string{"stop"},
-			wantErrCode: mtrpcpb.Code_INTERNAL,
-			wantErr:     "failed to remove stale pgbackrest stanza",
-			wantCalls:   []string{"info", "repo-ls", "stop"},
-		},
-		{
 			name:        "stanza is not created when the delete fails",
 			marked:      true,
 			info:        stanzaInfoJSON(noValidBackups),
 			failOn:      []string{"stanza-delete"},
 			wantErrCode: mtrpcpb.Code_INTERNAL,
 			wantErr:     "failed to remove stale pgbackrest stanza",
-			wantCalls:   []string{"info", "repo-ls", "stop", "stanza-delete", "start"},
+			wantCalls:   []string{"info", "repo-ls", "stanza-delete"},
 		},
 		{
 			name:      "stale stanza found only by stanza-create is reset after error 028",
 			marked:    true,
 			info:      stanzaInfoJSON(missingStanzaPath),
 			createErr: "ERROR: [028]: backup and archive info files exist but do not match the database",
-			wantCalls: []string{"info", "stanza-create", "repo-ls", "stop", "stanza-delete", "start", "stanza-create"},
+			wantCalls: []string{"info", "stanza-create", "repo-ls", "stanza-delete", "stanza-create"},
 		},
 		{
 			name:        "retry stops when its delete fails",
@@ -264,7 +257,7 @@ func TestPrepareStanzaLocked(t *testing.T) {
 			failOn:      []string{"stanza-delete"},
 			wantErrCode: mtrpcpb.Code_INTERNAL,
 			wantErr:     "failed to remove stale pgbackrest stanza",
-			wantCalls:   []string{"info", "stanza-create", "repo-ls", "stop", "stanza-delete", "start"},
+			wantCalls:   []string{"info", "stanza-create", "repo-ls", "stanza-delete"},
 		},
 		{
 			name:        "stanza without backups but with a live archive is not reset",
@@ -312,7 +305,7 @@ func TestPrepareStanzaLocked(t *testing.T) {
 			failAlways:  true,
 			wantErrCode: mtrpcpb.Code_INTERNAL,
 			wantErr:     "failed to create pgbackrest stanza",
-			wantCalls:   []string{"info", "stanza-create", "repo-ls", "stop", "stanza-delete", "start", "stanza-create"},
+			wantCalls:   []string{"info", "stanza-create", "repo-ls", "stanza-delete", "stanza-create"},
 		},
 	}
 	for _, tt := range tests {
@@ -379,7 +372,7 @@ func TestPrepareStanzaLocked_BootstrapMarker(t *testing.T) {
 			info:       stanzaInfoJSON(noValidBackups),
 			marked:     true,
 			wantMarked: true,
-			wantCalls:  []string{"info", "repo-ls", "stop", "stanza-delete", "start", "stanza-create"},
+			wantCalls:  []string{"info", "repo-ls", "stanza-delete", "stanza-create"},
 		},
 		{
 			name:      "stanza with no backups and no marker is never reset",
@@ -393,7 +386,7 @@ func TestPrepareStanzaLocked_BootstrapMarker(t *testing.T) {
 			createErr:  stale028,
 			marked:     true,
 			wantMarked: true,
-			wantCalls:  []string{"info", "stanza-create", "repo-ls", "stop", "stanza-delete", "start", "stanza-create"},
+			wantCalls:  []string{"info", "stanza-create", "repo-ls", "stanza-delete", "stanza-create"},
 		},
 		{
 			name:      "existing stanza from no bootstrap is left alone and leaves no marker",
@@ -570,5 +563,41 @@ func TestDiscoverPostgresState_ClassifiesRepository(t *testing.T) {
 				assert.NotEqual(t, reasonBackupsUnusable, stub.pm.pgMonitorLastLoggedReason)
 			}
 		})
+	}
+}
+
+// An abandon request from the settlement wait reaches the bootstrap's caller
+// through the engine and prepareStanzaLocked at both places that delete a stanza,
+// and an ordinary error that reads the same does not carry one.
+func TestPrepareStanzaLocked_AbandonRequestSurvivesTheWraps(t *testing.T) {
+	for name, site := range map[string]struct {
+		info      string
+		createErr string
+	}{
+		"the empty stanza is deleted first":   {info: stanzaInfoJSON(2)},
+		"the retry after stanza-create fails": {info: stanzaInfoJSON(1), createErr: "ERROR: [055]: unable to open missing file backup.info"},
+	} {
+		for _, carries := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/abandon=%v", name, carries), func(t *testing.T) {
+				stub := newStanzaStub(t, site.info, site.createErr, false)
+				stub.markBootstrap(t)
+				cause := fmt.Errorf("manager shutting down while waiting to settle the stanza delete: %w", context.Canceled)
+				hook := func(cmd pb.Command) error {
+					if cmd != pb.Command_COMMAND_STANZA_DELETE {
+						return nil
+					}
+					if carries {
+						return fmt.Errorf("%w (and %w)", errors.New("canceled"), topoclient.AbandonLease(cause))
+					}
+					return fmt.Errorf("%w (and abandon the lease)", cause)
+				}
+				stubRunError.Store(&hook)
+				t.Cleanup(func() { stubRunError.Store(nil) })
+
+				_, err := stub.pm.prepareStanzaLocked(t.Context())
+				require.Error(t, err)
+				assert.Equal(t, carries, topoclient.IsLeaseAbandon(err))
+			})
+		}
 	}
 }

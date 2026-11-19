@@ -15,6 +15,9 @@
 package command
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -223,27 +226,56 @@ func TestPgInitdbSQLDirsFlag(t *testing.T) {
 	})
 }
 
-func TestPgBackRestFlags(t *testing.T) {
-	// Test default values
-	rootCmd, _ := GetRootCommand()
+// The flags that made pgctld run the pgBackRest TLS server were removed with
+// it. A multigres-operator that does not deploy the pgbackrestd sidecar still
+// passes them, so `pgctld server` must refuse to start and name the flag, and
+// never accept one and go on without a server.
+func TestRemovedPgBackRestFlagsRefuseStartup(t *testing.T) {
+	for _, arg := range []string{
+		"--pgbackrest-port=8432",
+		"--pgbackrest-cert-dir=/certs",
+	} {
+		t.Run(arg, func(t *testing.T) {
+			root, _ := GetRootCommand()
+			root.SetArgs([]string{"server", "--pooler-dir", t.TempDir(), "--pg-port", "5432", arg})
+			root.SilenceErrors = true
+			ran := false
+			for _, sub := range root.Commands() {
+				if sub.Name() == "server" {
+					sub.RunE = func(*cobra.Command, []string) error { ran = true; return nil }
+				}
+			}
 
-	// Find the server subcommand
-	var serverCmd *cobra.Command
-	for _, cmd := range rootCmd.Commands() {
-		if cmd.Name() == "server" {
-			serverCmd = cmd
-			break
-		}
+			err := root.Execute()
+
+			name, _, _ := strings.Cut(arg, "=")
+			require.EqualError(t, err, "flag "+name+" was removed: pgBackRest runs in the pgbackrestd sidecar, and this pgctld needs a multigres-operator that deploys that sidecar and does not pass the flag")
+			assert.False(t, ran, "the server must not start")
+		})
 	}
-	assert.NotNil(t, serverCmd, "server subcommand should exist")
+}
 
-	err := serverCmd.ParseFlags([]string{})
-	assert.NoError(t, err)
+// The two settings were config file keys as well. A config file that sets one
+// stops the server the same way the flag does.
+func TestRemovedPgBackRestSettingsRefuseStartupFromConfigFile(t *testing.T) {
+	for _, key := range []string{"pgbackrest-port", "pgbackrest-cert-dir"} {
+		t.Run(key, func(t *testing.T) {
+			configFile := filepath.Join(t.TempDir(), "pgctld.yaml")
+			require.NoError(t, os.WriteFile(configFile, []byte(key+": 8432\n"), 0o600))
+			root, _ := GetRootCommand()
+			root.SetArgs([]string{"server", "--pooler-dir", t.TempDir(), "--pg-port", "5432", "--config-file", configFile})
+			root.SilenceErrors = true
+			ran := false
+			for _, sub := range root.Commands() {
+				if sub.Name() == "server" {
+					sub.RunE = func(*cobra.Command, []string) error { ran = true; return nil }
+				}
+			}
 
-	// Verify pgbackrest flags are registered on server command (not root)
-	portFlag := serverCmd.Flags().Lookup("pgbackrest-port")
-	assert.NotNil(t, portFlag, "pgbackrest-port flag should be registered on server command")
+			err := root.Execute()
 
-	certDirFlag := serverCmd.Flags().Lookup("pgbackrest-cert-dir")
-	assert.NotNil(t, certDirFlag, "pgbackrest-cert-dir flag should be registered on server command")
+			require.ErrorContains(t, err, "config file setting "+key+" was removed: pgBackRest runs in the pgbackrestd sidecar, and this pgctld needs a multigres-operator that deploys that sidecar and does not set it")
+			assert.False(t, ran, "the server must not start")
+		})
+	}
 }

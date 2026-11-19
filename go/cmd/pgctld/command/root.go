@@ -27,6 +27,7 @@ import (
 	"github.com/multigres/multigres/config"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/pgsecret"
+	"github.com/multigres/multigres/go/common/removedflags"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/services/pgctld"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -76,6 +77,11 @@ type PgCtlCommand struct {
 func GetRootCommand() (*cobra.Command, *PgCtlCommand) {
 	telemetry := telemetry.NewTelemetry()
 	reg := viperutil.NewRegistry()
+	// The removed pgBackRest settings were config file keys as well as flags:
+	// loading a config file that sets one fails.
+	reg.SetConfigPreparer(func(settings map[string]any) (map[string]any, error) {
+		return nil, removedflags.CheckConfig(settings, constants.ServicePgctld, removedflags.PgctldServer)
+	})
 	pc := &PgCtlCommand{
 		reg: reg,
 		pgDatabase: viperutil.Configure(reg, "pg-database", viperutil.Options[string]{
@@ -181,6 +187,11 @@ management for PostgreSQL servers.`,
 			// Flags parsed successfully at this point — suppress usage for any subsequent
 			// runtime errors so the error message is not buried under the usage text.
 			cmd.Root().SilenceUsage = true
+			// First, before logging or telemetry are set up: a pod that passes a
+			// removed pgBackRest flag has no sidecar and must not start.
+			if err := removedflags.Check(cmd.Flags(), constants.ServicePgctld, removedflags.PgctldServer); err != nil {
+				return err
+			}
 			pc.lg.SetupLogging()
 			if cmd.Annotations[skipTelemetryAnnotation] == "true" {
 				return nil

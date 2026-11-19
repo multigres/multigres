@@ -197,7 +197,12 @@ func TestWithBackupLeaseFailsWhenLocked(t *testing.T) {
 
 	// Clean up: revoke so the goroutine finishes
 	require.NoError(t, ts.RevokeBackup(ctx, testShardRef))
-	<-done
+	select {
+	case <-done:
+	// The monitor notices the revoke at its next check, up to a check interval away.
+	case <-time.After(topoclient.BackupLeaseCheckInterval + 20*time.Second):
+		t.Fatal("the callback did not return after the revoke")
+	}
 }
 
 func TestWithStolenBackupLease(t *testing.T) {
@@ -234,7 +239,11 @@ func TestWithStolenBackupLease(t *testing.T) {
 	assert.True(t, called)
 
 	// Original should have received ErrLeaseLost
-	err = <-done
+	select {
+	case err = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the lease loss was not signalled")
+	}
 	assert.ErrorIs(t, err, topoclient.ErrLeaseLost)
 }
 

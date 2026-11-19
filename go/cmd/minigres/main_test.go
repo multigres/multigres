@@ -15,6 +15,9 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -184,4 +187,70 @@ func TestPreRun_KeepsServiceIDFromEnvironment(t *testing.T) {
 
 	assert.Equal(t, "svc-env", m.pooler.ServiceIdentity().ServiceInstanceID)
 	assert.False(t, cmd.Flags().Lookup("service-id").Changed, "an ID from the environment must not be replaced")
+}
+
+// Minigres takes the multipooler's flags, so it refuses the removed pgBackRest
+// flags the same way: named, and before anything starts.
+func TestRemovedPgBackRestFlagsRefuseStartup(t *testing.T) {
+	for _, arg := range []string{
+		"--pgbackrest-cert-file=/certs/pgbackrest.crt",
+		"--pgbackrest-key-file=/certs/pgbackrest.key",
+		"--pgbackrest-ca-file=/certs/ca.crt",
+		"--pgbackrest-port=8432",
+		"--pgbackrest-cipher-key-file=/secrets/pgbackrest-cipher/keys.json",
+	} {
+		t.Run(arg, func(t *testing.T) {
+			cmd, err := CreateMinigresCommand()
+			require.NoError(t, err)
+			cmd.SetArgs([]string{"--cell", "zone1", "--pooler-dir", t.TempDir(), arg})
+			cmd.SilenceUsage, cmd.SilenceErrors = true, true
+			ran := false
+			cmd.RunE = func(*cobra.Command, []string) error { ran = true; return nil }
+
+			err = cmd.Execute()
+
+			name, _, _ := strings.Cut(arg, "=")
+			require.EqualError(t, err, "flag "+name+" was removed: pgBackRest runs in the pgbackrestd sidecar, and this minigres needs a multigres-operator that deploys that sidecar and does not pass the flag")
+			assert.False(t, ran, "minigres must not start")
+		})
+	}
+}
+
+// See the multipooler's test of the same name: the environment variable and
+// the config file keys of the removed settings stop minigres as well.
+func TestRemovedPgBackRestSettingsRefuseStartupFromEnvironmentAndConfigFile(t *testing.T) {
+	execute := func(t *testing.T, extra ...string) (error, bool) {
+		t.Helper()
+		cmd, err := CreateMinigresCommand()
+		require.NoError(t, err)
+		cmd.SetArgs(append([]string{"--cell", "zone1", "--pooler-dir", t.TempDir()}, extra...))
+		cmd.SilenceUsage, cmd.SilenceErrors = true, true
+		ran := false
+		cmd.RunE = func(*cobra.Command, []string) error { ran = true; return nil }
+		return cmd.Execute(), ran
+	}
+
+	t.Run("environment variable", func(t *testing.T) {
+		t.Setenv("MULTIGRES_PGBACKREST_CIPHER_KEY_FILE", "/secrets/pgbackrest-cipher/keys.json")
+		err, ran := execute(t)
+		require.EqualError(t, err, "environment variable MULTIGRES_PGBACKREST_CIPHER_KEY_FILE was removed: pgBackRest runs in the pgbackrestd sidecar, which holds the cipher keys, and this minigres needs a multigres-operator that deploys that sidecar and does not set the variable")
+		assert.False(t, ran, "minigres must not start")
+	})
+
+	for _, key := range []string{
+		"multipooler.pgbackrest-cert-file", "multipooler.pgbackrest-key-file", "multipooler.pgbackrest-ca-file",
+		"multipooler.pgbackrest-port", "multipooler.pgbackrest-cipher-key-file", "pgbackrest-port",
+	} {
+		t.Run("config file key "+key, func(t *testing.T) {
+			configFile := filepath.Join(t.TempDir(), "minigres.yaml")
+			body := key + ": 8432\n"
+			if half, name, nested := strings.Cut(key, "."); nested {
+				body = half + ":\n  " + name + ": 8432\n"
+			}
+			require.NoError(t, os.WriteFile(configFile, []byte(body), 0o600))
+			err, ran := execute(t, "--config-file", configFile)
+			require.ErrorContains(t, err, "config file setting "+key+" was removed: pgBackRest runs in the pgbackrestd sidecar, and this minigres needs a multigres-operator that deploys that sidecar and does not set it")
+			assert.False(t, ran, "minigres must not start")
+		})
+	}
 }

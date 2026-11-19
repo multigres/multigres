@@ -84,7 +84,20 @@ type SetupConfig struct {
 	InitdbSQLFiles                  []string // Paths to .sql files executed on each pgctld after initdb against the target database
 	InitdbSQLDirs                   []string // role:path entries; each dir's .sql files run under SET SESSION AUTHORIZATION <role> after initdb
 	PgInitdbArgs                    string   // Extra args forwarded to pgctld --pg-initdb-args (e.g., "--no-locale --encoding=SQL_ASCII" for pgregress)
+	S3CAPEM                         []byte   // PEM certificate the sidecar trusts for the S3 endpoint (s3mock's self-signed certificate)
 	PgInitdbExtraConfFiles          []string // postgresql.conf snippets live-included via --pg-initdb-extra-conf (e.g., locale overrides for pgregress)
+
+	// S3CAFile, when set, is the CA file the backup location names, instead of
+	// a file shardsetup writes from S3CAPEM. The test owns the file and may
+	// replace its content while the cluster runs.
+	S3CAFile string
+	// S3SkipTLSVerify makes the backup location turn TLS verification of the
+	// S3 endpoint off, and name no CA.
+	S3SkipTLSVerify bool
+
+	// S3StaticKey is the S3 keys every sidecar reads from its key directory,
+	// instead of minting sessions.
+	S3StaticKey *clustersetup.S3StaticKey
 }
 
 // SetupOption is a function that configures setup creation.
@@ -269,10 +282,46 @@ func WithS3Backup(bucket, region, endpoint string) SetupOption {
 	}
 }
 
+// WithS3CAPEM sets the certificate the pgbackrestd sidecar trusts for the S3
+// endpoint, normally s3mock.Server.CertPEM(). When an S3 endpoint is named and
+// this is not used, the certificate is read from the endpoint itself.
+func WithS3CAPEM(pem []byte) SetupOption {
+	return func(c *SetupConfig) {
+		c.S3CAPEM = pem
+	}
+}
+
+// WithS3CAFile makes the backup location name this CA file for the S3
+// endpoint, instead of a file written from WithS3CAPEM. Use it with
+// WithS3Backup.
+func WithS3CAFile(path string) SetupOption {
+	return func(c *SetupConfig) {
+		c.S3CAFile = path
+	}
+}
+
+// WithS3SkipTLSVerify makes the backup location turn TLS verification of the
+// S3 endpoint off instead of naming the endpoint's certificate as its CA. It
+// is for the test of that switch.
+func WithS3SkipTLSVerify() SetupOption {
+	return func(c *SetupConfig) {
+		c.S3SkipTLSVerify = true
+	}
+}
+
+// WithS3StaticKey makes every pooler's sidecar read these S3 keys from its
+// static key directory, the way the local provisioner runs a sidecar, instead
+// of minting sessions from the S3 endpoint. Use it with WithS3Backup.
+func WithS3StaticKey(accessKeyID, secretAccessKey, sessionToken string) SetupOption {
+	return func(c *SetupConfig) {
+		c.S3StaticKey = &clustersetup.S3StaticKey{AccessKeyID: accessKeyID, SecretAccessKey: secretAccessKey, SessionToken: sessionToken}
+	}
+}
+
 // WithBackupEncryption requires client-side backup encryption: the setup
 // generates a random cipher passphrase, writes the generation-keyed key file
-// ({"1": "<pass>"}) into the temp dir, points every multipooler at it via
-// --pgbackrest-cipher-key-file, and sets require_initial_repo_encryption on the
+// ({"1": "<pass>"}) into the temp dir, points every pooler's sidecar at it via
+// --cipher-key-file, and sets require_initial_repo_encryption on the
 // database's BackupLocation. The passphrase is exposed as
 // ShardSetup.BackupCipherKey for fingerprint assertions.
 func WithBackupEncryption() SetupOption {
@@ -437,6 +486,10 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		opt(config)
 	}
 
+	clustersetup.RequireSidecarHost(t)
+	trustS3Endpoint(t, config)
+	requirePgBackrestVersion(t)
+
 	// Add configuration attributes to span
 	span.SetAttributes(
 		attribute.Int("multipooler.count", config.MultipoolerCount),
@@ -492,12 +545,29 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 
 	// Create the database entry in topology with backup_location
 	var backupLocation *clustermetadatapb.BackupLocation
+	var s3CAFile string
 
 	if config.S3BackupBucket != "" {
 		// S3/MinIO backend
 		opts := []utils.S3Option{utils.WithS3EnvCredentials()}
 		if config.S3BackupEndpoint != "" {
 			opts = append(opts, utils.WithS3Endpoint(config.S3BackupEndpoint))
+			// The endpoint is an s3mock with a self-signed certificate. The
+			// location names that certificate as its CA, so the sidecar
+			// verifies the endpoint, unless the test asks for no verification.
+			s3CAFile = config.S3CAFile
+			if s3CAFile == "" {
+				s3CAFile = filepath.Join(tempDir, "s3-ca.pem")
+				if err := os.WriteFile(s3CAFile, config.S3CAPEM, 0o644); err != nil {
+					cancel()
+					t.Fatalf("failed to write the S3 CA file: %v", err)
+				}
+			}
+			if config.S3SkipTLSVerify {
+				opts = append(opts, utils.WithS3SkipTLSVerify())
+			} else {
+				opts = append(opts, utils.WithS3CAFile(s3CAFile))
+			}
 		}
 		backupLocation = utils.S3BackupLocation(config.S3BackupBucket, config.S3BackupRegion, opts...)
 		if config.S3BackupEndpoint != "" {
@@ -515,6 +585,15 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 			config.Database, backupDir)
 	}
 
+	var sidecar clustersetup.SidecarSettings
+	if config.S3BackupEndpoint != "" {
+		// The session endpoint is the same server, verified with the same file
+		// whatever the location says about the repository.
+		sidecar.S3CredCAFile = s3CAFile
+		sidecar.S3CredEndpoint = config.S3BackupEndpoint + "/_session?ttl=" + clustersetup.SidecarSessionTTL
+	}
+	sidecar.S3StaticKey = config.S3StaticKey
+
 	// Backup encryption: mint a passphrase, write the key file every
 	// multipooler reads at startup, and require encryption in topology so a
 	// pooler without the key refuses to serve.
@@ -526,7 +605,8 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		if err := os.WriteFile(keyFilePath, fmt.Appendf(nil, `{"1": %q}`, backupCipherKey), 0o600); err != nil {
 			t.Fatalf("failed to write backup cipher key file: %v", err)
 		}
-		config.MultipoolerExtraArgs = append(config.MultipoolerExtraArgs, "--pgbackrest-cipher-key-file", keyFilePath)
+		// The sidecar owns the keys; multipooler never loads them.
+		sidecar.CipherKeyFile = keyFilePath
 		t.Logf("Backup encryption required: cipher key file at %s", keyFilePath)
 	}
 
@@ -549,6 +629,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		MetricsPorts:       make(map[string]int),
 		BackupLocation:     backupLocation,
 		BackupCipherKey:    backupCipherKey,
+		sidecar:            sidecar,
 	}
 
 	// Provision postgres-side TLS assets up front so every pgctld + multipooler
@@ -1372,6 +1453,14 @@ func startMultipoolerInstances(ctx context.Context, t *testing.T, instances []*M
 			attribute.Int("multipooler.grpc_port", multipooler.GrpcPort),
 		)
 
+		// The sidecar first: postgres's archive_command dials its WAL socket.
+		if err := inst.PgBackRestd.Start(instCtx, t); err != nil {
+			instSpan.RecordError(err)
+			instSpan.SetStatus(codes.Error, "pgbackrestd start failed")
+			instSpan.End()
+			t.Fatalf("failed to start pgbackrestd for %s: %v", inst.Name, err)
+		}
+
 		// Start pgctld (postgres will be initialized later, or by multiorch for bootstrap)
 		if err := pgctld.Start(instCtx, t); err != nil {
 			instSpan.RecordError(err)
@@ -1650,6 +1739,15 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 			inst.Pgctld.TerminateGracefully(t.Logf, gracePeriod)
 			t.Logf("ReinitializeCluster: stopped pgctld %s", name)
 		}
+		// The sidecar is stopped and its directory removed first. Wiping the pooler
+		// directory deletes the pg_sockets directory its sandbox rules were opened
+		// on, and its state belongs to the old repository. Both steps must succeed
+		// before anything below is wiped: a sidecar that is still running would keep
+		// archiving into the cleared repository, and state left behind would bind
+		// the new sidecar to the old repository.
+		if err := inst.PgBackRestd.StopAndRemoveState(gracePeriod); err != nil {
+			t.Fatalf("ReinitializeCluster: %v", err)
+		}
 
 		// Remove ALL contents of the data directory so pgctld starts
 		// completely fresh. This clears pg_data (PostgreSQL data),
@@ -1691,6 +1789,16 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		// port to actually free first.
 		clustersetup.WaitForPortFree(t, inst.Pgctld.PgPort, 60*time.Second)
 
+		// The sidecar first, on a fresh pooler directory and state directory.
+		if err := os.MkdirAll(inst.Pgctld.PoolerDir, 0o755); err != nil {
+			t.Fatalf("ReinitializeCluster: create %s: %v", inst.Pgctld.PoolerDir, err)
+		}
+		if err := inst.PgBackRestd.Paths.Prepare(TestPostgresPassword); err != nil {
+			t.Fatalf("ReinitializeCluster: prepare pgbackrestd for %s: %v", name, err)
+		}
+		if err := inst.PgBackRestd.Start(ctx, t); err != nil {
+			t.Fatalf("ReinitializeCluster: failed to start pgbackrestd %s: %v", name, err)
+		}
 		if err := inst.Pgctld.Start(ctx, t); err != nil {
 			t.Fatalf("ReinitializeCluster: failed to start pgctld %s: %v", name, err)
 		}

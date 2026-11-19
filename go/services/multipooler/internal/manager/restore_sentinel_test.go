@@ -51,23 +51,18 @@ func TestDiscoverPostgresState_RestoreSentinel(t *testing.T) {
 		assert.False(t, state.restoreSentinelPresent)
 	})
 
-	t.Run("sentinel with a backup to restore from", func(t *testing.T) {
-		pm, _, _ := newAutoRestoreTestManager(t, printCompleteBackupInfo, "")
+	t.Run("sentinel does not read the repository", func(t *testing.T) {
+		// The sidecar closes info while its restore runs, so the read would fail
+		// and the tick would be skipped, hiding a wait that must age toward
+		// quarantine. restoreAndStartPostgres lists the backups itself once the
+		// sidecar has confirmed that no restore runs.
+		pm, _, _ := newAutoRestoreTestManager(t, `echo "ERROR: [104]: unable to reach repository"; exit 1`, "")
 
 		state, err := pm.discoverPostgresState(t.Context())
 		require.NoError(t, err)
 		assert.True(t, state.dirInitialized, "the partial restore holds PG_VERSION")
 		assert.True(t, state.restoreSentinelPresent)
-		assert.True(t, state.backupsAvailable)
-	})
-
-	t.Run("sentinel with an unreachable repository skips the tick", func(t *testing.T) {
-		// A skipped tick takes no action, so a backup repository outage does not
-		// count toward quarantining the node as unrecoverable.
-		pm, _, _ := newAutoRestoreTestManager(t, `echo "ERROR: [104]: unable to reach repository"; exit 1`, "")
-
-		_, err := pm.discoverPostgresState(t.Context())
-		require.ErrorContains(t, err, "check for complete backups")
+		assert.False(t, state.backupsAvailable)
 	})
 
 	t.Run("sentinel with postgres running does not check backups", func(t *testing.T) {
@@ -85,8 +80,9 @@ func TestDiscoverPostgresState_RestoreSentinel(t *testing.T) {
 }
 
 // TestDiscoverPostgresState_UnreadableRestoreSentinel verifies an unreadable
-// sentinel makes the monitor skip the tick rather than treating it as absent and
-// possibly starting postgres on a partial restore.
+// sentinel is treated as present (an unsettled restore), never as absent, so
+// postgres is not started on a possibly partial restore, and the tick is not
+// skipped, so the wait ages toward quarantine.
 func TestDiscoverPostgresState_UnreadableRestoreSentinel(t *testing.T) {
 	pm := NewTestMultipoolerManager(t)
 	pm.pgctldClient = &mockPgctldClient{
@@ -96,9 +92,9 @@ func TestDiscoverPostgresState_UnreadableRestoreSentinel(t *testing.T) {
 	// not-exist error.
 	require.NoError(t, os.Symlink(pm.restoreSentinel().path, pm.restoreSentinel().path))
 
-	_, err := pm.discoverPostgresState(t.Context())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "check restore sentinel")
+	state, err := pm.discoverPostgresState(t.Context())
+	require.NoError(t, err)
+	assert.True(t, state.restoreSentinelPresent)
 }
 
 // diskStatusPgctldClient reports STOPPED or NOT_INITIALIZED based on whether
@@ -158,7 +154,6 @@ func newAutoRestoreTestManager(t *testing.T, infoScript, restoreScript string) (
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
 	pm := createTestManagerWithBackupLocation(t, poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA, filepath.Join(tmpDir, "backups"))
-	pm.backup.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 	pm.pgctldClient = &diskStatusPgctldClient{}
 
 	dataDir := plantPartialRestore(t, pm)
@@ -297,7 +292,7 @@ func TestRestoreAndStartPostgres_NoSentinelKeepsInitializedDataDir(t *testing.T)
 	pm := newSentinelTestManager(t)
 	dataDir := plantPartialRestore(t, pm)
 	pm.pgctldClient = &diskStatusPgctldClient{}
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = newStubEngine(pm.logger, pm.record, backupengine.Settings{})
 
 	withLock(t, pm, func(ctx context.Context) {
 		require.NoError(t, pm.restoreAndStartPostgres(ctx), "an initialized data directory skips the restore")
@@ -337,7 +332,7 @@ func TestRestoreAndStartPostgres_UnreadableRestoreSentinel(t *testing.T) {
 	withLock(t, pm, func(ctx context.Context) {
 		err := pm.restoreAndStartPostgres(ctx)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to check restore sentinel")
+		assert.Contains(t, err.Error(), "cannot read the restore marker")
 	})
 }
 
@@ -352,8 +347,9 @@ func newRestoreTestManager(t *testing.T, poolerDir string) *MultipoolerManager {
 			PoolerDir: poolerDir,
 		}),
 	}
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
+	pm.backup = newStubEngine(pm.logger, pm.record, backupengine.Settings{})
 	pm.stateManager = NewStateManager(pm.logger, pm.record, func() *clustermetadatapb.ConsensusStatus { return nil })
+	useAnsweringSidecar(t, pm)
 	return pm
 }
 
@@ -382,8 +378,8 @@ func TestRestoreFromBackupLocked_KeepsSentinelWhenPartialDataDirRemovalFails(t *
 }
 
 // TestRestoreFromBackupLocked_SentinelWriteFailureAbortsRestore verifies the
-// restore never runs unprotected: if the sentinel can't be written, it aborts
-// before pgbackrest touches PGDATA.
+// restore never runs unprotected: if the sentinel can't be read or written, it
+// aborts before pgbackrest touches PGDATA.
 func TestRestoreFromBackupLocked_SentinelWriteFailureAbortsRestore(t *testing.T) {
 	t.Setenv(constants.PgDataDirEnvVar, filepath.Join(t.TempDir(), "pg_data"))
 	pm := newRestoreTestManager(t, filepath.Join(t.TempDir(), "no", "such", "dir"))
@@ -391,7 +387,7 @@ func TestRestoreFromBackupLocked_SentinelWriteFailureAbortsRestore(t *testing.T)
 	withLock(t, pm, func(ctx context.Context) {
 		err := pm.restoreFromBackupLocked(ctx, "some-backup-id")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to write restore sentinel")
+		assert.Contains(t, err.Error(), "restore marker")
 	})
 }
 
@@ -414,17 +410,15 @@ func newMockPgbackrestRestoreManager(t *testing.T, restoreScript string) (*Multi
 	require.NoError(t, os.WriteFile(filepath.Join(binDir, "pgbackrest"), []byte(mockScript), 0o755))
 	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
 
-	configPath := filepath.Join(tmpDir, "pgbackrest.conf")
-	require.NoError(t, os.WriteFile(configPath, []byte("[global]\n"), 0o600))
-
 	pm := newRestoreTestManager(t, poolerDir)
-	pm.backup.SetConfigPath(configPath)
 	return pm, dataDir
 }
 
 // TestRestoreFromBackupLocked_SentinelCoversOnlyTheRestore verifies the sentinel
-// is on disk while pgbackrest restore runs and is cleared as soon as it
-// succeeds, so a failure in a later step can't get the restored data discarded.
+// is on disk while pgbackrest restore runs and stays until the steps after it
+// ran, so a failure in a later step costs a redundant restore on the next
+// attempt and never a postgres that skipped the archive reconfiguration, and
+// does not get the restored data discarded.
 func TestRestoreFromBackupLocked_SentinelCoversOnlyTheRestore(t *testing.T) {
 	observedFile := filepath.Join(t.TempDir(), "sentinel_during_restore")
 	t.Setenv("OBSERVED", observedFile)
@@ -443,14 +437,14 @@ mkdir -p "$PGDATA" && echo 17 > "$PGDATA/PG_VERSION"`)
 	})
 
 	assert.FileExists(t, observedFile, "the sentinel must be on disk while pgbackrest restore runs")
-	assert.NoFileExists(t, pm.restoreSentinel().path, "the sentinel must be cleared once the restore succeeds")
+	assert.FileExists(t, pm.restoreSentinel().path, "the sentinel stays until the post-restore steps completed")
 	assert.FileExists(t, filepath.Join(dataDir, "PG_VERSION"),
 		"a failure after a successful restore must not discard the restored data")
 }
 
-// TestRestoreFromBackupLocked_SentinelRemovalFails covers a sentinel that can't
-// be cleared. The mock pgbackrest swaps the sentinel for a non-empty directory,
-// which os.Remove can't delete.
+// TestRestoreFromBackupLocked_SentinelRemovalFails covers a failed restore whose
+// sentinel is not a plain file: nothing is deleted and the restore error is
+// returned. The mock pgbackrest swaps the sentinel for a non-empty directory.
 func TestRestoreFromBackupLocked_SentinelRemovalFails(t *testing.T) {
 	const swapSentinel = `rm -f "$SENTINEL" && mkdir "$SENTINEL" && touch "$SENTINEL/child"`
 
@@ -464,18 +458,5 @@ func TestRestoreFromBackupLocked_SentinelRemovalFails(t *testing.T) {
 		})
 
 		assert.DirExists(t, pm.restoreSentinel().path, "the sentinel could not be removed")
-	})
-
-	t.Run("after a successful restore the attempt fails so it is redone", func(t *testing.T) {
-		pm, dataDir := newMockPgbackrestRestoreManager(t, swapSentinel+"\n"+
-			`mkdir -p "$PGDATA" && echo 17 > "$PGDATA/PG_VERSION"`)
-
-		withLock(t, pm, func(ctx context.Context) {
-			err := pm.restoreFromBackupLocked(ctx, "some-backup-id")
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), "failed to remove restore sentinel after restore")
-		})
-
-		assert.FileExists(t, filepath.Join(dataDir, "PG_VERSION"), "the restored data is kept")
 	})
 }

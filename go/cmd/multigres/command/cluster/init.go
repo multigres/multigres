@@ -39,6 +39,9 @@ type initCmd struct {
 	backupURL      viperutil.Value[string]
 	region         viperutil.Value[string]
 	encryptBackups viperutil.Value[bool]
+	s3Endpoint     viperutil.Value[string]
+	s3CAFile       viperutil.Value[string]
+	s3SkipTLS      viperutil.Value[bool]
 }
 
 // getConfigPaths returns the list of config paths.
@@ -137,6 +140,34 @@ func (icmd *initCmd) buildBackupConfig(configPaths []string) (map[string]string,
 		config["encrypt"] = "true"
 	}
 
+	// A self-hosted S3 service: where it is, and how its certificate is
+	// verified. The sidecar reads the CA file by this path, so it is stored
+	// absolute.
+	endpoint := icmd.s3Endpoint.Get()
+	caFile := icmd.s3CAFile.Get()
+	skipTLSVerify := icmd.s3SkipTLS.Get()
+	if caFile != "" && skipTLSVerify {
+		return nil, errors.New("--s3-ca-file and --s3-skip-tls-verify cannot be combined: a CA has no effect when the certificate is not verified")
+	}
+	if err := s3tools.ValidateEndpoint(endpoint); err != nil {
+		return nil, fmt.Errorf("--s3-endpoint: %w", err)
+	}
+	if endpoint != "" {
+		config["s3-endpoint"] = endpoint
+	}
+	if caFile != "" {
+		abs, err := filepath.Abs(caFile)
+		if err != nil {
+			return nil, fmt.Errorf("--s3-ca-file: %w", err)
+		}
+		caFile = abs
+		config["s3-ca-file"] = caFile
+	}
+	if skipTLSVerify {
+		config["s3-skip-tls-verify"] = "true"
+		fmt.Println("WARNING: --s3-skip-tls-verify: the S3 endpoint's TLS certificate will not be verified. Anyone who can intercept the connection can read and replace backups and WAL. Prefer --s3-ca-file.")
+	}
+
 	fmt.Printf("Generated S3 backup prefix: %s\n", timestampedPrefix)
 
 	// Validate credentials and S3 access
@@ -156,13 +187,15 @@ func (icmd *initCmd) buildBackupConfig(configPaths []string) (map[string]string,
 	defer cancel()
 
 	err = s3tools.ValidateAccess(ctx, s3tools.ValidationConfig{
-		Bucket:       bucket,
-		Region:       region,
-		Endpoint:     "",
-		KeyPrefix:    timestampedPrefix,
-		AccessKey:    accessKey,
-		SecretKey:    secretKey,
-		SessionToken: sessionToken,
+		Bucket:        bucket,
+		Region:        region,
+		Endpoint:      endpoint,
+		KeyPrefix:     timestampedPrefix,
+		AccessKey:     accessKey,
+		SecretKey:     secretKey,
+		SessionToken:  sessionToken,
+		CAFile:        caFile,
+		SkipTLSVerify: skipTLSVerify,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("S3 validation failed: %w\n\nFix the issue and try again, or run 'multigres cluster check-backup-config' to diagnose", err)
@@ -297,6 +330,21 @@ func AddInitCommand(clusterCmd *cobra.Command) {
 			FlagName: "encrypt-backups",
 			Dynamic:  false,
 		}),
+		s3Endpoint: viperutil.Configure(reg, "s3-endpoint", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "s3-endpoint",
+			Dynamic:  false,
+		}),
+		s3CAFile: viperutil.Configure(reg, "s3-ca-file", viperutil.Options[string]{
+			Default:  "",
+			FlagName: "s3-ca-file",
+			Dynamic:  false,
+		}),
+		s3SkipTLS: viperutil.Configure(reg, "s3-skip-tls-verify", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "s3-skip-tls-verify",
+			Dynamic:  false,
+		}),
 	}
 
 	cmd := &cobra.Command{
@@ -321,6 +369,11 @@ S3 Backup Examples:
   # AWS S3
   multigres cluster init --backup-url=s3://my-bucket/backups/ --region=us-east-1
 
+  # Self-hosted S3 (MinIO, Garage, RustFS, Ceph RGW) behind a private CA or
+  # with a self-signed certificate
+  multigres cluster init --backup-url=s3://my-bucket/backups/ --region=us-east-1 \
+    --s3-endpoint=https://s3.internal.example:9000 --s3-ca-file=/etc/ssl/private-ca.pem
+
   # Encrypted local backups
   multigres cluster init --encrypt-backups`,
 		RunE: icmd.runInit,
@@ -333,8 +386,12 @@ S3 Backup Examples:
 	cmd.Flags().String("region", icmd.region.Default(), "AWS region (required for S3 backups)")
 	cmd.Flags().Bool("encrypt-backups", icmd.encryptBackups.Default(), "Encrypt backups client-side: the cluster generates a cipher key file and encrypts the initial repository at stanza creation")
 
+	cmd.Flags().String("s3-endpoint", icmd.s3Endpoint.Default(), "Endpoint URL of a self-hosted S3 service, such as https://s3.internal.example:9000 (default: AWS S3)")
+	cmd.Flags().String("s3-ca-file", icmd.s3CAFile.Default(), "PEM file of the certificate authorities that verify the S3 endpoint's TLS certificate, in place of the system trust store; a self-signed server certificate works as its own CA")
+	cmd.Flags().Bool("s3-skip-tls-verify", icmd.s3SkipTLS.Default(), "Do not verify the S3 endpoint's TLS certificate (insecure; prefer --s3-ca-file)")
+
 	viperutil.BindFlags(cmd.Flags(), icmd.provisioner, icmd.topology, icmd.backupPath,
-		icmd.backupURL, icmd.region, icmd.encryptBackups)
+		icmd.backupURL, icmd.region, icmd.encryptBackups, icmd.s3Endpoint, icmd.s3CAFile, icmd.s3SkipTLS)
 
 	clusterCmd.AddCommand(cmd)
 }

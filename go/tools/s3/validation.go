@@ -17,9 +17,12 @@ package s3
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -38,13 +41,59 @@ type ValidationConfig struct {
 	AccessKey    string
 	SecretKey    string
 	SessionToken string // Optional: for temporary credentials (AWS STS)
+
+	// CAFile is a PEM file of the certificate authorities that verify the
+	// endpoint's TLS certificate, in place of the system trust store. A
+	// self-signed server certificate works as its own CA.
+	CAFile string
+	// SkipTLSVerify turns verification of the endpoint's certificate off. It
+	// is never implied by the endpoint, a local one included, and cannot be
+	// combined with CAFile.
+	SkipTLSVerify bool
 }
 
-// isLocalhostEndpoint checks if an endpoint URL points to localhost
-func isLocalhostEndpoint(endpoint string) bool {
-	return strings.Contains(endpoint, "localhost") ||
-		strings.Contains(endpoint, "127.0.0.1") ||
-		strings.Contains(endpoint, "[::1]")
+// tlsConfig is how the endpoint's certificate is verified: the same way the
+// pgbackrestd sidecar will verify it with the same two settings, so a
+// configuration that passes here is one the cluster can archive with. nil
+// means Go's default, the system trust store.
+func (cfg ValidationConfig) tlsConfig() (*tls.Config, error) {
+	switch {
+	case cfg.CAFile != "" && cfg.SkipTLSVerify:
+		return nil, errors.New("a CA file and skipping TLS verification cannot be combined")
+	case cfg.SkipTLSVerify:
+		return &tls.Config{InsecureSkipVerify: true}, nil //nolint:gosec // only when the caller asked for it explicitly
+	case cfg.CAFile != "":
+		pemBytes, err := os.ReadFile(cfg.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read CA file: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pemBytes) {
+			return nil, fmt.Errorf("CA file %q holds no PEM certificate", cfg.CAFile)
+		}
+		return &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}, nil
+	}
+	return nil, nil
+}
+
+// ValidateEndpoint refuses an explicit S3 endpoint that is not an https URL.
+// Requests to the endpoint are signed, and a session token travels in a
+// header, so nothing is sent over a connection that is not encrypted.
+// Skipping certificate verification does not change that: it gives up
+// knowing who the server is, not the encryption. An empty endpoint means AWS
+// S3, which the SDK reaches over https.
+func ValidateEndpoint(endpoint string) error {
+	if endpoint == "" {
+		return nil
+	}
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("S3 endpoint %q is not a URL: %w", endpoint, err)
+	}
+	if u.Scheme != "https" || u.Host == "" {
+		return fmt.Errorf("S3 endpoint %q must be an https URL: credentials are not sent over an unencrypted connection", endpoint)
+	}
+	return nil
 }
 
 // ValidateBucketName validates S3 bucket naming rules
@@ -79,6 +128,9 @@ func ValidateAccess(ctx context.Context, cfg ValidationConfig) error {
 	if cfg.SecretKey == "" {
 		return errors.New("secret key is required")
 	}
+	if err := ValidateEndpoint(cfg.Endpoint); err != nil {
+		return err
+	}
 
 	// Create AWS config with explicit credentials
 	awsCfg := aws.Config{
@@ -90,26 +142,30 @@ func ValidateAccess(ctx context.Context, cfg ValidationConfig) error {
 		),
 	}
 
-	// Set custom endpoint if specified (for s3mock, etc.)
+	tlsConfig, err := cfg.tlsConfig()
+	if err != nil {
+		return err
+	}
+	if cfg.Endpoint != "" || tlsConfig != nil {
+		awsCfg.HTTPClient = &http.Client{
+			Transport: &http.Transport{
+				TLSHandshakeTimeout:   5 * time.Second,
+				ResponseHeaderTimeout: 5 * time.Second,
+				TLSClientConfig:       tlsConfig,
+			},
+			// A redirect would repeat the signed request elsewhere; never to
+			// a plaintext address.
+			CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+				if req.URL.Scheme != "https" {
+					return fmt.Errorf("refusing a redirect to %s: not https", req.URL.Redacted())
+				}
+				return nil
+			},
+		}
+	}
+	// Set custom endpoint if specified (a self-hosted S3 service, s3mock)
 	if cfg.Endpoint != "" {
 		awsCfg.BaseEndpoint = aws.String(cfg.Endpoint)
-
-		// For localhost endpoints only, skip TLS verification for self-signed certs
-		// This is needed for local development with s3mock
-		transport := &http.Transport{
-			TLSHandshakeTimeout:   5 * time.Second,
-			ResponseHeaderTimeout: 5 * time.Second,
-		}
-
-		if isLocalhostEndpoint(cfg.Endpoint) {
-			transport.TLSClientConfig = &tls.Config{
-				InsecureSkipVerify: true, //nolint:gosec // Required for local s3mock with self-signed certs
-			}
-		}
-
-		awsCfg.HTTPClient = &http.Client{
-			Transport: transport,
-		}
 	}
 
 	// Create S3 client
@@ -122,7 +178,7 @@ func ValidateAccess(ctx context.Context, cfg ValidationConfig) error {
 	})
 
 	// 1. HeadBucket - verify bucket exists and we have access
-	_, err := client.HeadBucket(ctx, &s3.HeadBucketInput{
+	_, err = client.HeadBucket(ctx, &s3.HeadBucketInput{
 		Bucket: aws.String(cfg.Bucket),
 	})
 	if err != nil {

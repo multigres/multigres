@@ -19,18 +19,17 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/backup"
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
-	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/eventlog"
 	"github.com/multigres/multigres/go/common/keyrange"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/safefs"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/sqltypes"
 	"github.com/multigres/multigres/go/common/timeouts"
@@ -88,6 +87,44 @@ type MultipoolerManager struct {
 	replStats       *replicationstats.Tracker
 	schemaTracker   *schematracker.Tracker
 	pgctldClient    pgctldpb.PgCtldClient
+	// volumeRoot opens the data volume root (poolerDir) for the PVC generation
+	// copy. Production wires a handle anchored with sandbox.OpenAnchor; nil
+	// falls back to opening poolerDir by path, which only tests may rely on.
+	// Each call returns a fresh Root that the caller closes.
+	volumeRoot func() (*safefs.Root, error)
+	// sidecar is the pgbackrestd client.
+	sidecar *sidecarClient
+	// skipSidecarSync mirrors overrides.skipSidecarSync.
+	skipSidecarSync bool
+	// credentialExposed is 1 when multipooler's environment holds a credential
+	// source meant only for the sidecar.
+	credentialExposed atomic.Int64
+	// tableBehind is 1 while the generation table trails the sidecar or the PVC
+	// copy (see syncSidecar), and the fields beside it dedupe the log lines.
+	tableBehind atomic.Int64
+	// walSegBytes is postgres's wal_segment_size once read (0 until then);
+	// sidecarWalSegBytes is the value the sidecar last accepted in a Configure.
+	// They differ until the next sync pass sends it, which is how a change
+	// triggers a re-Configure.
+	walSegBytes        atomic.Uint32
+	sidecarWalSegBytes atomic.Uint32
+	behindMu           sync.Mutex
+	behindWarned       bool
+	behindRev          int64
+	behindFloor        int64
+	lastSyncErr        string
+	lastWaitLog        time.Time
+	// lastSettledWarn rate-limits the restoreSettled warnings, untrustedLoggedFor
+	// dedupes the ERROR per marker, and markerAgeSec feeds the age gauge.
+	lastSettledWarn    time.Time
+	untrustedLoggedFor time.Time
+	// unreadableMarkerSince is when this process first found the restore marker
+	// unreadable, the fallback age when its mtime cannot be listed.
+	unreadableMarkerSince time.Time
+	markerAgeSec          atomic.Int64
+	// restoreWaitCtx ends a settling restore wait; see newMultipoolerManager.
+	restoreWaitCtx    context.Context
+	restoreWaitCancel context.CancelFunc
 
 	// connPoolMgr manages all connection pools (admin, regular, reserved)
 	connPoolMgr connpoolmanager.PoolManager
@@ -333,6 +370,10 @@ type overrides struct {
 	// pgMonitor, when non-nil, replaces the timer.PeriodicRunner the
 	// constructor would otherwise build (see periodicRunner).
 	pgMonitor periodicRunner
+	// skipSidecarSync stops the loop that reconciles the sidecar with the
+	// generation table from starting, so a test that scripts the query service
+	// is not read by it. The sync is exercised directly by its own tests.
+	skipSidecarSync bool
 }
 
 // periodicRunner is the subset of *timer.PeriodicRunner's API the manager
@@ -384,6 +425,11 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 	// which kind of pooler this is.
 	if err := validateUnmanagedConfig(unmanaged, multipooler.GetShardRef().GetDatabase(), config); err != nil {
 		return nil, err
+	}
+	if !unmanaged {
+		if err := validateSidecarSockets(config); err != nil {
+			return nil, err
+		}
 	}
 	// Fail fast on a tablegroup/shard this pooler cannot serve.
 	if err := keyrange.ValidateTableGroupAndShard(multipooler.GetShardRef().GetTableGroup(), multipooler.GetShardRef().GetShard()); err != nil {
@@ -448,6 +494,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 		readyChan:                make(chan struct{}),
 		pgMonitor:                monitorRunner,
 		fenceGateEnabled:         !config.StaticLeader,
+		skipSidecarSync:          ov.skipSidecarSync,
 		healthStreamer:           newHealthStreamer(logger, multipooler.Id, multipooler.GetShardRef().GetTableGroup(), multipooler.GetShardRef().GetShard()),
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
@@ -466,6 +513,10 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 	// intentional: this ctx must outlive any Open()/Close() cycle so
 	// long-lived stream subscribers can keep watching it.
 	pm.shutdownCtx, pm.shutdownCancel = context.WithCancel(ctxutil.Detach(ctx))
+	// Cancelled at the top of GracefulShutdown, before it takes the action lock:
+	// a restore that is settling holds that lock, and shutdownCtx is only
+	// cancelled at the very end.
+	pm.restoreWaitCtx, pm.restoreWaitCancel = context.WithCancel(ctxutil.Detach(ctx))
 
 	// Create the query service controller with the pool manager.
 	// Get the drain grace period from connpool config (0 means use default).
@@ -538,14 +589,19 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 	}
 
 	// Construct the pgBackRest engine. It owns all pgBackRest interaction and its
-	// own metrics. The pgbackrest.conf path, pgpass file, and repo config are
-	// supplied later (SetConfigPath / SetPgpassPath / SetBackupConfig) once
+	// own metrics. The repo config is supplied later (SetBackupConfig) once
 	// topology and the backup location have loaded.
-	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{
-		PgpassPath:    pm.pgpassPath,
-		PgDataDir:     postgresDataDir(),
-		NoBackupLease: config.StaticLeader,
-	})
+	engineSettings := pm.backupEngineSettings()
+	pm.sidecar = newSidecarClient(config.PgBackRestControlSocket)
+	pm.sidecar.shutdown = pm.restoreWaitCtx
+	engineSettings.Sidecar = pm.sidecar
+	engineSettings.Shutdown = pm.restoreWaitCtx
+	pm.volumeRoot = pm.openSidecarVolumeRoot
+	pm.checkCredentialExposure()
+	pm.registerCredentialExposedGauge()
+	pm.registerTableBehindGauge()
+	pm.registerRestoreMarkerAgeGauge()
+	pm.backup = backupengine.NewEngine(pm.logger, pm.record, engineSettings)
 	// Wire the backup-health poller to the manager's pg connection: role
 	// (only a primary archives WAL), pg_stat_archiver (WAL archive lag), and
 	// the backup-relevant settings (archive/restore config).
@@ -1266,10 +1322,16 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 	timeoutCtx, timeoutCancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
 	defer timeoutCancel()
 
+	// lastMismatch is set while the only thing in the way is a sidecar started
+	// for another location than the record names.
+	var lastMismatch error
 	r := retry.New(100*time.Millisecond, 30*time.Second)
 	for _, err := range r.Attempts(timeoutCtx) {
 		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
+			if errors.Is(err, context.DeadlineExceeded) && lastMismatch != nil {
+				pm.setStateError(fmt.Errorf("%w after %v: restart the sidecar with the backup location, CA file and TLS verification setting of database %s's record, or correct the record",
+					lastMismatch, pm.loadTimeout, database))
+			} else if errors.Is(err, context.DeadlineExceeded) {
 				pm.setStateError(fmt.Errorf("timeout loading database %s from topology after %v", database, pm.loadTimeout))
 			} else {
 				pm.setStateError(errors.New("manager context cancelled while loading database from topology"))
@@ -1300,127 +1362,67 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 			db = cached
 		}
 
-		// Validate and parse backup configuration
-		backupConfig, err := backup.NewConfig(db.BackupLocation)
+		backupConfig, err := pm.backupConfigFor(db)
 		if err != nil {
-			pm.setStateError(fmt.Errorf("invalid backup_location: %w", err))
-			return
-		}
-
-		// Verify we can compute the full backup path
-		_, err = backupConfig.FullPath(database, pm.record.ShardRef().GetTableGroup(), pm.record.ShardRef().GetShard())
-		if err != nil {
-			pm.setStateError(fmt.Errorf("failed to compute backup path: %w", err))
-			return
-		}
-		// Give every shard but the catalog shard its own repository.
-		backupConfig, err = backupConfig.ForShard(pm.record.ShardRef().GetTableGroup(), pm.record.TableGroupID(), pm.record.ShardRef().GetShard())
-		if err != nil {
-			pm.setStateError(fmt.Errorf("failed to scope backup repository: %w", err))
-			return
-		}
-		// Refuse to serve if this pooler directory used to back up to a
-		// different shard repository (see checkBackupRepositoryScope).
-		if err := pm.checkBackupRepositoryScope(backupConfig.RepositoryScope()); err != nil {
 			pm.setStateError(err)
 			return
 		}
-
-		// Validate the initial repo's cipher before the conf is written: the
-		// cipher is fixed at stanza-create time, so it must be in the very
-		// first rendered conf or the repo is permanently unencrypted. When
-		// encryption is required and no usable key is present, refuse to
-		// serve — never fall back to an unencrypted repo.
-		if _, cipherDeclared := pm.config.BackupCipherKeys[backup.InitialRepoGeneration]; len(pm.config.BackupCipherKeys) > 0 && !cipherDeclared {
-			pm.setStateError(fmt.Errorf("backup cipher key file declares no key for generation %d (the initial repository)", backup.InitialRepoGeneration))
-			return
-		}
-		if err := requireInitialRepoEncryptionError(db.BackupLocation, pm.config.BackupCipherKeys); err != nil {
-			pm.setStateError(err)
-			return
-		}
-		// Repo rotation does not exist yet: the only generation a repository
-		// can have is the initial one, so an authoritative pointer naming any
-		// other generation is invalid configuration, not a hint to honor.
-		if gen := backupConfig.AuthoritativeGeneration(); gen != backup.InitialRepoGeneration {
-			pm.setStateError(fmt.Errorf("authoritative_generation %d is not supported: only the initial generation %d exists", gen, backup.InitialRepoGeneration))
-			return
-		}
-
-		// Generate pgbackrest client config now that we have backup location.
-		// pgctld already validates the pgbackrest version at startup; we don't
-		// need to repeat the check here, since pgctld and multipooler are
-		// co-located and share the same pgbackrest binary.
-		pgPort := int(pm.record.Port("postgres"))
-		socketDir := constants.PostgresSocketDir(pm.record.PoolerDir())
-		pg1User := constants.DefaultPostgresUser
-		pg1Password := os.Getenv(constants.PgPasswordEnvVar)
-		if pm.connPoolMgr != nil {
-			pg1User = pm.connPoolMgr.PgUser()
-			// PgPassword() returns the password resolved at startup (file →
-			// env) and an ok flag. !ok means ResolvePgPassword never ran
-			// successfully — surface that via setStateError so the manager
-			// goroutine bails out cleanly instead of writing an empty pgpass
-			// file that fails auth later.
-			pw, ok := pm.connPoolMgr.PgPassword()
-			if !ok {
-				pm.setStateError(errors.New("pgbackrest pgpass: postgres password not resolved (ResolvePgPassword must run before pgbackrest setup)"))
-				return
+		// The sidecar owns the conf, the pgpass file and the cipher keys, and the
+		// repository pin: setupSidecar refuses a sidecar scoped to another shard.
+		err = pm.setupSidecar(pm.ctx, db.BackupLocation, backupConfig.RepositoryScope())
+		if errors.Is(err, errSidecarLocationMismatch) {
+			// The sidecar may be about to be restarted with the record's
+			// settings, or the record about to be changed. The manager does
+			// not become ready meanwhile, so postgres is not started against
+			// a sidecar that archives under other settings. The record is
+			// read again on the next attempt.
+			if lastMismatch == nil {
+				pm.logger.Warn("pgbackrest sidecar location does not match the database record; waiting for either to change", "database", database)
 			}
-			pg1Password = pw
+			lastMismatch = err
+			select {
+			case <-timeoutCtx.Done():
+			case <-time.After(pm.sidecar.syncInterval):
+			}
+			continue
 		}
-		// The conf is rendered from the repository set. There is no database
-		// to read multigres.pgbackrest_repos from yet (the conf must exist
-		// before postgres does), so this renders the conventional
-		// generation-1 row — the same value the bootstrap seeds into the
-		// table. Repo lifecycle operations re-render from the table itself.
-		configPath, err := backup.WriteClientConfig(backup.ClientConfigOpts{
-			PoolerDir:     pm.record.PoolerDir(),
-			Pg1Port:       pgPort,
-			Pg1SocketPath: socketDir,
-			Pg1Path:       postgresDataDir(),
-			Pg1User:       pg1User,
-		}, backupConfig,
-			[]backup.PgBackRestRepo{backup.InitialPgBackRestRepo(pm.config.BackupCipherKeys)},
-			pm.config.BackupCipherKeys)
-		if err != nil {
-			pm.setStateError(fmt.Errorf("failed to generate pgbackrest client config: %w", err))
-			return
-		}
-		pm.logger.Info("generated pgbackrest client config", "path", configPath)
-
-		// Write a pgpass file so pgbackrest can authenticate against PostgreSQL
-		// without exposing the password via PGPASSWORD in the process
-		// environment. The pgbackrest/ directory is guaranteed to exist after
-		// WriteClientConfig. A pgpass file is required for pgbackrest to work
-		// with password authentication, and we cannot use a ephemeral file in a
-		// temp directory because pgbackrest needs to be able to read it after
-		// we exec (and the temp file would be cleaned up when closed).
-		pgpassPath, err := backup.WritePgpassFile(pm.record.PoolerDir(), pg1User, pg1Password)
 		if err != nil {
 			pm.setStateError(err)
 			return
 		}
-
 		if fromTopo {
 			pm.saveDatabaseCache(db)
 		}
-
 		pm.mu.Lock()
-		pm.pgpassPath = pgpassPath
 		pm.topoLoaded = true
 		pm.mu.Unlock()
-
-		// Feed the resolved config to the backup engine.
 		pm.backup.SetBackupConfig(backupConfig)
-		pm.backup.SetConfigPath(configPath)
-		pm.backup.SetPgpassPath(pgpassPath)
-
-		// Note: restoring from backup (for replicas) happens in a separate goroutine
-
+		if !pm.skipSidecarSync {
+			go pm.runSidecarSync()
+		}
 		pm.checkAndSetReady()
 		return
 	}
+}
+
+// backupConfigFor validates the backup location of the database record and
+// returns the backup configuration of this pooler's shard.
+func (pm *MultipoolerManager) backupConfigFor(db *clustermetadatapb.Database) (*backup.Config, error) {
+	ref := pm.record.ShardRef()
+	backupConfig, err := backup.NewConfig(db.BackupLocation)
+	if err != nil {
+		return nil, fmt.Errorf("invalid backup_location: %w", err)
+	}
+	// Verify we can compute the full backup path
+	if _, err := backupConfig.FullPath(ref.GetDatabase(), ref.GetTableGroup(), ref.GetShard()); err != nil {
+		return nil, fmt.Errorf("failed to compute backup path: %w", err)
+	}
+	// Give every shard but the catalog shard its own repository.
+	backupConfig, err = backupConfig.ForShard(ref.GetTableGroup(), pm.record.TableGroupID(), ref.GetShard())
+	if err != nil {
+		return nil, fmt.Errorf("failed to scope backup repository: %w", err)
+	}
+	return backupConfig, nil
 }
 
 // pgpassFilePath returns the path to the libpq password file written at

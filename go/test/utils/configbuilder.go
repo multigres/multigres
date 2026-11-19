@@ -238,6 +238,20 @@ func S3BackupLocation(bucket, region string, opts ...S3Option) *clustermetadatap
 // S3Option is a functional option for configuring S3 backup locations.
 type S3Option func(*clustermetadatapb.S3Backup)
 
+// WithS3CAFile sets the PEM file that verifies the endpoint's TLS certificate.
+func WithS3CAFile(path string) S3Option {
+	return func(s3 *clustermetadatapb.S3Backup) {
+		s3.CaFile = path
+	}
+}
+
+// WithS3SkipTLSVerify turns verification of the endpoint's TLS certificate off.
+func WithS3SkipTLSVerify() S3Option {
+	return func(s3 *clustermetadatapb.S3Backup) {
+		s3.SkipTlsVerify = true
+	}
+}
+
 // WithS3KeyPrefix sets the key prefix for S3 backups.
 func WithS3KeyPrefix(prefix string) S3Option {
 	return func(s3 *clustermetadatapb.S3Backup) {
