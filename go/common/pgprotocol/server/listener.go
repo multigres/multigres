@@ -101,7 +101,8 @@ type Listener struct {
 	// Protected by connsMu.
 	nextConnectionID uint32
 
-	// connsMu protects conns, open and nextConnectionID.
+	// connsMu protects conns, open and nextConnectionID. It also serializes
+	// handler registration with shutdown.
 	connsMu sync.Mutex
 	// conns maps encoded PID to active connections for cancel request lookup.
 	conns map[uint32]*Conn
@@ -377,13 +378,21 @@ func (l *Listener) Serve() error {
 		conn.authMetrics = l.authMetrics
 
 		l.connsMu.Lock()
-		l.open[conn] = netConn
-		l.connsMu.Unlock()
+		select {
+		case <-l.ctx.Done():
+			l.connsMu.Unlock()
+			_ = conn.Close()
+			return nil
+		default:
+		}
 
-		// Handle connection in a new goroutine.
+		// Publish the connection and register its handler together so
+		// shutdown can only start waiting after both steps complete.
+		l.open[conn] = netConn
 		l.wg.Go(func() {
 			l.handleConnection(conn)
 		})
+		l.connsMu.Unlock()
 	}
 }
 
@@ -446,14 +455,17 @@ func (l *Listener) handleConnection(conn *Conn) {
 // failure scenarios where initial connections should keep working but new dial
 // attempts should fail.
 func (l *Listener) CloseListener() error {
+	// Prevent a successful Accept already in flight from registering a new
+	// handler after Close or Shutdown starts waiting.
+	l.connsMu.Lock()
 	l.cancel()
+	l.connsMu.Unlock()
 	return l.listener.Close()
 }
 
 // Close closes the listener and waits for all connections to finish.
 func (l *Listener) Close() error {
-	l.cancel()
-	err := l.listener.Close()
+	err := l.CloseListener()
 	l.wg.Wait()
 	l.logger.Debug("Postgres listener stopped") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 	return err
@@ -464,8 +476,7 @@ func (l *Listener) Close() error {
 // with no message to the client, and their running queries are cancelled. It
 // then returns without waiting for their handlers to finish cleaning up.
 func (l *Listener) Shutdown(ctx context.Context) error {
-	l.cancel()
-	err := l.listener.Close()
+	err := l.CloseListener()
 	done := make(chan struct{})
 	go func() {
 		l.wg.Wait()
