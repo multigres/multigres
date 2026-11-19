@@ -81,8 +81,12 @@ func TestUnmanagedRoutingStateNeverCarriesConsensusRule(t *testing.T) {
 	got := pm.stateManager.deriveRoutingState(pgmode.Primary, nil)
 	require.Equal(t, servingstate.RoutingRolePrimary, got.Role)
 	require.Nil(t, got.Rule)
-	got = pm.stateManager.deriveRoutingState(pgmode.InRecovery, nil)
-	require.Equal(t, servingstate.RoutingRoleUnknown, got.Role)
+	// Whether the backend is ready is the serving status, not the role.
+	for _, mode := range []pgmode.Mode{pgmode.Unknown, pgmode.InRecovery} {
+		got = pm.stateManager.deriveRoutingState(mode, nil)
+		require.Equal(t, servingstate.RoutingRolePrimary, got.Role, "backend mode %s", mode)
+		require.Nil(t, got.Rule)
+	}
 }
 
 func TestUnmanagedPoolerCannotServeTheDefaultTablegroup(t *testing.T) {

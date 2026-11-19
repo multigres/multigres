@@ -214,7 +214,10 @@ external database for the shard's whole key range.
 
 A bound shard is served by one unmanaged pooler, started with `--tablegroup-id`
 and `--shard` and no flag that says it is unmanaged: it has no standby, no
-pgctld, no multiorch and no backups.
+pgctld, no multiorch and no backups. It is its shard's routing primary for as
+long as it runs, and it serves while its backend is ready: a backend that is
+down leaves it `PRIMARY` and `DISABLED`, so that what keys on the primary role
+sees no role change with every blip of the backend.
 
 **How the pooler learns it is unmanaged.** It is told only its tablegroup id
 and its shard. At startup it decides how it is managed in this order: its own
