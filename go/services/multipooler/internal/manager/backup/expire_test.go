@@ -49,3 +49,21 @@ func TestExpire_NoExpirations(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, expired, "backup list is unchanged, so nothing should be reported expired")
 }
+
+// Two overrides naming one flag would leave pgbackrest's argv to map order, so
+// Expire refuses to run rather than pick a value.
+func TestExpire_RejectsOverridesNamingTheSameFlag(t *testing.T) {
+	json := `[{"backup":[{"label":"20250104-100000F","type":"full","annotation":{"table_group":"tg1","shard":"0","job_id":"j1"}}]}]`
+	stubPgbackrest(t, pgbackrestInfoStub(json))
+	poolerDir := t.TempDir()
+	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
+	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
+
+	lock := actionlock.NewActionLock()
+	ctx, err := lock.Acquire(context.Background(), "expire-test")
+	require.NoError(t, err)
+	defer lock.Release(ctx)
+
+	_, err = e.Expire(ctx, map[string]string{"repo1_retention_full": "2", "repo1-retention-full": "3"})
+	require.ErrorContains(t, err, "both set --repo1-retention-full")
+}

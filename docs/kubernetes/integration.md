@@ -173,8 +173,9 @@ The sharpest version of this mismatch shows up during a _graceful_ shutdown —
 what a rolling update, a node drain, or a scale-down actually does. Each sends
 SIGTERM to the **Multipooler process**, which runs its `GracefulShutdown`
 sequence (registered as a `senv.OnTermSync` hook in
-[`manager.go`](../../go/services/multipooler/internal/manager/manager.go)): it
-drains, advertises cohort ineligibility, stops Postgres, and then the process
+[`init.go`](../../go/services/multipooler/init.go) and implemented in
+[`graceful_shutdown.go`](../../go/services/multipooler/internal/manager/graceful_shutdown.go)):
+it drains, stops Postgres, advertises cohort ineligibility, and then the process
 exits, writing `LIFECYCLE_SHUTDOWN` to its topology record on the way out. Note
 this takes the _whole node_ down — it is not a "stop Postgres only" operation
 and not an RPC. A container whose process has exited is recreated (rolling

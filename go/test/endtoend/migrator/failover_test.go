@@ -15,16 +15,36 @@
 package migrator
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	migratorpb "github.com/multigres/multigres/go/pb/migrator"
+	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
+
+// crashTargetPrimary keeps the failed postgres down until cluster cleanup. A
+// bare SIGKILL lets the monitor restart it before recruitment; it can then be
+// elected again (especially mid-copy, when it holds the most WAL), so waiting
+// for a different primary would test a scenario we never actually arranged.
+func crashTargetPrimary(t *testing.T, setup *shardsetup.ShardSetup, name string) {
+	t.Helper()
+	inst := setup.GetMultipoolerInstance(name)
+	require.NotNil(t, inst)
+	mp, err := shardsetup.NewMultipoolerClient(inst.Multipooler.GrpcPort)
+	require.NoError(t, err)
+	defer mp.Close()
+	_, err = mp.Manager.SetPostgresRestartsEnabled(utils.WithShortDeadline(t),
+		&multipoolermanagerdatapb.SetPostgresRestartsEnabledRequest{Enabled: false})
+	require.NoError(t, err)
+	setup.KillPostgres(t, name)
+}
 
 // TestTargetFailoverDuringMigration proves the core failover requirement: with a
 // migration streaming, killing the target primary and letting multiorch promote
@@ -85,7 +105,7 @@ func TestTargetFailoverDuringMigration(t *testing.T) {
 
 	// Kill the target primary's postgres; multiorch promotes a standby.
 	t.Logf("killing postgres on primary %s", oldPrimaryName)
-	setup.KillPostgres(t, oldPrimaryName)
+	crashTargetPrimary(t, setup, oldPrimaryName)
 	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, oldPrimaryName, 60*time.Second)
 	require.NotEmpty(t, newPrimaryName, "multiorch must elect a new primary")
 	t.Logf("new primary: %s", newPrimaryName)
@@ -100,6 +120,7 @@ func TestTargetFailoverDuringMigration(t *testing.T) {
 	require.Eventually(t, func() bool {
 		resp, err := mt2.GetMigration(ctx, &migratorpb.GetMigrationRequest{Ref: idRef(id)})
 		if err != nil {
+			t.Logf("waiting for migration on new primary: %v", err)
 			return false
 		}
 		t.Logf("post-failover phase=%s caught_up=%v err=%q", resp.GetStatus().GetPhase(),
@@ -116,9 +137,61 @@ func TestTargetFailoverDuringMigration(t *testing.T) {
 
 	tc := targetConn(t, ctx, newPrimary, targetDB)
 	defer tc.Close()
+	// On failure, record what the logs cannot: which rows the new primary holds,
+	// what its apply worker is waiting on, and how far the source slot has been
+	// confirmed, so a lost or unapplied write can be told apart from a stall.
+	defer func() {
+		if t.Failed() {
+			logFailoverState(t, tc, srcPort)
+		}
+	}()
 	require.Eventually(t, func() bool {
 		n, ok := countRows(t, ctx, tc, "public.orders")
 		t.Logf("new primary orders count=%d ok=%v", n, ok)
 		return ok && n == 5
 	}, 90*time.Second, 1*time.Second, "all 5 rows (incl. pre- and post-failover writes) must be on the new primary")
+}
+
+// logFailoverState logs the target's and the source's replication state.
+func logFailoverState(t *testing.T, tc *client.Conn, srcPort int) {
+	ctx := context.Background()
+	for _, q := range []string{
+		"SELECT id, v FROM public.orders ORDER BY id",
+		"SELECT subname, subenabled, subsynccommit FROM pg_subscription",
+		"SELECT srrelid::regclass, srsubstate, srsublsn FROM pg_subscription_rel",
+		"SELECT pid, relid, received_lsn, latest_end_lsn, last_msg_receipt_time FROM pg_stat_subscription",
+		"SELECT external_id, remote_lsn, local_lsn FROM pg_replication_origin_status",
+		"SELECT pid, backend_type, wait_event_type, wait_event, state FROM pg_stat_activity WHERE backend_type LIKE 'logical replication%'",
+		"SELECT application_name, state, sync_state, flush_lsn, pg_current_wal_lsn() FROM pg_stat_replication",
+		"SHOW synchronous_standby_names",
+	} {
+		logQuery(t, ctx, "target", tc, q)
+	}
+	sc := dialSource(t, ctx, srcPort)
+	defer sc.Close()
+	for _, q := range []string{
+		"SELECT id, v FROM public.orders ORDER BY id",
+		"SELECT slot_name, active, active_pid, restart_lsn, confirmed_flush_lsn, pg_current_wal_lsn() FROM pg_replication_slots",
+		"SELECT pid, application_name, state, sent_lsn, flush_lsn FROM pg_stat_replication",
+	} {
+		logQuery(t, ctx, "source", sc, q)
+	}
+}
+
+func logQuery(t *testing.T, ctx context.Context, side string, conn *client.Conn, q string) {
+	t.Helper()
+	res, err := conn.Query(ctx, q)
+	if err != nil {
+		t.Logf("%s: %s: %v", side, q, err)
+		return
+	}
+	for _, r := range res {
+		for _, row := range r.Rows {
+			vals := make([]string, 0, len(row.Values))
+			for _, v := range row.Values {
+				vals = append(vals, string(v))
+			}
+			t.Logf("%s: %s: %v", side, q, vals)
+		}
+	}
 }

@@ -95,7 +95,8 @@ When the gateway has no health stream to a pooler yet, `routing_role` and
 
 Rows are read from the topology on every query: the gateway does not watch
 its peers, and the view is for operators rather than the query path. When
-the topology is unreachable the query fails with `connection_failure`.
+the topology is unreachable the query fails with `cannot_connect_now`
+(57P03; see [What is rejected](#what-is-rejected)).
 
 | Column       | Type    | Source                                                                                  |
 | ------------ | ------- | --------------------------------------------------------------------------------------- |

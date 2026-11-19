@@ -8,6 +8,11 @@ first-boot behavior.
 Everything here runs **once**, when the data directory is empty. If the data
 directory is already initialized, `init` is a no-op and returns immediately.
 
+The same code path (`InitDataDirWithResult` in
+`go/cmd/pgctld/command/init.go`) serves both the `pgctld init` CLI command and
+the `InitDataDir` gRPC call on `pgctld server`, so everything below applies to
+both.
+
 ## What it does, in order
 
 1. **`initdb`** creates the data directory with:
@@ -17,8 +22,11 @@ directory is already initialized, `init` is a no-op and returns immediately.
    - `--pwfile=<resolved password file>` — sets the **superuser** password (see
      [Superuser password](#superuser-password))
    - any extra tokens from `--pg-initdb-args`
-2. **Generate `postgresql.conf`** from the template, appending any
-   `--pg-initdb-extra-conf` snippets verbatim (last-write-wins).
+2. **Generate `postgresql.conf`** from the template, then append one
+   `include_if_exists '<absolute path>'` line per `--pg-initdb-extra-conf`
+   file, in order. The snippets are not copied: PostgreSQL re-reads them on
+   every start and reload, later settings override earlier ones and the
+   template (last-write-wins), and a missing file is skipped.
 3. **Transient server** — if any post-initdb step is requested (a non-default
    target database, init SQL, or an init-secrets file), pgctld starts a
    short-lived PostgreSQL instance on a **private temporary Unix socket** so it
@@ -34,6 +42,11 @@ directory is already initialized, `init` is a no-op and returns immediately.
       Runs last, after the roles it targets have been created by 3.ii/3.iii (see
       [Init secrets](#init-secrets)).
 
+If any step of the transient phase fails, pgctld stops the transient server and
+**removes the data directory** before returning the error, so a retry re-runs
+the whole init instead of no-op'ing past a half-seeded cluster. If that removal
+itself fails, the error says manual cleanup is required before retrying.
+
 ## Flags
 
 Every flag has an environment-variable equivalent; the flag takes precedence.
@@ -46,7 +59,7 @@ Every flag has an environment-variable equivalent; the flag takes precedence.
 | `--pg-initdb-args`       | `POSTGRES_INITDB_ARGS`       | —          | Extra tokens appended to the `initdb` command line.                                                                                                   |
 | `--pg-initdb-sql-dirs`   | `POSTGRES_INITDB_SQL_DIRS`   | —          | Directories of `.sql` files run after initdb, in `role:path` format. Repeatable / comma-separated. See [Init SQL directories](#init-sql-directories). |
 | `--pg-initdb-sql-files`  | `POSTGRES_INITDB_SQL_FILES`  | —          | Individual `.sql` files run after the directories, in order. Repeatable / comma-separated.                                                            |
-| `--pg-initdb-extra-conf` | `POSTGRES_INITDB_EXTRA_CONF` | —          | `postgresql.conf` snippets appended verbatim to the generated config. Repeatable; last-write-wins.                                                    |
+| `--pg-initdb-extra-conf` | `POSTGRES_INITDB_EXTRA_CONF` | —          | Paths of `postgresql.conf` snippets live-included (`include_if_exists`) at the end of the generated config. Repeatable; last-write-wins.              |
 | `--pg-init-secrets-file` | `POSTGRES_INIT_SECRETS_FILE` | —          | JSON file of per-project role passwords and database settings. See [Init secrets](#init-secrets).                                                     |
 
 > A legacy alias `--init-db-sql-file` is normalized to `--pg-initdb-sql-files`
@@ -61,6 +74,12 @@ Every flag has an environment-variable equivalent; the flag takes precedence.
    `initdb --pwfile` directly, so the plaintext never lands in a temp file.
 2. `POSTGRES_PASSWORD` env var (legacy) — staged into a randomly named temp file
    only for the duration of the `initdb` exec, then removed.
+
+A password is required: with neither source set, pgctld fails before running
+`initdb`. The first source that is explicitly set is authoritative — an empty
+path, an unreadable file or an empty file is an error, not a fall-through to
+`POSTGRES_PASSWORD` — and `POSTGRES_PASSWORD` set to the empty string is an
+error too. There is no `--pg-password` flag.
 
 Password files must be **single-line**; `initdb --pwfile` reads only the first
 line.
@@ -113,7 +132,8 @@ transient socket during init.
   Values are stored/consumed as text.
 
 Unknown top-level fields are ignored, so a newer payload does not break an older
-pgctld.
+pgctld. An empty role name, an empty password, an empty database name or an
+empty setting key fails init.
 
 ### Behavior
 
@@ -127,7 +147,8 @@ pgctld.
   `ALTER ROLE … PASSWORD` is not written to the PostgreSQL server log — the
   generated config sets `log_statement = 'ddl'`, which would otherwise log it.
   These `SET`s are session-local to the transient connection.
-- **Verification:** after applying role passwords, init queries
+- **Verification:** after applying role passwords (skipped when the file has no
+  `roles`), init queries
   `pg_authid` and **fails** if any login role still has no password. This turns
   a role omitted from the file — or created `LOGIN` by the init SQL but never
   seeded — into a hard init failure instead of a cluster that starts up but
@@ -150,10 +171,13 @@ ORDER BY rolname;
 
 ## Security notes
 
-- Secret values are never logged: pgctld logs role names and counts only, `psql`
-  output is redacted on error, and statement logging is disabled for the apply
-  session so the plaintext never reaches the PostgreSQL server log (see
+- Role passwords are never logged: pgctld logs role names and counts only,
+  `psql` output is redacted on error, and statement logging is disabled for the
+  apply session so the plaintext never reaches the PostgreSQL server log (see
   [Behavior](#behavior)).
+- `database_settings` values **are** logged by pgctld (database, option and
+  value), as non-secret configuration. Do not put secrets in
+  `database_settings`.
 - Prefer file-based inputs (`--pg-password-file`, `--pg-init-secrets-file`) over
   env vars so plaintext is not exposed in the process environment.
 - Mount secret files read-only (`0400`/`0600`). The init-secrets file may hold

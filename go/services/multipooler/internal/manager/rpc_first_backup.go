@@ -17,6 +17,8 @@ package manager
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"time"
 
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -28,6 +30,7 @@ import (
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 )
 
 // createFirstBackupAndInitializeLocked attempts to create the first pgBackRest backup for this shard.
@@ -154,6 +157,10 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		}
 	}()
 
+	if err := clearArchiveSpool(pm.record.PoolerDir()); err != nil {
+		return false, false, mterrors.Wrap(err, "failed to clear stale archive spool")
+	}
+
 	// Initialize a fresh data directory.
 	if _, err := pm.pgctldClient.InitDataDir(ctx, &pgctldpb.InitDataDirRequest{}); err != nil {
 		return false, false, mterrors.Wrap(err, "failed to initialize data directory")
@@ -162,6 +169,12 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// Configure archive_mode before starting PostgreSQL.
 	if err := pm.backup.ConfigureArchiveMode(ctx); err != nil {
 		return false, false, mterrors.Wrap(err, "failed to configure archive mode")
+	}
+
+	// A stop file left by an interrupted stanza reset would block stanza-create
+	// and archive-push.
+	if err := pm.backup.StanzaStart(ctx); err != nil {
+		return false, false, mterrors.Wrap(err, "failed to start the pgbackrest stanza")
 	}
 
 	// Start PostgreSQL as a writable primary: this one-time bootstrap of a
@@ -195,22 +208,13 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	var fnStarted bool
 	err = pm.withBackupLease(ctx, false /* steal */, "create-first-backup", func(leaseCtx context.Context) error {
 		fnStarted = true
-		// Re-check inside the lease — another pooler may have created the backup
-		// between our outer check and acquiring the lease. A read error means
-		// the repository is unreadable (e.g. a cipher-key mismatch); abort
-		// rather than proceeding to stanza-create over a repo we cannot read.
-		found, err := pm.hasCompleteBackups(leaseCtx)
+		found, err := pm.prepareStanzaLocked(leaseCtx)
 		if err != nil {
-			return mterrors.Wrap(err, "failed to check for existing backups")
+			return err
 		}
 		if found {
-			pm.logger.InfoContext(leaseCtx, "first backup already exists (created by another pooler)")
 			backupFound = true
 			return nil
-		}
-
-		if err := pm.backup.StanzaCreate(leaseCtx); err != nil {
-			return mterrors.Wrap(err, "failed to create pgbackrest stanza")
 		}
 
 		// Prove the archive pipeline works end-to-end before declaring the
@@ -226,7 +230,7 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		if _, err := pm.backupLocked(leaseCtx, true, "full", "", nil); err != nil {
 			return mterrors.Wrap(err, "failed to create initial backup")
 		}
-		return nil
+		return pm.topoClient.ClearBootstrapMarker(leaseCtx, pm.shardRef())
 	})
 	if err != nil {
 		if errors.Is(err, &topoclient.TopoError{Code: topoclient.NodeExists}) {
@@ -240,6 +244,101 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 
 	pm.logger.InfoContext(ctx, "first backup created; deferred cleanup will tear down local data directory", "shard", pm.getShardID())
 	return false, backupFound, nil
+}
+
+var (
+	errArchiveInUse = mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+		"stanza has no backups but its archive holds more WAL than a failed bootstrap, refusing to reset it")
+	errUnmarkedStanza = mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+		"stanza has no backups and no unfinished bootstrap is recorded for the shard, refusing to reset it")
+)
+
+// prepareStanzaLocked creates this cluster's stanza, first removing a stale one
+// left by an unfinished bootstrap, which the shard's bootstrap marker records. It
+// returns true when a complete backup already exists. The repository is read
+// inside the lease because another pooler may have created the backup since the
+// monitor looked. Caller must hold the backup lease.
+func (pm *MultipoolerManager) prepareStanzaLocked(ctx context.Context) (backupFound bool, err error) {
+	repoState, err := pm.repositoryBackupState(ctx)
+	if err != nil {
+		return false, mterrors.Wrap(err, "failed to check for existing backups")
+	}
+
+	switch repoState {
+	case completeBackupAvailable:
+		pm.logger.InfoContext(ctx, "first backup already exists (created by another pooler)")
+		if err := pm.topoClient.ClearBootstrapMarker(ctx, pm.shardRef()); err != nil {
+			return false, err
+		}
+		return true, nil
+	case noUsableBackup:
+		return false, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"repository holds backups but none is a complete backup of this shard, refusing to reset the stanza")
+	case archiveInUse:
+		return false, errArchiveInUse
+	case unmarkedStanza:
+		return false, errUnmarkedStanza
+	}
+
+	unfinished := repoState == emptyStanza
+	if repoState == noStanza {
+		unfinished, err = pm.topoClient.BootstrapInProgress(ctx, pm.shardRef())
+		if err != nil {
+			return false, mterrors.Wrap(err, "failed to read bootstrap marker")
+		}
+	}
+	if err := pm.topoClient.MarkBootstrapInProgress(ctx, pm.shardRef(), pm.record.Id().Name); err != nil {
+		return false, mterrors.Wrap(err, "failed to record bootstrap in progress")
+	}
+
+	deletedStale := false
+	if repoState == emptyStanza {
+		// A stanza without backups is bound to an earlier attempt's system id,
+		// which this initdb cannot match, so it must go before stanza-create. A
+		// repository with no stanza skips this, so a first bootstrap never stops
+		// archiving.
+		if err := pm.backup.StanzaDelete(ctx); err != nil {
+			return false, mterrors.Wrap(err, "failed to remove stale pgbackrest stanza")
+		}
+		deletedStale = true
+	}
+
+	createErr := pm.backup.StanzaCreate(ctx)
+	if createErr != nil && !deletedStale && backupengine.IsStaleStanzaError(createErr) {
+		// info reports a half-created stanza, such as an archive.info without a
+		// backup.info, as never created.
+		pm.logger.WarnContext(ctx, "stanza-create found an existing stanza", "error", createErr)
+		if !unfinished {
+			// No earlier bootstrap left it, so it is not ours to reset, and the
+			// marker written above must not make it look as if one did.
+			if err := pm.topoClient.ClearBootstrapMarker(ctx, pm.shardRef()); err != nil {
+				return false, err
+			}
+			return false, errUnmarkedStanza
+		}
+		inUse, err := pm.backup.ArchiveInUse(ctx)
+		if err != nil {
+			return false, mterrors.Wrap(err, "failed to inspect the pgbackrest archive")
+		}
+		if inUse {
+			return false, errArchiveInUse
+		}
+		if err := pm.backup.StanzaDelete(ctx); err != nil {
+			return false, mterrors.Wrap(err, "failed to remove stale pgbackrest stanza")
+		}
+		createErr = pm.backup.StanzaCreate(ctx)
+	}
+	if createErr != nil {
+		return false, mterrors.Wrap(createErr, "failed to create pgbackrest stanza")
+	}
+	return false, nil
+}
+
+// clearArchiveSpool removes async archive-push state from earlier attempts. A new
+// initdb restarts WAL numbering, so a stale acknowledgement would make
+// archive-push skip the new cluster's first segment and the archive check time out.
+func clearArchiveSpool(poolerDir string) error {
+	return os.RemoveAll(filepath.Join(poolerDir, "pgbackrest", "spool", "archive"))
 }
 
 // bootstrapSentinel returns the first-backup bootstrap sentinel; see

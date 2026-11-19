@@ -26,9 +26,10 @@ context-aware log calls matter (see below).
 Server logs also carry the configured service identity, derived from the same
 OTel resource attributes attached to spans and metrics: `service_instance_id`
 (cell-qualified), `cloud_availability_zone` (cell), `multigres_shard`,
-`multigres_database`, and `multigres_tablegroup`. Fields with empty values are
-omitted, and every log call attaches them automatically — call sites should not
-add their own `cell`/`service_id`/etc. attributes.
+`multigres_database`, `multigres_tablegroup`, and `service_version` (the
+binary's VCS revision, when the build recorded one). Fields with empty values
+are omitted, and every log call attaches them automatically — call sites should
+not add their own `cell`/`service_id`/etc. attributes.
 
 Log keys use underscores (`service_instance_id`) rather than the OTel dotted
 form (`service.instance.id`) to stay snake_case per the enforced convention
@@ -39,6 +40,15 @@ These attributes are included in local output from process start. OTLP log
 export only comes online once `ServEnv.Init` finishes setting up the
 `LoggerProvider`, so the very first "logging initialized" line is local-only;
 everything logged afterwards is exported with these attributes attached.
+
+Three flags, registered by `servenv.Logger` for every servenv-based binary, control the
+output. They are read once at startup:
+
+| Flag           | Default  | Values                                                                                  |
+| -------------- | -------- | --------------------------------------------------------------------------------------- |
+| `--log-level`  | `info`   | `debug`, `info`, `warn`, `error` (anything else means `info`)                           |
+| `--log-format` | `json`   | `json`, `text` (anything else means `json`)                                             |
+| `--log-output` | `stdout` | `stdout`, `stderr`, or a file path (appended to; falls back to stdout if it can't open) |
 
 ## Enforced conventions
 

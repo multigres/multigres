@@ -76,6 +76,8 @@ These results will be present on your pull request.
 
 When running `git commit` use the `-s` option to add a Signed-off-by line.
 This is needed for [the Developer Certificate of Origin](https://github.com/apps/dco).
+If you have run `make tools`, the installed `commit-msg` hook adds the line for
+you when it is missing.
 
 ## Sending Pull Requests
 

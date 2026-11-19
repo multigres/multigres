@@ -69,7 +69,7 @@ pooler itself — no topology propagation delay.
 │  LoadBalancer                                            │
 │  ┌────────────────────────────────────────────────────┐  │
 │  │ onPoolerHealthUpdate()                             │  │
-│  │   new primary detected → onPrimaryServing()        │  │
+│  │   new primary detected → OnLeaderServing()         │  │
 │  │   → buffer.StopBuffering(shard)                    │  │
 │  └────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────┘
@@ -81,10 +81,12 @@ pooler itself — no topology propagation delay.
               │ StartRequest()        │
               │ → MTF01 if NOT_SERVING│
               │ → MTF01 if draining   │
+              │ → MTF01 if not the    │
+              │   routing primary     │
               │                       │
               │ StreamPoolerHealth()  │
               │ → ServingStatus       │
-              │ → PrimaryObservation  │
+              │ → RoutingState        │
               └───────────────────────┘
 ```
 
@@ -98,7 +100,7 @@ trigger buffering. Only leader-routed queries are buffered:
 | Error                              | Source                             | Meaning                                                                        |
 | ---------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------ |
 | no writable primary                | gateway routing                    | No leader is currently available                                               |
-| `MTF01`                            | multipooler `StartRequest()`       | Pooler is not serving or is draining during failover                           |
+| `MTF01`                            | multipooler `StartRequest()`       | Pooler is not serving, is draining, or is not the writable routing primary     |
 | internal pre-execution unavailable | multipooler connection acquisition | PostgreSQL was unavailable before query execution or reservation state changed |
 | `25006`                            | PostgreSQL                         | Replay-safe request hit a primary that has already been demoted                |
 | exact recovery `0A000`             | PostgreSQL                         | A deferred `BEGIN READ WRITE` reached a standby before its first statement     |
@@ -121,8 +123,12 @@ retry loop (capped at `MaxBufferingRetries`):
 
 1. **Proactive check**: call `WaitIfAlreadyBuffering()` — if the
    shard is already known to be failing over, wait before sending
-   any query (avoids a wasted round-trip)
-2. **Get connection**: `LoadBalancer.GetConnection(target)`
+   any query (avoids a wasted round-trip). Single autocommit queries
+   skip this step: a pooler draining for a planned failover still
+   serves them in its first drain stage (see
+   [Graceful Drain](./graceful_drain_design.md)), so they are sent
+   and buffered only reactively if they bounce
+2. **Get connection**: `loadBalancer.getConnection(target)`
 3. **Execute**: run the query on the connection
 4. **Classify error**: for a buffer-worthy availability error, call
    `WaitForFailoverEnd()` and retry
@@ -161,9 +167,9 @@ requests doesn't starve other shards of buffer capacity.
 
 Each `PoolerConnection` in the gateway maintains a streaming health
 check (`StreamPoolerHealth` RPC) to the multipooler it connects to.
-When a health stream self-reports `PRIMARY` and `SERVING`, the
-`LoadBalancer` updates its cached primary and invokes the drain callback, which
-calls `buffer.StopBuffering()` for that shard. Topology-only updates do not
+When the shard's elected routing primary self-reports `PRIMARY` and
+`SERVING` on its health stream, the load balancer invokes the drain callback
+(`OnLeaderServing`), which calls `buffer.StopBuffering()` for that shard. Topology-only updates do not
 trigger drains because their corresponding health snapshot may still be stale.
 
 This approach has several advantages:
@@ -172,7 +178,8 @@ This approach has several advantages:
   not via etcd propagation
 - **Lower latency**: no topology watch delay
 - **Consistent**: the same mechanism that determines query routing
-  (health-based primary cache) also stops buffering
+  (the health-fed routing-primary set, see
+  [Load Balancing](./load_balancing.md)) also stops buffering
 
 ### Eviction and Safety Rails
 

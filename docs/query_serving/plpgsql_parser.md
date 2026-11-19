@@ -43,8 +43,11 @@ and expression so the same analysis applied to top-level SQL can run over the
 body's fragments. The PL/pgSQL parser is the tool that makes those fragments
 reachable.
 
-The parser is the foundational layer; wiring its output into the planner's
-Tier 1 walk is a separate step tracked by the unsafe-statement work.
+The parser is the foundational layer. The planner's Tier 1 body analysis
+(`analyzeProceduralBody` in
+`go/services/multigateway/planner/unsafe_plpgsql.go`) consumes its output: it
+walks the parsed body and runs the unsafe-statement checks over every embedded
+fragment.
 
 ## Design principles
 
@@ -140,8 +143,9 @@ two-function split:
 - **`internalLex`** returns a raw token from the SQL lexer, translating its token
   codes to the PL/pgSQL grammar's codes but doing no PL/pgSQL identifier work —
   the analogue of PG's `internal_yylex`.
-- **`scanNext`** is the single fully-classifying token source — the analogue of
-  PG's `plpgsql_yylex`. It applies keyword lookup (against the reserved /
+- **`scanNext`** (defined in `read_construct.go`) is the single
+  fully-classifying token source — the analogue of PG's `plpgsql_yylex`. It
+  applies keyword lookup (against the reserved /
   unreserved PL/pgSQL keyword tables in `keywords.go`, taken verbatim from PG's
   `pl_reserved_kwlist.h` / `pl_unreserved_kwlist.h`), compound-name assembly
   (`a.b.c` → one token), variable **resolution** against the namespace, and the
@@ -247,10 +251,11 @@ analysis exists to reach. It holds:
   `PERFORM`/`RETURN` query, an `IF`/`WHILE` condition, `EXECUTE`'s dynamic string,
   …).
 - **`ParseMode`** — how `Query` should be parsed (PG's `RawParseMode`).
-- **`Parsed`** — the SQL AST that `Query` parses to. It is currently left `nil`:
-  turning the fragment text into a SQL `ast.Stmt` (and walking it) is a distinct
-  planner-side step. The boundary is deliberately thin so the fragment text is
-  always available even before that step exists.
+- **`Parsed`** — the SQL AST that `Query` parses to. The parser leaves it `nil`:
+  turning the fragment text into a SQL `ast.Stmt` (and walking it) is a
+  planner-side step, and the planner's body analysis parses `Query` itself
+  rather than populating this field. The boundary is deliberately thin so the
+  fragment text is always available.
 
 ### Statement coverage
 
@@ -282,7 +287,9 @@ The resolution work brings the checks that need only a namespace to exact parity
 with PG, with two classes of exception. One also needs the catalog (root cause 2).
 The other is a check on a name that could be a routine argument — undeclared `FOR`
 / `FOREACH` targets — which we cannot enforce because we parse the body without
-its signature (root cause 1). We reject the same malformed input PG does:
+its signature (root cause 1) unless the caller supplies the signature's names
+through `ParsePLpgSQLSeeded` (see [API](#api)). We reject the same malformed
+input PG does:
 
 - **Purely syntactic:** `SQLSTATE` code length/charset, the `RAISE`
   `%`-placeholder/parameter count, `GET DIAGNOSTICS` item validity per
@@ -322,6 +329,10 @@ its signature (root cause 1). We reject the same malformed input PG does:
 | `EXCEPTION WHEN no_such_cond THEN …`          | error                 | accepted                          | #2   |
 | `PERFORM not valid sql;` / `x := 1 +;`        | error (SQL sub-parse) | accepted as text                  | #3   |
 | `param := 1;` (`param` an unseen argument)    | assignment            | execsql text (round-trips)        | #1   |
+
+The last row applies only to an unseeded parse. With a `ParseSeed` naming the
+function's parameters (and a trigger function's `NEW`/`OLD`/`TG_*` variables),
+`param := 1` and `new.field := …` resolve as assignments.
 
 A shadowed-outer-variable warning is also not emitted (PG's check is off by
 default and needs a cross-block comparison). The single residual **record** gap is
@@ -388,21 +399,26 @@ tests in the `plpgsqlast` package.
 
 ```text
 go/common/parser/plpgsql/
-  api.go            ParsePLpgSQL — the public entry point
+  api.go            ParsePLpgSQL / ParsePLpgSQLSeeded — the public entry points
+  generate.go       go:generate directives (goyacc, goimports, gofumpt)
   plpgsql.y         goyacc grammar (port of pl_gram.y)
   plpgsql.go        generated parser (do not edit; `make parser`)
+  y.output          goyacc state/conflict report
   lexer.go          PL/pgSQL scanner (port of pl_scanner.c), incl. resolution
   keywords.go       reserved / unreserved keyword tables
   namespace.go      namespace stack + datum list + resolution checks (pl_funcs.c)
-  read_construct.go hand-scan helpers (read_sql_construct, make_execsql_stmt, …)
+  read_construct.go scanNext + hand-scan helpers (read_sql_construct, make_execsql_stmt, …)
   labels.go         end-label validation (check_labels)
   cases_test.go     data-driven case harness
   namespace_test.go namespace helper unit tests
+  keywords_test.go, labels_test.go, lexer_test.go
+                    unit tests for the keyword tables, end labels and scanner
   corpus_test.go    PG regression corpus tests + regenerators
   testdata/         *_cases.json (incl. resolution_cases.json), pg_corpus_cases.json,
                     pg_regress_corpus_cases.json, THIRD_PARTY_NOTICES.md
 
 go/common/parser/ast/plpgsqlast/
+  generate.go           go:generate directive (asthelpergen over plpgsqlast.Node)
   nodes.go              Node / NodeTag / BaseNode infrastructure
   plpgsql_function.go   PLpgSQL_function (AST root)
   statements.go         PLpgSQL_stmt_* nodes + enums
@@ -410,6 +426,7 @@ go/common/parser/ast/plpgsqlast/
   expr.go               PLpgSQL_expr (embedded-SQL boundary), RawParseMode
   ast_clone.go          generated deep-clone helpers
   ast_rewrite.go        generated tree-walk/rewrite helpers
+  rewriter_api.go       Cursor / Rewrite entry points for the generated walk
 ```
 
 Generated files (`plpgsql.go`, `ast_clone.go`, `ast_rewrite.go`) are regenerated
@@ -431,6 +448,15 @@ if err != nil {
 _ = fn.Action // *plpgsqlast.PLpgSQL_stmt_block — the top-level BEGIN … END
 ```
 
+`ParsePLpgSQLSeeded(body, seed)` is the same parse with function-scope names
+pre-declared. A body is parsed without its `CREATE FUNCTION` signature, so
+parameter names, `$N`, and a trigger function's implicit `NEW`/`OLD`/`TG_*`
+variables would otherwise not resolve. `ParseSeed.Scalars` are declared as
+plain variables and `ParseSeed.Records` as record variables, mirroring what
+PG's `do_compile` builds before parsing the body. The planner builds the seed
+from the `CREATE FUNCTION` statement (`createFunctionSeed`). A nil seed
+behaves exactly like `ParsePLpgSQL`.
+
 A body must be a block (`BEGIN … END`, optionally with a `DECLARE` section and a
 block label), matching PostgreSQL; empty input is a parse error. The caller is
 responsible for extracting the body from its surrounding statement — e.g. the
@@ -447,5 +473,5 @@ calling `ParsePLpgSQL`.
 - **Semantic validation that needs the catalog** — unknown condition names,
   unknown types, etc. are accepted, not rejected.
 - **Sub-parsing embedded SQL.** `PLpgSQL_expr.Parsed` is left `nil`; turning
-  fragment text into a SQL AST (and walking it for the Tier 1 analysis) is a
-  separate planner-side concern.
+  fragment text into a SQL AST (and walking it for the Tier 1 analysis) is done
+  by the planner (`unsafe_plpgsql.go`), not by this package.

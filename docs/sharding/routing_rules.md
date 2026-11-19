@@ -14,6 +14,11 @@ read them, and how primary poolers enforce fences. Gateways don't apply rules
 yet, and `FenceScopes` does not yet refresh the poolers of the scopes it
 fences; both come later.
 
+No code creates an operation that moves data yet: the only operations the
+catalog primary records are tablegroup creations, so the `import` and reshard
+operations this page refers to exist only as rows a caller of these RPCs would
+have to provide.
+
 ## Rules
 
 A **shard rule** says that the routing identifiers of tablegroup `G` that fall
@@ -168,6 +173,19 @@ the caller has refreshed every pooler of every scope, the fence is not
 enforced everywhere. A later change makes `FenceScopes` write the whole list as
 `FENCING`, refresh and drain every pooler of every scope in parallel, and only
 then write the list as `FENCED`.
+
+The gateway side of enforcement is in place
+(`go/services/multigateway/executor/fence.go`). A pooler that refuses work on
+a fenced target is to answer `MTF02`; nothing returns it yet. When a statement
+is refused with it, the gateway waits until its cached catalog snapshot has a
+`routing_version` newer than the one the statement was planned against and no
+longer fences that tablegroup and shard, then plans and runs the statement
+again. The total wait of one statement is bounded by `--buffer-window`,
+whether or not failover buffering is enabled; when it runs out, the client
+gets the `MTF02`. A statement is not retried, and the client gets the `MTF02`
+at once, when the session is in a transaction or a pipeline, when an earlier
+step of its plan already ran on a pooler, or when output has already reached
+the client. Minigres has no catalog cache and runs every statement once.
 
 ## API
 

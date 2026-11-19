@@ -38,6 +38,8 @@ data.
 
 All three targets point at the same PostgreSQL backend (the primary pgctld node in the
 test cluster), so differences in throughput and latency are purely proxy overhead.
+By default only the **multigateway** target runs; select the others with
+`PGBENCH_TARGETS`.
 
 ## Targets
 
@@ -47,8 +49,8 @@ test cluster), so differences in throughput and latency are purely proxy overhea
 | **multigateway** | Connection through Multigres                           | pgbench → multigateway → multipooler → pgctld |
 | **pgbouncer**    | Connection through PgBouncer (transaction mode)        | pgbench → pgbouncer → pgctld PG port          |
 
-PgBouncer is optional — if the `pgbouncer` binary is not on `PATH`, those benchmarks are
-silently skipped. Install with `brew install pgbouncer` (macOS) or `apt install pgbouncer`
+PgBouncer is optional — it runs only when listed in `PGBENCH_TARGETS` and the
+`pgbouncer` binary is on `PATH`. Install with `brew install pgbouncer` (macOS) or `apt install pgbouncer`
 (Ubuntu).
 
 ## Scenarios
@@ -61,13 +63,18 @@ The suite generates a cross-product of scenarios:
 | **Protocol** | simple (`-M simple`), extended (`-M extended`) | Extended protocol uses Parse/Bind/Execute      |
 | **Clients**  | Configurable (default: 1, 10, 50)              | Churn scenarios limited to clients ≤ 10        |
 
-This produces ~12 scenarios per target. With 3 targets and 30s duration each, a full
-run takes ~20 minutes.
+With the default client counts this produces 10 scenarios per target (6 sustained,
+4 churn). With all 3 targets and 30s duration each, a full run takes ~15-20 minutes.
+
+Setting `PGBENCH_LARGE_RESULT_ROWS` (e.g. `1000,10000,100000`) adds
+`largeresult_<rows>rows_<clients>c_extended` scenarios: a single `SELECT` returning
+that many `pgbench_accounts` rows, to exercise the gateway ↔ pooler result-row path
+that the tiny-row TPC-B workload does not.
 
 ### Known limitations
 
-- **50 clients** can exceed `max_connections` on small test clusters. The test
-  gracefully skips failed scenarios.
+- **50 clients** can exceed `max_connections` on small test clusters when running
+  the postgres or pgbouncer targets. Set `PGBENCH_PG_MAX_CONNECTIONS` to raise it.
 
 ## Running locally
 
@@ -82,6 +89,7 @@ RUN_BENCHMARKS=1 PGBENCH_DURATION=5 PGBENCH_CLIENTS=1,2 \
 
 ```bash
 RUN_BENCHMARKS=1 PGBENCH_DURATION=30 PGBENCH_CLIENTS=1,10,50 \
+  PGBENCH_TARGETS=postgres,multigateway,pgbouncer \
   go test -v -run TestPgBench ./go/test/endtoend/queryserving/benchmarking/... -timeout 60m
 ```
 
@@ -107,6 +115,7 @@ the test is skipped.
 | `PGBENCH_CLIENTS`            | `1,10,50`         | Comma-separated client counts                                                                    |
 | `PGBENCH_PROTOCOLS`          | `simple,extended` | Comma-separated subset of `simple,extended`                                                      |
 | `PGBENCH_NO_CHURN`           | (unset)           | Set to `1` to skip the connection-churn (`-C`) variants                                          |
+| `PGBENCH_LARGE_RESULT_ROWS`  | (unset)           | Comma-separated row counts; adds large-result `SELECT` scenarios (extended protocol only)        |
 | `PGBENCH_TARGETS`            | `multigateway`    | Comma-separated subset of `postgres,multigateway,pgbouncer`                                      |
 | `PGBENCH_PG_MAX_CONNECTIONS` | (unset)           | Set postgres `max_connections` to this value and restart pgctld for direct client benchmark runs |
 | `CAPTURE_PPROF`              | (unset)           | Set to `1` to capture CPU profiles from multigateway and primary multipooler during each run     |
@@ -175,8 +184,25 @@ go/test/endtoend/queryserving/benchmarking/
 ├── pgbench_test.go       # TestPgBench orchestrator
 ├── pgbench_runner.go     # PgBenchRunner: init, run scenarios, compute metrics
 ├── pgbouncer.go          # Optional PgBouncer lifecycle (SCRAM auth, config gen)
-└── report.go             # JSON + Markdown report generation
+├── pg_config.go          # PGBENCH_PG_MAX_CONNECTIONS handling
+├── cpu_sampler.go        # Per-process CPU sampling
+├── profile_capture.go    # pprof capture (CAPTURE_PPROF / CAPTURE_HEAP)
+├── report.go             # JSON + Markdown report generation
+├── sysbench_test.go      # TestSysBench (see SYSBENCH.md)
+├── sysbench_runner.go
+├── slow_client_test.go   # TestSlowClientBackpressure
+└── SYSBENCH.md
 ```
+
+## Other benchmarks in this package
+
+Both are also gated on `RUN_BENCHMARKS=1`:
+
+- **`TestSysBench`** drives sysbench `oltp_point_select` against multigateway with
+  CPU sampling and pprof capture. See
+  [SYSBENCH.md](../../../go/test/endtoend/queryserving/benchmarking/SYSBENCH.md).
+- **`TestSlowClientBackpressure`** checks that one slow-reading client of a large
+  result does not make the multigateway or multipooler buffer the whole result.
 
 ## Adding new scenarios
 

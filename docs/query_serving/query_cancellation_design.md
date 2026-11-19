@@ -213,8 +213,12 @@ cancellation:
    cancel cause to determine the appropriate error.
 4. **gRPC propagation:** Because the query context is the same context
    passed through gRPC to the multipooler, the cancellation
-   propagates automatically — the multipooler observes the cancelled
-   context and can cancel the backend query.
+   propagates automatically. The multipooler's backend connection
+   observes the cancelled context and cancels the running statement
+   with `pg_cancel_backend()` issued over the admin pool
+   (`regular.Conn.handleContextCancellation`). If the cancel cannot
+   be delivered, or the statement has not unwound 2 seconds after it
+   was (`postCancelDrainGrace`), the backend socket is force-closed.
 5. **Cleanup:** After each query, the cancel function is cleared
    (via defer) so that late-arriving cancel requests for a completed
    query are harmless no-ops.
@@ -253,7 +257,3 @@ potentially confusing timeout message.
 - **Rate limiting:** Protect against cancel request floods that could
   be used to probe virtual PIDs or overload the prefix cache rebuild
   path.
-- **Cancel forwarding to multipooler:** Issue a PostgreSQL-level
-  cancel to the backend via the multipooler's admin connection, in
-  addition to context cancellation, to promptly free backend
-  resources for long-running queries.
