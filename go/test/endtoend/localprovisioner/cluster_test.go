@@ -182,8 +182,8 @@ func cleanupTestProcesses(tempDir string) error {
 type clusterOption func(*local.LocalProvisionerConfig)
 
 // withBackupEncryption requires client-side backup encryption for the cluster.
-// The provisioner generates the cipher key file and starts every multipooler
-// with --pgbackrest-cipher-key-file, encrypting the initial repository.
+// The provisioner generates the cipher key file and starts every pooler's
+// pgbackrestd with --cipher-key-file, encrypting the initial repository.
 func withBackupEncryption() clusterOption {
 	return func(c *local.LocalProvisionerConfig) {
 		c.Backup = local.BackupConfig{

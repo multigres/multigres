@@ -300,14 +300,10 @@ local:
 
 func TestProvisionerConfig_PgBackRestUnderPgctld(t *testing.T) {
 	cfg := &CellServicesConfig{
-		Pgctld: PgctldConfig{
-			PgBackRestPort:    8443,
-			PgBackRestCertDir: "/certs/pgbackrest",
-		},
+		Pgctld: PgctldConfig{PgBackRestPort: 8443},
 	}
 
 	assert.Equal(t, 8443, cfg.Pgctld.PgBackRestPort)
-	assert.Equal(t, "/certs/pgbackrest", cfg.Pgctld.PgBackRestCertDir)
 }
 
 func TestDefaultMultigresCells(t *testing.T) {
@@ -418,4 +414,24 @@ func TestGetCellServiceConfig_Minigres(t *testing.T) {
 	assert.Equal(t, "/bin/minigres", cfg["path"])
 	assert.Equal(t, 15532, cfg["pg_port"])
 	assert.Equal(t, "abc123", cfg["service-id"])
+}
+
+func TestPgctldPasswordIsNotInTheServiceConfigMap(t *testing.T) {
+	p := &localProvisioner{config: &LocalProvisionerConfig{Cells: map[string]CellServicesConfig{
+		"zone": {Pgctld: PgctldConfig{PgPassword: "s3cret", PgPort: 5432}},
+	}}}
+
+	cfg, err := p.getCellServiceConfig("zone", constants.ServicePgctld)
+	require.NoError(t, err)
+	assert.NotContains(t, cfg, "password", "values read from this map are printed while provisioning")
+	for k, v := range cfg {
+		assert.NotEqual(t, "s3cret", v, k)
+	}
+
+	pw, err := p.pgctldPassword("zone")
+	require.NoError(t, err)
+	assert.Equal(t, "s3cret", pw)
+
+	_, err = p.pgctldPassword("missing")
+	require.Error(t, err)
 }

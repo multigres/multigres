@@ -37,8 +37,6 @@ func TestCachedListClonesInvalidatesAndFreshAPIsBypass(t *testing.T) {
 	stubPgbackrest(t, strings.Replace(pgbackrestInfoStub(json), "#!/bin/bash\n", fmt.Sprintf("#!/bin/bash\nprintf x >> %q\n", counter), 1))
 	dir := t.TempDir()
 	e, _ := newTestEngine(t, dir, "tg1", "0", "/tmp/backups")
-	config := setupMockPgBackRestConfig(t, dir)
-	e.SetConfigPath(config)
 	first, err := e.CachedList(t.Context(), 0)
 	require.NoError(t, err)
 	require.Len(t, first, 1)
@@ -53,7 +51,7 @@ func TestCachedListClonesInvalidatesAndFreshAPIsBypass(t *testing.T) {
 	require.NoError(t, err)
 	_, err = e.List(t.Context(), 0)
 	require.NoError(t, err)
-	e.SetConfigPath(config)
+	e.SetBackupConfig(e.backupCfg) // a new repo config invalidates the cache
 	_, err = e.CachedList(t.Context(), 0)
 	require.NoError(t, err)
 	b, err = os.ReadFile(counter)

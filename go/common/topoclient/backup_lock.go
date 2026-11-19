@@ -136,6 +136,7 @@ func (ts *store) WithBackupLease(
 
 	err := WithLease(ctx, action, acquire, revoke, check, fn,
 		WithLeaseCheckInterval(BackupLeaseCheckInterval),
+		WithLeaseTTL(BackupLeaseTTL),
 	)
 	if err != nil {
 		logger.InfoContext(ctx, "backup lease operation completed with error",
@@ -170,6 +171,7 @@ func (ts *store) WithStolenBackupLease(
 	err := WithLease(ctx, action, acquire, revoke, check, fn,
 		WithStealGracePeriod(BackupLeaseStealGracePeriod),
 		WithLeaseCheckInterval(BackupLeaseCheckInterval),
+		WithLeaseTTL(BackupLeaseTTL),
 	)
 	if err != nil {
 		logger.InfoContext(ctx, "backup lease operation completed with error",

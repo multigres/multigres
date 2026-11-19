@@ -50,7 +50,8 @@ func TestRunMigrationReconcile(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				pm, qs := newTestManagerWithMock(t, "default", "0-inf")
+				pm, qs := newTestManagerWithMockNoSidecar(t, "default", "0-inf")
+				useTestSidecar(t, pm)
 				t.Cleanup(func() { require.NoError(t, pm.topoClient.Close()) })
 				var logs syncBuffer
 				pm.logger = slog.New(slog.NewTextHandler(&logs, nil))

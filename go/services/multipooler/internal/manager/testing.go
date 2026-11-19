@@ -17,6 +17,7 @@ package manager
 import (
 	"log/slog"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -44,6 +45,12 @@ func NewManagerForTesting(t testing.TB, mode clustermetadatapb.LeadershipMode, t
 	cfg := &Config{TopoClient: ts, ConnPoolConfig: connpoolmanager.NewConfig(viperutil.NewRegistry())}
 	if mode == clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNMANAGED {
 		cfg.ExternalBackend = &ExternalBackend{Host: "db.example.com", Port: 5432, Database: "db"}
+	} else {
+		// These mode-only tests never run backup operations, but managed
+		// constructors still require sidecar addresses. No server is started.
+		root := t.TempDir()
+		cfg.PgBackRestControlSocket = filepath.Join(root, "control.sock")
+		cfg.PgBackRestWALSocket = filepath.Join(root, "wal.sock")
 	}
 	pm, err := NewMultipoolerManager(slog.New(slog.NewTextHandler(os.Stderr, nil)), &clustermetadatapb.Multipooler{
 		Id:             &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "pooler"},

@@ -100,6 +100,10 @@ func TestWithLeaseSteal(t *testing.T) {
 	assert.True(t, called)
 
 	// Original should have received ErrLeaseLost
-	err = <-done
+	select {
+	case err = <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the lease loss was not signalled")
+	}
 	assert.ErrorIs(t, err, topoclient.ErrLeaseLost)
 }

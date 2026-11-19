@@ -38,16 +38,11 @@ type RepositoryInfo struct {
 // RepositoryInfo runs `pgbackrest info` once, uncached. Callers reset the
 // stanza on an empty answer, so unlike ListBackups any failed run is an error.
 func (e *Engine) RepositoryInfo(ctx context.Context) (RepositoryInfo, error) {
-	configPath, err := e.requireConfigPath()
-	if err != nil {
-		return RepositoryInfo{}, mterrors.Wrap(err, "pgbackrest config not found")
-	}
-
 	if _, err := e.requireBackupConfig(); err != nil {
 		return RepositoryInfo{}, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup config not loaded from topology")
 	}
 
-	output, err := e.runInfoCmd(ctx, configPath)
+	output, err := e.runInfoCmd(ctx)
 	if err != nil {
 		return RepositoryInfo{}, mterrors.New(mtrpcpb.Code_INTERNAL,
 			fmt.Sprintf("pgbackrest info failed: %v\nOutput: %s", err, output))

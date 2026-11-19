@@ -29,6 +29,12 @@ import (
 )
 
 func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		os.Exit(runSidecarOwnerFixture(os.Args[2:])) //nolint:forbidigo // TestMain subprocess fixture
+	}
+	if len(os.Args) > 1 && os.Args[1] == "server" {
+		os.Exit(runRestartPgctldFixture(os.Args[2:])) //nolint:forbidigo // TestMain subprocess fixture
+	}
 	if err := pathutil.PrependBinToPath(); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to add directories to PATH: %v\n", err)
 		os.Exit(1) //nolint:forbidigo // TestMain() is allowed to call os.Exit
