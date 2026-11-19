@@ -40,7 +40,7 @@ Browse the design and reference docs by area:
 - **[High availability](./ha/)** — consensus, failover, and the state model,
   plus the HA decision log.
 - **[Sharding](./sharding/)** — the sharding design, tablegroup operations
-  and DDL, and routing rules.
+  and DDL, routing rules, and [shard indexes](./sharding/shard-indexes.md).
 - **[Migration](./migration/)** — the migrator's
   [SQL interface](./migration/migrator_sql_interface.md).
 - **[General](./general/)** — cross-cutting topics (e.g. serving state
