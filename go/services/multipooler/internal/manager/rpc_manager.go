@@ -866,7 +866,7 @@ func (pm *MultipoolerManager) demoteToStandbyLocked(ctx context.Context, consens
 	// Publish the physical standby role, but keep the node DRAINING while its WAL
 	// remains rewind-suspect. The rewind path re-enables reads after it clears the
 	// flag.
-	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence(), pm.migrationServingHold()); err != nil {
+	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.rewindRequired(), pm.migrationServingHold()); err != nil {
 		return mterrors.Wrap(err, "failed to publish standby state after demote")
 	}
 
@@ -985,7 +985,25 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	// surviving timeline branched), so we never restart-without-rewind here; the
 	// pg_rewind dry-run (cheap when there's no divergence) runs whenever divergence
 	// is suspected.
-	wantRewind := pm.consensusMgr.SuspectedDivergence()
+	wantRewind := pm.rewindRequired()
+	if wantRewind && pm.rewindPersistenceFailed.Load() {
+		if err := pm.retryRewindPersistenceLocked(ctx); err != nil {
+			return false, err
+		}
+	}
+
+	// pg_rewind reads from the source over a live connection, so with the source
+	// down the rewind below can only fail, after postgres has already been stopped.
+	// A pooler with postgres stopped reports no WAL position and cannot be
+	// recruited, which can block electing the reachable leader it should rewind
+	// against instead (e.g. when the recorded leader died after this node did).
+	// Defer the rewind before stopping postgres and let the caller retry. This is
+	// a TCP check only: a source that fails after the dial still fails the rewind
+	// below, after the stop.
+	if wantRewind && !pm.leaderReachable(ctx, sourceHost, sourcePort) {
+		return false, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"rewind source %s:%d is unreachable; deferring rewind before stopping postgres", sourceHost, sourcePort)
+	}
 
 	if wantRewind {
 		// pg_rewind rewinds to the last shared checkpoint, not the last common
@@ -1196,8 +1214,8 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	// divergence resolved (see the note on the rewind path above for why clearing
 	// is deferred to here rather than right after pg_rewind returns).
 	if wantRewind {
-		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, false); err != nil {
-			pm.logger.ErrorContext(ctx, "failed to clear suspected divergence after restart as standby", "error", err)
+		if err := pm.clearSuspectedDivergence(ctx); err != nil {
+			return false, mterrors.Wrap(err, "failed to clear suspected divergence after restart as standby")
 		}
 	}
 

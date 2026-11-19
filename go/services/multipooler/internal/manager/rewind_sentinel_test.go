@@ -33,6 +33,42 @@ import (
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
 )
 
+// A non-empty directory at the marker path forces both WriteFile and Remove
+// to fail, including when the test process runs as root.
+func blockPendingRewindMarker(t *testing.T, pm *MultipoolerManager) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Join(pm.rewindPending().path, "child"), 0o700))
+}
+
+func TestCheckPendingRewindOnOpen_StaticLeader(t *testing.T) {
+	t.Run("existing marker", func(t *testing.T) {
+		pm := newSentinelTestManager(t)
+		require.NoError(t, pm.rewindPending().write())
+
+		pending, unclean, err := pm.checkPendingRewindOnOpen()
+		require.NoError(t, err)
+		assert.True(t, pending)
+		assert.False(t, unclean)
+		assert.NoFileExists(t, pm.rewindGuard().path)
+	})
+	t.Run("missing pooler directory", func(t *testing.T) {
+		pm := newSentinelTestManager(t)
+		require.NoError(t, os.Remove(pm.record.PoolerDir()))
+
+		_, _, err := pm.checkPendingRewindOnOpen()
+		require.ErrorIs(t, err, os.ErrNotExist)
+	})
+	t.Run("pooler path points to a regular file", func(t *testing.T) {
+		pm := newSentinelTestManager(t)
+		dir := pm.record.PoolerDir()
+		require.NoError(t, os.Remove(dir))
+		require.NoError(t, os.WriteFile(dir, []byte("not a directory"), 0o600))
+
+		_, _, err := pm.checkPendingRewindOnOpen()
+		require.Error(t, err)
+	})
+}
+
 // TestDiscoverPostgresState_RewindSentinel verifies discoverPostgresState surfaces
 // the on-disk rewind sentinel, the durable signal the monitor gates on.
 func TestDiscoverPostgresState_RewindSentinel(t *testing.T) {

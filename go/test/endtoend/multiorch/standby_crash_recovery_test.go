@@ -50,6 +50,15 @@ import (
 // auto-restarts it — is TestPostgresMonitorControl in
 // go/test/endtoend/multipooler/postgres_monitor_test.go.
 func TestStandbyRecoversAfterPostmasterKill(t *testing.T) {
+	testStandbyRecoversAfterCrash(t, false)
+}
+
+func TestStandbyRecoversAfterPoolerAndPostmasterKill(t *testing.T) {
+	testStandbyRecoversAfterCrash(t, true)
+}
+
+func testStandbyRecoversAfterCrash(t *testing.T, crashPooler bool) {
+	t.Helper()
 	if testing.Short() {
 		t.Skip("skipping end-to-end test in short mode")
 	}
@@ -111,9 +120,16 @@ func TestStandbyRecoversAfterPostmasterKill(t *testing.T) {
 	require.Equal(t, "streaming", status.GetStatus().GetReplicationStatus().GetWalReceiverStatus(),
 		"standby walreceiver should be streaming (non-diverged) before kill")
 
-	// SIGKILL the standby's postmaster (a real crash, bypassing clean shutdown).
+	if crashPooler {
+		// Kill the pooler first so its guard remains on disk and it cannot
+		// restart PostgreSQL until we open a new manager on the same directory.
+		killMultipooler(t, standby)
+	}
 	setup.KillPostgres(t, standby.Name)
 	killedAt := time.Now()
+	if crashPooler {
+		require.NoError(t, standby.Multipooler.Start(t.Context(), t))
+	}
 
 	// The pooler monitor must auto-restart postgres via ordinary standby-mode
 	// crash recovery. Record how long that takes so it lands in the e2e timing
@@ -121,9 +137,17 @@ func TestStandbyRecoversAfterPostmasterKill(t *testing.T) {
 	restartLimit := utils.ScaleTimeout(60 * time.Second)
 	require.Eventually(t, func() bool {
 		status, err := standbyClient.Manager.Status(utils.WithShortDeadline(t), &multipoolermanagerdatapb.StatusRequest{})
-		return err == nil && status.GetStatus().GetPostgresReady()
-	}, restartLimit, 2*time.Second,
-		"SIGKILLed standby postmaster should be auto-restarted by the pooler monitor")
+		if err != nil || !status.GetStatus().GetPostgresReady() ||
+			status.GetStatus().GetReplicationStatus().GetWalReceiverStatus() != "streaming" {
+			return false
+		}
+		if crashPooler {
+			// Wait for the new pooler to finish revalidating its WAL as well.
+			// Readiness alone can be true while the serving hold is active.
+			_, err = standbyClient.Pooler.ExecuteQuery(utils.WithShortDeadline(t), "SELECT count(*) FROM crash_recovery_probe", 1)
+		}
+		return err == nil
+	}, restartLimit, 2*time.Second, "crashed standby should recover and stream from the primary")
 
 	restartDuration := time.Since(killedAt)
 	testtiming.Record(t, "standby postgres restart after kill", restartDuration, restartLimit)

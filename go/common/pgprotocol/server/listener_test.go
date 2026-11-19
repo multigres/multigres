@@ -16,8 +16,10 @@ package server
 
 import (
 	"context"
+	"io"
 	"net"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -181,6 +183,60 @@ func TestListenerShutdown_ReturnsWhenConnectionsEnd(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("Shutdown did not return once the connection ended")
 	}
+}
+
+// delayedAcceptListener pauses after accepting a socket so the listener can
+// shut down before Serve has a chance to register its handler.
+type delayedAcceptListener struct {
+	net.Listener
+	accepted chan struct{}
+	release  chan struct{}
+}
+
+func (l *delayedAcceptListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err == nil {
+		close(l.accepted)
+		<-l.release
+	}
+	return conn, err
+}
+
+func TestListenerShutdown_RejectsConnectionAcceptedBeforeClose(t *testing.T) {
+	l := testListenerWithGatewayID(t, 1)
+	delayed := &delayedAcceptListener{
+		Listener: l.listener,
+		accepted: make(chan struct{}),
+		release:  make(chan struct{}),
+	}
+	l.listener = delayed
+	releaseAccept := sync.OnceFunc(func() { close(delayed.release) })
+	t.Cleanup(releaseAccept)
+
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- l.Serve() }()
+
+	conn, err := net.DialTimeout("tcp", l.Addr().String(), 5*time.Second)
+	require.NoError(t, err)
+	t.Cleanup(func() { conn.Close() })
+
+	select {
+	case <-delayed.accepted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("listener did not accept the connection")
+	}
+	require.NoError(t, l.Shutdown(t.Context()))
+	releaseAccept()
+
+	select {
+	case err := <-serveDone:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve did not return after shutdown")
+	}
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(time.Second)))
+	_, err = conn.Read(make([]byte, 1))
+	require.ErrorIs(t, err, io.EOF, "shutdown must close the socket without starting its handler")
 }
 
 // TestListenerShutdown_CutsConnectionsWhenCtxEnds checks that a connection

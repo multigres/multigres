@@ -944,6 +944,181 @@ func TestOpen_HonorsMigrationHoldOnRestart(t *testing.T) {
 		"Open must hold serving (DRAINING) when an IMPORT migration is in progress on this shard, not publish SERVING unreconciled")
 }
 
+func TestOpen_UnwritablePendingRewindDirectoryHoldsServing(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write to a read-only directory")
+	}
+	mockQS := mock.NewQueryService()
+	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	pm, dir := setupManagerWithMockDB(t, mockQS, &fakeRuleStore{pos: makeRulePosition(3)})
+	require.NoError(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { assert.NoError(t, os.Chmod(dir, 0o700)) })
+	withLock(t, pm, func(ctx context.Context) {
+		require.Error(t, pm.markSuspectedDivergence(ctx))
+	})
+	pending, err := pm.rewindPending().present()
+	require.NoError(t, err)
+	require.False(t, pending, "an unwritable directory can still report an absent marker")
+
+	fresh := restartManagerForTest(t, pm)
+	health, err := fresh.GetHealthState(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, health)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, health.ServingStatus)
+	assert.True(t, fresh.rewindRequired())
+	assert.False(t, fresh.consensusMgr.SuspectedDivergence())
+}
+
+func TestOpen_RewindCheckRetryFindsUnreadablePendingMarker(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can traverse a directory without execute permission")
+	}
+	mockQS := mock.NewQueryService()
+	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	pm, dir := setupManagerWithMockDB(t, mockQS, &fakeRuleStore{pos: makeRulePosition(3)})
+	withLock(t, pm, func(ctx context.Context) {
+		require.NoError(t, pm.markSuspectedDivergence(ctx))
+	})
+	require.NoError(t, os.Chmod(dir, 0o600))
+	t.Cleanup(func() { assert.NoError(t, os.Chmod(dir, 0o700)) })
+
+	fresh := restartManagerForTest(t, pm)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, fresh.record.ServingStatus())
+	assert.False(t, fresh.consensusMgr.SuspectedDivergence())
+
+	require.NoError(t, os.Chmod(dir, 0o700))
+	require.NoError(t, fresh.retryPendingRewindWrite(t.Context()))
+	assert.True(t, fresh.consensusMgr.SuspectedDivergence())
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, fresh.record.ServingStatus())
+}
+
+func TestOpen_RewindHoldSurvivesCrashBeforeMarkerWrite(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write to a read-only directory")
+	}
+	mockQS := mock.NewQueryService()
+	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
+	position := makeRulePosition(3)
+	position.GetPosition().GetDecision().LeaderId = &clustermetadatapb.ID{
+		Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler",
+	}
+	pm, dir := setupManagerWithMockDB(t, mockQS, &fakeRuleStore{pos: position})
+	require.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, pm.record.ServingStatus())
+	snapshot := pm.record.Snapshot()
+
+	require.NoError(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { assert.NoError(t, os.Chmod(dir, 0o700)) })
+	withLock(t, pm, func(ctx context.Context) {
+		require.ErrorIs(t, pm.markSuspectedDivergence(ctx), os.ErrPermission)
+		// Stop the test process's background work without a clean shutdown
+		// or a monitor retry. A crash leaves the same markers on disk.
+		require.True(t, pm.closeLocked(ctx, "simulated crash"))
+	})
+	require.NoError(t, os.Chmod(dir, 0o700))
+	require.NoFileExists(t, pm.rewindPending().path)
+
+	fresh := openManagerAfterRestartForTest(t, pm, snapshot)
+	health, err := fresh.GetHealthState(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, health)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, health.ServingStatus)
+	assert.True(t, fresh.rewindRequired())
+	assert.False(t, fresh.consensusMgr.SuspectedDivergence())
+
+	state := postgresState{pgctldAvailable: true, postgresRunning: true, pgMode: pgmode.Primary}
+	withLock(t, fresh, func(ctx context.Context) {
+		action := fresh.determineRemedialAction(ctx, state)
+		require.Equal(t, remedialActionResignLeadership, action)
+		require.NoError(t, fresh.takeRemedialAction(ctx, action, state))
+		assert.EqualValues(t, 3, fresh.consensusMgr.ResignedLeaderAtTerm())
+		assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, fresh.record.ServingStatus())
+	})
+}
+
+func TestOpen_CleanPoolerShutdownDoesNotRestoreRewindHold(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	pm, _ := setupManagerWithMockDB(t, mockQS, &fakeRuleStore{pos: makeRulePosition(3)})
+	require.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, pm.record.ServingStatus())
+	snapshot := pm.record.Snapshot()
+	require.FileExists(t, pm.rewindGuard().path)
+	pm.GracefulShutdown(t.Context())
+	pm.StopTopoRegistration(t.Context())
+	require.NoFileExists(t, pm.rewindGuard().path)
+
+	fresh := openManagerAfterRestartForTest(t, pm, snapshot)
+	// A second Open on the same manager must not mistake its own guard for
+	// evidence that the previous process crashed.
+	withLock(t, fresh, func(ctx context.Context) { fresh.Open(ctx) })
+	health, err := fresh.GetHealthState(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, health)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, health.ServingStatus)
+	assert.False(t, fresh.consensusMgr.SuspectedDivergence())
+}
+
+func TestOpen_BlockedRewindGuardRetriesBeforeReleasingHold(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	pm, _ := setupManagerWithMockDB(t, mockQS, &fakeRuleStore{pos: makeRulePosition(3)})
+	snapshot := pm.record.Snapshot()
+	pm.ShutdownForTest(t.Context())
+	guard := pm.rewindGuard().path
+	require.NoFileExists(t, guard)
+
+	// A directory at the guard path makes the atomic replacement fail.
+	require.NoError(t, os.Mkdir(guard, 0o700))
+	fresh := openManagerAfterRestartForTest(t, pm, snapshot)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, fresh.record.ServingStatus())
+
+	cancelledCtx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.ErrorIs(t, fresh.retryPendingRewindWrite(cancelledCtx), context.Canceled)
+	require.ErrorContains(t, fresh.retryPendingRewindWrite(t.Context()), "failed to arm rewind guard")
+	require.NoFileExists(t, fresh.rewindPending().path)
+
+	withLock(t, fresh, func(ctx context.Context) {
+		require.ErrorContains(t, fresh.clearSuspectedDivergence(ctx), "failed to arm rewind guard")
+		assert.True(t, fresh.rewindRequired())
+	})
+
+	require.NoError(t, os.Remove(guard))
+	require.NoError(t, fresh.retryPendingRewindWrite(t.Context()))
+	require.FileExists(t, guard)
+	require.NoFileExists(t, fresh.rewindPending().path)
+	assert.False(t, fresh.consensusMgr.SuspectedDivergence())
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, fresh.record.ServingStatus())
+
+	withLock(t, fresh, func(ctx context.Context) {
+		require.NoError(t, fresh.clearSuspectedDivergence(ctx))
+		assert.False(t, fresh.rewindRequired())
+	})
+	assert.NoFileExists(t, fresh.rewindPending().path)
+	assert.FileExists(t, guard, "clearing one incident must leave the guard armed for the next one")
+}
+
+func TestOpen_DanglingPendingRewindMarkerHoldsServing(t *testing.T) {
+	mockQS := mock.NewQueryService()
+	mockQS.AddQueryPattern("SELECT pg_is_in_recovery",
+		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	pm, dir := setupManagerWithMockDB(t, mockQS, &fakeRuleStore{pos: makeRulePosition(3)})
+	// A dangling marker symlink must hold serving even though stat sees no file.
+	marker := filepath.Join(dir, constants.RewindPendingFile)
+	require.NoError(t, os.Symlink(filepath.Join(dir, "missing-marker-target"), marker))
+
+	fresh := restartManagerForTest(t, pm)
+	health, err := fresh.GetHealthState(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, health)
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, health.ServingStatus,
+		"a dangling pending rewind marker must not allow reads on startup")
+}
+
 // TestPause_RestartsBackupHealthPoller verifies that the backup-health poller
 // survives a Pause/resume cycle. The poller is bound to pm.ctx, which
 // closeLocked cancels and openLocked recreates; StartBackupHealth opts the

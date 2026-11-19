@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/tools/fileutil"
 )
 
 // rewind_sentinel.go implements a durable, on-disk marker for an in-progress
@@ -39,17 +40,180 @@ import (
 //
 // runPgRewind writes the sentinel before enabling archive restore and
 // restartAsStandbyLocked removes it only after postgres is verified back up as a
-// standby. Its presence on a later monitor tick is therefore the authoritative signal that a
-// prior rewind did not complete — the one durable signal that survives a process
-// restart (the in-memory suspectedDivergence flag does not). The monitor uses it
-// to re-arm the rewind-repair path instead of starting postgres on the
-// half-rewound directory, and to let the unrecoverable-recovery classifier
-// quarantine the node if repair keeps failing.
+// standby. Its presence means recovery started but did not complete, whereas
+// rewindPending also covers a rewind deferred before recovery started. The
+// monitor uses the in-progress sentinel to re-arm the rewind-repair path instead
+// of starting postgres on the half-rewound directory, and to let the
+// unrecoverable-recovery classifier quarantine the node if repair keeps failing.
 
 // rewindSentinel returns the rewind sentinel. Like every sentinel it lives in
 // pooler_dir; see sentinel.go.
 func (pm *MultipoolerManager) rewindSentinel() sentinel {
 	return pm.newSentinel(constants.RewindSentinelFile, "pg_rewind in progress\n")
+}
+
+// rewindPending records suspected divergence even when recovery has not started
+// (for example, the rewind source is unavailable). It holds serving across a
+// restart without classifying a deferred rewind as an interrupted recovery.
+func (pm *MultipoolerManager) rewindPending() sentinel {
+	return pm.newSentinel(constants.RewindPendingFile, "WAL divergence suspected\n")
+}
+
+// rewindRequired holds serving and routes a running node through rewind. A
+// guard-only hold lets a stopped standby recover in ordinary standby mode first.
+func (pm *MultipoolerManager) rewindRequired() bool {
+	return pm.rewindGuardHold.Load() || pm.consensusMgr.SuspectedDivergence()
+}
+
+func (pm *MultipoolerManager) rewindGuard() sentinel {
+	return pm.newSentinel(constants.RewindGuardFile, "pooler running; WAL may need revalidation after a crash\n")
+}
+
+// ensureRewindGuard establishes durable evidence while storage is healthy.
+// The caller holds the action lock. The guard stays armed across Pause/resume
+// and even after a successful rewind, covering the next divergence incident.
+func (pm *MultipoolerManager) ensureRewindGuard() error {
+	if !pm.rewindGuardRequired || pm.rewindGuardArmed {
+		return nil
+	}
+	guard := pm.rewindGuard()
+	if err := fileutil.AtomicWriteFile(guard.path, []byte(guard.contents), 0o644); err != nil {
+		return mterrors.Wrap(err, "failed to arm rewind guard")
+	}
+	pm.rewindGuardArmed = true
+	return nil
+}
+
+// clearRewindGuardOnShutdown clears the guard only during a terminal shutdown
+// with trusted WAL. Keep it if a pending rewind write may have failed.
+// The caller holds the action lock and has stopped the monitor and RPCs.
+func (pm *MultipoolerManager) clearRewindGuardOnShutdown(ctx context.Context) {
+	if !pm.rewindGuardArmed || pm.rewindRequired() {
+		return
+	}
+	if err := pm.rewindGuard().remove(); err != nil {
+		pm.logger.WarnContext(ctx, "failed to remove rewind guard on shutdown", "error", err)
+		return
+	}
+	pm.rewindGuardArmed = false
+}
+
+// rewindMarkerExists treats any entry at a marker path as a hold, including a
+// broken symlink.
+func rewindMarkerExists(marker sentinel) (bool, error) {
+	_, err := os.Lstat(marker.path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// checkPendingRewindOnOpen restores the pending hold and, for coordinated
+// poolers, detects an unclean exit independently of the pending marker.
+func (pm *MultipoolerManager) checkPendingRewindOnOpen() (pending, unclean bool, err error) {
+	marker := pm.rewindPending()
+	present, err := rewindMarkerExists(marker)
+	if err != nil {
+		return false, false, err
+	}
+	if pm.rewindGuardRequired {
+		unclean, err := rewindMarkerExists(pm.rewindGuard())
+		if err != nil {
+			return present, false, err
+		}
+		return present, unclean, pm.ensureRewindGuard()
+	}
+	if present {
+		return true, false, nil
+	}
+
+	dir := filepath.Dir(marker.path)
+	// Use a temporary file so a crash during the probe cannot leave a rewind
+	// hold on an otherwise healthy pooler.
+	probe, err := os.CreateTemp(dir, ".rewind-pending-probe-*")
+	if err != nil {
+		return false, false, err
+	}
+	defer os.Remove(probe.Name())
+	defer probe.Close()
+	if _, err := probe.WriteString(marker.contents); err != nil {
+		return false, false, err
+	}
+	if err := probe.Sync(); err != nil {
+		return false, false, err
+	}
+	return false, false, fsyncPath(dir)
+}
+
+// persistPendingRewind records the hold and remembers any failure for retry.
+// The caller holds the action lock.
+func (pm *MultipoolerManager) persistPendingRewind() error {
+	if err := pm.ensureRewindGuard(); err != nil {
+		pm.rewindPersistenceFailed.Store(true)
+		return err
+	}
+	err := pm.rewindPending().write()
+	pm.rewindPersistenceFailed.Store(err != nil)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to write pending rewind marker")
+	}
+	return nil
+}
+
+// retryPendingRewindWrite runs independently of PostgreSQL and its leader so
+// neither reachability nor rewind readiness can prevent recording the hold.
+func (pm *MultipoolerManager) retryPendingRewindWrite(ctx context.Context) error {
+	if !pm.rewindPersistenceFailed.Load() || !pm.rewindRequired() {
+		return nil
+	}
+	lockCtx, err := pm.actionLock.Acquire(ctx, "retry pending rewind marker")
+	if err != nil {
+		return err
+	}
+	defer pm.actionLock.Release(lockCtx)
+	if !pm.rewindPersistenceFailed.Load() || !pm.rewindRequired() {
+		return nil
+	}
+	retryCtx, cancel := context.WithTimeout(lockCtx, defaultRemedialActionTimeout)
+	defer cancel()
+	return pm.retryRewindPersistenceLocked(retryCtx)
+}
+
+func (pm *MultipoolerManager) retryRewindPersistenceLocked(ctx context.Context) error {
+	if pm.consensusMgr.SuspectedDivergence() {
+		return pm.markSuspectedDivergence(ctx)
+	}
+
+	// A startup check failure alone may not create a pending rewind marker.
+	// Recover access to the markers first and keep serving held either way.
+	pending, _, err := pm.checkPendingRewindOnOpen()
+	if err != nil {
+		return err
+	}
+	if pending {
+		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+			return err
+		}
+	}
+	pm.rewindPersistenceFailed.Store(false)
+	return nil
+}
+
+// clearSuspectedDivergence releases the durable hold before the in-memory one.
+// A failed removal leaves serving held so a retry can complete the cleanup.
+func (pm *MultipoolerManager) clearSuspectedDivergence(ctx context.Context) error {
+	if err := pm.ensureRewindGuard(); err != nil {
+		return err
+	}
+	if err := pm.rewindPending().remove(); err != nil {
+		return mterrors.Wrap(err, "failed to remove pending rewind marker")
+	}
+	if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, false); err != nil {
+		return err
+	}
+	pm.rewindGuardHold.Store(false)
+	pm.rewindPersistenceFailed.Store(false)
+	return nil
 }
 
 // A failed pg_rewind is not always a ruined data directory. pg_rewind only starts

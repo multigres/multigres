@@ -19,6 +19,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -167,6 +168,44 @@ func TestGracefulShutdown_StopAllModesFail(t *testing.T) {
 
 	assert.Equal(t, []string{"fast", "immediate"}, pgctld.modesCalled(),
 		"both modes should have been attempted")
+}
+
+func TestGracefulShutdown_KeepsRewindGuardOnFailure(t *testing.T) {
+	tests := []struct {
+		name    string
+		prepare func(t *testing.T, pm *MultipoolerManager)
+	}{
+		{
+			name: "serving drain fails",
+			prepare: func(_ *testing.T, pm *MultipoolerManager) {
+				pm.stateManager.Register(&testComponent{err: assert.AnError})
+			},
+		},
+		{
+			name: "guard removal fails",
+			prepare: func(t *testing.T, pm *MultipoolerManager) {
+				guard := pm.rewindGuard().path
+				require.NoError(t, os.Remove(guard))
+				require.NoError(t, os.MkdirAll(filepath.Join(guard, "child"), 0o700))
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pm, _ := setupManagerWithMockDB(t, mock.NewQueryService(), &fakeRuleStore{pos: makeRulePosition(3)})
+			pgctld := &recordingPgctldClient{}
+			pm.pgctldClient = pgctld
+			tt.prepare(t, pm)
+
+			pm.GracefulShutdown(t.Context())
+			pm.StopTopoRegistration(t.Context())
+
+			assert.Equal(t, []string{"fast"}, pgctld.modesCalled())
+			retained, err := rewindMarkerExists(pm.rewindGuard())
+			require.NoError(t, err)
+			assert.True(t, retained, "the next manager must be able to see the guard")
+		})
+	}
 }
 
 // TestGracefulShutdown_NilPgctldClient verifies GracefulShutdown returns

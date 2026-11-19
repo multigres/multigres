@@ -389,7 +389,8 @@ func (pm *MultipoolerManager) releaseForMigrationExport(ctx context.Context) err
 		return err
 	}
 	defer pm.actionLock.Release(lockCtx)
-	return pm.stateManager.ReconcileMigrationHold(lockCtx, pm.migrationServingHold())
+	divergenceHold := !pm.IsUnmanaged() && pm.rewindRequired()
+	return pm.stateManager.ReconcileMigrationHold(lockCtx, divergenceHold || pm.migrationServingHold())
 }
 
 // runMigrationReconcile is the reconcile poller. Each tick, if this pooler is

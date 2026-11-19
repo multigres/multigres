@@ -159,6 +159,23 @@ type MultipoolerManager struct {
 	// pgMonitor manages the PostgreSQL monitoring loop. See periodicRunner.
 	pgMonitor periodicRunner
 
+	// rewindPersistenceFailed schedules a retry of the startup checks or the
+	// pending marker write. Writes hold the action lock.
+	rewindPersistenceFailed atomic.Bool
+
+	// rewindGuardHold keeps serving paused after an unclean exit or an
+	// inconclusive startup check. Only explicit divergence evidence changes
+	// PostgreSQL's crash-recovery mode. Writes hold the action lock.
+	rewindGuardHold atomic.Bool
+
+	// Only coordinated poolers can miss a leadership change while down.
+	rewindGuardRequired bool
+
+	// The action lock protects the rewind guard's lifetime. A successful
+	// terminal stop is also observed by the shutdown hook after RPCs drain.
+	rewindGuardArmed     bool
+	rewindGuardCleanStop atomic.Bool
+
 	// promotionInProgress is set while pg_promote() has been called but postgres has not yet
 	// transitioned to primary mode. Cleared when promotion completes (success or failure).
 	// Reported in the health status so multiorch can suppress spurious PrimaryIsDead detection.
@@ -191,10 +208,10 @@ type MultipoolerManager struct {
 	// stuck preconditions no longer hold.
 	standbyStuckSince atomic.Int64
 
-	// leaderReachableFn, when non-nil, overrides the divergence gate's leader
-	// liveness dial (standbyStuckDiverged -> leaderReachable). Tests set it because
-	// they have no real leader postgres to TCP-dial; production leaves it nil to
-	// use the default net.Dialer.
+	// leaderReachableFn, when non-nil, overrides the leader liveness dial
+	// (leaderReachable) used by standbyStuckDiverged and by restartAsStandbyLocked
+	// before a rewind. Tests set it because they have no real leader postgres to
+	// TCP-dial; production leaves it nil to use the default net.Dialer.
 	leaderReachableFn func(host string, port int32) bool
 
 	// pgMonitorLastLoggedReason tracks the last logged reason in the monitor to avoid duplicate logs.
@@ -438,6 +455,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 		connPoolMgr:              connPoolMgr,
 		readyChan:                make(chan struct{}),
 		pgMonitor:                monitorRunner,
+		rewindGuardRequired:      !unmanaged && !config.StaticLeader,
 		healthStreamer:           newHealthStreamer(logger, multipooler.Id, multipooler.GetShardRef().GetTableGroup(), multipooler.GetShardRef().GetShard()),
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
@@ -596,9 +614,9 @@ func (pm *MultipoolerManager) adminExecArgs(ctx context.Context, sql string, arg
 }
 
 // Open opens the database connections and starts background operations, then
-// transitions the pooler to SERVING. This is the entry point for first-time
-// startup; resume-from-Pause goes through openLocked directly so it can
-// restore the pre-Pause serving state rather than blindly setting SERVING.
+// transitions the pooler to SERVING unless a serving hold is present.
+// This is the entry point for first-time startup; resume-from-Pause goes through
+// openLocked directly so it can restore the pre-Pause serving state.
 //
 // This operation is infallible — if connection pools fail to open, queries
 // will fail gracefully at query time rather than preventing the manager
@@ -607,11 +625,32 @@ func (pm *MultipoolerManager) adminExecArgs(ctx context.Context, sql string, arg
 // ctx must carry an action lock. The state transition publishes through
 // pm.record.Mutate, which asserts the lock.
 func (pm *MultipoolerManager) Open(ctx context.Context) {
+	pm.mu.Lock()
+	isOpen := pm.isOpen
+	pm.mu.Unlock()
+	if isOpen {
+		return
+	}
+
 	// An unmanaged pooler starts closed: it does not serve until the readiness of its
 	// backend has been checked.
 	if pm.IsUnmanaged() {
 		pm.openLocked(ctx, clustermetadatapb.PoolerServingStatus_DISABLED)
 		return
+	}
+	// A coordinated pooler can lose knowledge of a newer leader on crash.
+	// Restore its rewind hold and arm the guard before publishing startup health.
+	pending, unclean, err := pm.checkPendingRewindOnOpen()
+	pm.rewindGuardHold.Store(unclean || err != nil)
+	if err != nil {
+		pm.logger.ErrorContext(ctx, "failed to check pending rewind on open; holding serving", "error", err)
+		pm.rewindPersistenceFailed.Store(true)
+	}
+	if pending {
+		if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, true); err != nil {
+			pm.logger.ErrorContext(ctx, "failed to restore suspected divergence on open", "error", err)
+			return
+		}
 	}
 	pm.openLocked(ctx, clustermetadatapb.PoolerServingStatus_SERVING)
 }
@@ -712,7 +751,8 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 		go pm.runCatalogVersionRefresh(pm.ctx, catalogVersionRefreshInterval)
 	}
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.ServingStatus = reconciledServingStatus(targetServingStatus, pm.migrationServingHold())
+		divergenceHold := !pm.IsUnmanaged() && pm.rewindRequired()
+		s.ServingStatus = reconciledServingStatus(targetServingStatus, divergenceHold || pm.migrationServingHold())
 	}); err != nil {
 		pm.logger.ErrorContext(ctx, "failed to transition serving status on open", "target", targetServingStatus, "error", err)
 	}
@@ -789,7 +829,9 @@ func (pm *MultipoolerManager) ShutdownForTest(ctx context.Context) {
 	defer pm.actionLock.Release(lockCtx)
 
 	pm.pgMonitor.Stop()
-	pm.closeLocked(lockCtx, "shutdown")
+	if pm.closeLocked(lockCtx, "shutdown") {
+		pm.clearRewindGuardOnShutdown(lockCtx)
+	}
 
 	// A manager that was never opened still owns the context the constructor made, and
 	// anything started on it before Open (the migration reconcile poller) runs until it is
@@ -1710,16 +1752,6 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		}
 	}()
 
-	// Promotion supersedes any pending rewind from a prior emergency demotion:
-	// the consensus protocol picked this node as the new leader at a higher
-	// term, so its WAL is by definition the rule going forward. Clear the
-	// flag so the postgres monitor and other operations resume.
-	if changed, err := pm.consensusMgr.SetSuspectedDivergence(ctx, false); err != nil {
-		pm.logger.ErrorContext(ctx, "failed to clear suspected divergence before promotion", "error", err)
-	} else if changed {
-		pm.logger.InfoContext(ctx, "cleared suspectedDivergence before promotion")
-	}
-
 	// Clear primary_conninfo after promotion to prevent accidental replication on restart
 	if err := pm.resetPrimaryConnInfo(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "failed to clear primary_conninfo after promotion", "error", err)
@@ -2065,9 +2097,8 @@ func (pm *MultipoolerManager) StartTopoRegistration(alarm func(string)) {
 // LifecycleStatus=LIFECYCLE_STARTING, and the orchestrator promotes as
 // usual.
 //
-// Does not require the manager's action lock — record.Unregister stops the
-// publisher before applying the finalize callback, so no other goroutine
-// can publish over our shutdown state regardless of locking.
+// Called after the terminal gRPC drain and graceful shutdown. The final
+// rewind guard cleanup acquires the action lock if postgres stopped cleanly.
 func (pm *MultipoolerManager) StopTopoRegistration(ctx context.Context) {
 	pm.record.Unregister(ctx, func(s *MutablePoolerRecordState) {
 		s.RoutingState = nil
@@ -2078,6 +2109,16 @@ func (pm *MultipoolerManager) StopTopoRegistration(ctx context.Context) {
 			Updated: timestamppb.Now(),
 		}
 	})
+
+	if pm.rewindGuardCleanStop.Load() {
+		lockCtx, err := pm.actionLock.Acquire(ctx, "clear rewind guard on shutdown")
+		if err != nil {
+			pm.logger.WarnContext(ctx, "failed to acquire action lock to clear rewind guard", "error", err)
+			return
+		}
+		defer pm.actionLock.Release(lockCtx)
+		pm.clearRewindGuardOnShutdown(lockCtx)
+	}
 }
 
 // WaitUntilReady blocks until the manager reaches Ready or Error state, or
