@@ -189,19 +189,9 @@ func (pm *MultipoolerManager) ResignLeadership(ctx context.Context, req *multipo
 		return nil, restartErr
 	}
 
-	// Step 6: mark rewind as not needed — this is a planned failover so there is
-	// no WAL divergence between the old primary and the new timeline.
-	if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, false); err != nil {
-		pm.logger.WarnContext(ctx, "resign_leadership: failed to clear suspected divergence (non-fatal)", "error", err)
-	}
-
-	// Re-enable serving now that we're back as a healthy standby.
-	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.PostgresMode = pgmode.InRecovery
-		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
-			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
-		}
-	}); err != nil {
+	// Step 6: Resume serving if there is no pre-existing hold. A planned
+	// resignation changes the local role but cannot establish WAL authority.
+	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence(), pm.migrationServingHold()); err != nil {
 		return nil, mterrors.Wrap(err, "failed to re-enable serving after resign")
 	}
 

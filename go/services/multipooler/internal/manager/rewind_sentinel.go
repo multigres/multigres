@@ -29,6 +29,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
+	"github.com/multigres/multigres/go/tools/fileutil"
 )
 
 // rewind_sentinel.go implements a durable, on-disk marker for an in-progress
@@ -58,16 +59,67 @@ func (pm *MultipoolerManager) rewindPending() sentinel {
 	return pm.newSentinel(constants.RewindPendingFile, "WAL divergence suspected\n")
 }
 
-// checkPendingRewindOnOpen verifies that an absent marker is meaningful. A
-// read-only or full pooler directory could have prevented a prior process from
-// recording divergence, even if stat can report that the marker is absent.
+func (pm *MultipoolerManager) rewindGuard() sentinel {
+	return pm.newSentinel(constants.RewindGuardFile, "pooler running; WAL may need revalidation after a crash\n")
+}
+
+// ensureRewindGuard establishes durable evidence while storage is healthy.
+// The caller holds the action lock. The guard stays armed across Pause/resume
+// and even after a successful rewind, covering the next divergence incident.
+func (pm *MultipoolerManager) ensureRewindGuard() error {
+	if !pm.rewindGuardRequired || pm.rewindGuardArmed {
+		return nil
+	}
+	guard := pm.rewindGuard()
+	if err := fileutil.AtomicWriteFile(guard.path, []byte(guard.contents), 0o644); err != nil {
+		return mterrors.Wrap(err, "failed to arm rewind guard")
+	}
+	pm.rewindGuardArmed = true
+	return nil
+}
+
+// clearRewindGuardOnShutdown clears the guard only during a terminal shutdown
+// with trusted WAL. Keep it if a pending rewind write may have failed.
+// The caller holds the action lock and has stopped the monitor and RPCs.
+func (pm *MultipoolerManager) clearRewindGuardOnShutdown(ctx context.Context) {
+	if !pm.rewindGuardArmed || pm.consensusMgr.SuspectedDivergence() {
+		return
+	}
+	if err := pm.rewindGuard().remove(); err != nil {
+		pm.logger.WarnContext(ctx, "failed to remove rewind guard on shutdown", "error", err)
+		return
+	}
+	pm.rewindGuardArmed = false
+}
+
+// rewindMarkerExists treats any entry at a marker path as a hold, including a
+// broken symlink.
+func rewindMarkerExists(marker sentinel) (bool, error) {
+	_, err := os.Lstat(marker.path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// checkPendingRewindOnOpen restores the pending hold and, for coordinated
+// poolers, treats an unclean exit as possible divergence. A failed marker write
+// in the previous process and a successful disk probe today can coexist.
 func (pm *MultipoolerManager) checkPendingRewindOnOpen() (bool, error) {
 	pending := pm.rewindPending()
-	// Treat any entry at the marker path as a hold, including a broken symlink.
-	if _, err := os.Lstat(pending.path); err == nil {
-		return true, nil
-	} else if !errors.Is(err, fs.ErrNotExist) {
+	present, err := rewindMarkerExists(pending)
+	if err != nil {
 		return false, err
+	}
+	if pm.rewindGuardRequired {
+		unclean, err := rewindMarkerExists(pm.rewindGuard())
+		if err != nil {
+			return false, err
+		}
+		return present || unclean, pm.ensureRewindGuard()
+	}
+	if present {
+		return true, nil
 	}
 
 	dir := filepath.Dir(pending.path)
@@ -91,6 +143,10 @@ func (pm *MultipoolerManager) checkPendingRewindOnOpen() (bool, error) {
 // persistPendingRewind records the hold and remembers any failure for retry.
 // The caller holds the action lock.
 func (pm *MultipoolerManager) persistPendingRewind() error {
+	if err := pm.ensureRewindGuard(); err != nil {
+		pm.rewindPendingWriteFailed.Store(true)
+		return err
+	}
 	err := pm.rewindPending().write()
 	pm.rewindPendingWriteFailed.Store(err != nil)
 	if err != nil {
@@ -121,6 +177,9 @@ func (pm *MultipoolerManager) retryPendingRewindWrite(ctx context.Context) error
 // clearSuspectedDivergence releases the durable hold before the in-memory one.
 // A failed removal leaves serving held so a retry can complete the cleanup.
 func (pm *MultipoolerManager) clearSuspectedDivergence(ctx context.Context) error {
+	if err := pm.ensureRewindGuard(); err != nil {
+		return err
+	}
 	if err := pm.rewindPending().remove(); err != nil {
 		return mterrors.Wrap(err, "failed to remove pending rewind marker")
 	}

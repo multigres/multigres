@@ -260,9 +260,8 @@ const (
 	// both in one Mutate: it transitions the serving components (query service,
 	// replication tracker) and republishes the topology label + self-leadership.
 	remedialActionReconcileState
-	// remedialActionResignLeadership means the rule names us leader but postgres
-	// is running as a standby. We do not self-promote; signal resignation so the
-	// coordinator re-elects.
+	// remedialActionResignLeadership means the rule names us leader, but postgres
+	// is a standby or its WAL is suspect. Ask the coordinator for a new election.
 	remedialActionResignLeadership
 	// remedialActionPromoteStaticLeader means this pooler is a static leader
 	// (Config.StaticLeader) and postgres is running as a standby, for example
@@ -976,6 +975,14 @@ func (pm *MultipoolerManager) determineRoleAction(role commonconsensus.Consensus
 		return remedialActionNone
 	}
 
+	// After an unclean restart a local primary may still be the last known
+	// leader. Ask for a new decision to establish WAL authority even if the
+	// old primary is running and looks healthy.
+	if role == commonconsensus.ConsensusRoleLeader && state.pgMode.OutOfRecovery() &&
+		pm.rewindGuardRequired && pm.consensusMgr.SuspectedDivergence() && pm.consensusMgr.ResignedLeaderAtTerm() == 0 {
+		return remedialActionResignLeadership
+	}
+
 	// Rule: LEADER
 	// Postgres: STANDBY / RECOVERY MODE
 	// Diagnosis: non-functioning primary. What to do next differs for a static
@@ -1333,7 +1340,7 @@ func (pm *MultipoolerManager) shouldMarkRewindReady(state postgresState, role co
 	if !state.rewindSourceReady || role != commonconsensus.ConsensusRoleLeader {
 		return false
 	}
-	if pm.consensusMgr.ResignedLeaderAtTerm() != 0 {
+	if pm.consensusMgr.ResignedLeaderAtTerm() != 0 || pm.consensusMgr.SuspectedDivergence() {
 		return false
 	}
 	return !pm.consensusMgr.GetReplicationPrimary().GetRewindReady()
@@ -1442,25 +1449,19 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 
 	case remedialActionResignLeadership:
 		pm.setMonitorReason(ctx, reasonPostgresRunning, "MonitorPostgres: PostgreSQL is running")
-		// The rule names us leader but postgres is running as a standby. Signal
-		// voluntary resignation at the highest intended rule's term so the coordinator
-		// re-elects; this branch only fires when that rule names us, so the term is
-		// current. We do not self-promote.
+		// This branch only fires when the highest intended rule names us.
 		highestPosition := pm.highestIntendedRule()
-		pm.logger.InfoContext(ctx, "MonitorPostgres: rule names us leader but postgres is a standby; resigning", //nolint:sloglint // message intentionally starts with an operation name or proper noun
-			"position", commonconsensus.FormatRulePosition(highestPosition))
+		pm.logger.InfoContext(ctx, "MonitorPostgres: requesting leadership re-election", //nolint:sloglint // message intentionally starts with an operation name or proper noun
+			"position", commonconsensus.FormatRulePosition(highestPosition), "postgres_mode", state.pgMode.String())
 		if commonconsensus.PossiblyUndecidedRule(highestPosition).GetRuleNumber().GetCoordinatorTerm() != 0 {
 			if err := pm.consensusMgr.SetResignedLeaderAtTerm(ctx, highestPosition); err != nil {
 				pm.logger.ErrorContext(ctx, "MonitorPostgres: failed to set resigned primary term", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 			}
 		}
-		// This branch preempts the reconcileState drift check, so sync the
-		// writable state here: postgres is a standby, so stop the heartbeat
-		// writer / LISTEN even though we remain the rule's leader. Without this
-		// the writer keeps issuing INSERTs against a read-only standby every
-		// interval until re-election.
+		// This branch preempts the drift check. Sync the physical role so a
+		// standby stops its writer while it waits for re-election.
 		if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-			s.PostgresMode = pgmode.InRecovery
+			s.PostgresMode = state.pgMode
 		}); err != nil {
 			pm.logger.WarnContext(ctx, "MonitorPostgres: failed to sync postgres primary status on resign", "error", err) //nolint:sloglint // message intentionally starts with an operation name or proper noun
 		}

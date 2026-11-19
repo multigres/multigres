@@ -163,6 +163,14 @@ type MultipoolerManager struct {
 	// tick, even when no rewind source is available. Writes hold the action lock.
 	rewindPendingWriteFailed atomic.Bool
 
+	// Only coordinated poolers can miss a leadership change while down.
+	rewindGuardRequired bool
+
+	// The action lock protects the rewind guard's lifetime. A successful
+	// terminal stop is also observed by the shutdown hook after RPCs drain.
+	rewindGuardArmed     bool
+	rewindGuardCleanStop atomic.Bool
+
 	// promotionInProgress is set while pg_promote() has been called but postgres has not yet
 	// transitioned to primary mode. Cleared when promotion completes (success or failure).
 	// Reported in the health status so multiorch can suppress spurious PrimaryIsDead detection.
@@ -442,6 +450,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 		connPoolMgr:              connPoolMgr,
 		readyChan:                make(chan struct{}),
 		pgMonitor:                monitorRunner,
+		rewindGuardRequired:      !unmanaged && !config.StaticLeader,
 		healthStreamer:           newHealthStreamer(logger, multipooler.Id, multipooler.GetShardRef().GetTableGroup(), multipooler.GetShardRef().GetShard()),
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
@@ -611,15 +620,21 @@ func (pm *MultipoolerManager) adminExecArgs(ctx context.Context, sql string, arg
 // ctx must carry an action lock. The state transition publishes through
 // pm.record.Mutate, which asserts the lock.
 func (pm *MultipoolerManager) Open(ctx context.Context) {
+	pm.mu.Lock()
+	isOpen := pm.isOpen
+	pm.mu.Unlock()
+	if isOpen {
+		return
+	}
+
 	// An unmanaged pooler starts closed: it does not serve until the readiness of its
 	// backend has been checked.
 	if pm.IsUnmanaged() {
 		pm.openLocked(ctx, clustermetadatapb.PoolerServingStatus_DISABLED)
 		return
 	}
-	// Restore the divergence hold before publishing startup health. A deferred
-	// rewind can leave postgres running, so database readiness alone is not enough
-	// to permit reads. An unreadable marker is not proof that the WAL is safe.
+	// A coordinated pooler can lose knowledge of a newer leader on crash.
+	// Restore its rewind hold and arm the guard before publishing startup health.
 	pending, err := pm.checkPendingRewindOnOpen()
 	if err != nil {
 		pm.logger.ErrorContext(ctx, "failed to check pending rewind on open; holding serving", "error", err)
@@ -808,7 +823,9 @@ func (pm *MultipoolerManager) ShutdownForTest(ctx context.Context) {
 	defer pm.actionLock.Release(lockCtx)
 
 	pm.pgMonitor.Stop()
-	pm.closeLocked(lockCtx, "shutdown")
+	if pm.closeLocked(lockCtx, "shutdown") {
+		pm.clearRewindGuardOnShutdown(lockCtx)
+	}
 
 	// A manager that was never opened still owns the context the constructor made, and
 	// anything started on it before Open (the migration reconcile poller) runs until it is
@@ -2058,9 +2075,8 @@ func (pm *MultipoolerManager) StartTopoRegistration(alarm func(string)) {
 // LifecycleStatus=LIFECYCLE_STARTING, and the orchestrator promotes as
 // usual.
 //
-// Does not require the manager's action lock — record.Unregister stops the
-// publisher before applying the finalize callback, so no other goroutine
-// can publish over our shutdown state regardless of locking.
+// Called after the terminal gRPC drain and graceful shutdown. The final
+// rewind guard cleanup acquires the action lock if postgres stopped cleanly.
 func (pm *MultipoolerManager) StopTopoRegistration(ctx context.Context) {
 	pm.record.Unregister(ctx, func(s *MutablePoolerRecordState) {
 		s.RoutingState = nil
@@ -2071,6 +2087,16 @@ func (pm *MultipoolerManager) StopTopoRegistration(ctx context.Context) {
 			Updated: timestamppb.Now(),
 		}
 	})
+
+	if pm.rewindGuardCleanStop.Load() {
+		lockCtx, err := pm.actionLock.Acquire(ctx, "clear rewind guard on shutdown")
+		if err != nil {
+			pm.logger.WarnContext(ctx, "failed to acquire action lock to clear rewind guard", "error", err)
+			return
+		}
+		defer pm.actionLock.Release(lockCtx)
+		pm.clearRewindGuardOnShutdown(lockCtx)
+	}
 }
 
 // WaitUntilReady blocks until the manager reaches Ready or Error state, or

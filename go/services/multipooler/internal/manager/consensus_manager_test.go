@@ -101,8 +101,13 @@ func NewMultipoolerManagerForTesting(t *testing.T, logger *slog.Logger, mp *clus
 func restartManagerForTest(t *testing.T, old *MultipoolerManager) *MultipoolerManager {
 	t.Helper()
 	mp := old.record.Snapshot()
-	mp.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	old.ShutdownForTest(t.Context())
+	return openManagerAfterRestartForTest(t, old, mp)
+}
+
+func openManagerAfterRestartForTest(t *testing.T, old *MultipoolerManager, mp *clustermetadatapb.Multipooler) *MultipoolerManager {
+	t.Helper()
+	mp.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
 	fresh, err := NewMultipoolerManagerForTesting(t, old.logger, mp, old.config,
 		withMockController(old.qsc), withFakeRules(old.consensusMgr.Rules()))
 	require.NoError(t, err)

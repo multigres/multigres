@@ -150,6 +150,11 @@ const (
 	// the data directory has been modified. Lives in pooler_dir, outside backups.
 	RewindPendingFile = ".multigres-rewind-pending"
 
+	// RewindGuardFile is armed before a coordinated pooler can serve. A
+	// later process uses it to hold serving if its predecessor exited
+	// without recording a clean shutdown.
+	RewindGuardFile = ".multigres-rewind-guard"
+
 	// RewindSentinelFile marks an in-progress pg_rewind. Written before the actual
 	// (mutating) pg_rewind runs and removed only after postgres is verified back up
 	// as a standby; its presence on startup means a prior rewind was interrupted
