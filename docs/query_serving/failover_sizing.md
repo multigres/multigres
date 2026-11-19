@@ -83,6 +83,11 @@ trigger several planned failovers to populate the histograms.
 | `mg.pooler.drain.force_closed`          | Counter   | How many reserved connections got force-closed?   |
 | `mg.pooler.reserved.active_connections` | Gauge     | How many reserved connections at drain time?      |
 
+The drain metrics also count the drains of admission fences, which have their
+own timeout (see [routing rules](../sharding/routing_rules.md)); their
+`reason` attribute is `failover` for a not-serving drain and `fence` for a
+fence drain. The queries below select `reason="failover"`.
+
 ## The Sizing Procedure
 
 Do this in order. Each step depends on the previous one's data.
@@ -95,9 +100,9 @@ a failover stalls for an obviously stuck transaction.
 
 ```promql
 # What fraction of drains are getting force-closed today?
-sum(rate(mg_pooler_drain_outcome_total{outcome="force_close"}[1h]))
+sum(rate(mg_pooler_drain_outcome_total{outcome="force_close", reason="failover"}[1h]))
 /
-sum(rate(mg_pooler_drain_outcome_total[1h]))
+sum(rate(mg_pooler_drain_outcome_total{reason="failover"}[1h]))
 ```
 
 - If this ratio is **> 0** for non-pathological drains, raise
@@ -108,7 +113,7 @@ sum(rate(mg_pooler_drain_outcome_total[1h]))
 
 ```promql
 # p99 of graceful drain duration
-histogram_quantile(0.99, sum(rate(mg_pooler_drain_duration_bucket[1h])) by (le))
+histogram_quantile(0.99, sum(rate(mg_pooler_drain_duration_bucket{reason="failover"}[1h])) by (le))
 ```
 
 Set `--connpool-drain-grace-period` to roughly `2 × p99(drain.duration)`
@@ -210,7 +215,7 @@ rate(multigateway_buffer_requests_evicted_total{reason="buffer_full"}[5m]) > 0
 rate(multigateway_buffer_requests_evicted_total{reason="window_exceeded"}[5m]) > 0
 
 # Pooler drain exceeded grace period and force-closed connections.
-rate(mg_pooler_drain_outcome_total{outcome="force_close"}[1h]) > 0
+rate(mg_pooler_drain_outcome_total{outcome="force_close", reason="failover"}[1h]) > 0
 ```
 
 For dashboards, track the histograms at p50/p90/p99 over a 24h window
