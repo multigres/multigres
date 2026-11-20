@@ -113,8 +113,9 @@ func (pm *MultipoolerManager) isCatalogShard() bool {
 // unlike createSidecarSchema's other steps, this one is expected to run
 // repeatedly against an already-initialized schema.
 //
-// Currently this is the shared multigres.shard_ref type and backend_vpid on
-// every shard, plus, on the catalog shard, the versioned sharding catalog
+// Currently this is the shared multigres.shard_ref type, backend_vpid and the
+// heartbeat table's newer columns on every shard, plus, on the catalog shard, the
+// versioned sharding catalog
 // (ensureCatalogSchema, which is idempotent via its format version rather than
 // IF NOT EXISTS) and the migrator's schema that depends on it
 // (ensureCatalogMigrationSchema); add future late-added sidecar tables here as
@@ -131,6 +132,11 @@ func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context) error {
 	if err := pm.createBackendVpidTable(ctx); err != nil {
 		return err
 	}
+
+	// The heartbeat table is created once at bootstrap; add any columns this release
+	// needs that an older one did not create. Reports rather than fails (see
+	// pg_heartbeat_schema.go).
+	pm.ensureHeartbeatSchema(ctx)
 
 	if pm.isCatalogShard() {
 		if err := pm.ensureCatalogSchema(ctx); err != nil {
