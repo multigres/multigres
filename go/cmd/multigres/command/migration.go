@@ -27,4 +27,5 @@ func AddMigrationCommands(root *cobra.Command, mc *MultigresCommand) {
 	root.AddCommand(migration.AddGetMigrationCommand())
 	root.AddCommand(migration.AddSetMigrationDirectionCommand())
 	root.AddCommand(migration.AddDropMigrationCommand())
+	root.AddCommand(migration.AddReseedReverseLinkCommand())
 }
