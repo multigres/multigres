@@ -115,6 +115,13 @@ type poolerRecord struct {
 	// publish without accumulating multiple pending signals.
 	wakeup chan struct{}
 
+	// writeMu serializes the writes of the record to the topology: the initial registration,
+	// the publisher and the final write of Unregister. Each reads the desired state and the
+	// record it updates, and writes it back at the version it read, so two of them at once
+	// conflict, and the one that wins may carry an older state than the one that lost. Each
+	// takes the desired state it writes only once it holds the lock.
+	writeMu sync.Mutex
+
 	publisherMu     sync.Mutex
 	publisherCancel context.CancelFunc
 	publisherWG     sync.WaitGroup
@@ -338,7 +345,14 @@ func (r *poolerRecord) Register(parent context.Context, alarm func(string)) {
 		// (via Mutate + final publish) so toporeg only needs to manage the
 		// retry goroutine's lifetime.
 		registerFunc := func(ctx context.Context) error {
-			return r.topoClient.RegisterMultipooler(ctx, routingStateForPublish(r.Snapshot()), true /* allowUpdate */)
+			r.writeMu.Lock()
+			defer r.writeMu.Unlock()
+			pub := routingStateForPublish(r.Snapshot())
+			if err := r.topoClient.RegisterMultipooler(ctx, pub, true /* allowUpdate */); err != nil {
+				return err
+			}
+			r.lastPublished.Store(proto.Clone(pub).(*clustermetadatapb.Multipooler))
+			return nil
 		}
 		r.tr = toporeg.Register(registerFunc, func(context.Context) error { return nil }, alarm)
 	})
@@ -381,22 +395,33 @@ func (r *poolerRecord) Unregister(ctx context.Context, finalize func(*MutablePoo
 		r.applyMutation(finalize)
 	}
 
-	desired := r.desired.Load()
-	if desired != nil {
-		pub := routingStateForPublish(desired)
-		if !proto.Equal(pub, r.lastPublished.Load()) {
-			if err := r.topoClient.RegisterMultipooler(ctx, pub, true); err != nil {
-				r.logger.WarnContext(ctx, "final publish during Unregister failed; topology may be stale",
-					"error", err,
-					"routing_role", pub.GetRoutingState().GetRole().String(),
-					"serving_status", pub.ServingStatus.String())
-			} else {
-				r.lastPublished.Store(proto.Clone(pub).(*clustermetadatapb.Multipooler))
-			}
-		}
-	}
+	r.publishFinal(ctx)
 
 	r.tr.Unregister()
+}
+
+// publishFinal writes the desired state once more if it differs from the last published one.
+// It does not hold writeMu past the write: Unregister next waits for the registration's retry
+// goroutine, which takes it.
+func (r *poolerRecord) publishFinal(ctx context.Context) {
+	r.writeMu.Lock()
+	defer r.writeMu.Unlock()
+	desired := r.desired.Load()
+	if desired == nil {
+		return
+	}
+	pub := routingStateForPublish(desired)
+	if proto.Equal(pub, r.lastPublished.Load()) {
+		return
+	}
+	if err := r.topoClient.RegisterMultipooler(ctx, pub, true); err != nil {
+		r.logger.WarnContext(ctx, "final publish during Unregister failed; topology may be stale",
+			"error", err,
+			"routing_role", pub.GetRoutingState().GetRole().String(),
+			"serving_status", pub.ServingStatus.String())
+		return
+	}
+	r.lastPublished.Store(proto.Clone(pub).(*clustermetadatapb.Multipooler))
 }
 
 // runPublisher is the background loop. It exits when ctx is cancelled.
@@ -424,6 +449,8 @@ func (r *poolerRecord) publisherLoop(ctx context.Context, tickC <-chan time.Time
 // publishIfNeeded writes the desired state to etcd if it differs from the
 // last successfully published state. A no-op when state is already current.
 func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
+	r.writeMu.Lock()
+	defer r.writeMu.Unlock()
 	desired := r.desired.Load()
 	if desired == nil {
 		return
