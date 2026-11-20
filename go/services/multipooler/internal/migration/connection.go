@@ -74,16 +74,11 @@ func (c *Connection) Conn() (*backingconn.Conn, error) {
 	if c.connInfoErr != nil {
 		return nil, c.connInfoErr
 	}
-	return validConn(c.Name, c.ConnInfo)
-}
-
-// validConn is a copy of conninfo, validated, with the name of its connection.
-func validConn(name string, conninfo *backingconn.Conn) (*backingconn.Conn, error) {
-	conn := conninfo.Clone()
+	conn := c.ConnInfo.Clone()
 	if err := conn.Validate(); err != nil {
-		return nil, fmt.Errorf("%w: connection %q: %w", ErrInvalidConnection, name, err)
+		return nil, fmt.Errorf("%w: connection %q: %w", ErrInvalidConnection, c.Name, err)
 	}
-	conn.Name = name
+	conn.Name = c.Name
 	return conn, nil
 }
 
@@ -97,12 +92,10 @@ func (c *Connection) Rendering() string {
 	return conn.DSN()
 }
 
-// decodeConnInfo reads the text of the conninfo column, which is empty for a NULL. It does not
-// validate the connection: a caller does that with the rules it applies (Conn.Validate,
-// Conn.ForPooler). One this version cannot read (a field of a later version, say) is refused with
-// ErrConnectionUnreadable, not read as less than it says; so is a connection with no conninfo,
-// which setup could not fill from its dsn (the catalog's fillConnInfo).
-func decodeConnInfo(name, conninfo string) (*backingconn.Conn, error) {
+// DecodeConnInfo reads the text of the conninfo column (empty for NULL) without validating it. A
+// conninfo this version cannot read (a field of a later version, say), or none because setup could
+// not fill it from the dsn (fillConnInfo), is ErrConnectionUnreadable.
+func DecodeConnInfo(name, conninfo string) (*backingconn.Conn, error) {
 	if conninfo == "" {
 		return nil, fmt.Errorf("connection %q: %w: it has no conninfo; drop it and create it again", name, ErrConnectionUnreadable)
 	}

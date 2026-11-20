@@ -38,11 +38,13 @@ import (
 )
 
 const (
-	routingE2EDatabase = "postgres"
-	routingImportOp    = "aaaaaaaa-0000-0000-0000-000000000001"
-	routingSplitOpA    = "aaaaaaaa-0000-0000-0000-00000000000a"
-	routingSplitOpB    = "aaaaaaaa-0000-0000-0000-00000000000b"
-	routingCreateOp    = "aaaaaaaa-0000-0000-0000-00000000000c"
+	routingE2EDatabase     = "postgres"
+	routingImportOp        = "aaaaaaaa-0000-0000-0000-000000000001"
+	routingSecondImportOp  = "aaaaaaaa-0000-0000-0000-000000000002"
+	routingEnsuredImportOp = "aaaaaaaa-0000-0000-0000-000000000003"
+	routingSplitOpA        = "aaaaaaaa-0000-0000-0000-00000000000a"
+	routingSplitOpB        = "aaaaaaaa-0000-0000-0000-00000000000b"
+	routingCreateOp        = "aaaaaaaa-0000-0000-0000-00000000000c"
 )
 
 // routingClients are the routing RPC clients of one pooler.
@@ -127,12 +129,15 @@ func shardSpec(from, to, shard string) *mdpb.ShardRoutingRuleSpec {
 	return &mdpb.ShardRoutingRuleSpec{FromTablegroup: from, ToTablegroup: to, ToShard: shard}
 }
 
-// importFixture adds an import operation, the tablegroup srctg it imports
-// into and that tablegroup's 0-inf shard, as an import creates them.
+// importFixture adds an import operation and the tablegroup srctg it imports
+// from, as CREATE TABLEGROUP srctg CONNECTION leaves it: active, with its 0-inf
+// shard bound to a connection.
 const importFixture = `
+INSERT INTO multigres.connections (name, dsn) VALUES ('importsrc', 'host=127.0.0.1 port=1 dbname=postgres user=postgres');
 INSERT INTO multigres.tablegroup (name, state) VALUES ('srctg', 'active');
-INSERT INTO multigres.shard (tablegroup_id, shard_name, state)
-SELECT tablegroup_id, '0-inf', 'active' FROM multigres.tablegroup WHERE name = 'srctg';
+INSERT INTO multigres.shard (tablegroup_id, shard_name, state, backing_connection_id)
+SELECT tablegroup_id, '0-inf', 'active', (SELECT connection_id FROM multigres.connections WHERE name = 'importsrc')
+FROM multigres.tablegroup WHERE name = 'srctg';
 INSERT INTO multigres.operation (operation_id, kind, state, request)
 SELECT '` + routingImportOp + `', 'import', 'preparing', jsonb_build_object('tablegroup_id', tablegroup_id, 'name', name)
 FROM multigres.tablegroup WHERE name = 'srctg'`
@@ -158,7 +163,8 @@ WHERE tg.name IN ('commerce', 'orders')`
 // TestRoutingRules_RPCs drives the routing RPCs against a real catalog: which
 // poolers serve them, setting, retrying and deleting rules, a race of two
 // writers on the routing version, shard ranges in the snapshot, an unfinished
-// operation blocking a tablegroup's routing, and the default tablegroup guard.
+// operation blocking a tablegroup's routing, the default tablegroup guard, and
+// EnsureImportTarget's refusal of a source that is not a bound tablegroup.
 // Every operation fences the tablegroups it routes before changing rules.
 //
 // Uses an isolated shard: it writes catalog rows.
@@ -199,6 +205,10 @@ func TestRoutingRules_RPCs(t *testing.T) {
 			Database: routingE2EDatabase, OperationId: routingImportOp, Scopes: []*mdpb.FenceScopeSpec{fenceSpec("default", "")},
 		})
 		assert.Equal(t, codes.Unavailable, status.Code(err), "standby fence: %v", err)
+		_, err = sc.manager.EnsureImportTarget(ctx, &mdpb.EnsureImportTargetRequest{
+			Database: routingE2EDatabase, OperationId: routingImportOp, Tablegroup: "srctg",
+		})
+		assert.Equal(t, codes.Unavailable, status.Code(err), "standby ensure: %v", err)
 		_, err = pc.manager.SetRoutingRules(ctx, &mdpb.SetRoutingRulesRequest{
 			Database: "otherdb", OperationId: routingImportOp, Rules: []*mdpb.ShardRoutingRuleSpec{shardSpec("default", "srctg", "0-inf")},
 		})
@@ -210,6 +220,10 @@ func TestRoutingRules_RPCs(t *testing.T) {
 			Database: routingE2EDatabase, OperationId: "not-a-uuid", Rules: []*mdpb.ShardRoutingRuleSpec{shardSpec("default", "srctg", "0-inf")},
 		})
 		assert.Equal(t, codes.InvalidArgument, status.Code(err), "set: %v", err)
+		_, err = pc.manager.EnsureImportTarget(ctx, &mdpb.EnsureImportTargetRequest{
+			Database: routingE2EDatabase, OperationId: "not-a-uuid", Tablegroup: "srctg",
+		})
+		assert.Equal(t, codes.InvalidArgument, status.Code(err), "ensure: %v", err)
 	})
 
 	t.Run("set, retry and snapshot the import rule", func(t *testing.T) {
@@ -370,6 +384,87 @@ func TestRoutingRules_RPCs(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
 		assert.Contains(t, err.Error(), "registered tables")
+	})
+
+	t.Run("an import source must be a bound tablegroup", func(t *testing.T) {
+		ensure := func(op, tablegroup string) error {
+			_, err := pc.manager.EnsureImportTarget(ctx, &mdpb.EnsureImportTargetRequest{
+				Database: routingE2EDatabase, OperationId: op, Tablegroup: tablegroup,
+			})
+			return err
+		}
+		countOperations := func(op string) (n int) {
+			require.NoError(t, db.QueryRow(`SELECT count(*) FROM multigres.operation WHERE operation_id = $1::uuid`, op).Scan(&n))
+			return n
+		}
+		tablegroups := func() (n int) {
+			require.NoError(t, db.QueryRow(`SELECT count(*) FROM multigres.tablegroup`).Scan(&n))
+			return n
+		}
+		// Tablegroups that are not served from an external database, as the
+		// ways a catalog can have one: a managed shard, a tablegroup still
+		// being created, a shard that was retired, a sharded layout, and one
+		// that is bound and active (boundtg).
+		_, err := db.ExecContext(ctx, `
+INSERT INTO multigres.tablegroup (name, state) VALUES
+	('boundtg', 'active'), ('managedtg', 'active'), ('creatingtg', 'creating'), ('retiredtg', 'active'), ('shardedtg', 'active');
+INSERT INTO multigres.shard (tablegroup_id, shard_name, range_start, range_end, state, backing_connection_id)
+SELECT tg.tablegroup_id, s.name, s.range_start, s.range_end, s.state,
+	CASE WHEN tg.name = 'managedtg' THEN NULL ELSE (SELECT connection_id FROM multigres.connections WHERE name = 'importsrc') END
+FROM multigres.tablegroup tg JOIN (VALUES
+	('boundtg',    '0-inf', NULL,          NULL,          'active'),
+	('managedtg',  '0-inf', NULL,          NULL,          'active'),
+	('creatingtg', '0-inf', NULL,          NULL,          'preparing'),
+	('retiredtg',  '0-inf', NULL,          NULL,          'retired'),
+	('shardedtg',  '0-80',  NULL,          '\x80'::bytea, 'active'),
+	('shardedtg',  '80-inf', '\x80'::bytea, NULL,          'active')
+) AS s (tg, name, range_start, range_end, state) ON s.tg = tg.name`)
+		require.NoError(t, err)
+		before := tablegroups()
+
+		for _, tc := range []struct {
+			tablegroup string
+			code       codes.Code
+			contains   string
+		}{
+			{"nosuchtg", codes.NotFound, "CREATE TABLEGROUP nosuchtg CONNECTION"},
+			{"managedtg", codes.FailedPrecondition, "is not bound to a connection"},
+			{"creatingtg", codes.FailedPrecondition, "is creating, not active"},
+			{"retiredtg", codes.FailedPrecondition, "is retired, not active"},
+			{"shardedtg", codes.FailedPrecondition, "has 2 shards"},
+			{"default", codes.InvalidArgument, "cannot target the default tablegroup"},
+		} {
+			err := ensure(routingEnsuredImportOp, tc.tablegroup)
+			require.Error(t, err, tc.tablegroup)
+			assert.Equal(t, tc.code, status.Code(err), "%s: %v", tc.tablegroup, err)
+			assert.Contains(t, err.Error(), tc.contains, tc.tablegroup)
+			assert.Zero(t, countOperations(routingEnsuredImportOp), "%s: a refused import must not leave an operation", tc.tablegroup)
+		}
+		assert.Equal(t, before, tablegroups(), "EnsureImportTarget must not create a tablegroup")
+
+		// An import of a bound tablegroup creates its operation once and
+		// writes nothing else, so it advances no version.
+		version := pc.snapshot(t).GetRoutingVersion()
+		for range 2 {
+			require.NoError(t, ensure(routingEnsuredImportOp, "boundtg"))
+		}
+		var kind, opState, name string
+		require.NoError(t, db.QueryRow(`SELECT kind, state, request->>'name' FROM multigres.operation WHERE operation_id = $1::uuid`,
+			routingEnsuredImportOp).Scan(&kind, &opState, &name))
+		assert.Equal(t, "import", kind)
+		assert.Equal(t, "preparing", opState)
+		assert.Equal(t, "boundtg", name)
+		assert.Equal(t, 1, countOperations(routingEnsuredImportOp))
+		assert.Equal(t, version, pc.snapshot(t).GetRoutingVersion(), "an operation row is not in the routing snapshot")
+
+		// The import the fixture made exists: ensuring it again changes
+		// nothing, and a second import into its tablegroup is refused.
+		require.NoError(t, ensure(routingImportOp, "srctg"))
+		err = ensure(routingSecondImportOp, "srctg")
+		require.Error(t, err)
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err))
+		assert.Contains(t, err.Error(), "is already the target of operation "+routingImportOp)
+		assert.Zero(t, countOperations(routingSecondImportOp))
 	})
 }
 

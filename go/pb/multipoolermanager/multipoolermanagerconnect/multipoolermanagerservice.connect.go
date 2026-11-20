@@ -90,6 +90,9 @@ const (
 	// MultipoolerManagerDeleteRoutingRulesProcedure is the fully-qualified name of the
 	// MultipoolerManager's DeleteRoutingRules RPC.
 	MultipoolerManagerDeleteRoutingRulesProcedure = "/multipoolermanager.MultipoolerManager/DeleteRoutingRules"
+	// MultipoolerManagerEnsureImportTargetProcedure is the fully-qualified name of the
+	// MultipoolerManager's EnsureImportTarget RPC.
+	MultipoolerManagerEnsureImportTargetProcedure = "/multipoolermanager.MultipoolerManager/EnsureImportTarget"
 	// MultipoolerManagerFenceScopesProcedure is the fully-qualified name of the MultipoolerManager's
 	// FenceScopes RPC.
 	MultipoolerManagerFenceScopesProcedure = "/multipoolermanager.MultipoolerManager/FenceScopes"
@@ -182,6 +185,15 @@ type MultipoolerManagerClient interface {
 	// DeleteRoutingRules deletes every routing rule of an operation, with the
 	// same rules as SetRoutingRules.
 	DeleteRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error)
+	// EnsureImportTarget creates, if absent, the operation of an import of a
+	// tablegroup that is already served from an external database: an active
+	// tablegroup with the one shard 0-inf, bound to a backing connection (see
+	// CreateTableGroup). It creates no tablegroup or shard, and changes no
+	// routing. Served only by the catalog primary, like SetRoutingRules.
+	// This RPC is temporary, for the first version of imports, and will be
+	// deprecated. The import's PREPARE step (registering its tables, the
+	// default rule and fencing) will replace it.
+	EnsureImportTarget(context.Context, *connect.Request[multipoolermanagerdata.EnsureImportTargetRequest]) (*connect.Response[multipoolermanagerdata.EnsureImportTargetResponse], error)
 	// FenceScopes raises an operation's admission fences on a list of scopes
 	// (whole tablegroups or shards) and advances the database's routing
 	// version, in one catalog write: every fence the call writes takes the same
@@ -360,6 +372,12 @@ func NewMultipoolerManagerClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(multipoolerManagerMethods.ByName("DeleteRoutingRules")),
 			connect.WithClientOptions(opts...),
 		),
+		ensureImportTarget: connect.NewClient[multipoolermanagerdata.EnsureImportTargetRequest, multipoolermanagerdata.EnsureImportTargetResponse](
+			httpClient,
+			baseURL+MultipoolerManagerEnsureImportTargetProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("EnsureImportTarget")),
+			connect.WithClientOptions(opts...),
+		),
 		fenceScopes: connect.NewClient[multipoolermanagerdata.FenceScopesRequest, multipoolermanagerdata.FenceScopesResponse](
 			httpClient,
 			baseURL+MultipoolerManagerFenceScopesProcedure,
@@ -433,6 +451,7 @@ type multipoolerManagerClient struct {
 	reconcileFollowers         *connect.Client[multipoolermanagerdata.ReconcileFollowersRequest, multipoolermanagerdata.ReconcileFollowersResponse]
 	setRoutingRules            *connect.Client[multipoolermanagerdata.SetRoutingRulesRequest, multipoolermanagerdata.SetRoutingRulesResponse]
 	deleteRoutingRules         *connect.Client[multipoolermanagerdata.DeleteRoutingRulesRequest, multipoolermanagerdata.DeleteRoutingRulesResponse]
+	ensureImportTarget         *connect.Client[multipoolermanagerdata.EnsureImportTargetRequest, multipoolermanagerdata.EnsureImportTargetResponse]
 	fenceScopes                *connect.Client[multipoolermanagerdata.FenceScopesRequest, multipoolermanagerdata.FenceScopesResponse]
 	unfenceScopes              *connect.Client[multipoolermanagerdata.UnfenceScopesRequest, multipoolermanagerdata.UnfenceScopesResponse]
 	reloadConfig               *connect.Client[multipoolermanagerdata.ReloadConfigRequest, multipoolermanagerdata.ReloadConfigResponse]
@@ -513,6 +532,11 @@ func (c *multipoolerManagerClient) SetRoutingRules(ctx context.Context, req *con
 // DeleteRoutingRules calls multipoolermanager.MultipoolerManager.DeleteRoutingRules.
 func (c *multipoolerManagerClient) DeleteRoutingRules(ctx context.Context, req *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error) {
 	return c.deleteRoutingRules.CallUnary(ctx, req)
+}
+
+// EnsureImportTarget calls multipoolermanager.MultipoolerManager.EnsureImportTarget.
+func (c *multipoolerManagerClient) EnsureImportTarget(ctx context.Context, req *connect.Request[multipoolermanagerdata.EnsureImportTargetRequest]) (*connect.Response[multipoolermanagerdata.EnsureImportTargetResponse], error) {
+	return c.ensureImportTarget.CallUnary(ctx, req)
 }
 
 // FenceScopes calls multipoolermanager.MultipoolerManager.FenceScopes.
@@ -624,6 +648,15 @@ type MultipoolerManagerHandler interface {
 	// DeleteRoutingRules deletes every routing rule of an operation, with the
 	// same rules as SetRoutingRules.
 	DeleteRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error)
+	// EnsureImportTarget creates, if absent, the operation of an import of a
+	// tablegroup that is already served from an external database: an active
+	// tablegroup with the one shard 0-inf, bound to a backing connection (see
+	// CreateTableGroup). It creates no tablegroup or shard, and changes no
+	// routing. Served only by the catalog primary, like SetRoutingRules.
+	// This RPC is temporary, for the first version of imports, and will be
+	// deprecated. The import's PREPARE step (registering its tables, the
+	// default rule and fencing) will replace it.
+	EnsureImportTarget(context.Context, *connect.Request[multipoolermanagerdata.EnsureImportTargetRequest]) (*connect.Response[multipoolermanagerdata.EnsureImportTargetResponse], error)
 	// FenceScopes raises an operation's admission fences on a list of scopes
 	// (whole tablegroups or shards) and advances the database's routing
 	// version, in one catalog write: every fence the call writes takes the same
@@ -798,6 +831,12 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 		connect.WithSchema(multipoolerManagerMethods.ByName("DeleteRoutingRules")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multipoolerManagerEnsureImportTargetHandler := connect.NewUnaryHandler(
+		MultipoolerManagerEnsureImportTargetProcedure,
+		svc.EnsureImportTarget,
+		connect.WithSchema(multipoolerManagerMethods.ByName("EnsureImportTarget")),
+		connect.WithHandlerOptions(opts...),
+	)
 	multipoolerManagerFenceScopesHandler := connect.NewUnaryHandler(
 		MultipoolerManagerFenceScopesProcedure,
 		svc.FenceScopes,
@@ -882,6 +921,8 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 			multipoolerManagerSetRoutingRulesHandler.ServeHTTP(w, r)
 		case MultipoolerManagerDeleteRoutingRulesProcedure:
 			multipoolerManagerDeleteRoutingRulesHandler.ServeHTTP(w, r)
+		case MultipoolerManagerEnsureImportTargetProcedure:
+			multipoolerManagerEnsureImportTargetHandler.ServeHTTP(w, r)
 		case MultipoolerManagerFenceScopesProcedure:
 			multipoolerManagerFenceScopesHandler.ServeHTTP(w, r)
 		case MultipoolerManagerUnfenceScopesProcedure:
@@ -963,6 +1004,10 @@ func (UnimplementedMultipoolerManagerHandler) SetRoutingRules(context.Context, *
 
 func (UnimplementedMultipoolerManagerHandler) DeleteRoutingRules(context.Context, *connect.Request[multipoolermanagerdata.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdata.DeleteRoutingRulesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.DeleteRoutingRules is not implemented"))
+}
+
+func (UnimplementedMultipoolerManagerHandler) EnsureImportTarget(context.Context, *connect.Request[multipoolermanagerdata.EnsureImportTargetRequest]) (*connect.Response[multipoolermanagerdata.EnsureImportTargetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.EnsureImportTarget is not implemented"))
 }
 
 func (UnimplementedMultipoolerManagerHandler) FenceScopes(context.Context, *connect.Request[multipoolermanagerdata.FenceScopesRequest]) (*connect.Response[multipoolermanagerdata.FenceScopesResponse], error) {

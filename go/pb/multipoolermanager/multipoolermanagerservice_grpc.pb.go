@@ -48,6 +48,7 @@ const (
 	MultipoolerManager_ReconcileFollowers_FullMethodName         = "/multipoolermanager.MultipoolerManager/ReconcileFollowers"
 	MultipoolerManager_SetRoutingRules_FullMethodName            = "/multipoolermanager.MultipoolerManager/SetRoutingRules"
 	MultipoolerManager_DeleteRoutingRules_FullMethodName         = "/multipoolermanager.MultipoolerManager/DeleteRoutingRules"
+	MultipoolerManager_EnsureImportTarget_FullMethodName         = "/multipoolermanager.MultipoolerManager/EnsureImportTarget"
 	MultipoolerManager_FenceScopes_FullMethodName                = "/multipoolermanager.MultipoolerManager/FenceScopes"
 	MultipoolerManager_UnfenceScopes_FullMethodName              = "/multipoolermanager.MultipoolerManager/UnfenceScopes"
 	MultipoolerManager_ReloadConfig_FullMethodName               = "/multipoolermanager.MultipoolerManager/ReloadConfig"
@@ -126,6 +127,15 @@ type MultipoolerManagerClient interface {
 	// DeleteRoutingRules deletes every routing rule of an operation, with the
 	// same rules as SetRoutingRules.
 	DeleteRoutingRules(ctx context.Context, in *multipoolermanagerdata.DeleteRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error)
+	// EnsureImportTarget creates, if absent, the operation of an import of a
+	// tablegroup that is already served from an external database: an active
+	// tablegroup with the one shard 0-inf, bound to a backing connection (see
+	// CreateTableGroup). It creates no tablegroup or shard, and changes no
+	// routing. Served only by the catalog primary, like SetRoutingRules.
+	// This RPC is temporary, for the first version of imports, and will be
+	// deprecated. The import's PREPARE step (registering its tables, the
+	// default rule and fencing) will replace it.
+	EnsureImportTarget(ctx context.Context, in *multipoolermanagerdata.EnsureImportTargetRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.EnsureImportTargetResponse, error)
 	// FenceScopes raises an operation's admission fences on a list of scopes
 	// (whole tablegroups or shards) and advances the database's routing
 	// version, in one catalog write: every fence the call writes takes the same
@@ -357,6 +367,16 @@ func (c *multipoolerManagerClient) DeleteRoutingRules(ctx context.Context, in *m
 	return out, nil
 }
 
+func (c *multipoolerManagerClient) EnsureImportTarget(ctx context.Context, in *multipoolermanagerdata.EnsureImportTargetRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.EnsureImportTargetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.EnsureImportTargetResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_EnsureImportTarget_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multipoolerManagerClient) FenceScopes(ctx context.Context, in *multipoolermanagerdata.FenceScopesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.FenceScopesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.FenceScopesResponse)
@@ -517,6 +537,15 @@ type MultipoolerManagerServer interface {
 	// DeleteRoutingRules deletes every routing rule of an operation, with the
 	// same rules as SetRoutingRules.
 	DeleteRoutingRules(context.Context, *multipoolermanagerdata.DeleteRoutingRulesRequest) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error)
+	// EnsureImportTarget creates, if absent, the operation of an import of a
+	// tablegroup that is already served from an external database: an active
+	// tablegroup with the one shard 0-inf, bound to a backing connection (see
+	// CreateTableGroup). It creates no tablegroup or shard, and changes no
+	// routing. Served only by the catalog primary, like SetRoutingRules.
+	// This RPC is temporary, for the first version of imports, and will be
+	// deprecated. The import's PREPARE step (registering its tables, the
+	// default rule and fencing) will replace it.
+	EnsureImportTarget(context.Context, *multipoolermanagerdata.EnsureImportTargetRequest) (*multipoolermanagerdata.EnsureImportTargetResponse, error)
 	// FenceScopes raises an operation's admission fences on a list of scopes
 	// (whole tablegroups or shards) and advances the database's routing
 	// version, in one catalog write: every fence the call writes takes the same
@@ -649,6 +678,9 @@ func (UnimplementedMultipoolerManagerServer) SetRoutingRules(context.Context, *m
 }
 func (UnimplementedMultipoolerManagerServer) DeleteRoutingRules(context.Context, *multipoolermanagerdata.DeleteRoutingRulesRequest) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteRoutingRules not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) EnsureImportTarget(context.Context, *multipoolermanagerdata.EnsureImportTargetRequest) (*multipoolermanagerdata.EnsureImportTargetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EnsureImportTarget not implemented")
 }
 func (UnimplementedMultipoolerManagerServer) FenceScopes(context.Context, *multipoolermanagerdata.FenceScopesRequest) (*multipoolermanagerdata.FenceScopesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FenceScopes not implemented")
@@ -950,6 +982,24 @@ func _MultipoolerManager_DeleteRoutingRules_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultipoolerManager_EnsureImportTarget_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.EnsureImportTargetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).EnsureImportTarget(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_EnsureImportTarget_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).EnsureImportTarget(ctx, req.(*multipoolermanagerdata.EnsureImportTargetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultipoolerManager_FenceScopes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.FenceScopesRequest)
 	if err := dec(in); err != nil {
@@ -1163,6 +1213,10 @@ var MultipoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteRoutingRules",
 			Handler:    _MultipoolerManager_DeleteRoutingRules_Handler,
+		},
+		{
+			MethodName: "EnsureImportTarget",
+			Handler:    _MultipoolerManager_EnsureImportTarget_Handler,
 		},
 		{
 			MethodName: "FenceScopes",

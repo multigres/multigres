@@ -475,9 +475,9 @@ var ErrInvalidConnection = errors.New("invalid connection")
 // version does not know, or not JSON). Asking again does not help.
 var ErrConnectionUnreadable = errors.New("stored connection cannot be read")
 
-// ErrConnectionInUse is returned by DeleteConnection when a migration still
-// references the connection.
-var ErrConnectionInUse = errors.New("connection is referenced by a migration")
+// ErrConnectionInUse is returned by DeleteConnection when a migration or a
+// shard still references the connection.
+var ErrConnectionInUse = errors.New("connection is referenced by a migration or a shard")
 
 // connectionsErr wraps a failed connection query as "<op>: <err>", reporting
 // ErrNoConnectionsTable when PostgreSQL says undefined_table for
@@ -536,16 +536,22 @@ SELECT EXISTS (SELECT 1 FROM del), (SELECT referenced FROM ref)`
 // multigres.connections (see AddConnectionForeignKeySQL).
 const migrationConnectionsFKey = "migration_connections_fkey"
 
+// shardConnectionsFKey is the foreign key from multigres.shard.backing_connection_id to
+// multigres.connections. The delete statement above does not check it, so the foreign key is
+// what refuses the delete.
+const shardConnectionsFKey = "shard_backing_connection_id_fkey"
+
 // isConnectionsFKViolation reports whether err is PostgreSQL's
-// foreign_key_violation on migrationConnectionsFKey, and no other constraint.
+// foreign_key_violation on one of the foreign keys that reference
+// multigres.connections, and no other constraint.
 func isConnectionsFKViolation(err error) bool {
 	var diag *mterrors.PgDiagnostic
 	return errors.As(err, &diag) && diag.Code == mterrors.PgSSForeignKeyViolation &&
-		diag.Constraint == migrationConnectionsFKey
+		(diag.Constraint == migrationConnectionsFKey || diag.Constraint == shardConnectionsFKey)
 }
 
 // DeleteConnection removes a connection row. It returns ErrConnectionInUse if
-// a migration references the connection, and ErrConnectionNotFound if there is
+// a migration or a shard references the connection, and ErrConnectionNotFound if there is
 // no such row. A migration inserted by another process while the delete runs is
 // not seen by the statement's own check: the delete waits for that insert, then
 // the foreign key refuses it, and that is reported as ErrConnectionInUse too.
@@ -637,7 +643,7 @@ func scanConnection(row *sqltypes.Row) (*Connection, error) {
 	if err := executor.ScanRow(row, &c.ID, &c.Name, &c.DSN, &c.OwnerRole, &c.CreatedAt, &conninfo); err != nil {
 		return nil, fmt.Errorf("scan connection: %w", err)
 	}
-	c.ConnInfo, c.connInfoErr = decodeConnInfo(c.Name, conninfo)
+	c.ConnInfo, c.connInfoErr = DecodeConnInfo(c.Name, conninfo)
 	return &c, nil
 }
 

@@ -151,6 +151,9 @@ const (
 	// MultiadminServiceUnfenceScopesProcedure is the fully-qualified name of the MultiadminService's
 	// UnfenceScopes RPC.
 	MultiadminServiceUnfenceScopesProcedure = "/multiadmin.MultiadminService/UnfenceScopes"
+	// MultiadminServiceEnsureImportTargetProcedure is the fully-qualified name of the
+	// MultiadminService's EnsureImportTarget RPC.
+	MultiadminServiceEnsureImportTargetProcedure = "/multiadmin.MultiadminService/EnsureImportTarget"
 )
 
 // MultiadminServiceClient is a client for the multiadmin.MultiadminService service.
@@ -373,6 +376,14 @@ type MultiadminServiceClient interface {
 	// UnfenceScopes lifts an operation's admission fences on a list of scopes,
 	// in one catalog write.
 	UnfenceScopes(context.Context, *connect.Request[multipoolermanagerdata.UnfenceScopesRequest]) (*connect.Response[multipoolermanagerdata.UnfenceScopesResponse], error)
+	// EnsureImportTarget creates, if absent, the operation of an import of a
+	// tablegroup that is already served from an external database: an active
+	// tablegroup with the one shard 0-inf, bound to a backing connection. It
+	// creates no tablegroup or shard, and changes no routing. This RPC is
+	// temporary, for the first version of imports, and will be deprecated. The
+	// import's PREPARE step (registering its tables, the default rule and
+	// fencing) will replace it.
+	EnsureImportTarget(context.Context, *connect.Request[multipoolermanagerdata.EnsureImportTargetRequest]) (*connect.Response[multipoolermanagerdata.EnsureImportTargetResponse], error)
 }
 
 // NewMultiadminServiceClient constructs a client for the multiadmin.MultiadminService service. By
@@ -590,6 +601,12 @@ func NewMultiadminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(multiadminServiceMethods.ByName("UnfenceScopes")),
 			connect.WithClientOptions(opts...),
 		),
+		ensureImportTarget: connect.NewClient[multipoolermanagerdata.EnsureImportTargetRequest, multipoolermanagerdata.EnsureImportTargetResponse](
+			httpClient,
+			baseURL+MultiadminServiceEnsureImportTargetProcedure,
+			connect.WithSchema(multiadminServiceMethods.ByName("EnsureImportTarget")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -629,6 +646,7 @@ type multiadminServiceClient struct {
 	deleteRoutingRules         *connect.Client[multipoolermanagerdata.DeleteRoutingRulesRequest, multipoolermanagerdata.DeleteRoutingRulesResponse]
 	fenceScopes                *connect.Client[multipoolermanagerdata.FenceScopesRequest, multipoolermanagerdata.FenceScopesResponse]
 	unfenceScopes              *connect.Client[multipoolermanagerdata.UnfenceScopesRequest, multipoolermanagerdata.UnfenceScopesResponse]
+	ensureImportTarget         *connect.Client[multipoolermanagerdata.EnsureImportTargetRequest, multipoolermanagerdata.EnsureImportTargetResponse]
 }
 
 // GetCell calls multiadmin.MultiadminService.GetCell.
@@ -799,6 +817,11 @@ func (c *multiadminServiceClient) FenceScopes(ctx context.Context, req *connect.
 // UnfenceScopes calls multiadmin.MultiadminService.UnfenceScopes.
 func (c *multiadminServiceClient) UnfenceScopes(ctx context.Context, req *connect.Request[multipoolermanagerdata.UnfenceScopesRequest]) (*connect.Response[multipoolermanagerdata.UnfenceScopesResponse], error) {
 	return c.unfenceScopes.CallUnary(ctx, req)
+}
+
+// EnsureImportTarget calls multiadmin.MultiadminService.EnsureImportTarget.
+func (c *multiadminServiceClient) EnsureImportTarget(ctx context.Context, req *connect.Request[multipoolermanagerdata.EnsureImportTargetRequest]) (*connect.Response[multipoolermanagerdata.EnsureImportTargetResponse], error) {
+	return c.ensureImportTarget.CallUnary(ctx, req)
 }
 
 // MultiadminServiceHandler is an implementation of the multiadmin.MultiadminService service.
@@ -1021,6 +1044,14 @@ type MultiadminServiceHandler interface {
 	// UnfenceScopes lifts an operation's admission fences on a list of scopes,
 	// in one catalog write.
 	UnfenceScopes(context.Context, *connect.Request[multipoolermanagerdata.UnfenceScopesRequest]) (*connect.Response[multipoolermanagerdata.UnfenceScopesResponse], error)
+	// EnsureImportTarget creates, if absent, the operation of an import of a
+	// tablegroup that is already served from an external database: an active
+	// tablegroup with the one shard 0-inf, bound to a backing connection. It
+	// creates no tablegroup or shard, and changes no routing. This RPC is
+	// temporary, for the first version of imports, and will be deprecated. The
+	// import's PREPARE step (registering its tables, the default rule and
+	// fencing) will replace it.
+	EnsureImportTarget(context.Context, *connect.Request[multipoolermanagerdata.EnsureImportTargetRequest]) (*connect.Response[multipoolermanagerdata.EnsureImportTargetResponse], error)
 }
 
 // NewMultiadminServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -1234,6 +1265,12 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 		connect.WithSchema(multiadminServiceMethods.ByName("UnfenceScopes")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multiadminServiceEnsureImportTargetHandler := connect.NewUnaryHandler(
+		MultiadminServiceEnsureImportTargetProcedure,
+		svc.EnsureImportTarget,
+		connect.WithSchema(multiadminServiceMethods.ByName("EnsureImportTarget")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/multiadmin.MultiadminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case MultiadminServiceGetCellProcedure:
@@ -1304,6 +1341,8 @@ func NewMultiadminServiceHandler(svc MultiadminServiceHandler, opts ...connect.H
 			multiadminServiceFenceScopesHandler.ServeHTTP(w, r)
 		case MultiadminServiceUnfenceScopesProcedure:
 			multiadminServiceUnfenceScopesHandler.ServeHTTP(w, r)
+		case MultiadminServiceEnsureImportTargetProcedure:
+			multiadminServiceEnsureImportTargetHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1447,4 +1486,8 @@ func (UnimplementedMultiadminServiceHandler) FenceScopes(context.Context, *conne
 
 func (UnimplementedMultiadminServiceHandler) UnfenceScopes(context.Context, *connect.Request[multipoolermanagerdata.UnfenceScopesRequest]) (*connect.Response[multipoolermanagerdata.UnfenceScopesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.UnfenceScopes is not implemented"))
+}
+
+func (UnimplementedMultiadminServiceHandler) EnsureImportTarget(context.Context, *connect.Request[multipoolermanagerdata.EnsureImportTargetRequest]) (*connect.Response[multipoolermanagerdata.EnsureImportTargetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multiadmin.MultiadminService.EnsureImportTarget is not implemented"))
 }

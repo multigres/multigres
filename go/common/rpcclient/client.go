@@ -239,6 +239,11 @@ type MultipoolerClient interface {
 	// on the catalog primary pooler.
 	UnfenceScopes(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.UnfenceScopesRequest) (*multipoolermanagerdatapb.UnfenceScopesResponse, error)
 
+	// EnsureImportTarget creates an import's operation on the catalog primary
+	// pooler, if absent, for a tablegroup that is already a bound external
+	// database.
+	EnsureImportTarget(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.EnsureImportTargetRequest) (*multipoolermanagerdatapb.EnsureImportTargetResponse, error)
+
 	//
 	// Manager Service Methods - Tablegroup operations (catalog primary only)
 	//
