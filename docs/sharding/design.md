@@ -129,6 +129,9 @@ table's columns to a shard index with a role (`PRIMARY` places rows,
 `SECONDARY` only finds them). There is no `ShardingSchema` or `Database`
 message: a snapshot is the catalog of one database.
 
+Shard index implementations, and the exact definition of `hash`, are described
+in [Shard indexes](./shard-indexes.md).
+
 ```proto
 // The complete routing catalog.
 message ShardingSchema {
