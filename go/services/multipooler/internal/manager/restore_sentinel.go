@@ -23,17 +23,15 @@ import (
 // rpc_first_backup.go and rewind_sentinel.go). pgbackrest restore writes PGDATA
 // file by file, and PG_VERSION can land well before the restore finishes, so an
 // interrupted restore (typically the pod is killed mid-restore) leaves a
-// partial data directory that hasDataDirectory() reads as initialized. The
-// cleanup in restoreFromBackupLocked's error path cannot run when the process
-// itself dies.
+// partial data directory that must not be trusted as initialized.
 //
-// restoreFromBackupLocked writes the sentinel just before pgbackrest restore
-// runs and removes it as soon as the restore completes, or after the partial
-// data directory has been removed on failure. Its presence on a later monitor
-// tick is therefore the authoritative signal that a prior restore did not
-// complete. The monitor uses it to route to the restore path, which, once it has
-// found a backup to restore from, removes the partial data directory and
-// restores again instead of starting postgres on it.
+// restoreFromBackupLocked writes the operation identity into the durable marker
+// before sending Run. It removes it only after that operation has succeeded and
+// archive configuration has been normalized. Failure never deletes PGDATA here.
+// On the next tick the manager selects a complete backup, then the sidecar
+// fences the prior request and cleans interrupted data under its restore gate,
+// after positive worker quiescence. Marker presence or idle Status alone never
+// authorizes cleanup.
 //
 // Because the restore path removes the data directory whenever the sentinel is
 // present, nothing may start postgres while it is: postgres serving that data
@@ -45,5 +43,18 @@ import (
 // pooler_dir, so it is not removed along with a partial data directory; see
 // sentinel.go.
 func (pm *MultipoolerManager) restoreSentinel() sentinel {
-	return pm.newSentinel(constants.RestoreSentinelFile, "pgbackrest restore in progress\n")
+	s := pm.newSentinel(constants.RestoreSentinelFile, "pgbackrest restore in progress\n")
+	// The sidecar shares the data volume with postgres, so the marker is
+	// reached through a mount-anchored safefs root.
+	s.root = pm.openGenerationsRoot
+	return s
 }
+
+// The sentinel is also the restore marker that gates every decision to start
+// postgres, treat PGDATA as initialized or restore (see restoreSettled):
+//   - the restore runs in the sidecar and can outlive this process, so the
+//     sentinel is removed only after the sidecar confirmed the restore ended
+//     and the steps after it ran, not when pgbackrest returns;
+//   - a failed restore removes nothing, because the sidecar may still be
+//     writing PGDATA: the next attempt must fence it under the sidecar gate;
+//   - a sentinel older than restoreMarkerStaleAfter counts toward quarantine.

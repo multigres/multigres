@@ -17,6 +17,7 @@ package backup
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	commonbackup "github.com/multigres/multigres/go/common/backup"
+	pb "github.com/multigres/multigres/go/pb/pgbackrestdservice"
 )
 
 // repositoryInfoJSON builds a `pgbackrest info` document with the given repo
@@ -78,7 +80,6 @@ func TestRepositoryInfo(t *testing.T) {
 			stubPgbackrest(t, pgbackrestInfoStub(tt.json))
 			poolerDir := t.TempDir()
 			e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-			e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 			info, err := e.RepositoryInfo(t.Context())
 			require.NoError(t, err)
@@ -113,7 +114,6 @@ func TestRepositoryInfo_ErrorWhenInfoGivesNoPositiveAnswer(t *testing.T) {
 			stubPgbackrest(t, tt.script)
 			poolerDir := t.TempDir()
 			e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-			e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 			_, err := e.RepositoryInfo(t.Context())
 			require.Error(t, err)
@@ -128,7 +128,6 @@ func TestRepositoryInfo_ErrorWhenInfoTimesOut(t *testing.T) {
 	stubPgbackrest(t, "#!/bin/bash\nexec sleep 30\n")
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
 	defer cancel()
@@ -139,18 +138,9 @@ func TestRepositoryInfo_ErrorWhenInfoTimesOut(t *testing.T) {
 }
 
 func TestRepositoryInfo_ErrorsWithoutConfig(t *testing.T) {
-	t.Run("pgbackrest config path not set", func(t *testing.T) {
-		e, _ := newTestEngine(t, t.TempDir(), "tg1", "0", "/tmp/backups")
-
-		_, err := e.RepositoryInfo(t.Context())
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "pgbackrest config not found")
-	})
-
 	t.Run("backup config not loaded", func(t *testing.T) {
 		poolerDir := t.TempDir()
 		e, _ := newTestEngine(t, poolerDir, "tg1", "0", "")
-		e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 		_, err := e.RepositoryInfo(t.Context())
 		require.Error(t, err)
@@ -174,11 +164,56 @@ func TestRepositoryInfo_ErrorWhenOutputCannotBeTrusted(t *testing.T) {
 			stubPgbackrest(t, pgbackrestInfoStub(tt.output))
 			poolerDir := t.TempDir()
 			e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
-			e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
 			_, err := e.RepositoryInfo(t.Context())
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.errContains)
 		})
+	}
+}
+
+// RepositoryInfo reads the repository once, uncached, through one sidecar info
+// whose call carries the InfoTimeout deadline (the sidecar derives --io-timeout
+// from it), and never accepts output the sidecar had to drop.
+func TestRepositoryInfo_SidecarCallIsBoundedAndNeverTruncated(t *testing.T) {
+	fake := &fakeSidecar{reply: func(_ pb.Command, _ []string, stdout, _ io.Writer) int {
+		_, _ = io.WriteString(stdout, repositoryInfoJSON(commonbackup.RepoStatusOK, [2]string{"20261116-100000F", "0"}))
+		return 0
+	}}
+	e := newSidecarTestEngine(t, fake)
+
+	info, err := e.RepositoryInfo(t.Context())
+	require.NoError(t, err)
+	assert.True(t, info.StanzaExists)
+	require.Len(t, fake.calls, 1)
+	assert.Equal(t, pb.Command_COMMAND_INFO, fake.calls[0].cmd)
+	assert.True(t, fake.calls[0].hasDeadline)
+
+	truncated := &fakeSidecar{err: ErrOutputTruncated, reply: fake.reply}
+	e = newSidecarTestEngine(t, truncated)
+	_, err = e.RepositoryInfo(t.Context())
+	require.Error(t, err)
+}
+
+// Every info the engine sends carries a deadline, whichever caller asked, so the
+// sidecar can give pgBackRest an --io-timeout that ends before the context does.
+func TestInfoCallsAlwaysCarryADeadline(t *testing.T) {
+	fake := &fakeSidecar{reply: func(_ pb.Command, _ []string, stdout, _ io.Writer) int {
+		_, _ = io.WriteString(stdout, repositoryInfoJSON(commonbackup.RepoStatusOK))
+		return 0
+	}}
+	e := newSidecarTestEngine(t, fake)
+
+	_, err := e.ListBackups(t.Context())
+	require.NoError(t, err)
+	_, err = e.RepositoryInfo(t.Context())
+	require.NoError(t, err)
+	_, err = e.runInfoCmd(t.Context())
+	require.NoError(t, err)
+
+	require.Len(t, fake.calls, 3)
+	for i, c := range fake.calls {
+		assert.Equal(t, pb.Command_COMMAND_INFO, c.cmd)
+		assert.True(t, c.hasDeadline, "info call %d", i)
 	}
 }

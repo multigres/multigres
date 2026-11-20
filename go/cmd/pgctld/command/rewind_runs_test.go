@@ -189,7 +189,7 @@ func newRewindTestService(t *testing.T, rewindBody string) (*PgCtldService, stri
 	require.NoError(t, os.MkdirAll(dataDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "PG_VERSION"), []byte("16\n"), 0o644))
 
-	service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+	service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost")
 	require.NoError(t, err)
 	t.Cleanup(func() { service.Close() })
 	return service, baseDir

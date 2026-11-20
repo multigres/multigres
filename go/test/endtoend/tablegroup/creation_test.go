@@ -296,6 +296,7 @@ func (p *provisioner) provision(t *testing.T, tg *multipoolermanagerdatapb.Table
 				"--shard", shard,
 				"--tablegroup-id", strconv.FormatInt(tg.GetTablegroupId(), 10),
 			)
+			require.NoError(t, inst.PgBackRestd.Rescope(t.Context(), t, tg.GetName(), shard, tg.GetTablegroupId()), "scope the sidecar of %s", name)
 			require.NoError(t, inst.Pgctld.Start(t.Context(), t), "start pgctld %s", name)
 			require.NoError(t, inst.Multipooler.Start(t.Context(), t), "start multipooler %s", name)
 			shardsetup.WaitForManagerReady(t, inst.Multipooler)

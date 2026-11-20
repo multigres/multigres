@@ -17,7 +17,6 @@ package command
 import (
 	"testing"
 
-	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -221,29 +220,4 @@ func TestPgInitdbSQLDirsFlag(t *testing.T) {
 		require.NoError(t, root.ParseFlags([]string{"--pg-initdb-sql-dirs", "postgres:/tmp/flag-dir"}))
 		assert.Equal(t, []string{"postgres:/tmp/flag-dir"}, pc.pgInitdbSQLDirs.Get())
 	})
-}
-
-func TestPgBackRestFlags(t *testing.T) {
-	// Test default values
-	rootCmd, _ := GetRootCommand()
-
-	// Find the server subcommand
-	var serverCmd *cobra.Command
-	for _, cmd := range rootCmd.Commands() {
-		if cmd.Name() == "server" {
-			serverCmd = cmd
-			break
-		}
-	}
-	assert.NotNil(t, serverCmd, "server subcommand should exist")
-
-	err := serverCmd.ParseFlags([]string{})
-	assert.NoError(t, err)
-
-	// Verify pgbackrest flags are registered on server command (not root)
-	portFlag := serverCmd.Flags().Lookup("pgbackrest-port")
-	assert.NotNil(t, portFlag, "pgbackrest-port flag should be registered on server command")
-
-	certDirFlag := serverCmd.Flags().Lookup("pgbackrest-cert-dir")
-	assert.NotNil(t, certDirFlag, "pgbackrest-cert-dir flag should be registered on server command")
 }

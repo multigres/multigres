@@ -25,6 +25,7 @@ import (
 	commonbackup "github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	pb "github.com/multigres/multigres/go/pb/pgbackrestdservice"
 )
 
 // maxBootstrapArchiveSegments is the most WAL segments a first-backup bootstrap
@@ -42,21 +43,26 @@ var (
 // first-backup bootstrap leaves: several archive ids, a timeline switch, or more
 // than maxBootstrapArchiveSegments segments. `pgbackrest info` cannot tell, as it
 // reports no archive once backup.info is missing, so the archive is listed
-// directly. Any listing failure is an error and never counts as unused.
+// directly. Any listing failure is an error and never counts as unused. A
+// directory whose name is not one pgBackRest writes (so one the sidecar would
+// refuse to list) counts as in use: it is not something a failed bootstrap
+// leaves, and an error here would stop the monitor classifying the repository at
+// all.
 func (e *Engine) ArchiveInUse(ctx context.Context) (bool, error) {
-	archivePath := "archive/" + stanzaName
-
-	entries, err := e.repoList(ctx, archivePath)
+	entries, err := e.repoList(ctx, "", "")
 	if err != nil {
 		return false, err
 	}
 	archiveIDs := entries.names("path")
+	if slices.ContainsFunc(archiveIDs, func(id string) bool { return !commonbackup.ValidArchiveID(id) }) {
+		return true, nil
+	}
 	if len(archiveIDs) != 1 {
 		return len(archiveIDs) > 1, nil
 	}
 
-	idPath := archivePath + "/" + archiveIDs[0]
-	entries, err = e.repoList(ctx, idPath)
+	archiveID := archiveIDs[0]
+	entries, err = e.repoList(ctx, archiveID, "")
 	if err != nil {
 		return false, err
 	}
@@ -64,6 +70,9 @@ func (e *Engine) ArchiveInUse(ctx context.Context) (bool, error) {
 		return true, nil
 	}
 	walDirs := entries.names("path")
+	if slices.ContainsFunc(walDirs, func(dir string) bool { return !commonbackup.ValidWALDir(dir) }) {
+		return true, nil
+	}
 	if len(walDirs) != 1 {
 		return len(walDirs) > 1, nil
 	}
@@ -71,7 +80,7 @@ func (e *Engine) ArchiveInUse(ctx context.Context) (bool, error) {
 		return true, nil
 	}
 
-	entries, err = e.repoList(ctx, idPath+"/"+walDirs[0])
+	entries, err = e.repoList(ctx, archiveID, walDirs[0])
 	if err != nil {
 		return false, err
 	}
@@ -98,26 +107,35 @@ func (l repoListing) names(entryType string) []string {
 	return names
 }
 
-// repoList runs `pgbackrest repo-ls` on one repository directory. A directory
-// that does not exist lists as empty.
-func (e *Engine) repoList(ctx context.Context, path string) (repoListing, error) {
-	configPath, err := e.requireConfigPath()
-	if err != nil {
-		return nil, mterrors.Wrap(err, "pgbackrest config not found")
+// repoList lists one directory of the stanza's archive through the sidecar:
+// the archive itself, an archive id, or a WAL directory of one. The sidecar
+// builds the path from these fields, so no caller string reaches pgBackRest. A
+// directory that does not exist lists as empty. The call carries a deadline, from
+// which the sidecar derives pgBackRest's --io-timeout.
+func (e *Engine) repoList(ctx context.Context, archiveID, walDir string) (repoListing, error) {
+	if _, err := e.requireBackupConfig(); err != nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "backup config not loaded from topology")
 	}
 
 	queryCtx, cancel := context.WithTimeout(ctx, commonbackup.InfoTimeout)
 	defer cancel()
-	cmd := e.pgbackrestIOTimeoutCmd(queryCtx,
-		"--stanza="+stanzaName,
-		"--config="+configPath,
-		"--output=json",
-		"--log-level-console=off",
-		"repo-ls", path)
-	output, err := safeCombinedOutput(cmd)
+	cmd := &pgCmd{
+		command:   pb.Command_COMMAND_REPO_LS,
+		args:      []string{"--output=json", "--log-level-console=off"},
+		archiveID: archiveID,
+		walDir:    walDir,
+	}
+	where := "archive/" + stanzaName
+	if archiveID != "" {
+		where += "/" + archiveID
+		if walDir != "" {
+			where += "/" + walDir
+		}
+	}
+	output, err := e.output(queryCtx, cmd)
 	if err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("pgbackrest repo-ls %s failed: %v\nOutput: %s", path, err, output))
+			fmt.Sprintf("pgbackrest repo-ls %s failed: %v\nOutput: %s", where, err, output))
 	}
 
 	var raw map[string]struct {
@@ -125,7 +143,7 @@ func (e *Engine) repoList(ctx context.Context, path string) (repoListing, error)
 	}
 	if err := json.Unmarshal([]byte(output), &raw); err != nil {
 		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("failed to parse pgbackrest repo-ls %s output: %v", path, err))
+			fmt.Sprintf("failed to parse pgbackrest repo-ls %s output: %v", where, err))
 	}
 	listing := make(repoListing, len(raw))
 	for name, entry := range raw {

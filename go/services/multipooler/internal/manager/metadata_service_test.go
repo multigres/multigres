@@ -51,6 +51,7 @@ func newMetadataManager(t *testing.T, poolerType clustermetadatapb.PoolerType, t
 	initial := newTestMultipooler(poolerType, clustermetadatapb.PoolerServingStatus_SERVING)
 	initial.ShardRef = &clustermetadatapb.ShardRef{Database: "db", TableGroup: tablegroup, Shard: constants.DefaultShard}
 	cfg := &Config{}
+	withTestSidecarServer(t, cfg, initial)
 	if tablegroup != constants.DefaultTableGroup {
 		// A pooler of another tablegroup is an unmanaged one.
 		initial.LeadershipMode = clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNMANAGED
