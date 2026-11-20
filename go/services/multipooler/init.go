@@ -718,15 +718,20 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		return nil
 	})
 
-	// Kick off the pooler's topology lifecycle once the server starts.
+	// Kick off the pooler's topology lifecycle once the server serves.
 	// Initial registration (with retry + alarm), the eventually-consistent
 	// publisher, and the shutdown unregister on close all live behind
 	// StartTopoRegistration / StopTopoRegistration on the manager.
+	//
+	// Registration waits for the gRPC server to serve, which servenv does after the
+	// run hooks: a pooler in the topology is found, and dialed at once, and a dial that
+	// finds the port closed backs off for seconds. A pooler that shuts down before it
+	// serves never registered, and StopTopoRegistration then has nothing to undo.
 	mp.poolerManager = poolerManager
 	if !mp.sequencedShutdown {
 		mp.senv.OnTermSync(mp.GracefulShutdown)
 	}
-	mp.senv.OnRun(func() {
+	mp.senv.OnServing(func() {
 		poolerManager.StartTopoRegistration(func(s string) {
 			mp.serverStatus.mu.Lock()
 			defer mp.serverStatus.mu.Unlock()
