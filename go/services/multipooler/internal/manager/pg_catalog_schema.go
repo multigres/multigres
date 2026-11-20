@@ -285,6 +285,9 @@ var catalogTables = []string{
 	state         text   NOT NULL CHECK (state IN ('FENCING', 'FENCED')),
 	version       bigint NOT NULL
 )`,
+	// The connection of the external PostgreSQL that serves the shard; NULL is a managed shard.
+	// Set when the shard is created, never updated. Appended because it references connections.
+	`ALTER TABLE multigres.shard ADD COLUMN IF NOT EXISTS backing_connection_id bigint REFERENCES multigres.connections (connection_id)`,
 }
 
 // catalogSeed inserts the catalog's initial rows. Every insert is idempotent

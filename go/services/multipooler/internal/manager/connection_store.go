@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolerservicepb "github.com/multigres/multigres/go/pb/multipoolerservice"
@@ -86,11 +87,33 @@ func errUnusableConnection(format string, args ...any) error {
 // (Conn.ForPooler), so that the default primary never serves a connection that the pooler refuses.
 func backingFromStored(c *migration.Connection) (*multipoolerservicepb.BackingConnection, error) {
 	conn, err := c.Conn()
-	if err == nil {
-		err = conn.ForPooler()
-	}
 	if err != nil {
 		return nil, errUnusableConnection("%s", err)
 	}
+	return backingReply(conn)
+}
+
+// backingReply returns a connection as the reply, refused unless a pooler can front it.
+func backingReply(conn *backingconn.Conn) (*multipoolerservicepb.BackingConnection, error) {
+	if err := conn.ForPooler(); err != nil {
+		return nil, errUnusableConnection("%s", err)
+	}
 	return conn.ToProto(), nil
+}
+
+// backingFromColumns returns the connection of a row of multigres.connections, read by its
+// columns, as the reply; a refusal names the connection.
+func backingFromColumns(name, conninfo string) (*multipoolerservicepb.BackingConnection, error) {
+	conn, err := migration.ConnFromColumns(name, conninfo)
+	switch {
+	case errors.Is(err, migration.ErrConnectionUnreadable):
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, err.Error())
+	case err != nil:
+		return nil, mterrors.Wrap(errUnusableConnection("%s", err), fmt.Sprintf("connection %q", name))
+	}
+	reply, err := backingReply(conn)
+	if err != nil {
+		return nil, mterrors.Wrap(err, fmt.Sprintf("connection %q", name))
+	}
+	return reply, nil
 }
