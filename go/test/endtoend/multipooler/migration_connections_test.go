@@ -93,9 +93,12 @@ func TestCatalogSchema_CompletesWithoutAMigrationTable(t *testing.T) {
 	requireCatalogFormat1(t, primaryDB)
 
 	// No migrator tables, and no connections table either: the ensure creates the latter again.
+	// The shard's binding column references connections, so it goes first; the ensure adds it
+	// back, with its foreign key, as it adds the table.
 	_, err := primaryDB.Exec(`
 DROP VIEW IF EXISTS multigres.stat_migration;
 DROP TABLE IF EXISTS multigres.migration_journal, multigres.migration_tables, multigres.migration;
+ALTER TABLE multigres.shard DROP COLUMN backing_connection_id;
 DROP TABLE multigres.connections;`)
 	require.NoError(t, err)
 
@@ -104,4 +107,10 @@ DROP TABLE multigres.connections;`)
 		var exists bool
 		return primaryDB.QueryRow(`SELECT to_regclass('multigres.connections') IS NOT NULL`).Scan(&exists) == nil && exists
 	}, 30*time.Second, 200*time.Millisecond, "the catalog ensure should complete with no migration table")
+	// The same ensure restored the shard's binding column and its foreign key.
+	require.Eventually(t, func() bool {
+		var bound bool
+		return primaryDB.QueryRow(`SELECT count(*) = 1 FROM pg_constraint
+			WHERE conname = 'shard_backing_connection_id_fkey' AND conrelid = 'multigres.shard'::regclass`).Scan(&bound) == nil && bound
+	}, 30*time.Second, 200*time.Millisecond, "the catalog ensure should restore shard.backing_connection_id")
 }

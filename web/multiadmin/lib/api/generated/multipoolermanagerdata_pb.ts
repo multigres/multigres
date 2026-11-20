@@ -2850,6 +2850,16 @@ export class CreateTableGroupRequest extends Message<CreateTableGroupRequest> {
    */
   ifNotExists = false;
 
+  /**
+   * shard_backing_connections maps shard names to the names of the connections
+   * (in the catalog's connections table) of the external PostgreSQL that serves
+   * them. Shards not listed are managed. Fixed at creation; see
+   * docs/sharding/tablegroup-operations.md for what can be bound.
+   *
+   * @generated from field: map<string, string> shard_backing_connections = 4;
+   */
+  shardBackingConnections: { [key: string]: string } = {};
+
   constructor(data?: PartialMessage<CreateTableGroupRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -2861,6 +2871,7 @@ export class CreateTableGroupRequest extends Message<CreateTableGroupRequest> {
     { no: 1, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "shards", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 3, name: "if_not_exists", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 4, name: "shard_backing_connections", kind: "map", K: 9 /* ScalarType.STRING */, V: {kind: "scalar", T: 9 /* ScalarType.STRING */} },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CreateTableGroupRequest {
@@ -3387,6 +3398,14 @@ export class TableGroup extends Message<TableGroup> {
    */
   shards: string[] = [];
 
+  /**
+   * shard_backing_connections maps each shard served by an external
+   * PostgreSQL to the name of its connection. Shards not listed are managed.
+   *
+   * @generated from field: map<string, string> shard_backing_connections = 5;
+   */
+  shardBackingConnections: { [key: string]: string } = {};
+
   constructor(data?: PartialMessage<TableGroup>) {
     super();
     proto3.util.initPartial(data, this);
@@ -3399,6 +3418,7 @@ export class TableGroup extends Message<TableGroup> {
     { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 3, name: "state", kind: "enum", T: proto3.getEnumType(TableGroupState) },
     { no: 4, name: "shards", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+    { no: 5, name: "shard_backing_connections", kind: "map", K: 9 /* ScalarType.STRING */, V: {kind: "scalar", T: 9 /* ScalarType.STRING */} },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): TableGroup {

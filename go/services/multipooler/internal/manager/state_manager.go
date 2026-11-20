@@ -447,15 +447,15 @@ func (ssm *StateManager) Recalc(ctx context.Context) error {
 
 // deriveRoutingState wraps the package-level derivation for the manager's
 // leadership mode. An unmanaged pooler's write authority is the external
-// database, so it never manufactures a consensus rule: it reports PRIMARY only
-// while the backend is observed out of recovery and UNKNOWN otherwise.
+// database, so it never manufactures a consensus rule, and it is the routing
+// primary of its shard for as long as it runs: whether its backend is ready is
+// the serving status, not the role. A backend that is down leaves it PRIMARY
+// and DISABLED, so that what depends on the role (whatever treats a pooler
+// becoming PRIMARY as a new primary, or looks up the primary pooler of a
+// shard) does not see a role change with every blip of the backend.
 func (ssm *StateManager) deriveRoutingState(mode pgmode.Mode, cs *clustermetadatapb.ConsensusStatus) servingstate.RoutingState {
 	if ssm.record.unmanaged() {
-		role := servingstate.RoutingRoleUnknown
-		if mode.OutOfRecovery() {
-			role = servingstate.RoutingRolePrimary
-		}
-		return servingstate.RoutingState{Role: role}
+		return servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}
 	}
 	return deriveRoutingState(mode, cs)
 }

@@ -98,10 +98,9 @@ type Config struct {
 	// monitor starts postgres as a primary rather than a standby.
 	StaticLeader bool
 
-	// ExternalBackend is the external PostgreSQL an unmanaged pooler fronts: required for an
-	// unmanaged pooler, refused for a managed one. It is the resolved form of
-	// --backing-connection, and the one place the endpoint of an unmanaged pooler is kept:
-	// what the pooler dials, probes and validates TLS against.
+	// ExternalBackend is the external PostgreSQL an unmanaged pooler fronts, resolved from its
+	// shard's backing connection: what the pooler dials, probes and validates TLS against.
+	// Required for an unmanaged pooler, refused for a managed one.
 	ExternalBackend *ExternalBackend
 }
 
@@ -133,10 +132,9 @@ func validateUnmanagedConfig(unmanaged bool, database string, config *Config) er
 	return nil
 }
 
-// ValidateUnmanagedTableGroup refuses the tablegroup an unmanaged pooler cannot serve: it
-// fronts an external database, never the default cohort that holds cluster metadata. It is
-// checked at startup, before anything is registered, and again by the manager.
-func ValidateUnmanagedTableGroup(tableGroup string) error {
+// validateUnmanagedTableGroup refuses the default tablegroup, which holds cluster metadata, for an
+// unmanaged pooler: a backstop for a topology record that says it is one.
+func validateUnmanagedTableGroup(tableGroup string) error {
 	if tableGroup == constants.DefaultTableGroup {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "an unmanaged pooler cannot serve the default tablegroup")
 	}
