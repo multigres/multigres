@@ -73,12 +73,19 @@ type admittedQueryService struct {
 var _ queryservice.QueryService = (*admittedQueryService)(nil)
 
 // admit admits a request of kind for target and returns the executor to run
-// it on.
-func (a *admittedQueryService) admit(target *query.Target, kind RequestKind) (queryservice.QueryService, error) {
-	if err := a.s.StartRequest(target, kind); err != nil {
-		return nil, err
+// it on, and the admission, which the caller ends (Done) once the call has
+// returned. On error there is nothing to end.
+func (a *admittedQueryService) admit(target *query.Target, kind RequestKind) (queryservice.QueryService, Admission, error) {
+	adm, err := a.s.StartRequest(target, kind)
+	if err != nil {
+		return nil, Admission{}, err
 	}
-	return a.s.Executor()
+	exec, err := a.s.Executor()
+	if err != nil {
+		adm.Done()
+		return nil, Admission{}, err
+	}
+	return exec, adm, nil
 }
 
 // validateReasons rejects unknown reservation reason bits: the gateway's
@@ -93,10 +100,11 @@ func validateReasons(reservationOptions *query.ReservationOptions) error {
 }
 
 func (a *admittedQueryService) ExecuteQuery(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions) (*sqltypes.Result, *query.ReservedState, error) {
-	exec, err := a.admit(target, AdmissionKind(options.GetReservedConnectionId(), false))
+	exec, adm, err := a.admit(target, AdmissionKind(options.GetReservedConnectionId(), false))
 	if err != nil {
 		return nil, nil, err
 	}
+	defer adm.Done()
 	return exec.ExecuteQuery(ctx, target, sql, options)
 }
 
@@ -104,9 +112,11 @@ func (a *admittedQueryService) ExecuteQuery(ctx context.Context, target *query.T
 // reservation (reservation reasons with no reserved connection), so a graceful
 // drain keeps serving its single queries while rejecting new transactions.
 func (a *admittedQueryService) StreamExecute(ctx context.Context, target *query.Target, sql string, options *query.ExecuteOptions, reservationOptions *query.ReservationOptions, callback func(context.Context, *sqltypes.Result) error) (*query.ReservedState, error) {
-	if err := a.s.StartRequest(target, AdmissionKind(options.GetReservedConnectionId(), reservationOptions.GetReasons() != 0)); err != nil {
+	adm, err := a.s.StartRequest(target, AdmissionKind(options.GetReservedConnectionId(), reservationOptions.GetReasons() != 0))
+	if err != nil {
 		return nil, err
 	}
+	defer adm.Done()
 	if err := validateReasons(reservationOptions); err != nil {
 		return nil, err
 	}
@@ -118,9 +128,11 @@ func (a *admittedQueryService) StreamExecute(ctx context.Context, target *query.
 }
 
 func (a *admittedQueryService) PortalStreamExecute(ctx context.Context, target *query.Target, preparedStatement *query.PreparedStatement, portal *query.Portal, options *query.ExecuteOptions, portalOptions *multipoolerpb.PortalExecuteOptions, reservationOptions *query.ReservationOptions, callback func(context.Context, *sqltypes.Result) error) (*query.ReservedState, error) {
-	if err := a.s.StartRequest(target, AdmissionKind(options.GetReservedConnectionId(), PortalReserves(options, reservationOptions))); err != nil {
+	adm, err := a.s.StartRequest(target, AdmissionKind(options.GetReservedConnectionId(), PortalReserves(options, reservationOptions)))
+	if err != nil {
 		return nil, err
 	}
+	defer adm.Done()
 	if err := validateReasons(reservationOptions); err != nil {
 		return nil, err
 	}
@@ -152,10 +164,11 @@ func (a *admittedQueryService) Close() error {
 // CopyReady starts a COPY FROM STDIN, which always holds a reserved
 // connection.
 func (a *admittedQueryService) CopyReady(ctx context.Context, target *query.Target, copyQuery string, options *query.ExecuteOptions, reservationOptions *query.ReservationOptions) (int16, []int16, *query.ReservedState, error) {
-	exec, err := a.admit(target, AdmissionKind(options.GetReservedConnectionId(), true))
+	exec, adm, err := a.admit(target, AdmissionKind(options.GetReservedConnectionId(), true))
 	if err != nil {
 		return 0, nil, nil, err
 	}
+	defer adm.Done()
 	return exec.CopyReady(ctx, target, copyQuery, options, reservationOptions)
 }
 
@@ -189,10 +202,11 @@ func (a *admittedQueryService) CopyAbort(ctx context.Context, target *query.Targ
 // CopyOutReady starts a COPY TO STDOUT, which always holds a reserved
 // connection.
 func (a *admittedQueryService) CopyOutReady(ctx context.Context, target *query.Target, copyQuery string, options *query.ExecuteOptions, reservationOptions *query.ReservationOptions) (int16, []int16, []*mterrors.PgDiagnostic, *query.ReservedState, error) {
-	exec, err := a.admit(target, AdmissionKind(options.GetReservedConnectionId(), true))
+	exec, adm, err := a.admit(target, AdmissionKind(options.GetReservedConnectionId(), true))
 	if err != nil {
 		return 0, nil, nil, nil, err
 	}
+	defer adm.Done()
 	return exec.CopyOutReady(ctx, target, copyQuery, options, reservationOptions)
 }
 
@@ -208,26 +222,29 @@ func (a *admittedQueryService) CopyOutStream(ctx context.Context, target *query.
 // an existing reserved connection: admitted even while draining, since the
 // reserved connection itself is the gate.
 func (a *admittedQueryService) ConcludeTransaction(ctx context.Context, target *query.Target, options *query.ExecuteOptions, conclusion multipoolerpb.TransactionConclusion, releasePortalNames []string, releaseAllPortals bool, chain bool, rollbackSessionSettings map[string]string) (*sqltypes.Result, *query.ReservedState, error) {
-	exec, err := a.admit(target, RequestExistingReserved)
+	exec, adm, err := a.admit(target, RequestExistingReserved)
 	if err != nil {
 		return nil, nil, err
 	}
+	defer adm.Done()
 	return exec.ConcludeTransaction(ctx, target, options, conclusion, releasePortalNames, releaseAllPortals, chain, rollbackSessionSettings)
 }
 
 func (a *admittedQueryService) DiscardTempTables(ctx context.Context, target *query.Target, options *query.ExecuteOptions) (*sqltypes.Result, *query.ReservedState, error) {
-	exec, err := a.admit(target, RequestExistingReserved)
+	exec, adm, err := a.admit(target, RequestExistingReserved)
 	if err != nil {
 		return nil, nil, err
 	}
+	defer adm.Done()
 	return exec.DiscardTempTables(ctx, target, options)
 }
 
 func (a *admittedQueryService) ReleaseReservedConnection(ctx context.Context, target *query.Target, options *query.ExecuteOptions, keepStickyReservations bool) (*query.ReservedState, error) {
-	exec, err := a.admit(target, RequestExistingReserved)
+	exec, adm, err := a.admit(target, RequestExistingReserved)
 	if err != nil {
 		return nil, err
 	}
+	defer adm.Done()
 	return exec.ReleaseReservedConnection(ctx, target, options, keepStickyReservations)
 }
 

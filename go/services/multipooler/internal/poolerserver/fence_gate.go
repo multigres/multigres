@@ -49,7 +49,9 @@ import (
 // the fence drain and the not-serving drain never move each other's phase:
 // first new reservations are refused while single queries continue and the
 // open transactions finish; then single queries are refused too and the
-// in-flight ones are waited out. At the timeout the remaining reserved connections are
+// in-flight ones are waited out. Each stage also waits for the requests that
+// were admitted before it began and do not hold a connection yet (see
+// StartRequest). At the timeout the remaining reserved connections are
 // force-closed, and their transactions get 40001.
 
 // fenceGateState is the state of the fence gate.
@@ -157,7 +159,10 @@ func (s *QueryPoolerServer) checkFenceLocked(kind RequestKind) error {
 //     sends before every Execute: refused, it would fail the statement
 //     outright, since the gateway retries only Execute.
 //
-// The target check and the not-serving drain still apply.
+// The target check and the not-serving drain still apply. The request is not
+// counted for the drains (see StartRequest): it runs no application work, and
+// it is admitted while the gate is closed, so counting it would keep a fence
+// drain waiting on logins that never stop.
 func (s *QueryPoolerServer) startUnfencedRequest(target *query.Target, kind RequestKind) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

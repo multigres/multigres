@@ -174,9 +174,10 @@ service MultipoolerManager {
   // A primary pooler that the read finds fenced refuses new application
   // work with MTF02, keeps serving existing reserved connections and drains:
   // first the open transactions finish while single queries continue, then
-  // single queries stop too and the in-flight ones finish. The call returns
-  // once the drain completes; at drain_timeout the remaining reserved
-  // connections are force-closed and their transactions get 40001. A read
+  // single queries stop too and the in-flight ones finish. Each stage also
+  // waits for requests admitted before it that hold no connection yet. The
+  // call returns once the drain completes; at drain_timeout the remaining
+  // reserved connections are force-closed and their transactions get 40001. A read
   // that finds no fence on the scope reopens the gate. A refresh that changes
   // nothing is a no-op. Replicas record the result but are not fenced.
   //

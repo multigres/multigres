@@ -69,6 +69,14 @@ func fenceTestSnapshot(version int64, fences ...*shardingcatalogpb.Fence) *multi
 	}
 }
 
+// admit ends an admission StartRequest granted at once, and returns its error.
+func admit(a poolerserver.Admission, err error) error {
+	if err == nil {
+		a.Done()
+	}
+	return err
+}
+
 func testFence(id, tablegroup int64, shard *int64, state shardingcatalogpb.FenceState) *shardingcatalogpb.Fence {
 	return &shardingcatalogpb.Fence{FenceId: id, OperationId: importOp, TablegroupId: tablegroup, ShardId: shard, State: state, Version: 1}
 }
@@ -123,18 +131,18 @@ func (env *fenceTestEnv) refresh(t *testing.T, minVersion int64) (*multipoolerma
 
 func (env *fenceTestEnv) requireAdmits(t *testing.T) {
 	t.Helper()
-	require.NoError(t, env.qsc.StartRequest(nil, poolerserver.RequestSingleQuery))
-	require.NoError(t, env.qsc.StartRequest(nil, poolerserver.RequestNewReservation))
+	require.NoError(t, admit(env.qsc.StartRequest(nil, poolerserver.RequestSingleQuery)))
+	require.NoError(t, admit(env.qsc.StartRequest(nil, poolerserver.RequestNewReservation)))
 }
 
 func (env *fenceTestEnv) requireFenced(t *testing.T) {
 	t.Helper()
 	for _, kind := range []poolerserver.RequestKind{poolerserver.RequestSingleQuery, poolerserver.RequestNewReservation} {
-		err := env.qsc.StartRequest(nil, kind)
+		err := admit(env.qsc.StartRequest(nil, kind))
 		require.Error(t, err)
 		require.True(t, mterrors.IsErrorCode(err, mterrors.MTF02.ID), "want MTF02, got %v", err)
 	}
-	require.NoError(t, env.qsc.StartRequest(nil, poolerserver.RequestExistingReserved))
+	require.NoError(t, admit(env.qsc.StartRequest(nil, poolerserver.RequestExistingReserved)))
 }
 
 func TestRefreshFences_AppliesAndLifts(t *testing.T) {
@@ -300,7 +308,7 @@ func TestRefreshFences_TheCatalogPrimaryReadsItsOwnCatalog(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, resp.GetFenced())
 		assert.Equal(t, int64(9), resp.GetRoutingVersion())
-		err = qsc.StartRequest(nil, poolerserver.RequestSingleQuery)
+		err = admit(qsc.StartRequest(nil, poolerserver.RequestSingleQuery))
 		assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF02.ID), "got %v", err)
 	})
 	t.Run("no catalog on this primary", func(t *testing.T) {
@@ -312,7 +320,7 @@ func TestRefreshFences_TheCatalogPrimaryReadsItsOwnCatalog(t *testing.T) {
 		resp, err := env.pm.RefreshFences(t.Context(), &multipoolermanagerdatapb.RefreshFencesRequest{})
 		require.NoError(t, err)
 		assert.False(t, resp.GetFenced())
-		require.NoError(t, qsc.StartRequest(nil, poolerserver.RequestNewReservation))
+		require.NoError(t, admit(qsc.StartRequest(nil, poolerserver.RequestNewReservation)))
 	})
 }
 
@@ -331,7 +339,7 @@ func (env *fenceTestEnv) snapshotReads() int {
 func (env *fenceTestEnv) waitAdmits(t *testing.T) {
 	t.Helper()
 	require.Eventually(t, func() bool {
-		return env.qsc.StartRequest(nil, poolerserver.RequestNewReservation) == nil
+		return admit(env.qsc.StartRequest(nil, poolerserver.RequestNewReservation)) == nil
 	}, 5*time.Second, 10*time.Millisecond, "the gate never opened")
 }
 

@@ -122,7 +122,7 @@ func TestStartRequest_FenceMatrix(t *testing.T) {
 						case role == servingstate.RoutingRolePrimary:
 							want = primary[gateName][kind]
 						}
-						err := s.StartRequest(nil, kind)
+						err := admit(s.StartRequest(nil, kind))
 						switch want {
 						case allow:
 							require.NoError(t, err)
@@ -142,43 +142,43 @@ func TestStartRequest_FenceMatrix(t *testing.T) {
 // once a read finds none; a read that finds a fence closes it.
 func TestFenceGate_FailsClosedUntilRead(t *testing.T) {
 	s := newFencedTestPooler(t, newDrainMockPoolManager(), servingstate.RoutingRolePrimary)
-	requireMTF02(t, s.StartRequest(nil, RequestSingleQuery))
-	requireMTF02(t, s.StartRequest(nil, RequestNewReservation))
+	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)))
+	requireMTF02(t, admit(s.StartRequest(nil, RequestNewReservation)))
 	unread, closed := s.FenceReadState()
 	assert.True(t, unread)
 	assert.False(t, closed)
 
 	applyFence(t, s, false)
-	require.NoError(t, s.StartRequest(nil, RequestSingleQuery))
-	require.NoError(t, s.StartRequest(nil, RequestNewReservation))
+	require.NoError(t, admit(s.StartRequest(nil, RequestSingleQuery)))
+	require.NoError(t, admit(s.StartRequest(nil, RequestNewReservation)))
 	unread, closed = s.FenceReadState()
 	assert.False(t, unread)
 	assert.False(t, closed)
 
 	applyFence(t, s, true)
-	requireMTF02(t, s.StartRequest(nil, RequestSingleQuery))
-	require.NoError(t, s.StartRequest(nil, RequestExistingReserved), "an existing reserved connection is always admitted")
+	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)))
+	require.NoError(t, admit(s.StartRequest(nil, RequestExistingReserved)), "an existing reserved connection is always admitted")
 	_, closed = s.FenceReadState()
 	assert.True(t, closed)
 	assert.True(t, s.IsServing(), "a fenced pooler stays serving")
 
 	// Applying the same answer again is a no-op; an unfence reopens it.
 	applyFence(t, s, true)
-	requireMTF02(t, s.StartRequest(nil, RequestSingleQuery))
+	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)))
 	applyFence(t, s, false)
-	require.NoError(t, s.StartRequest(nil, RequestNewReservation))
+	require.NoError(t, admit(s.StartRequest(nil, RequestNewReservation)))
 }
 
 // Becoming primary resets the gate to unread, and refuses a fence read taken
 // before the promotion. A replica is never gated.
 func TestFenceGate_PromotionResetsTheGate(t *testing.T) {
 	s := newFencedTestPooler(t, newDrainMockPoolManager(), servingstate.RoutingRoleReplica)
-	require.NoError(t, s.StartRequest(nil, RequestSingleQuery), "a replica is not fenced, read or not")
+	require.NoError(t, admit(s.StartRequest(nil, RequestSingleQuery)), "a replica is not fenced, read or not")
 	unread, closed := s.FenceReadState()
 	assert.False(t, unread, "a replica needs no read")
 	assert.False(t, closed)
 	applyFence(t, s, true)
-	require.NoError(t, s.StartRequest(nil, RequestNewReservation), "a replica the read finds fenced is not gated")
+	require.NoError(t, admit(s.StartRequest(nil, RequestNewReservation)), "a replica the read finds fenced is not gated")
 
 	stale := s.FenceEpoch()
 	drainSignal(s)
@@ -188,18 +188,18 @@ func TestFenceGate_PromotionResetsTheGate(t *testing.T) {
 	default:
 		t.Fatal("becoming primary did not ask for a fence read")
 	}
-	requireMTF02(t, s.StartRequest(nil, RequestSingleQuery), "a new primary is unread")
+	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)), "a new primary is unread")
 	err := s.ApplyFence(t.Context(), stale, false, time.Second)
 	assert.Equal(t, mtrpcpb.Code_ABORTED, mterrors.Code(err), "a read from before the promotion is refused")
-	requireMTF02(t, s.StartRequest(nil, RequestSingleQuery))
+	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)))
 
 	applyFence(t, s, false)
-	require.NoError(t, s.StartRequest(nil, RequestSingleQuery))
+	require.NoError(t, admit(s.StartRequest(nil, RequestSingleQuery)))
 
 	// Staying primary (a not-serving round trip) keeps the gate as it is.
 	require.NoError(t, s.OnStateChange(t.Context(), disabledState(servingstate.RoutingRolePrimary)))
 	require.NoError(t, s.OnStateChange(t.Context(), servingState(servingstate.RoutingRolePrimary)))
-	require.NoError(t, s.StartRequest(nil, RequestSingleQuery))
+	require.NoError(t, admit(s.StartRequest(nil, RequestSingleQuery)))
 }
 
 // drainSignal empties the gate-changed channel.
@@ -214,9 +214,9 @@ func drainSignal(s *QueryPoolerServer) {
 func TestFenceGate_Off(t *testing.T) {
 	s := newTestPoolerWithDrain(newDrainMockPoolManager())
 	require.NoError(t, s.OnStateChange(t.Context(), servingState(servingstate.RoutingRolePrimary)))
-	require.NoError(t, s.StartRequest(nil, RequestNewReservation))
+	require.NoError(t, admit(s.StartRequest(nil, RequestNewReservation)))
 	require.NoError(t, s.ApplyFence(t.Context(), 0, true, time.Second))
-	require.NoError(t, s.StartRequest(nil, RequestNewReservation))
+	require.NoError(t, admit(s.StartRequest(nil, RequestNewReservation)))
 	unread, closed := s.FenceReadState()
 	assert.False(t, unread)
 	assert.False(t, closed)
@@ -245,13 +245,13 @@ func TestFenceGate_TwoStageDrain(t *testing.T) {
 	go func() { done <- s.ApplyFence(context.Background(), s.FenceEpoch(), true, 5*time.Second) }()
 
 	waitForFenceDrainPhase(t, s, drainReserved)
-	require.NoError(t, s.StartRequest(nil, RequestSingleQuery), "stage 1 serves single queries")
-	require.NoError(t, s.StartRequest(nil, RequestExistingReserved), "the open transaction continues")
-	requireMTF02(t, s.StartRequest(nil, RequestNewReservation))
+	require.NoError(t, admit(s.StartRequest(nil, RequestSingleQuery)), "stage 1 serves single queries")
+	require.NoError(t, admit(s.StartRequest(nil, RequestExistingReserved)), "the open transaction continues")
+	requireMTF02(t, admit(s.StartRequest(nil, RequestNewReservation)))
 
 	mock.reservedAdd(-1)
 	waitForFenceDrainPhase(t, s, drainRegular)
-	requireMTF02(t, s.StartRequest(nil, RequestSingleQuery), "stage 2 refuses single queries")
+	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)), "stage 2 refuses single queries")
 	select {
 	case <-done:
 		t.Fatal("the fence drain returned with a single query in flight")
@@ -266,7 +266,7 @@ func TestFenceGate_TwoStageDrain(t *testing.T) {
 		t.Fatal("the fence drain did not complete")
 	}
 	assert.Zero(t, mock.closeReservedCallCount(), "a drain that completes closes nothing")
-	requireMTF02(t, s.StartRequest(nil, RequestSingleQuery))
+	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)))
 	assert.True(t, s.IsServing())
 }
 
@@ -283,7 +283,7 @@ func TestFenceGate_DrainTimeoutForceCloses(t *testing.T) {
 	require.NoError(t, s.ApplyFence(t.Context(), s.FenceEpoch(), true, 100*time.Millisecond))
 	assert.GreaterOrEqual(t, time.Since(start), 80*time.Millisecond)
 	assert.Equal(t, 1, mock.closeReservedCallCount())
-	requireMTF02(t, s.StartRequest(nil, RequestSingleQuery))
+	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)))
 }
 
 // A cancelled caller does not cut the drain short: the drain ends at its
@@ -324,8 +324,8 @@ func TestFenceGate_DrainsDoNotInterfere(t *testing.T) {
 	s.mu.Lock()
 	assert.Equal(t, drainReserved, s.fence.drainPhase, "the not-serving drain leaves the fence drain alone")
 	s.mu.Unlock()
-	require.NoError(t, s.StartRequest(nil, RequestSingleQuery), "both drains are in stage 1")
-	requireMTF01(t, s.StartRequest(nil, RequestNewReservation)) // the not-serving drain refuses first
+	require.NoError(t, admit(s.StartRequest(nil, RequestSingleQuery)), "both drains are in stage 1")
+	requireMTF01(t, admit(s.StartRequest(nil, RequestNewReservation))) // the not-serving drain refuses first
 
 	mock.reservedAdd(-1)
 	for name, done := range map[string]chan error{"fence": fenceDone, "not-serving": stateDone} {
@@ -345,7 +345,7 @@ func TestFenceGate_DrainsDoNotInterfere(t *testing.T) {
 
 	// Serving again, the pooler is still fenced.
 	require.NoError(t, s.OnStateChange(t.Context(), servingState(servingstate.RoutingRolePrimary)))
-	requireMTF02(t, s.StartRequest(nil, RequestSingleQuery))
+	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)))
 	assert.Zero(t, mock.closeReservedCallCount())
 }
 
@@ -389,7 +389,7 @@ func TestFenceGate_UnfencedRequests(t *testing.T) {
 	require.NoError(t, s.startUnfencedRequest(nil, RequestNewReservation), "unread")
 	applyFence(t, s, true)
 	require.NoError(t, s.startUnfencedRequest(nil, RequestNewReservation), "fenced")
-	requireMTF02(t, s.StartRequest(nil, RequestNewReservation))
+	requireMTF02(t, admit(s.StartRequest(nil, RequestNewReservation)))
 
 	s.mu.Lock()
 	s.drainPhase = drainReserved

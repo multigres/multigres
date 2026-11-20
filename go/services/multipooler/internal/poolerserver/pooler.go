@@ -319,16 +319,49 @@ func (s *QueryPoolerServer) setDrainPhase(p drainPhase) {
 //	ExistingReserved  | allow | allow  | allow                  | allow        | allow
 //	SingleQuery       | allow | MTF02  | allow                  | MTF02        | MTF02
 //	NewReservation    | allow | MTF02  | MTF02                  | MTF02        | MTF02
-func (s *QueryPoolerServer) StartRequest(target *query.Target, kind RequestKind) error {
+//
+// A drain waits for the work it refuses to have left the pooler, but the pool
+// counts only the connections it has lent, and an admitted request may still
+// be waiting for its connection. So StartRequest counts each request it admits
+// in the pool's drain accounting (AddAdmitted), as the kind of connection it
+// will hold, until the caller calls Done on the returned Admission. It counts
+// it under the lock it admits it under, so a drain that begins after the
+// admission waits for the request, and one that began before it refused it.
+// An existing reserved connection is already counted, and gets the zero
+// Admission.
+func (s *QueryPoolerServer) StartRequest(target *query.Target, kind RequestKind) (Admission, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.checkDrainLocked(target, kind); err != nil {
-		return err
+		return Admission{}, err
 	}
 	if kind == RequestExistingReserved {
-		return nil
+		return Admission{}, nil
 	}
-	return s.checkFenceLocked(kind)
+	if err := s.checkFenceLocked(kind); err != nil {
+		return Admission{}, err
+	}
+	if s.poolManager == nil {
+		return Admission{}, nil
+	}
+	reservation := kind == RequestNewReservation
+	s.poolManager.AddAdmitted(reservation)
+	return Admission{pm: s.poolManager, reservation: reservation}, nil
+}
+
+// Admission is a request StartRequest admitted. The caller must call Done
+// exactly once: when the request has finished, or as soon as the connection it
+// runs on is counted by the pool for the rest of its life.
+type Admission struct {
+	pm          connpoolmanager.PoolManager
+	reservation bool
+}
+
+// Done ends the admission. The zero Admission does nothing.
+func (a Admission) Done() {
+	if a.pm != nil {
+		a.pm.RemoveAdmitted(a.reservation)
+	}
 }
 
 // checkDrainLocked is StartRequest without the fence gate: the target check

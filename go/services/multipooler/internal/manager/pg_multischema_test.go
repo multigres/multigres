@@ -55,8 +55,8 @@ func (m *mockPoolerController) OnStateChange(context.Context, servingstate.State
 	return nil
 }
 
-func (m *mockPoolerController) StartRequest(*query.Target, poolerserver.RequestKind) error {
-	return nil
+func (m *mockPoolerController) StartRequest(*query.Target, poolerserver.RequestKind) (poolerserver.Admission, error) {
+	return poolerserver.Admission{}, nil
 }
 
 func (m *mockPoolerController) EnableFenceGate()                      {}

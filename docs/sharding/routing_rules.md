@@ -163,10 +163,13 @@ When a refresh fences a primary, the pooler drains before the call returns,
 with a phase of its own, independent of the not-serving drain of a failover:
 first new reservations are refused while single queries continue and open
 transactions finish; then single queries are refused too and the in-flight
-ones finish. At `drain_timeout` (the pooler's drain grace period when unset),
-the remaining reserved connections are force-closed and their transactions get
-`40001`. The drain metrics (`mg.pooler.drain.*`) carry `reason=fence`, or
-`reason=failover` for the not-serving drain.
+ones finish. Each stage of either drain also waits for the requests admitted
+before it that don't hold a connection yet, so a `BEGIN` admitted just before
+the fence can't get its connection after the drain has finished. At
+`drain_timeout` (the pooler's drain grace period when unset), the remaining
+reserved connections are force-closed and their transactions get `40001`. The
+drain metrics (`mg.pooler.drain.*`) carry `reason=fence`, or `reason=failover`
+for the not-serving drain.
 
 `FenceScopes` still writes `FENCED` directly and refreshes no pooler, so until
 the caller has refreshed every pooler of every scope, the fence is not

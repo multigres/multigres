@@ -61,8 +61,9 @@ type PoolerController interface {
 	// reserved-connection ops are always admitted (the connection's existence is
 	// the real gate); during a graceful drain, single queries are served until
 	// the reserved pool has drained, while new reservations are rejected
-	// throughout. See StartRequest for the full admission matrix.
-	StartRequest(target *query.Target, kind RequestKind) error
+	// throughout. See StartRequest for the full admission matrix. The caller
+	// ends an admitted request with Admission.Done.
+	StartRequest(target *query.Target, kind RequestKind) (Admission, error)
 
 	// EnableFenceGate arms the admission fence gate: a primary refuses new
 	// application work with MTF02 until a fence read is applied, and again
