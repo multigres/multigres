@@ -36,10 +36,20 @@ import (
 	"github.com/multigres/multigres/go/tools/retry"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
+	"google.golang.org/protobuf/proto"
 )
 
 // errPoolerUninitialized is the initial error before health stream connects.
 var errPoolerUninitialized = errors.New("pooler health not initialized")
+
+// The backoff between attempts to open a health stream. They are variables so
+// tests can lengthen them, to tell a retry that was asked for from one the
+// backoff allowed.
+var (
+	healthRetryDelay    = constants.DefaultHealthRetryDelay
+	healthRetryMaxDelay = constants.DefaultHealthCheckTimeout
+)
 
 // poolerHealth represents the health state received from a multipooler.
 // This is a snapshot of health state that can be safely passed around
@@ -158,6 +168,14 @@ type poolerConnection struct {
 	// onHealthUpdate is called when health state changes.
 	// Used by loadBalancer to update its routing decisions.
 	onHealthUpdate func(*poolerConnection)
+
+	// waitMu protects cancelWait.
+	waitMu sync.Mutex
+
+	// cancelWait ends the backoff wait of checkConn's current retry episode,
+	// which makes the loop start a new episode with the backoff reset and no
+	// wait before its first attempt. It is nil before checkConn starts.
+	cancelWait context.CancelFunc
 }
 
 // newPoolerConnection creates a new connection to a multipooler instance and
@@ -255,6 +273,95 @@ func (pc *poolerConnection) UpdatePoolerInfo(pooler *clustermetadatapb.Multipool
 	pc.poolerInfo.Store(&topoclient.MultipoolerInfo{Multipooler: pooler})
 }
 
+// applyTopologyUpdate takes in the connection's topology record after an update
+// of it, and retries the health stream at once if the update is a restart of the
+// pooler. A pooler that crashed never wrote SHUTDOWN, so its record stays and its
+// connection with it, with the health stream backing off from the crash: the
+// restart rewrites the record, and is the cue to retry.
+func (pc *poolerConnection) applyTopologyUpdate(prev, curr *clustermetadatapb.Multipooler) {
+	pc.UpdatePoolerInfo(curr)
+	if poolerRestarted(prev, curr) {
+		pc.RetryHealthNow()
+	}
+}
+
+// poolerRestarted reports whether a topology update is the record of a pooler
+// process that has just started or has just finished starting. Both write the
+// record's lifecycle entry: a process writes STARTING when it registers and
+// ACTIVE once it serves, each with the time of the write, and the record's other
+// fields are overwritten by the new process as well. A pooler that crashed or was
+// killed leaves its old record in place, so this is the only sign that it came
+// back. A routine republish (serving status, routing state) leaves the lifecycle
+// entry as it was, and so does every other update the pooler makes while it runs.
+func poolerRestarted(prev, curr *clustermetadatapb.Multipooler) bool {
+	lifecycle := curr.GetLifecycleStatus()
+	switch lifecycle.GetStatus() {
+	case clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_STARTING,
+		clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE:
+	default:
+		return false
+	}
+	return !proto.Equal(prev.GetLifecycleStatus().GetUpdated(), lifecycle.GetUpdated())
+}
+
+// reconnectWait bounds how long RetryHealthNow waits for the gRPC channel to
+// reconnect before it lets the health stream try anyway.
+const reconnectWait = 2 * time.Second
+
+// RetryHealthNow makes the health stream retry now, when it is not healthy:
+// it is failing, or waiting out a backoff. It ends the wait and resets the
+// backoff, so the loop's next attempt is immediate. It does nothing while the
+// stream is healthy, and it never interrupts an attempt in progress. One call
+// buys at most one immediate attempt: if that attempt fails the loop backs off
+// from the start as usual.
+//
+// The gRPC channel has a backoff of its own, and after a crash it is in
+// TRANSIENT_FAILURE, where a call fails at once without trying to connect. So
+// the channel is told to reconnect now, and the retry waits, for at most
+// reconnectWait, until it has.
+func (pc *poolerConnection) RetryHealthNow() {
+	if pc.Health().LastError == nil {
+		return
+	}
+	pc.logger.Debug("retrying the health stream now", "pooler_id", pc.ID())
+	if pc.conn == nil {
+		pc.endBackoffWait()
+		return
+	}
+	pc.conn.ResetConnectBackoff()
+	pc.conn.Connect()
+	go func() {
+		pc.awaitReconnect()
+		pc.endBackoffWait()
+	}()
+}
+
+// awaitReconnect waits until the gRPC channel is ready, is shut down, or
+// reconnectWait has passed, or the connection is closed.
+func (pc *poolerConnection) awaitReconnect() {
+	ctx, cancel := context.WithTimeout(pc.ctx, reconnectWait)
+	defer cancel()
+	for {
+		state := pc.conn.GetState()
+		if state == connectivity.Ready || state == connectivity.Shutdown {
+			return
+		}
+		if !pc.conn.WaitForStateChange(ctx, state) {
+			return
+		}
+	}
+}
+
+// endBackoffWait ends the backoff wait of the current retry episode.
+func (pc *poolerConnection) endBackoffWait() {
+	pc.waitMu.Lock()
+	cancel := pc.cancelWait
+	pc.waitMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
 // PoolerInfo returns the underlying pooler metadata.
 func (pc *poolerConnection) PoolerInfo() *topoclient.MultipoolerInfo {
 	return pc.poolerInfo.Load()
@@ -319,21 +426,43 @@ func (pc *poolerConnection) Health() *poolerHealth {
 
 // checkConn performs health checking on the pooler connection.
 // It continuously attempts to maintain a health stream, retrying with
-// exponential backoff on failures.
+// exponential backoff on failures. RetryHealthNow ends the backoff: the loop
+// then starts a new episode, with a fresh backoff and an immediate first
+// attempt.
 func (pc *poolerConnection) checkConn() {
 	defer close(pc.checkConnDone)
 	poolerID := pc.ID()
 	pc.logger.Debug("starting health check loop", "pooler_id", poolerID)
 
-	streamRetrier := retry.New(constants.DefaultHealthRetryDelay, constants.DefaultHealthCheckTimeout)
+	for pc.ctx.Err() == nil {
+		pc.healthEpisode()
+	}
+	pc.logger.Debug("health check loop exiting", "pooler_id", poolerID, "reason", pc.ctx.Err())
+}
 
-	for attempt, waitErr := range streamRetrier.Attempts(pc.ctx) {
+// healthEpisode runs the retry loop until the connection is closed or
+// RetryHealthNow ends its backoff wait, whichever comes first. A wait that
+// RetryHealthNow cancels while an attempt is running takes effect when that
+// attempt ends, so the attempt itself is never interrupted.
+func (pc *poolerConnection) healthEpisode() {
+	poolerID := pc.ID()
+	streamRetrier := retry.New(healthRetryDelay, healthRetryMaxDelay)
+
+	// waitCtx is what the backoff waits on. The stream attempts run on pc.ctx.
+	waitCtx, cancelWait := context.WithCancel(pc.ctx)
+	defer cancelWait()
+	pc.waitMu.Lock()
+	pc.cancelWait = cancelWait
+	pc.waitMu.Unlock()
+
+	for attempt, waitErr := range streamRetrier.Attempts(waitCtx) {
 		if waitErr != nil {
-			// Context cancelled - connection is being closed.
-			pc.logger.Debug("health check loop exiting",
+			// The connection is closing, or the backoff was cut short.
+			pc.logger.Debug("health check backoff ended",
 				"pooler_id", poolerID,
 				"attempt", attempt,
-				"reason", waitErr)
+				"reason", waitErr,
+				"closing", pc.ctx.Err() != nil)
 			return
 		}
 
