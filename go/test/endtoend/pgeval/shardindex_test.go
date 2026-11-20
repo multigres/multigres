@@ -100,10 +100,20 @@ func compareShardIndexHash(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 	require.NotEmpty(t, golden)
 
 	if os.Getenv("UPDATE_SHARDINDEX_GOLDEN") == "1" {
+		// Write the file as Prettier formats it, which CI checks: one object
+		// per line, broken into one member per line when the line, with its
+		// trailing comma, would pass 80 columns.
 		lines := make([]string, len(golden))
 		for i, g := range golden {
-			lines[i] = fmt.Sprintf(`  { "value": %d, "width": %d, "routing_id": "%s" }`,
-				g.Value, g.Width, hex.EncodeToString(server(g.Value, g.Width)))
+			id := hex.EncodeToString(server(g.Value, g.Width))
+			lines[i] = fmt.Sprintf(`  { "value": %d, "width": %d, "routing_id": "%s" }`, g.Value, g.Width, id)
+			width := len(lines[i])
+			if i < len(golden)-1 {
+				width++
+			}
+			if width > 80 {
+				lines[i] = fmt.Sprintf("  {\n    \"value\": %d,\n    \"width\": %d,\n    \"routing_id\": \"%s\"\n  }", g.Value, g.Width, id)
+			}
 		}
 		require.NoError(t, os.WriteFile(hashGoldenPath, []byte("[\n"+strings.Join(lines, ",\n")+"\n]\n"), 0o644))
 		t.Logf("Rewrote %d golden vectors in %s from the server", len(golden), hashGoldenPath)
