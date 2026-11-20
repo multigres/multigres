@@ -273,11 +273,11 @@ func NewPoolerGateway(opts PoolerGatewayOpts) *PoolerGateway {
 			}
 			return conn
 		},
-		OnUpdate: func(_, curr *clustermetadatapb.Multipooler, conn *poolerConnection) {
+		OnUpdate: func(prev, curr *clustermetadatapb.Multipooler, conn *poolerConnection) {
 			if conn == nil {
 				return
 			}
-			conn.UpdatePoolerInfo(curr)
+			conn.applyTopologyUpdate(prev, curr)
 		},
 		OnGone: func(p *clustermetadatapb.Multipooler, conn *poolerConnection, _ poolerwatch.GoneReason) {
 			if conn != nil {
