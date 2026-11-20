@@ -4683,6 +4683,15 @@ components:
         name:
           title: name
           type: string
+        shardBackingConnections:
+          additionalProperties:
+            title: value
+            type: string
+          description: |-
+            shard_backing_connections maps each shard served by an external
+             PostgreSQL to the name of its connection. Shards not listed are managed.
+          title: shard_backing_connections
+          type: object
         shards:
           description: shards is the shard layout in canonical order.
           items:

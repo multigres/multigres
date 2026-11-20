@@ -20,6 +20,37 @@
     "query": "CREATE TABLEGROUP IF NOT EXISTS commerce SHARDS ('0-80', '80-inf')"
   },
   {
+    "comment": "CREATE TABLEGROUP bound to a connection",
+    "query": "CREATE TABLEGROUP srctg CONNECTION ext"
+  },
+  {
+    "comment": "CREATE TABLEGROUP IF NOT EXISTS bound to a connection",
+    "query": "CREATE TABLEGROUP IF NOT EXISTS srctg CONNECTION ext"
+  },
+  {
+    "comment": "CREATE TABLEGROUP bound to a connection with a quoted name",
+    "query": "CREATE TABLEGROUP srctg CONNECTION \"Source DB\""
+  },
+  {
+    "comment": "CONNECTION is an unreserved keyword and still names a tablegroup",
+    "query": "CREATE TABLEGROUP connection CONNECTION connection"
+  },
+  {
+    "comment": "CONNECTION and SHARDS are exclusive",
+    "query": "CREATE TABLEGROUP srctg CONNECTION ext SHARDS ('0-inf')",
+    "error": "syntax error at or near \"SHARDS\""
+  },
+  {
+    "comment": "SHARDS and CONNECTION are exclusive",
+    "query": "CREATE TABLEGROUP srctg SHARDS ('0-inf') CONNECTION ext",
+    "error": "syntax error at or near \"CONNECTION\""
+  },
+  {
+    "comment": "CONNECTION needs a name",
+    "query": "CREATE TABLEGROUP srctg CONNECTION",
+    "error": "syntax error"
+  },
+  {
     "comment": "ALTER TABLEGROUP RENAME",
     "query": "ALTER TABLEGROUP commerce RENAME TO shop"
   },

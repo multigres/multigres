@@ -142,12 +142,10 @@ func TestTheExternalBackendIsRequiredExactlyForAnUnmanagedPooler(t *testing.T) {
 	}
 }
 
-// TestAnUnmanagedPoolerRefusesTheDefaultTablegroupWithTheSharedError: startup and the manager
-// refuse it with the same error.
-func TestAnUnmanagedPoolerRefusesTheDefaultTablegroupWithTheSharedError(t *testing.T) {
-	want := ValidateUnmanagedTableGroup(constants.DefaultTableGroup)
+func TestAnUnmanagedPoolerRefusesTheDefaultTablegroup(t *testing.T) {
+	want := validateUnmanagedTableGroup(constants.DefaultTableGroup)
 	require.ErrorContains(t, want, "default tablegroup")
-	require.NoError(t, ValidateUnmanagedTableGroup("migrateTG"))
+	require.NoError(t, validateUnmanagedTableGroup("migrateTG"))
 
 	_, err := NewMultipoolerManager(slog.Default(), &clustermetadatapb.Multipooler{
 		Id:             &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "p"},
