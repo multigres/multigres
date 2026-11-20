@@ -2,7 +2,7 @@
 # checked by TestCatalogSchema_Golden. Appending entries is fine; editing or
 # removing one needs a new numbered migration in catalogMigrations. Rewrite with
 # CATALOG_SCHEMA_REWRITE=1.
-format 1
+format 2
 == table
 CREATE TABLE IF NOT EXISTS multigres.catalog_state (
 	singleton       boolean PRIMARY KEY DEFAULT true CHECK (singleton),

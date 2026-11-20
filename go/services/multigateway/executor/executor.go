@@ -623,11 +623,17 @@ func (e *Executor) PrepareInTransaction(
 	if isMigrationDDLText(queryStr) {
 		return nil
 	}
-	return e.exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", &query.PreparedStatement{
-		Query:        queryStr,
-		ParamTypes:   paramTypes,
-		ForceReparse: true,
-	}, state, engine.PlanExecInfo{}, false, func(context.Context, *sqltypes.Result) error { return nil })
+	// A parse refused as fenced is retried like an Execute (see runFenced),
+	// under the same rule: only while the session holds no reserved
+	// connection, so the parse is what opens the transaction on a pooler and,
+	// refused at admission, ran nowhere. A parse on a target the transaction
+	// already holds a reserved connection on runs on that connection, which
+	// is always admitted and never refused as fenced.
+	ps := &query.PreparedStatement{Query: queryStr, ParamTypes: paramTypes, ForceReparse: true}
+	return e.runFenced(ctx, conn, state, func(context.Context, *sqltypes.Result) error { return nil },
+		func(exec engine.IExecute, callback func(context.Context, *sqltypes.Result) error) error {
+			return exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", ps, state, engine.PlanExecInfo{}, false, callback)
+		})
 }
 
 // isTableGroupDDLText reports whether queryStr is a single tablegroup DDL

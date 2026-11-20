@@ -42,10 +42,33 @@ import (
 // under the catalog_state row lock. One change fences or unfences a list of
 // scopes, all or nothing, at one routing version.
 //
-// Nothing enforces fences yet: no pooler reads them, so FENCED records the
-// operation's intent and guarantees nothing. A later change raises a list as
-// FENCING, refreshes and drains every pooler of every scope, and only then
-// writes FENCED; if that fails, it deletes the rows it inserted.
+// Only an unfinished operation holds fences: a fence can be raised only by an
+// operation that has not finished, and every catalog write that finishes an
+// operation (moves it to done or failed) deletes its fences in the same
+// transaction (deleteOperationFences). Catalog format 2 deleted the fences
+// finished operations had left before that. So a fence row in the snapshot
+// always means its scope is fenced, in FENCING as in FENCED, and every reader
+// uses that one definition (shardingcatalog.TableGroup.Fenced): this
+// validation, the pooler's admission gate and the gateway's wait for a fence
+// to lift.
+//
+// The catalog is never fenced against itself. The fence gate guards only
+// application work, which reaches postgres through the query service's
+// StartRequest; every catalog read and write here (FenceScopes, UnfenceScopes,
+// GetRoutingSnapshot, the tablegroup loop, a pooler reading its own fences)
+// goes through the internal query service, which never consults the gate. So
+// fencing the catalog shard closes it to applications without blocking the
+// writes that lift the fence; routing catalog access through the admitted
+// query service would deadlock an unfence of the catalog shard.
+//
+// Primary poolers enforce fences (see the fence gate in poolerserver and
+// fence_refresh.go): a pooler whose scope is fenced refuses new application
+// work with MTF02 once it has read the fence, which it does on RefreshFences,
+// on start and on promotion. FenceScopes does not refresh any pooler yet, so a
+// fence it raises is enforced only once each pooler of the scope refreshes. A
+// later change raises a list as FENCING, refreshes and drains every pooler of
+// every scope, and only then writes FENCED; if that fails, it deletes the rows
+// it inserted.
 // ============================================================================
 
 // Fence states, as stored in multigres.admission_fence.state.
@@ -55,10 +78,8 @@ const (
 )
 
 const (
-	// selectFencesSQL reads every fence with its operation's state, which
-	// decides whether the fence still holds its scope.
-	selectFencesSQL = `SELECT f.fence_id, f.operation_id::text, f.tablegroup_id, f.shard_id, f.state, f.version, o.state
-FROM multigres.admission_fence f JOIN multigres.operation o USING (operation_id) ORDER BY f.fence_id`
+	selectFencesSQL = `SELECT fence_id, operation_id::text, tablegroup_id, shard_id, state, version
+FROM multigres.admission_fence ORDER BY fence_id`
 
 	insertFenceSQL = `INSERT INTO multigres.admission_fence (operation_id, tablegroup_id, shard_id, state, version)
 VALUES ($1::uuid, $2, $3, $4, $5)`
@@ -67,16 +88,15 @@ VALUES ($1::uuid, $2, $3, $4, $5)`
 
 	deleteFenceSQL = `DELETE FROM multigres.admission_fence WHERE fence_id = $1`
 
-	// droppingTableGroupFenceHolderSQL finds an unfinished operation that
-	// still fences a dropping tablegroup, if any.
-	droppingTableGroupFenceHolderSQL = `SELECT f.operation_id::text FROM multigres.admission_fence f
-JOIN multigres.operation o USING (operation_id)
-JOIN multigres.tablegroup t USING (tablegroup_id)
-WHERE f.tablegroup_id = $1 AND t.state = $2 AND o.state NOT IN ('` + opStateDone + `', '` + opStateFailed + `')
-ORDER BY f.fence_id LIMIT 1`
+	// deleteOperationFencesSQL deletes every fence of an operation.
+	deleteOperationFencesSQL = `DELETE FROM multigres.admission_fence WHERE operation_id = $1::uuid`
 
-	deleteDroppingTableGroupFencesSQL = `DELETE FROM multigres.admission_fence WHERE tablegroup_id = $1
-AND EXISTS (SELECT 1 FROM multigres.tablegroup WHERE tablegroup_id = $1 AND state = $2)`
+	// droppingTableGroupFenceHolderSQL finds the operation of a fence on a
+	// dropping tablegroup, if any.
+	droppingTableGroupFenceHolderSQL = `SELECT f.operation_id::text FROM multigres.admission_fence f
+JOIN multigres.tablegroup t USING (tablegroup_id)
+WHERE f.tablegroup_id = $1 AND t.state = $2
+ORDER BY f.fence_id LIMIT 1`
 )
 
 // fenceScope is the scope of a fence. A zero shardID (NULL) is the whole
@@ -92,23 +112,14 @@ func (a fenceScope) overlaps(b fenceScope) bool {
 	return a.tablegroupID == b.tablegroupID && (a.shardID == 0 || b.shardID == 0 || a.shardID == b.shardID)
 }
 
-// catalogFence is a multigres.admission_fence row, with the state of the
-// operation that owns it.
+// catalogFence is a multigres.admission_fence row. Its operation has not
+// finished (see the file comment), so it holds its scope.
 type catalogFence struct {
-	fenceID        int64
-	operationID    string
-	scope          fenceScope
-	state          string
-	version        int64
-	operationState string
-}
-
-// holds reports whether the fence holds its scope against other operations:
-// its operation has not finished. A finished operation's fence is left only
-// when it was never lifted, and the next operation to fence the scope takes
-// its row over.
-func (f catalogFence) holds() bool {
-	return !slices.Contains(terminalOperationStates, f.operationState)
+	fenceID     int64
+	operationID string
+	scope       fenceScope
+	state       string
+	version     int64
 }
 
 // fenceScopeSpec names a fence scope: a tablegroup, and a shard of it or ""
@@ -291,11 +302,10 @@ func planFenceChange(cat *routingCatalog, change fenceChange) (fencePlan, error)
 		if r.tg.state == "dropping" {
 			return fencePlan{}, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "tablegroup %q is being dropped", r.tg.name)
 		}
-		// A fence of another operation that still holds its scope keeps
-		// every overlapping scope from being fenced. One whose operation
-		// has finished, at this exact scope, is taken over.
+		// A fence of another operation keeps every overlapping scope from
+		// being fenced.
 		for _, f := range cat.fences {
-			if f.operationID != change.operationID && f.holds() && f.scope.overlaps(r.scope) {
+			if f.operationID != change.operationID && f.scope.overlaps(r.scope) {
 				return fencePlan{}, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 					"%s is fenced by operation %s, which has not finished", cat.describeFenceScope(f.scope), f.operationID)
 			}
@@ -431,7 +441,7 @@ func readFences(ctx context.Context, tx executor.InternalTx) ([]catalogFence, er
 		var f catalogFence
 		var shard *int64
 		if err := executor.ScanRow(row, &f.fenceID, &f.operationID, &f.scope.tablegroupID, &shard,
-			&f.state, &f.version, &f.operationState); err != nil {
+			&f.state, &f.version); err != nil {
 			return nil, mterrors.Wrap(err, "failed to read admission fence")
 		}
 		f.scope.shardID = derefID(shard)
@@ -440,28 +450,34 @@ func readFences(ctx context.Context, tx executor.InternalTx) ([]catalogFence, er
 	return fences, nil
 }
 
-// deleteDroppingTableGroupFences deletes the fences on a dropping tablegroup,
-// in finishDropTableGroup's transaction, before it deletes the shard and
-// tablegroup rows they reference. A fence an unfinished operation still holds
-// keeps the tablegroup: that operation may still be changing its routing, so
-// the drop is refused with FAILED_PRECONDITION and stays pending until the
-// operation lifts the fence or finishes. A finished operation's fences hold
-// nothing and are deleted.
-func deleteDroppingTableGroupFences(ctx context.Context, tx executor.InternalTx, name string, tablegroupID int64) error {
+// checkDroppingTableGroupUnfenced refuses, in finishDropTableGroup's
+// transaction, to delete a dropping tablegroup that is still fenced: the
+// fence's operation may still be changing its routing, so the drop fails with
+// FAILED_PRECONDITION and stays pending until the operation lifts the fence or
+// finishes, which deletes it.
+func checkDroppingTableGroupUnfenced(ctx context.Context, tx executor.InternalTx, name string, tablegroupID int64) error {
 	res, err := tx.QueryArgs(ctx, droppingTableGroupFenceHolderSQL, tablegroupID, tableGroupStateDropping)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to read admission fences")
 	}
-	if len(res.Rows) > 0 {
-		var holder string
-		if err := executor.ScanRow(res.Rows[0], &holder); err != nil {
-			return mterrors.Wrap(err, "failed to read admission fence")
-		}
-		return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-			"tablegroup %q is fenced by operation %s, which has not finished", name, holder)
+	if len(res.Rows) == 0 {
+		return nil
 	}
-	if _, err := tx.QueryArgs(ctx, deleteDroppingTableGroupFencesSQL, tablegroupID, tableGroupStateDropping); err != nil {
-		return mterrors.Wrap(err, "failed to delete admission fences")
+	var holder string
+	if err := executor.ScanRow(res.Rows[0], &holder); err != nil {
+		return mterrors.Wrap(err, "failed to read admission fence")
+	}
+	return mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+		"tablegroup %q is fenced by operation %s, which has not finished", name, holder)
+}
+
+// deleteOperationFences deletes every fence of operationID, in the
+// transaction of a catalog write that finishes the operation: a finished
+// operation holds no fence (see the file comment). The fences are in the
+// snapshot, so the write is a routing change.
+func deleteOperationFences(ctx context.Context, tx executor.InternalTx, operationID string) error {
+	if _, err := tx.QueryArgs(ctx, deleteOperationFencesSQL, operationID); err != nil {
+		return mterrors.Wrapf(err, "failed to delete the admission fences of operation %s", operationID)
 	}
 	return nil
 }

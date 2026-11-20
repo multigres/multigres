@@ -1069,3 +1069,21 @@ message UnfenceScopesRequest {
 message UnfenceScopesResponse {
   int64 routing_version = 1;
 }
+
+// RefreshFencesRequest makes a pooler read and apply the admission fences on
+// its scope.
+message RefreshFencesRequest {
+  // min_routing_version is the lowest routing version the snapshot read may
+  // be at: the version of the fence change the caller wants applied.
+  int64 min_routing_version = 1;
+  // drain_timeout bounds the drain of a pooler the refresh fences. Unset or
+  // zero uses the pooler's drain grace period.
+  google.protobuf.Duration drain_timeout = 2;
+}
+
+// RefreshFencesResponse returns the routing version the pooler applied.
+message RefreshFencesResponse {
+  int64 routing_version = 1;
+  // fenced reports whether the snapshot fences the pooler's scope.
+  bool fenced = 2;
+}

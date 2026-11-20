@@ -10,9 +10,9 @@ there are no rules.
 This page describes what is implemented today: the rule table, how a rule
 change is validated, the admission fences a rule change requires, how rules
 and fences reach gateways in the catalog snapshot, and the RPCs that set and
-read them. Gateways don't apply rules yet, and poolers don't enforce fences
-yet; both come later. The gateway already handles the refusal a fenced pooler
-will give (see [Admission fences](#admission-fences)).
+read them, and how primary poolers enforce fences. Gateways don't apply rules
+yet, and `FenceScopes` does not yet refresh the poolers of the scopes it
+fences; both come later.
 
 No code creates an operation that moves data yet: the only operations the
 catalog primary records are tablegroup creations, so the `import` and reshard
@@ -70,13 +70,16 @@ it. A scope has at most one fence, in one of two states:
 - `FENCING`: the fence is being raised (not written yet; see below).
 - `FENCED`: the scope is closed to application work.
 
-A fence row exists only while its scope is fenced: lifting a fence deletes it.
-Each row records the `routing_version` the fence was set at. Fences an
-operation never lifted are to be removed when it completes (not implemented
-yet). The one cleanup that exists is on a tablegroup's drop: when the
-completion loop deletes a `dropping` tablegroup, it deletes the fences that
-finished operations left on it in the same write, and a fence that an
-unfinished operation still holds keeps the tablegroup from being deleted.
+A fence row exists only while its scope is fenced: lifting a fence deletes it,
+and so does finishing its operation. Every catalog write that moves an
+operation to `done` or `failed` (completing or failing a tablegroup creation,
+finishing a drop) deletes that operation's fences in the same transaction, and
+advances `routing_version`. Catalog format 2 deleted the fences that finished
+operations had left before. So every fence row in the snapshot holds its scope,
+in `FENCING` as in `FENCED`, and every reader uses that one definition
+(`shardingcatalog.TableGroup.Fenced`): the catalog's own checks, the pooler's
+admission gate and the gateway's wait for a fence to lift. Each row records the
+`routing_version` the fence was set at.
 
 `FenceScopes` raises an operation's fences on a list of scopes and
 `UnfenceScopes` lifts them. Each call is one catalog write through
@@ -94,16 +97,15 @@ routing version, as rule changes do. `UnfenceScopes` checks it only against
 the fences it lifts: it fails if any of them was set after that version, so a
 delayed unfence cannot lift a fence raised again since, but unrelated catalog
 writes do not force a retry. Lifting is always allowed, even by an operation
-that has finished, so its fences can be cleaned up.
+that has finished (which by then holds no fences).
 
 A list must be non-empty, and no two of its scopes may overlap (the same scope
 twice, or a whole tablegroup and one of its shards); otherwise the call
 answers `INVALID_ARGUMENT`. `FenceScopes` is refused when the operation
 does not exist or has finished, a tablegroup is being dropped, or another
-unfinished operation holds a fence on a scope that overlaps one in the list: a
-whole-tablegroup fence overlaps every shard fence of the tablegroup. A fence
-left by an operation that finished without lifting it holds nothing, and the
-next operation to fence that scope takes its row over.
+operation holds a fence on a scope that overlaps one in the list: a
+whole-tablegroup fence overlaps every shard fence of the tablegroup. A
+dropping tablegroup is deleted only once no fence is left on it.
 
 `SetRoutingRules` and `DeleteRoutingRules` require `FENCED` fences of the same
 operation on both sides of every rule the change inserts or removes (a delete
@@ -117,13 +119,60 @@ A missing fence answers `FAILED_PRECONDITION` naming the scope that isn't
 fenced. A change that is already in effect needs no fences, so a retry after
 the operation unfenced still succeeds.
 
-Fences are part of the catalog snapshot, next to the rules. **Nothing enforces
-them yet**: poolers don't read fences, so `FenceScopes` writes `FENCED`
-directly and that records intent only. Until poolers enforce them, the caller
-must still quiesce the affected application traffic before changing rules. A
-later change makes `FenceScopes` write the whole list as `FENCING`, refresh
-and drain every pooler of every scope in parallel, and only then write the
-list as `FENCED`.
+Fences are part of the catalog snapshot, next to the rules.
+
+### How poolers enforce fences
+
+A primary pooler whose scope (its whole tablegroup, or its shard) is fenced
+refuses new application work with `MTF02`, which the gateway retries once the
+fence lifts (see [failover buffering](../query_serving/failover_buffering.md)).
+The fence gate is a condition of its own: a fenced pooler stays `SERVING`, and
+its consensus role, multiorch's view of it and its health stream don't change.
+Work on an existing reserved connection is always admitted, and so are
+requests that run no application work: a login's credential lookup and an
+extended-protocol Describe. Replicas aren't
+fenced in this version. A pooler matches its tablegroup by catalog id
+(`--tablegroup-id`) when it has one, and otherwise by name; the `default`
+tablegroup's poolers have no id, and its name is permanent.
+
+A pooler reads the fences from its database's catalog primary
+(`GetRoutingSnapshot`; the catalog primary reads its own catalog in process):
+
+- on `RefreshFences(min_routing_version, drain_timeout)`, which the operation
+  calls on every pooler of a scope it fences or unfences. The snapshot read
+  must be at `min_routing_version` or later (`FAILED_PRECONDITION`
+  otherwise), and a catalog primary that can't be reached fails the call
+  (`UNAVAILABLE`) without applying anything. A refresh that changes nothing is
+  a no-op; one that finds no fence on the scope reopens the gate. Every
+  pooler serves it, unmanaged ones included.
+- when it starts, and each time it becomes primary. Until that read is
+  applied it refuses application work with `MTF02` (it fails closed), which
+  the gateway retries with backoff. It reads only once it is registered in the
+  topology, so an operation that lists the
+  scope's poolers after recording a fence either lists the new pooler or the
+  new pooler reads the fence. A failed read is retried in the background with
+  backoff; nothing but application work on that primary waits for it. A
+  catalog primary on which the catalog was never created has no fences, since
+  every fence lives in the catalog.
+- every 30 seconds while it is fenced, so an unfence it was not refreshed for
+  is eventually lifted. Unfenced poolers don't poll.
+
+Minigres has nothing to fence: it never gates and never reads fences.
+
+When a refresh fences a primary, the pooler drains before the call returns,
+with a phase of its own, independent of the not-serving drain of a failover:
+first new reservations are refused while single queries continue and open
+transactions finish; then single queries are refused too and the in-flight
+ones finish. At `drain_timeout` (the pooler's drain grace period when unset),
+the remaining reserved connections are force-closed and their transactions get
+`40001`. The drain metrics (`mg.pooler.drain.*`) carry `reason=fence`, or
+`reason=failover` for the not-serving drain.
+
+`FenceScopes` still writes `FENCED` directly and refreshes no pooler, so until
+the caller has refreshed every pooler of every scope, the fence is not
+enforced everywhere. A later change makes `FenceScopes` write the whole list as
+`FENCING`, refresh and drain every pooler of every scope in parallel, and only
+then write the list as `FENCED`.
 
 The gateway side of enforcement is in place
 (`go/services/multigateway/executor/fence.go`). A pooler that refuses work on

@@ -49,14 +49,29 @@ func RegisterPoolerManagerServices(senv *servenv.ServEnv, grpc *servenv.GrpcServ
 }
 
 // registerManagerService registers the service for a pooler that has a postgres to manage. An
-// unmanaged pooler has no lifecycle RPCs: the service is not registered at all, so every method,
-// any added later included, answers Unimplemented and none can reach the external database.
-// The mode is immutable for the process, so deciding once, here, is enough.
+// unmanaged pooler has no lifecycle RPCs: it gets unmanagedService instead, which serves only
+// RefreshFences, so every other method, any added later included, answers Unimplemented and none
+// can reach the external database. The mode is immutable for the process, so deciding once, here,
+// is enough.
 func registerManagerService(server grpc.ServiceRegistrar, pm *manager.MultipoolerManager) {
 	if pm.IsUnmanaged() {
+		multipoolermanagerpb.RegisterMultipoolerManagerServer(server, &unmanagedService{manager: pm})
 		return
 	}
 	multipoolermanagerpb.RegisterMultipoolerManagerServer(server, &managerService{manager: pm})
+}
+
+// unmanagedService is the manager service of an unmanaged pooler: only RefreshFences, which an
+// unmanaged pooler answers like a managed one, since it serves application traffic that an
+// operation may fence. It reads the catalog primary and touches nothing of the external database.
+type unmanagedService struct {
+	multipoolermanagerpb.UnimplementedMultipoolerManagerServer
+	manager *manager.MultipoolerManager
+}
+
+// RefreshFences reads and applies the admission fences on the pooler's scope.
+func (s *unmanagedService) RefreshFences(ctx context.Context, req *multipoolermanagerdatapb.RefreshFencesRequest) (*multipoolermanagerdatapb.RefreshFencesResponse, error) {
+	return refreshFences(ctx, s.manager, req)
 }
 
 // WaitForLSN waits for PostgreSQL server to reach a specific LSN position
@@ -214,6 +229,20 @@ func (s *managerService) FenceScopes(ctx context.Context, req *multipoolermanage
 // Only the catalog primary serves it.
 func (s *managerService) UnfenceScopes(ctx context.Context, req *multipoolermanagerdatapb.UnfenceScopesRequest) (*multipoolermanagerdatapb.UnfenceScopesResponse, error) {
 	resp, err := s.manager.UnfenceScopes(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
+// RefreshFences reads and applies the admission fences on the pooler's scope.
+// Every pooler serves it.
+func (s *managerService) RefreshFences(ctx context.Context, req *multipoolermanagerdatapb.RefreshFencesRequest) (*multipoolermanagerdatapb.RefreshFencesResponse, error) {
+	return refreshFences(ctx, s.manager, req)
+}
+
+func refreshFences(ctx context.Context, pm *manager.MultipoolerManager, req *multipoolermanagerdatapb.RefreshFencesRequest) (*multipoolermanagerdatapb.RefreshFencesResponse, error) {
+	resp, err := pm.RefreshFences(ctx, req)
 	if err != nil {
 		return nil, mterrors.ToGRPC(err)
 	}

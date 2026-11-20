@@ -316,6 +316,14 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 		return nil, mterrors.Wrap(err, "failed to set catalog snapshot isolation")
 	}
 	res, err := tx.Query(execCtx, catalogVersionsQuery)
+	if mterrors.ExtractSQLSTATE(err) == mterrors.PgSSUndefinedTable {
+		// The catalog was never created on this primary: ensureCatalogSchema
+		// has not succeeded here (a failed ensure on open is only logged).
+		// Every fence lives in the catalog, written under the catalog_state
+		// row lock, so none exists, and a pooler reading its fences takes
+		// NOT_FOUND as no fences.
+		return nil, mterrors.Errorf(mtrpcpb.Code_NOT_FOUND, "the sharding catalog of database %q was never created on this primary", pm.record.ShardRef().GetDatabase())
+	}
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read catalog versions")
 	}

@@ -95,7 +95,7 @@ func testRoutingCatalog() *routingCatalog {
 func fenceRow(id int64, op string, tablegroup, shard int64, state string) catalogFence {
 	return catalogFence{
 		fenceID: id, operationID: op, scope: fenceScope{tablegroupID: tablegroup, shardID: shard},
-		state: state, version: testRoutingV0, operationState: "preparing",
+		state: state, version: testRoutingV0,
 	}
 }
 
