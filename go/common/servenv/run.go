@@ -32,7 +32,8 @@ import (
 // and blocks until it the process gets a signal.
 //
 // The gRPC servers are created before the run hooks, so services can register
-// on any of them, and served after.
+// on any of them, and served after. The serving hooks (OnServing) run last,
+// once they serve.
 func (sv *ServEnv) Run(bindAddress string, port int, grpcServers ...*GrpcServer) error {
 	sv.PopulateListeningURL(int32(port))
 
@@ -95,6 +96,10 @@ func (sv *ServEnv) Run(bindAddress string, port int, grpcServers ...*GrpcServer)
 		if err := grpcServer.serveSocketFile(); err != nil {
 			return fmt.Errorf("grpc socket file: %w", err)
 		}
+	}
+
+	if err := sv.FireServingHooks(); err != nil {
+		return fmt.Errorf("serving hooks: %w", err)
 	}
 
 	signal.Notify(sv.exitChan, syscall.SIGTERM, syscall.SIGINT)
