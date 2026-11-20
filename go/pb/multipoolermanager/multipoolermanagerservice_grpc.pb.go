@@ -171,8 +171,10 @@ type MultipoolerManagerClient interface {
 	// nothing is a no-op. Replicas record the result but are not fenced.
 	//
 	// Returns the routing version it applied. A catalog primary that cannot be
-	// reached returns UNAVAILABLE and applies nothing; a snapshot below
-	// min_routing_version returns FAILED_PRECONDITION.
+	// reached returns UNAVAILABLE and applies nothing, as does a snapshot older
+	// (by consensus rule, then routing version) than one the pooler already
+	// applied: a catalog primary deposed by a failover may still answer. A
+	// snapshot below min_routing_version returns FAILED_PRECONDITION.
 	RefreshFences(ctx context.Context, in *multipoolermanagerdata.RefreshFencesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RefreshFencesResponse, error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
@@ -592,8 +594,10 @@ type MultipoolerManagerServer interface {
 	// nothing is a no-op. Replicas record the result but are not fenced.
 	//
 	// Returns the routing version it applied. A catalog primary that cannot be
-	// reached returns UNAVAILABLE and applies nothing; a snapshot below
-	// min_routing_version returns FAILED_PRECONDITION.
+	// reached returns UNAVAILABLE and applies nothing, as does a snapshot older
+	// (by consensus rule, then routing version) than one the pooler already
+	// applied: a catalog primary deposed by a failover may still answer. A
+	// snapshot below min_routing_version returns FAILED_PRECONDITION.
 	RefreshFences(context.Context, *multipoolermanagerdata.RefreshFencesRequest) (*multipoolermanagerdata.RefreshFencesResponse, error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by

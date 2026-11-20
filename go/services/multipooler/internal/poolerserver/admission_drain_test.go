@@ -122,7 +122,7 @@ func TestFenceDrain_WaitsForAdmittedRequests(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- s.ApplyFence(context.Background(), s.FenceEpoch(), true, 5*time.Second)
+		done <- s.ApplyFence(context.Background(), FenceRead{Epoch: s.FenceEpoch(), Fenced: true}, 5*time.Second)
 	}()
 	waitForFenceDrainPhase(t, s, drainReserved)
 	requirePending(t, done, "a drain with a BEGIN waiting for its connection")

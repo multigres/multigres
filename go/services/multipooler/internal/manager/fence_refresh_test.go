@@ -69,6 +69,13 @@ func fenceTestSnapshot(version int64, fences ...*shardingcatalogpb.Fence) *multi
 	}
 }
 
+// servedUnder sets the consensus rule under which the catalog primary serves
+// resp.
+func servedUnder(term int64, resp *multipoolermanagerdatapb.GetRoutingSnapshotResponse) *multipoolermanagerdatapb.GetRoutingSnapshotResponse {
+	resp.ConsensusRule = &clustermetadatapb.RuleNumber{CoordinatorTerm: term}
+	return resp
+}
+
 // admit ends an admission StartRequest granted at once, and returns its error.
 func admit(a poolerserver.Admission, err error) error {
 	if err == nil {
@@ -225,6 +232,44 @@ func TestRefreshFences_RefusesAnOlderSnapshot(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
 	env.requireFenced(t) // still unread: nothing was applied
+}
+
+// A catalog primary that a failover deposed may still answer, with an older
+// snapshot. Once the pooler has applied its successor's snapshot, the deposed
+// primary's answer is refused whatever its routing version, also after the
+// pooler is promoted again, so it never reopens a gate a newer snapshot
+// closed.
+func TestRefreshFences_RefusesASnapshotOlderThanOneApplied(t *testing.T) {
+	env := newFenceTestEnv(t, fenceTestCommerceID)
+	fenced := testFence(9, fenceTestCommerceID, nil, shardingcatalogpb.FenceState_FENCE_STATE_FENCED)
+	env.serve(servedUnder(2, fenceTestSnapshot(4, fenced)))
+	resp, err := env.refresh(t, 4)
+	require.NoError(t, err)
+	require.True(t, resp.GetFenced())
+
+	for _, stale := range []*multipoolermanagerdatapb.GetRoutingSnapshotResponse{
+		servedUnder(1, fenceTestSnapshot(9)), // the deposed primary, at a higher version
+		servedUnder(2, fenceTestSnapshot(3)), // the same primary, at a lower version
+	} {
+		env.serve(stale)
+		_, err = env.refresh(t, 0)
+		assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "%v", err)
+		env.requireFenced(t)
+	}
+
+	env.setRole(t, servingstate.RoutingRoleReplica)
+	env.setRole(t, servingstate.RoutingRolePrimary)
+	env.serve(servedUnder(1, fenceTestSnapshot(9)))
+	_, err = env.refresh(t, 0)
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "the floor survives a promotion: %v", err)
+	env.requireFenced(t) // unread
+
+	// The successor's own unfence is applied.
+	env.serve(servedUnder(2, fenceTestSnapshot(5)))
+	resp, err = env.refresh(t, 5)
+	require.NoError(t, err)
+	assert.False(t, resp.GetFenced())
+	env.requireAdmits(t)
 }
 
 func TestRefreshFences_FailsWhenTheCatalogPrimaryIsUnreachable(t *testing.T) {

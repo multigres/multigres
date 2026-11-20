@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/shardingcatalog"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
@@ -43,6 +44,28 @@ import (
 // is unread, refusing new work until the next fence read is applied, because a
 // fence may have been raised while the pooler was not reading. Replicas are
 // not fenced: the gate is consulted only while the routing role is PRIMARY.
+//
+// Two checks decide whether ApplyFence applies a read, each against a stale
+// read of its own kind:
+//
+//   - The epoch refuses a read that began before the pooler last became
+//     primary. A read takes a network round trip, and a promotion does not
+//     wait for it. Such a read can predate a fence the operation wrote while
+//     the pooler was not primary, and so did not refresh the pooler for: it
+//     happens when the pooler loses and regains the primary role during one
+//     read. Read again after the promotion, the catalog holds that fence.
+//   - The floor refuses a read of a snapshot older, by consensus rule and then
+//     routing version, than the newest one the gate has applied. During a
+//     failover of the catalog shard, the topology may still name the deposed
+//     catalog primary, which still answers, with an older snapshot. Once the
+//     gate has applied the successor's snapshot, that answer cannot reopen a
+//     gate the successor's snapshot closed. The floor survives promotions,
+//     since a catalog failover can overlap the pooler's own.
+//
+// Neither check can do the other's job. A position says what a read saw, not
+// when it began, so the floor accepts a pre-promotion read when nothing newer
+// was applied. And a read begun after the promotion can still reach a deposed
+// catalog primary.
 //
 // Closing the gate drains the pooler like a not-serving transition, in two
 // stages under one timeout, with a phase of its own (fenceGate.drainPhase), so
@@ -80,9 +103,16 @@ type fenceGate struct {
 	// primary. It is separate from the not-serving drain's phase, so the two
 	// drains never move each other's phase.
 	drainPhase drainPhase
-	// epoch advances on every reset to unread, so a fence read taken before a
-	// reset is not applied (see ApplyFence).
+	// epoch advances on every reset to unread, which is when the pooler
+	// becomes primary. A read takes it before it reads the catalog, and
+	// ApplyFence refuses the read (ABORTED) when it has changed: the read
+	// began before the promotion (see the checks at the top of this file).
 	epoch uint64
+	// floor is the position of the newest snapshot a read applied. ApplyFence
+	// refuses a read of an older one (UNAVAILABLE): a deposed catalog primary
+	// may still answer (see the checks at the top of this file). Resets keep
+	// it.
+	floor shardingcatalog.Position
 	// changed receives a value when the fence reader has something to do: the
 	// gate was armed or reset, or it closed. Buffered, so a signal is never
 	// lost and never blocks.
@@ -220,10 +250,23 @@ func (s *QueryPoolerServer) FenceReadState() (unread, closed bool) {
 	return s.fence.state == fenceGateUnread, s.fence.state == fenceGateClosed
 }
 
-// ApplyFence applies a fence read taken at epoch (see FenceEpoch): fenced
-// closes the gate, otherwise it opens. A read taken before the gate was last
-// reset is refused with ABORTED, and the caller reads again. Applying the state
-// the gate already has is a no-op.
+// FenceRead is one read of the fences on the pooler's scope, for ApplyFence.
+type FenceRead struct {
+	// Epoch is the gate's epoch (FenceEpoch), taken before the catalog was
+	// read.
+	Epoch uint64
+	// Position is the position of the snapshot read: the zero Position when
+	// the catalog primary has no catalog.
+	Position shardingcatalog.Position
+	// Fenced reports whether the snapshot fences the pooler's scope.
+	Fenced bool
+}
+
+// ApplyFence applies a fence read: a fence closes the gate, otherwise it
+// opens. It applies nothing, and the caller reads again, when the read was
+// taken before the gate was last reset (ABORTED), or when its snapshot is
+// older than the floor (UNAVAILABLE). Applying the state the gate already has
+// is a no-op.
 //
 // Closing the gate on a primary runs the fence drain before returning, bounded
 // by drainTimeout, or the grace period when drainTimeout is not positive. The
@@ -234,18 +277,26 @@ func (s *QueryPoolerServer) FenceReadState() (unread, closed bool) {
 // resets it anyway.
 //
 // Callers must serialize ApplyFence calls.
-func (s *QueryPoolerServer) ApplyFence(ctx context.Context, epoch uint64, fenced bool, drainTimeout time.Duration) error {
+func (s *QueryPoolerServer) ApplyFence(ctx context.Context, read FenceRead, drainTimeout time.Duration) error {
 	s.mu.Lock()
 	if s.fence.state == fenceGateOff {
 		s.mu.Unlock()
 		return nil
 	}
-	if epoch != s.fence.epoch {
+	if read.Epoch != s.fence.epoch {
 		s.mu.Unlock()
 		return mterrors.New(mtrpcpb.Code_ABORTED, "the pooler became primary while its fences were read; read them again")
 	}
+	if read.Position.Compare(s.fence.floor) < 0 {
+		floor := s.fence.floor
+		s.mu.Unlock()
+		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"the catalog snapshot read (routing version %d) is older than one the pooler already applied (routing version %d); read again",
+			read.Position.RoutingVersion, floor.RoutingVersion)
+	}
+	s.fence.floor = read.Position
 	from := s.fence.state
-	if !fenced {
+	if !read.Fenced {
 		s.fence.state = fenceGateOpen
 		s.fence.drainPhase = drainNone
 		s.mu.Unlock()
@@ -278,7 +329,7 @@ func (s *QueryPoolerServer) ApplyFence(ctx context.Context, epoch uint64, fenced
 	s.mu.Lock()
 	// An unfence cannot have run meanwhile (calls are serialized), but a
 	// promotion reset can: leave the gate as the reset left it.
-	if s.fence.epoch == epoch {
+	if s.fence.epoch == read.Epoch {
 		s.fence.drainPhase = drainNone
 	}
 	s.mu.Unlock()

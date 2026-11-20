@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/shardingcatalog"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
@@ -58,7 +59,7 @@ func newFencedTestPooler(t *testing.T, mock *drainMockPoolManager, role servings
 // applyFence applies a fence read taken at the current epoch.
 func applyFence(t *testing.T, s *QueryPoolerServer, fenced bool) {
 	t.Helper()
-	require.NoError(t, s.ApplyFence(t.Context(), s.FenceEpoch(), fenced, time.Second))
+	require.NoError(t, s.ApplyFence(t.Context(), FenceRead{Epoch: s.FenceEpoch(), Fenced: fenced}, time.Second))
 }
 
 // TestStartRequest_FenceMatrix checks every request kind against every fence
@@ -189,7 +190,7 @@ func TestFenceGate_PromotionResetsTheGate(t *testing.T) {
 		t.Fatal("becoming primary did not ask for a fence read")
 	}
 	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)), "a new primary is unread")
-	err := s.ApplyFence(t.Context(), stale, false, time.Second)
+	err := s.ApplyFence(t.Context(), FenceRead{Epoch: stale, Fenced: false}, time.Second)
 	assert.Equal(t, mtrpcpb.Code_ABORTED, mterrors.Code(err), "a read from before the promotion is refused")
 	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)))
 
@@ -215,7 +216,7 @@ func TestFenceGate_Off(t *testing.T) {
 	s := newTestPoolerWithDrain(newDrainMockPoolManager())
 	require.NoError(t, s.OnStateChange(t.Context(), servingState(servingstate.RoutingRolePrimary)))
 	require.NoError(t, admit(s.StartRequest(nil, RequestNewReservation)))
-	require.NoError(t, s.ApplyFence(t.Context(), 0, true, time.Second))
+	require.NoError(t, s.ApplyFence(t.Context(), FenceRead{Epoch: 0, Fenced: true}, time.Second))
 	require.NoError(t, admit(s.StartRequest(nil, RequestNewReservation)))
 	unread, closed := s.FenceReadState()
 	assert.False(t, unread)
@@ -242,7 +243,9 @@ func TestFenceGate_TwoStageDrain(t *testing.T) {
 	mock.regularAdd(1)
 
 	done := make(chan error, 1)
-	go func() { done <- s.ApplyFence(context.Background(), s.FenceEpoch(), true, 5*time.Second) }()
+	go func() {
+		done <- s.ApplyFence(context.Background(), FenceRead{Epoch: s.FenceEpoch(), Fenced: true}, 5*time.Second)
+	}()
 
 	waitForFenceDrainPhase(t, s, drainReserved)
 	require.NoError(t, admit(s.StartRequest(nil, RequestSingleQuery)), "stage 1 serves single queries")
@@ -280,7 +283,7 @@ func TestFenceGate_DrainTimeoutForceCloses(t *testing.T) {
 	defer mock.reservedAdd(-1)
 
 	start := time.Now()
-	require.NoError(t, s.ApplyFence(t.Context(), s.FenceEpoch(), true, 100*time.Millisecond))
+	require.NoError(t, s.ApplyFence(t.Context(), FenceRead{Epoch: s.FenceEpoch(), Fenced: true}, 100*time.Millisecond))
 	assert.GreaterOrEqual(t, time.Since(start), 80*time.Millisecond)
 	assert.Equal(t, 1, mock.closeReservedCallCount())
 	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)))
@@ -298,7 +301,7 @@ func TestFenceGate_DrainOutlivesTheCaller(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	start := time.Now()
-	require.NoError(t, s.ApplyFence(ctx, s.FenceEpoch(), true, 100*time.Millisecond))
+	require.NoError(t, s.ApplyFence(ctx, FenceRead{Epoch: s.FenceEpoch(), Fenced: true}, 100*time.Millisecond))
 	assert.GreaterOrEqual(t, time.Since(start), 80*time.Millisecond, "the drain waited for its timeout")
 	assert.Equal(t, 1, mock.closeReservedCallCount())
 }
@@ -312,7 +315,9 @@ func TestFenceGate_DrainsDoNotInterfere(t *testing.T) {
 	mock.reservedAdd(1)
 
 	fenceDone := make(chan error, 1)
-	go func() { fenceDone <- s.ApplyFence(context.Background(), s.FenceEpoch(), true, 5*time.Second) }()
+	go func() {
+		fenceDone <- s.ApplyFence(context.Background(), FenceRead{Epoch: s.FenceEpoch(), Fenced: true}, 5*time.Second)
+	}()
 	waitForFenceDrainPhase(t, s, drainReserved)
 
 	stateDone := make(chan error, 1)
@@ -356,7 +361,7 @@ func TestFenceGate_ReplicaDoesNotDrain(t *testing.T) {
 	mock.reservedAdd(1)
 	defer mock.reservedAdd(-1)
 	start := time.Now()
-	require.NoError(t, s.ApplyFence(t.Context(), s.FenceEpoch(), true, 5*time.Second))
+	require.NoError(t, s.ApplyFence(t.Context(), FenceRead{Epoch: s.FenceEpoch(), Fenced: true}, 5*time.Second))
 	assert.Less(t, time.Since(start), time.Second, "no drain on a replica")
 	assert.Zero(t, mock.closeReservedCallCount())
 }
@@ -370,7 +375,7 @@ func TestFenceGate_DrainMetricsReason(t *testing.T) {
 	applyFence(t, s, false)
 	mock.reservedAdd(1)
 	mock.closeReservedCount = 1
-	require.NoError(t, s.ApplyFence(t.Context(), s.FenceEpoch(), true, 50*time.Millisecond))
+	require.NoError(t, s.ApplyFence(t.Context(), FenceRead{Epoch: s.FenceEpoch(), Fenced: true}, 50*time.Millisecond))
 	mock.reservedAdd(-1)
 
 	fence := map[string]string{"reason": drainReasonFence, "routing_role": "primary"}
@@ -412,4 +417,39 @@ func TestFenceGate_DescribeIsAdmittedOnAFencedPrimary(t *testing.T) {
 	require.Error(t, err)
 	assert.False(t, mterrors.IsErrorCode(err, mterrors.MTF02.ID), "a Describe is not fenced: %v", err)
 	assert.Contains(t, err.Error(), "executor not initialized")
+}
+
+// at is a snapshot position under coordinator term term at routing version
+// version.
+func at(term, version int64) shardingcatalog.Position {
+	return shardingcatalog.Position{Rule: &clustermetadatapb.RuleNumber{CoordinatorTerm: term}, RoutingVersion: version}
+}
+
+// A read of a snapshot older than one the gate applied is refused, by rule
+// first and then routing version, also after a promotion reset the gate.
+func TestFenceGate_RefusesAnOlderSnapshot(t *testing.T) {
+	s := newFencedTestPooler(t, newDrainMockPoolManager(), servingstate.RoutingRolePrimary)
+	require.NoError(t, s.ApplyFence(t.Context(), FenceRead{Epoch: s.FenceEpoch(), Position: at(2, 4), Fenced: true}, time.Second))
+
+	for name, pos := range map[string]shardingcatalog.Position{
+		"a deposed primary's, at a higher version": at(1, 9),
+		"the same primary's, at a lower version":   at(2, 3),
+		"no catalog":                               {},
+	} {
+		err := s.ApplyFence(t.Context(), FenceRead{Epoch: s.FenceEpoch(), Position: pos, Fenced: false}, time.Second)
+		assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "%s: %v", name, err)
+		requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)), name)
+	}
+
+	// The same snapshot again, and a newer primary's at a lower version, are
+	// applied.
+	require.NoError(t, s.ApplyFence(t.Context(), FenceRead{Epoch: s.FenceEpoch(), Position: at(2, 4), Fenced: true}, time.Second))
+	require.NoError(t, s.ApplyFence(t.Context(), FenceRead{Epoch: s.FenceEpoch(), Position: at(3, 1), Fenced: true}, time.Second))
+
+	require.NoError(t, s.OnStateChange(t.Context(), servingState(servingstate.RoutingRoleReplica)))
+	require.NoError(t, s.OnStateChange(t.Context(), servingState(servingstate.RoutingRolePrimary)))
+	err := s.ApplyFence(t.Context(), FenceRead{Epoch: s.FenceEpoch(), Position: at(2, 9), Fenced: false}, time.Second)
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "the floor survives a promotion: %v", err)
+	require.NoError(t, s.ApplyFence(t.Context(), FenceRead{Epoch: s.FenceEpoch(), Position: at(3, 2), Fenced: false}, time.Second))
+	require.NoError(t, admit(s.StartRequest(nil, RequestSingleQuery)))
 }

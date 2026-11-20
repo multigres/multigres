@@ -26,6 +26,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/tools/retry"
 )
 
@@ -48,6 +49,12 @@ import (
 // that fences a scope lists the scope's poolers after it has recorded the
 // fence, so a new pooler is either listed, and refreshed, or reads a catalog
 // that already holds the fence.
+//
+// The gate applies a read only if its snapshot is not older, by consensus rule
+// and then routing version, than the newest one it has applied (poolerserver
+// fence_gate.go). A catalog primary that a failover deposed may still be found
+// in the topology and still answer, with an older snapshot; that answer is
+// refused, applying nothing, and read again.
 //
 // A read that fails applies nothing: an unread gate stays closed and the
 // reader retries with backoff. A catalog primary on which the catalog was
@@ -98,51 +105,52 @@ func (pm *MultipoolerManager) RefreshFences(ctx context.Context, req *multipoole
 // refreshFences reads the catalog snapshot, checks it is at minRoutingVersion
 // or later, and applies whether it fences this pooler's scope, draining the
 // pooler when it has just become fenced. It returns the snapshot's routing
-// version and whether the scope is fenced. Reads and applies are serialized,
-// so an older read is never applied after a newer one. A read that raced a
-// promotion (the gate was reset meanwhile) is read again.
+// version and whether the scope is fenced. Reads and applies are serialized.
+// A read that raced a promotion (the gate was reset meanwhile) is read again;
+// one of a snapshot older than one already applied fails with UNAVAILABLE.
 func (pm *MultipoolerManager) refreshFences(ctx context.Context, minRoutingVersion int64, drainTimeout time.Duration) (int64, bool, error) {
 	pm.fenceMu.Lock()
 	defer pm.fenceMu.Unlock()
 	for {
 		epoch := pm.qsc.FenceEpoch()
-		version, fenced, err := pm.readFences(ctx)
+		pos, fenced, err := pm.readFences(ctx)
 		if err != nil {
 			return 0, false, err
 		}
-		if version < minRoutingVersion {
+		if pos.RoutingVersion < minRoutingVersion {
 			return 0, false, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-				"the catalog primary's routing version is %d, below the requested %d", version, minRoutingVersion)
+				"the catalog primary's routing version is %d, below the requested %d", pos.RoutingVersion, minRoutingVersion)
 		}
-		err = pm.qsc.ApplyFence(ctx, epoch, fenced, drainTimeout)
+		err = pm.qsc.ApplyFence(ctx, poolerserver.FenceRead{Epoch: epoch, Position: pos, Fenced: fenced}, drainTimeout)
 		if mterrors.Code(err) == mtrpcpb.Code_ABORTED && ctx.Err() == nil {
 			continue
 		}
 		if err != nil {
 			return 0, false, err
 		}
-		return version, fenced, nil
+		return pos.RoutingVersion, fenced, nil
 	}
 }
 
-// readFences reads the catalog snapshot and returns its routing version and
-// whether a fence applies to this pooler's scope. A database with no catalog
-// yet reads as version 0 with no fences.
-func (pm *MultipoolerManager) readFences(ctx context.Context) (int64, bool, error) {
+// readFences reads the catalog snapshot and returns its position and whether
+// a fence applies to this pooler's scope. A database with no catalog yet reads
+// as the zero position with no fences.
+func (pm *MultipoolerManager) readFences(ctx context.Context) (shardingcatalog.Position, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, fenceReadTimeout)
 	defer cancel()
 	resp, err := pm.readCatalogSnapshot(ctx)
 	if mterrors.Code(err) == mtrpcpb.Code_NOT_FOUND {
-		return 0, false, nil
+		return shardingcatalog.Position{}, false, nil
 	}
 	if err != nil {
-		return 0, false, err
+		return shardingcatalog.Position{}, false, err
 	}
 	snap, err := shardingcatalog.New(resp.GetSnapshot())
 	if err != nil {
-		return 0, false, mterrors.WithCode(mterrors.Wrap(err, "the catalog primary served an invalid routing snapshot"), mtrpcpb.Code_UNAVAILABLE)
+		return shardingcatalog.Position{}, false, mterrors.WithCode(mterrors.Wrap(err, "the catalog primary served an invalid routing snapshot"), mtrpcpb.Code_UNAVAILABLE)
 	}
-	return snap.RoutingVersion(), pm.scopeFenced(snap), nil
+	pos := shardingcatalog.Position{Rule: resp.GetConsensusRule(), RoutingVersion: snap.RoutingVersion()}
+	return pos, pm.scopeFenced(snap), nil
 }
 
 // scopeFenced reports whether snap fences this pooler's scope: its whole

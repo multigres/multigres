@@ -62,26 +62,8 @@ type Source interface {
 // the cached snapshot's position, nil when there is none.
 type FetchFunc func(ctx context.Context, database string, since *Position) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error)
 
-// Position orders snapshots: the consensus rule the serving primary held,
-// then the routing_version.
-type Position struct {
-	Rule           *clustermetadatapb.RuleNumber
-	RoutingVersion int64
-}
-
-// Compare returns -1, 0 or 1 as p is before, equal to or after other.
-func (p Position) Compare(other Position) int {
-	if c := commonconsensus.CompareRuleNumbers(p.Rule, other.Rule); c != 0 {
-		return c
-	}
-	switch {
-	case p.RoutingVersion < other.RoutingVersion:
-		return -1
-	case p.RoutingVersion > other.RoutingVersion:
-		return 1
-	}
-	return 0
-}
+// Position orders snapshots (see shardingcatalog.Position).
+type Position = shardingcatalog.Position
 
 // fetchTimeout bounds one fetch.
 const fetchTimeout = 30 * time.Second

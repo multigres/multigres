@@ -74,11 +74,12 @@ type PoolerController interface {
 	// before it reads the catalog and passes to ApplyFence.
 	FenceEpoch() uint64
 
-	// ApplyFence applies a fence read taken at epoch: fenced closes the gate,
-	// draining a primary bounded by drainTimeout (the grace period when not
-	// positive), and otherwise it opens. A read taken before the gate was last
-	// reset fails with ABORTED. Calls must be serialized.
-	ApplyFence(ctx context.Context, epoch uint64, fenced bool, drainTimeout time.Duration) error
+	// ApplyFence applies a fence read: a fence closes the gate, draining a
+	// primary bounded by drainTimeout (the grace period when not positive),
+	// and otherwise it opens. A read taken before the gate was last reset
+	// fails with ABORTED, and one of a snapshot older than one already applied
+	// with UNAVAILABLE. Calls must be serialized.
+	ApplyFence(ctx context.Context, read FenceRead, drainTimeout time.Duration) error
 
 	// FenceGateChanged receives a value whenever the fence gate is armed,
 	// reset (the pooler became primary) or closed.

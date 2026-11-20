@@ -66,7 +66,7 @@ func (m *mockPoolerController) FenceGateChanged() <-chan struct{} {
 	return nil
 }
 
-func (m *mockPoolerController) ApplyFence(context.Context, uint64, bool, time.Duration) error {
+func (m *mockPoolerController) ApplyFence(context.Context, poolerserver.FenceRead, time.Duration) error {
 	return nil
 }
 

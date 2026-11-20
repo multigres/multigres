@@ -159,6 +159,16 @@ A pooler reads the fences from its database's catalog primary
 
 Minigres has nothing to fence: it never gates and never reads fences.
 
+A pooler applies a read only if the snapshot is not older, by consensus rule
+and then `routing_version`, than the newest snapshot it has applied; an older
+one fails with `UNAVAILABLE` and is read again. That newest position survives
+promotions. During a failover of the catalog shard the topology may still name
+the deposed catalog primary, which still answers, with an older snapshot; once
+a pooler has applied its successor's snapshot, that answer can't reopen the
+gate. A pooler that has just started has applied nothing, so its first read
+can be such an answer. The operation's refresh at the fence's version is the
+backstop: it must treat a listed pooler it can't refresh as blocking the fence.
+
 When a refresh fences a primary, the pooler drains before the call returns,
 with a phase of its own, independent of the not-serving drain of a failover:
 first new reservations are refused while single queries continue and open
