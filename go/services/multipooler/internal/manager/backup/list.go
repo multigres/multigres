@@ -16,7 +16,6 @@ package backup
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -69,11 +68,11 @@ func (e *Engine) ListBackups(ctx context.Context) ([]*multipoolermanagerdata.Bac
 			fmt.Sprintf("pgbackrest info failed: %v\nOutput: %s", err, output))
 	}
 
-	infoData, err := decodeInfo(output)
+	infoData, err := commonbackup.DecodeInfo(output)
 	if err != nil {
 		return nil, err
 	}
-	if err := repoStatusError(infoData); err != nil {
+	if err := commonbackup.RepoStatusError(infoData); err != nil {
 		return nil, err
 	}
 	backups := e.parseBackups(ctx, infoData)
@@ -95,30 +94,6 @@ func (e *Engine) ListBackups(ctx context.Context) ([]*multipoolermanagerdata.Bac
 	})
 
 	return backups, nil
-}
-
-// repoStatusError inspects the per-repository status pgbackrest reports and
-// returns an error if any repository could not be evaluated. `pgbackrest
-// info` always exits 0 and always attaches the correct status code (e.g. 99
-// "other" for a cipher-key mismatch) — decodeInfo above covers the case where
-// that status arrives in JSON that fails to decode. When it decodes fine,
-// "backup" is simply empty, so backup:[] alone must not be read as "no
-// backups yet": check the status code too, or a caller could bootstrap a
-// fresh stanza over a repo it cannot actually read.
-func repoStatusError(infoData []pgBackRestInfo) error {
-	for _, stanza := range infoData {
-		for _, repo := range stanza.Repo {
-			switch repo.Status.Code {
-			case pgBackRestRepoStatusOK, pgBackRestRepoStatusMissingStanzaPath, pgBackRestRepoStatusNoValidBackups,
-				pgBackRestRepoStatusMissingStanzaData:
-				continue
-			default:
-				return mterrors.New(mtrpcpb.Code_INTERNAL,
-					fmt.Sprintf("pgbackrest repo %d status: %s", repo.Key, repo.Status.Message))
-			}
-		}
-	}
-	return nil
 }
 
 // runInfoCmd runs `pgbackrest info --output=json` with the given config path and
@@ -145,28 +120,10 @@ func isStanzaMissing(output string) bool {
 		strings.Contains(output, "unable to open missing file")
 }
 
-// decodeInfo unmarshals `pgbackrest info` JSON output. This can fail even
-// though pgbackrest exited 0: when a repo can't be decrypted (e.g. a
-// cipher-key mismatch), some of pgbackrest's own error messages splice a raw,
-// unescaped snippet of the repo's undecrypted bytes directly into the JSON
-// message string. Those bytes can contain characters (control bytes, invalid
-// UTF-8) that are illegal inside a JSON string, which breaks decoding of the
-// whole document. Callers must treat that as a real error — see
-// repoStatusError for the same underlying failure when the JSON happens to
-// decode fine instead.
-func decodeInfo(output string) ([]pgBackRestInfo, error) {
-	var infoData []pgBackRestInfo
-	if err := json.Unmarshal([]byte(output), &infoData); err != nil {
-		return nil, mterrors.New(mtrpcpb.Code_INTERNAL,
-			fmt.Sprintf("failed to parse pgbackrest info JSON: %v", err))
-	}
-	return infoData, nil
-}
-
 // parseBackups maps decoded pgbackrest info into BackupMetadata for this
 // pooler's shard, skipping any backups whose annotations don't match (defense
 // in depth — stanzas are already shard-scoped).
-func (e *Engine) parseBackups(ctx context.Context, infoData []pgBackRestInfo) []*multipoolermanagerdata.BackupMetadata {
+func (e *Engine) parseBackups(ctx context.Context, infoData []commonbackup.InfoStanza) []*multipoolermanagerdata.BackupMetadata {
 	if len(infoData) == 0 || len(infoData[0].Backup) == 0 {
 		return []*multipoolermanagerdata.BackupMetadata{}
 	}
@@ -284,11 +241,11 @@ func (e *Engine) FindByJobID(
 			fmt.Sprintf("pgbackrest info failed: %v\nOutput: %s", err, output))
 	}
 
-	infoData, err := decodeInfo(output)
+	infoData, err := commonbackup.DecodeInfo(output)
 	if err != nil {
 		return "", err
 	}
-	if err := repoStatusError(infoData); err != nil {
+	if err := commonbackup.RepoStatusError(infoData); err != nil {
 		return "", err
 	}
 

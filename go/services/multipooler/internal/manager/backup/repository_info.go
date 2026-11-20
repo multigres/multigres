@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 
+	commonbackup "github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/pb/multipoolermanagerdata"
@@ -52,34 +53,20 @@ func (e *Engine) RepositoryInfo(ctx context.Context) (RepositoryInfo, error) {
 			fmt.Sprintf("pgbackrest info failed: %v\nOutput: %s", err, output))
 	}
 
-	infoData, err := decodeInfo(output)
+	infoData, err := commonbackup.DecodeInfo(output)
 	if err != nil {
 		return RepositoryInfo{}, err
 	}
-	if err := repoStatusError(infoData); err != nil {
+	if err := commonbackup.RepoStatusError(infoData); err != nil {
 		return RepositoryInfo{}, err
 	}
 
 	info := RepositoryInfo{
 		Backups:      e.parseBackups(ctx, infoData),
-		StanzaExists: stanzaExists(infoData),
+		StanzaExists: commonbackup.StanzaExists(infoData),
 	}
 	if len(infoData) > 0 {
 		info.TotalBackups = len(infoData[0].Backup)
 	}
 	return info, nil
-}
-
-// stanzaExists is false only when every repository reports the stanza as never
-// created; anything unclear counts as present.
-func stanzaExists(infoData []pgBackRestInfo) bool {
-	if len(infoData) == 0 || len(infoData[0].Repo) == 0 {
-		return true
-	}
-	for _, repo := range infoData[0].Repo {
-		if repo.Status.Code != pgBackRestRepoStatusMissingStanzaPath {
-			return true
-		}
-	}
-	return false
 }

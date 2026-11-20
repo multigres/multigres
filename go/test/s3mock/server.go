@@ -29,6 +29,7 @@ package s3mock
 import (
 	"context"
 	"crypto/tls"
+	"encoding/pem"
 	"fmt"
 	"log"
 	"net"
@@ -59,6 +60,8 @@ type Server struct {
 	listener    net.Listener
 	endpoint    string
 	putCallback PutCallback // optional; called before each PutObject/UploadPart
+	auth        sessionAuth
+	certPEM     []byte
 }
 
 // NewServer creates and starts a new S3 mock server on the specified port
@@ -90,6 +93,7 @@ func NewServer(port int, opts ...ServerOption) (*Server, error) {
 		storage:  storage,
 		listener: listener,
 		endpoint: endpoint,
+		certPEM:  pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: tlsConfig.Certificates[0].Certificate[0]}),
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -106,6 +110,12 @@ func NewServer(port int, opts ...ServerOption) (*Server, error) {
 	go func() { _ = s.server.Serve(listener) }()
 
 	return s, nil
+}
+
+// CertPEM returns the mock's self-signed certificate, PEM encoded, so a client
+// can trust it as a root instead of skipping verification.
+func (s *Server) CertPEM() []byte {
+	return append([]byte(nil), s.certPEM...)
 }
 
 // loggingMiddleware wraps a handler with request logging
@@ -209,10 +219,11 @@ func (s *Server) router() http.Handler {
 	})
 
 	// Only apply logging middleware if enabled
+	h := s.withSessionAuth(mux)
 	if isLoggingEnabled() {
-		return loggingMiddleware(mux)
+		return loggingMiddleware(h)
 	}
-	return mux
+	return h
 }
 
 // Endpoint returns the HTTPS endpoint URL

@@ -21,7 +21,6 @@ package backup
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -251,14 +250,11 @@ func (e *Engine) requireBackupConfig() (*commonbackup.Config, error) {
 	return e.backupCfg, nil
 }
 
-// pgbackrestDefaultIOTimeout is pgBackRest's own default for --io-timeout.
-const pgbackrestDefaultIOTimeout = time.Minute
-
 // pgbackrestIOTimeoutCmd is pgbackrestCmd plus --io-timeout derived from ctx's
 // deadline, so pgbackrest fails before the context kills it. Only for commands
 // that use the repository.
 func (e *Engine) pgbackrestIOTimeoutCmd(ctx context.Context, args ...string) *executil.Cmd {
-	return e.pgbackrestCmd(ctx, append(ioTimeoutArgs(ctx), args...)...)
+	return e.pgbackrestCmd(ctx, append(commonbackup.IOTimeoutArgs(ctx), args...)...)
 }
 
 // pgbackrestCmd builds a pgbackrest command, exporting PGPASSFILE when configured.
@@ -272,20 +268,6 @@ func (e *Engine) pgbackrestCmd(ctx context.Context, args ...string) *executil.Cm
 		cmd.AddEnv("PGPASSFILE=" + pgpassPath)
 	}
 	return cmd
-}
-
-// ioTimeoutArgs returns --io-timeout as two thirds of the time left on ctx, in
-// whole seconds and at least one, when that is under pgBackRest's default.
-func ioTimeoutArgs(ctx context.Context) []string {
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		return nil
-	}
-	budget := time.Until(deadline) * 2 / 3
-	if budget >= pgbackrestDefaultIOTimeout {
-		return nil
-	}
-	return []string{fmt.Sprintf("--io-timeout=%d", max(int(budget/time.Second), 1))}
 }
 
 // shardID returns this pooler's shard identifier.
