@@ -36,3 +36,21 @@ func (c *Conn) ToProto() *multipoolerservicepb.BackingConnection {
 		SslNegotiation: c.SSLNegotiation,
 	}
 }
+
+// FromProto reads a default primary's reply without validating it; see Conn.ForPooler.
+func FromProto(p *multipoolerservicepb.BackingConnection) *Conn {
+	c := &Conn{
+		Name:           p.GetName(),
+		Hosts:          p.GetHosts(),
+		Database:       p.GetDatabase(),
+		User:           p.GetUser(),
+		Password:       p.GetPassword(),
+		SSLMode:        p.GetSslMode(),
+		SSLRootCert:    p.GetSslRootCert(),
+		SSLNegotiation: p.GetSslNegotiation(),
+	}
+	for _, port := range p.GetPorts() {
+		c.Ports = append(c.Ports, int(port))
+	}
+	return c
+}

@@ -123,7 +123,8 @@ exist. The rule is that the one that owns the processes writes the record
 first and deletes it last.
 
 A tablegroup that lists `shard_backing_connections` has shards served by an
-external PostgreSQL (see [External tablegroups](#external-tablegroups)).
+external PostgreSQL, which the provisioner runs as described in
+[External tablegroups](#external-tablegroups).
 
 **Poolers and multiorch** are unchanged. A new pooler registers in topology
 with its database, tablegroup, shard, and tablegroup id. Multiorch bootstraps
@@ -210,6 +211,23 @@ tablegroup is never bound. A bound shard cannot be split: no operation changes a
 tablegroup's shards after creation yet (the gateway refuses `ALTER TABLEGROUP`),
 and the one that does must refuse a bound shard, whose binding names a single
 external database for the shard's whole key range.
+
+A bound shard is served by one unmanaged pooler, started with `--tablegroup-id`
+and `--shard` and no flag that says it is unmanaged: it has no standby, no
+pgctld, no multiorch and no backups.
+
+**How the pooler learns it is unmanaged.** It is told only its tablegroup id
+and its shard. At startup it decides how it is managed in this order: its own
+topology record, if one exists (the mode of a pooler name never changes);
+otherwise its shard's catalog row, read through the default primary with
+`GetBackingConnection(tablegroup_id, shard)`, which returns the shard's backing
+connection or says the shard is managed; a static leader, a pooler of the
+default tablegroup and a pooler with no `--tablegroup-id` are managed without a
+lookup. A read that fails is retried until it answers: the pooler waits, and
+never starts as a managed pooler for want of an answer. Once it is known to be
+unmanaged, the flags of a pgctld-managed postgres (`--pg-port`,
+`--pooler-dir`, `--socket-file`, `--pgctld-addr`, the pgBackRest flags) are
+refused.
 
 ## Completion
 
