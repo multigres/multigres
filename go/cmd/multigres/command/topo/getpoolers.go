@@ -88,7 +88,7 @@ func AddGetPoolersCommand() *cobra.Command {
 		RunE:  runGetPoolers,
 	}
 
-	cmd.Flags().String("admin-server", "", "Address of the multiadmin server (overrides config)")
+	cmd.Flags().String("admin-server", "", "Address of the multiadmin server (overrides config; env: MULTIGRES_ADMIN_SERVER)")
 	cmd.Flags().String("cells", "", "Comma-separated list of cell names to query (optional)")
 	cmd.Flags().String("database", "", "Database name to filter by (optional)")
 
