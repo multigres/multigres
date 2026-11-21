@@ -2378,6 +2378,43 @@ func TestPortalStreamExecute_ExistingReservationConnectionErrorReleases(t *testi
 	assert.True(t, rconn.IsReleased(), "a genuine connection failure must still destroy the reserved connection")
 }
 
+// TestPortalStreamExecute_SuspendedPortalPinsOnlyInTransaction checks that a
+// suspended portal keeps its backend only inside a transaction. Outside one,
+// the Sync after Execute has already closed the portal in PostgreSQL.
+func TestPortalStreamExecute_SuspendedPortalPinsOnlyInTransaction(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		reasons uint32
+		want    uint32
+	}{
+		{"outside a transaction", 0, 0},
+		{"in a transaction", protoutil.ReasonTransaction, protoutil.ReasonTransaction | protoutil.ReasonPortal},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := fakepgserver.New(t)
+			defer server.Close()
+			server.SetNeverFail(true)
+			// A row and no CommandComplete: the client reads it as a suspended portal.
+			server.AddQuery("SELECT g FROM generate_series(1, 3) g", makeResult(makeRow("1")))
+
+			pool := newReservedTestPool(t, server)
+			defer pool.Close()
+			e := NewExecutor(slog.Default(), &stubPoolManager{newReservedPool: pool}, &clustermetadatapb.ID{Cell: "cell1", Name: "pooler1"}, false)
+
+			state, err := e.PortalStreamExecute(context.Background(), &query.Target{},
+				&query.PreparedStatement{Name: "stmt0", Query: "SELECT g FROM generate_series(1, 3) g"},
+				&query.Portal{Name: "p0"},
+				&query.ExecuteOptions{User: "postgres", MaxRows: 1},
+				nil, &query.ReservationOptions{Reasons: tc.reasons}, noopCallback)
+			require.NoError(t, err)
+			assert.Equal(t, protoutil.ReasonsString(tc.want), protoutil.ReasonsString(state.GetReservationReasons()))
+			if tc.want == 0 {
+				assert.Nil(t, state, "the backend must be released")
+			}
+		})
+	}
+}
+
 // newConcludeStampFixture builds a reserved connection (in a transaction) on a
 // fake server whose pool has a SettingsCache, so Release's label stamp is
 // active and the stamped settings can be inspected after conclusion.
