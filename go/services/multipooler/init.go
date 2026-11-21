@@ -39,6 +39,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/grpcconsensusservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager"
+	"github.com/multigres/multigres/go/services/multipooler/internal/schematracker"
 	"github.com/multigres/multigres/go/services/multipooler/localpoolerservice"
 	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -121,6 +122,7 @@ type Multipooler struct {
 	migrationTargetAdvertiseHost   viperutil.Value[string]
 	migrationTargetAdvertisePort   viperutil.Value[int]
 	replicationStatsPollIntervalMs viperutil.Value[int]
+	schemaTokenInterval            viperutil.Value[time.Duration]
 	// pgBackRest TLS certificate paths for client authentication to primary's pgBackRest server
 	pgBackRestCertFile               viperutil.Value[string]
 	pgBackRestKeyFile                viperutil.Value[string]
@@ -291,6 +293,11 @@ func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, res
 			FlagName: "replication-stats-poll-interval-milliseconds",
 			Dynamic:  false,
 		}),
+		schemaTokenInterval: viperutil.Configure(reg, "schema-token-interval", viperutil.Options[time.Duration]{
+			Default:  schematracker.DefaultInterval,
+			FlagName: "schema-token-interval",
+			Dynamic:  false,
+		}),
 		pgBackRestCertFile: viperutil.Configure(reg, "pgbackrest-cert-file", viperutil.Options[string]{
 			Default:  "/certs/pgbackrest.crt",
 			FlagName: "pgbackrest-cert-file",
@@ -392,6 +399,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("migration-target-advertise-host", mp.migrationTargetAdvertiseHost.Default(), "gateway address advertised to an external source in the Migrator EXPORT-direction reverse subscription (must be a multigateway reachable from the source, not this pooler's cluster-internal hostname); required for EXPORT")
 	flags.Int("migration-target-advertise-port", mp.migrationTargetAdvertisePort.Default(), "Postgres-facing port paired with --migration-target-advertise-host; 0 selects the gateway's default Postgres protocol port")
 	flags.Int("replication-stats-poll-interval-milliseconds", mp.replicationStatsPollIntervalMs.Default(), "interval in milliseconds between logical-replication connection metrics polls")
+	flags.Duration("schema-token-interval", mp.schemaTokenInterval.Default(), "how often the primary recomputes the schema token it reports on the health stream, which tells the gateway the schema changed")
 	flags.String("pgbackrest-cert-file", mp.pgBackRestCertFile.Default(), "TLS client certificate for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "TLS client key for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "TLS CA certificate for validating primary's pgBackRest server")
@@ -420,6 +428,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.migrationTargetAdvertiseHost,
 		mp.migrationTargetAdvertisePort,
 		mp.replicationStatsPollIntervalMs,
+		mp.schemaTokenInterval,
 		mp.pgBackRestCertFile,
 		mp.pgBackRestKeyFile,
 		mp.pgBackRestCAFile,
@@ -658,6 +667,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		MigrationTargetAdvertiseHost:   mp.migrationTargetAdvertiseHost.Get(),
 		MigrationTargetAdvertisePort:   mp.migrationTargetAdvertisePort.Get(),
 		ReplicationStatsPollIntervalMs: mp.replicationStatsPollIntervalMs.Get(),
+		SchemaTokenInterval:            mp.schemaTokenInterval.Get(),
 		PgctldAddr:                     mp.pgctldAddr.Get(),
 		ConsensusEnabled:               consensusEnabled,
 		ConnPoolConfig:                 mp.connPoolConfig,

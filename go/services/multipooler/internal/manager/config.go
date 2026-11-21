@@ -41,8 +41,12 @@ type Config struct {
 	// for logical-replication connection metrics. Zero selects the built-in
 	// default (10s).
 	ReplicationStatsPollIntervalMs int
-	PgctldAddr                     string // Address of pgctld gRPC service
-	ConsensusEnabled               bool   // Whether consensus gRPC service is enabled
+	// SchemaTokenInterval configures how often the primary recomputes the
+	// schema token it reports on the health stream. Zero selects
+	// schematracker.DefaultInterval.
+	SchemaTokenInterval time.Duration
+	PgctldAddr          string // Address of pgctld gRPC service
+	ConsensusEnabled    bool   // Whether consensus gRPC service is enabled
 	// MigrationTargetAdvertiseHost is the gateway address an external source uses
 	// to reach this Multigres shard for the EXPORT-direction reverse subscription.
 	// It must be the multigateway, whose replication=database tunnel proxies the
