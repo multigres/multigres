@@ -460,6 +460,25 @@ func validateProposal(
 		return errors.New("no proposed rule")
 	}
 
+	// A rule's leader is always one of its cohort members. Recruitment,
+	// revocation and the sync configuration all assume it: a leader outside
+	// the cohort counts toward N for writes but not for recruitment, so a
+	// write it commits can be lost to a recruitment that passes.
+	proposedCohort := poolerKeysOf(proposedRule.GetCohortMembers())
+	if _, ok := proposedCohort[leaderKey]; !ok {
+		return fmt.Errorf("proposed leader %s is not a member of the proposed cohort %s",
+			leaderKey, formatIDs(proposedRule.GetCohortMembers()))
+	}
+	// leaderKey comes from proposal_leader, which carries the host and port that
+	// locate the leader. The leader_id inside the proposed transition has none,
+	// so it is the one recorded in the rule and the one the pooler reads its
+	// leadership from. The two describe the same pooler, so the rule's leader_id
+	// must agree with proposal_leader.
+	if ruleLeader := proposedRule.GetLeaderId(); topoclient.ClusterIDString(ruleLeader) != leaderKey {
+		return fmt.Errorf("proposed rule's leader %s is not the proposal leader %s",
+			topoclient.ClusterIDString(ruleLeader), leaderKey)
+	}
+
 	// TermRevocation.outgoing_rule is still just a bare RuleNumber, so compare
 	// by number, not proto.Equal — the proposal's decision is a full ShardRule,
 	// a different message type that would never compare equal via proto.Equal

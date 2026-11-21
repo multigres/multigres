@@ -100,10 +100,11 @@ func TestAppointLeader_AppointsOnlyOutgoingCohortMembers(t *testing.T) {
 		require.True(t, promoted(fakeClient, "b") || promoted(fakeClient, "c"), "a cohort member is appointed")
 	})
 
-	t.Run("only a non-member at the most advanced LSN fails closed", func(t *testing.T) {
+	t.Run("a non-member ahead of the members does not raise the bar", func(t *testing.T) {
 		fakeClient, err := run(t,
 			map[string]string{"b": "0/1000000", "c": "0/1000000", "replacement": "0/2000000"})
-		require.ErrorContains(t, err, "no eligible leader is a member of the outgoing cohort")
-		require.False(t, promoted(fakeClient, "replacement"))
+		require.NoError(t, err)
+		require.False(t, promoted(fakeClient, "replacement"), "a pooler outside the outgoing cohort must not be appointed")
+		require.True(t, promoted(fakeClient, "b") || promoted(fakeClient, "c"), "a cohort member is appointed")
 	})
 }

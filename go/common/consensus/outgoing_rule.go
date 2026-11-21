@@ -17,6 +17,7 @@ package consensus
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -148,7 +149,7 @@ func (o observedOutgoingRule) proveRevokedByRecruitment() error {
 	if err != nil {
 		return fmt.Errorf("failed to parse durability policy from decision: %w", err)
 	}
-	cohort := decision.GetCohortMembers()
+	cohort := recruitmentCohort(decision)
 	if err := CheckSufficientRecruitment(policy, cohort, statusesToIDs(filterCohortStatuses(cohort, o.recruited))); err != nil {
 		return fmt.Errorf("insufficient outgoing cohort recruitment: %w", err)
 	}
@@ -169,8 +170,8 @@ func (o observedOutgoingRule) proveProposalFrozen(decisionPolicy DurabilityPolic
 		return fmt.Errorf("failed to parse durability policy from rule: %w", err)
 	}
 	transition, err := BuildPolicyTransition(
-		PolicyWithCohort{Policy: decisionPolicy, Cohort: decision.GetCohortMembers()},
-		PolicyWithCohort{Policy: proposalPolicy, Cohort: proposal.GetCohortMembers()},
+		PolicyWithCohort{Policy: decisionPolicy, Cohort: recruitmentCohort(decision)},
+		PolicyWithCohort{Policy: proposalPolicy, Cohort: recruitmentCohort(proposal)},
 	)
 	if err != nil {
 		// Promote can never decide such a proposal, so nothing can commit under it.
@@ -181,7 +182,7 @@ func (o observedOutgoingRule) proveProposalFrozen(decisionPolicy DurabilityPolic
 	if !o.proposalMayBeDecided(transition.Both) {
 		return nil
 	}
-	cohort := proposal.GetCohortMembers()
+	cohort := recruitmentCohort(proposal)
 	recruited := statusesToIDs(filterCohortStatuses(cohort, o.recruited))
 	if err := checkUnrecruitedCannotCommit(proposalPolicy, cohort, recruited); err != nil {
 		return fmt.Errorf("insufficient undecided proposal cohort recruitment: %w", err)
@@ -238,8 +239,8 @@ func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal() (finalizableOutg
 		return finalizableOutgoingRule{}, fmt.Errorf("failed to parse durability policy from rule: %w", err)
 	}
 	transition, err := BuildPolicyTransition(
-		PolicyWithCohort{Policy: decisionPolicy, Cohort: decision.GetCohortMembers()},
-		PolicyWithCohort{Policy: proposalPolicy, Cohort: proposal.GetCohortMembers()},
+		PolicyWithCohort{Policy: decisionPolicy, Cohort: recruitmentCohort(decision)},
+		PolicyWithCohort{Policy: proposalPolicy, Cohort: recruitmentCohort(proposal)},
 	)
 	if err != nil {
 		return finalizableOutgoingRule{}, fmt.Errorf("outgoing proposal cannot be finalized: %w", err)
@@ -249,6 +250,50 @@ func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal() (finalizableOutg
 		return finalizableOutgoingRule{}, fmt.Errorf("outgoing proposal cannot be finalized: recruited members cannot satisfy its policy: %w", err)
 	}
 	return finalizableOutgoingRule{r}, nil
+}
+
+// barSetters are the recruits whose position sets the bar a leader must meet.
+//
+// A failover keeps the outgoing cohort, so only its members can lead: recruitment
+// and revocation count only cohort members, while the sync configuration counts
+// the primary toward N, so a leader outside the cohort could commit a write that
+// a passing recruitment does not hold. The bar is set by the recruits that record
+// the outgoing rule and are cohort members, and by the rule's own leader when its
+// extra WAL could be committed. Any other non-member's WAL was never counted
+// toward a commit, so it must not raise the bar a member has to meet. A rule
+// already led from outside its cohort committed with the leader's own write as
+// one of N, so its leader's WAL can be committed with the acknowledgment of a
+// member that is not recruited, and a member behind it may lack that write:
+// failover then fails closed rather than elect it. Once every member that could
+// have acknowledged with the leader is recruited and none holds the write, it was
+// never committed, and failing closed would only wait forever for nothing.
+//
+// Under a cert the incoming cohort is named by the proposal and validateProposal
+// requires its leader to be in it, so every recruit sets the bar.
+func (r observedOutgoingRule) barSetters() ([]*clustermetadatapb.ConsensusStatus, error) {
+	if r.basis.cert != nil {
+		return r.recruited, nil
+	}
+	rule := r.transition.PossiblyUndecidedRule()
+	cohort := rule.GetCohortMembers()
+	setters := cohort
+	if leader := rule.GetLeaderId(); leader != nil {
+		mayHoldCommit, err := r.leaderMayHoldCommit(rule)
+		if err != nil {
+			return nil, err
+		}
+		if mayHoldCommit {
+			setters = append(slices.Clone(cohort), leader)
+		}
+	}
+	atOutgoing := filterCohortStatuses(setters, r.recruitsRecordingRule())
+	if len(filterCohortStatuses(cohort, atOutgoing)) == 0 {
+		return nil, fmt.Errorf(
+			"no recruit at the most advanced position %s is a member of the outgoing cohort %s",
+			r.transition, formatIDs(cohort),
+		)
+	}
+	return atOutgoing, nil
 }
 
 // minimumLeaderPosition is the lowest position a leader may have: one at or above
@@ -264,8 +309,12 @@ func (r revokedOutgoingRule) checkRecruitsCanFinalizeProposal() (finalizableOutg
 // TODO: relax it to the highest position the policy could have made quorum-held,
 // or to exactly the frozen LSN under a cert.
 func (r revokedOutgoingRule) minimumLeaderPosition() (*clustermetadatapb.PoolerPosition, error) {
+	setters, err := r.barSetters()
+	if err != nil {
+		return nil, err
+	}
 	var minimum *clustermetadatapb.PoolerPosition
-	for _, cs := range r.recruited {
+	for _, cs := range setters {
 		if position := cs.GetCurrentPosition(); minimum == nil || ComparePoolerPosition(position, minimum) > 0 {
 			minimum = position
 		}
@@ -291,11 +340,22 @@ func (r revokedOutgoingRule) eligibleLeaders() ([]*clustermetadatapb.ConsensusSt
 	if err != nil {
 		return nil, err
 	}
+	candidates := r.recruited
+	if r.basis.cert == nil {
+		candidates = filterCohortStatuses(r.transition.PossiblyUndecidedRule().GetCohortMembers(), r.recruited)
+	}
 	var eligible []*clustermetadatapb.ConsensusStatus
-	for _, cs := range r.recruited {
+	for _, cs := range candidates {
 		if ComparePoolerPosition(cs.GetCurrentPosition(), minimum) >= 0 {
 			eligible = append(eligible, cs)
 		}
+	}
+	if len(eligible) == 0 && r.basis.cert == nil {
+		return nil, fmt.Errorf(
+			"outgoing leader %s, outside its cohort %s, is the only recruit at the most advanced LSN",
+			topoclient.ClusterIDString(r.transition.PossiblyUndecidedRule().GetLeaderId()),
+			formatIDs(r.transition.PossiblyUndecidedRule().GetCohortMembers()),
+		)
 	}
 	if len(eligible) == 0 {
 		// Only a cert's frozen LSN above every recruit leaves none: otherwise the
@@ -303,4 +363,43 @@ func (r revokedOutgoingRule) eligibleLeaders() ([]*clustermetadatapb.ConsensusSt
 		return nil, fmt.Errorf("no recruited nodes at or above the required LSN %s", minimum.GetLsn())
 	}
 	return eligible, nil
+}
+
+// recruitmentCohort returns the poolers whose writes rule's commits count: its
+// cohort, plus its leader when the rule was led from outside the cohort. The
+// sync configuration counts the primary's own write toward N, so such a leader
+// can hold a committed write that no cohort quorum acknowledged. Revocation has
+// to treat it as a member, or a recruitment excluding the leader and the
+// standby that acknowledged with it passes and elects a pooler without the
+// write. validateProposal keeps new rules from being led from outside their
+// cohort; this covers rules committed before it did.
+func recruitmentCohort(rule *clustermetadatapb.ShardRule) []*clustermetadatapb.ID {
+	cohort := rule.GetCohortMembers()
+	leader := rule.GetLeaderId()
+	if leader == nil {
+		return cohort
+	}
+	if _, member := poolerKeysOf(cohort)[topoclient.ClusterIDString(leader)]; member {
+		return cohort
+	}
+	return append(slices.Clone(cohort), leader)
+}
+
+// leaderMayHoldCommit reports whether rule's leader, if outside its cohort, could
+// hold a committed write that no recruited member has: whether the leader together
+// with the unrecruited cohort members could satisfy the rule's durability policy.
+// A leader inside its cohort is a member and sets the bar as one, so this returns
+// false for it.
+func (r observedOutgoingRule) leaderMayHoldCommit(rule *clustermetadatapb.ShardRule) (bool, error) {
+	cohort := rule.GetCohortMembers()
+	leader := rule.GetLeaderId()
+	if _, member := poolerKeysOf(cohort)[topoclient.ClusterIDString(leader)]; member {
+		return false, nil
+	}
+	policy, err := NewPolicyFromProto(rule.GetDurabilityPolicy())
+	if err != nil {
+		return false, fmt.Errorf("failed to parse durability policy from rule: %w", err)
+	}
+	unrecruited := unrecruitedOf(cohort, statusesToIDs(filterCohortStatuses(cohort, r.recruited)))
+	return policy.SatisfiedBy(append(unrecruited, leader)) == nil, nil
 }
