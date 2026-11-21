@@ -15,13 +15,21 @@
 name: Upload test results to Trunk
 description: >-
   Uploads test results to Trunk Flaky Tests and optionally quarantines
-  known-flaky failures. Uses the collection's fork-upload opt-in instead of an
-  org token, so it works on a fork where repository secrets are unavailable.
-  The collection must have "Accept uploads from forked pull requests" enabled.
+  known-flaky failures. Sends a Trunk API key when the caller passes one. A
+  fork pull request, which cannot read repository secrets, passes none and
+  uses the collection's fork-upload opt-in instead, so the collection must
+  have "Accept uploads from forked pull requests" enabled.
   Converts `go test -json` output to JUnit XML when an existing JUnit file is
   not supplied.
 
 inputs:
+  token:
+    description: >-
+      Trunk API key with the Upload test results permission, from a repository
+      secret. Empty on a fork pull request, which then uploads through the
+      fork-upload lane.
+    required: false
+    default: ""
   junit-paths:
     description: >-
       Comma-separated list of glob paths to existing JUnit XML files (forwarded
@@ -79,12 +87,13 @@ runs:
       run: "$GITHUB_ACTION_PATH/prepare-junit.sh"
 
     - name: Upload to Trunk
-      uses: trunk-io/analytics-uploader@a86313c7029d22e6ea2d5c346060a224d90053dc # v2.1.6
+      uses: trunk-io/analytics-uploader@9886de74a788c450c793109577a4d97bfb3e799f # v2.1.8
       with:
         junit-paths: ${{ steps.prepare.outputs.junit-paths }}
         org-slug: ${{ inputs.org-slug }}
         test-collection-id: ${{ inputs.test-collection-id }}
-        allow-forked-pr-uploads: "true"
+        token: ${{ inputs.token }}
+        allow-forked-pr-uploads: ${{ inputs.token == '' }}
         quarantine: ${{ inputs.allow-quarantine }}
         variant: ${{ inputs.variant }}
         previous-step-outcome: ${{ steps.prepare.outputs.previous-step-outcome }}

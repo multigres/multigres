@@ -59,6 +59,7 @@ jobs:
         if: ${{ !cancelled() && steps.tests.outcome != 'skipped' }}
         uses: ./.github/actions/upload-test-results
         with:
+          token: ${{ secrets.TRUNK_UPLOAD_TOKEN }}
           junit-paths: race-test-results.xml
           previous-step-outcome: ${{ steps.tests.outcome }}
           allow-quarantine: "true"

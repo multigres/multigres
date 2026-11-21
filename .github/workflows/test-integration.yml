@@ -123,6 +123,7 @@ jobs:
         if: ${{ !cancelled() && steps.integration-tests.outcome != 'skipped' }}
         uses: ./.github/actions/upload-test-results
         with:
+          token: ${{ secrets.TRUNK_UPLOAD_TOKEN }}
           junit-paths: integration-test-results.xml
           previous-step-outcome: ${{ steps.integration-tests.outcome }}
           allow-quarantine: "true"
