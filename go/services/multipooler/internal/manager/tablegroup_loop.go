@@ -45,6 +45,8 @@ import (
 // for a change the snapshot contains, and commits. A pooler demoted between
 // the check and the commit cannot commit, because its postgres is read-only,
 // so the role checks are a courtesy rather than the fence.
+// A role mismatch at a write check means another primary now owns the work:
+// leave it pending quietly. Probe and catalog failures are still reported.
 const (
 	// tableGroupOpsInterval is the pass interval. A pass with nothing pending
 	// is two small queries over tiny tables and reads no topology, so the
@@ -261,7 +263,9 @@ func (pm *MultipoolerManager) reconcileCreations(ctx context.Context, ops []oper
 			pending++
 		}
 		if err != nil {
-			pm.logger.WarnContext(ctx, "tablegroup creation not advanced", "operation_id", op.id, "tablegroup", op.request.Name, "error", err)
+			if !isRoleMismatch(err) {
+				pm.logger.WarnContext(ctx, "tablegroup creation not advanced", "operation_id", op.id, "tablegroup", op.request.Name, "error", err)
+			}
 			pending++
 		}
 	}
@@ -367,7 +371,9 @@ func (pm *MultipoolerManager) reconcileDroppings(ctx context.Context, groups []d
 			continue
 		}
 		if err := pm.finishDropTableGroup(ctx, tg.name, tg.id); err != nil {
-			pm.logger.WarnContext(ctx, "dropping tablegroup not deleted", "tablegroup", tg.name, "tablegroup_id", tg.id, "error", err)
+			if !isRoleMismatch(err) {
+				pm.logger.WarnContext(ctx, "dropping tablegroup not deleted", "tablegroup", tg.name, "tablegroup_id", tg.id, "error", err)
+			}
 			pending++
 		}
 	}
@@ -390,13 +396,19 @@ func (pm *MultipoolerManager) tableGroupClaimHeld(ctx context.Context, id int64)
 }
 
 // finishDropTableGroup deletes a dropping tablegroup in one catalog write:
-// its shard rows, its tablegroup row, and any drop operation on it to done.
+// its admission fences, its shard rows, its tablegroup row, and any drop
+// operation on it to done. A fence of an unfinished operation refuses the
+// write, and the tablegroup stays pending (see
+// deleteDroppingTableGroupFences).
 // The tablegroup delete is conditional on the state, so a concurrent or
 // repeated pass finds nothing to delete and reports no change. A failed
 // creation has no drop operation; its creation operation already reads
 // failed.
 func (pm *MultipoolerManager) finishDropTableGroup(ctx context.Context, name string, id int64) error {
 	_, err := pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {
+		if err := deleteDroppingTableGroupFences(ctx, tx, name, id); err != nil {
+			return catalogNoSnapshotChange, err
+		}
 		if _, err := tx.QueryArgs(ctx,
 			"DELETE FROM multigres.shard WHERE tablegroup_id = $1 AND EXISTS (SELECT 1 FROM multigres.tablegroup WHERE tablegroup_id = $1 AND state = $2)",
 			id, tableGroupStateDropping); err != nil {
@@ -432,7 +444,7 @@ func (pm *MultipoolerManager) writeOperationRow(ctx context.Context, what, query
 		_, err := tx.QueryArgs(ctx, query, args...)
 		return catalogNoSnapshotChange, err
 	})
-	if err != nil {
+	if err != nil && !isRoleMismatch(err) {
 		pm.logger.WarnContext(ctx, "failed to "+what, "error", err)
 	}
 }

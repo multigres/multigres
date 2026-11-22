@@ -105,6 +105,10 @@ var (
 		routingScopeTablegroup: shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLEGROUP,
 		routingScopeTable:      shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLE,
 	}
+	snapshotFenceStates = map[string]shardingcatalogpb.FenceState{
+		fenceStateFencing: shardingcatalogpb.FenceState_FENCE_STATE_FENCING,
+		fenceStateFenced:  shardingcatalogpb.FenceState_FENCE_STATE_FENCED,
+	}
 )
 
 // catalogVersionRefreshInterval is how often the catalog primary rereads
@@ -285,12 +289,16 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
+	// A pooler off the catalog shard never serves the catalog, so the caller
+	// is wrong to ask it. One on the catalog shard that is not its elected
+	// primary is refused with UNAVAILABLE, as writeCatalog refuses it: the
+	// caller rediscovers the primary and asks again.
 	if err := pm.checkCatalogShard(); err != nil {
 		return nil, err
 	}
 	rule, err := pm.catalogPrimaryRule(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.WithCode(err, mtrpcpb.Code_UNAVAILABLE)
 	}
 	qs, err := pm.catalogQueryService()
 	if err != nil {
@@ -335,7 +343,7 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 	// read state belonging to neither, so the caller asks again.
 	after, err := pm.catalogPrimaryRule(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.WithCode(err, mtrpcpb.Code_UNAVAILABLE)
 	}
 	if commonconsensus.CompareRuleNumbers(after, rule) != 0 {
 		return nil, mterrors.Errorf(mtrpcpb.Code_ABORTED,
@@ -347,7 +355,8 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 
 // The statements loadRoutingSnapshot reads the catalog with, one per table.
 // NULL range bounds (the ends of the keyspace) read as empty text. Routing
-// rules are read with readRoutingRules, as the rule store reads them.
+// rules and admission fences are read with readRoutingRules and readFences,
+// as the rule store reads them.
 const (
 	snapshotTableGroupsQuery     = "SELECT tablegroup_id, name, state FROM multigres.tablegroup ORDER BY tablegroup_id"
 	snapshotShardsQuery          = "SELECT shard_id, tablegroup_id, shard_name, coalesce(encode(range_start, 'hex'), ''), coalesce(encode(range_end, 'hex'), ''), state FROM multigres.shard ORDER BY shard_id"
@@ -357,8 +366,8 @@ const (
 	snapshotShardKeyColumnsQuery = "SELECT shard_key_id, column_name FROM multigres.shard_key_column ORDER BY shard_key_id, position"
 )
 
-// loadRoutingSnapshot reads every catalog entity, routing rules included, in
-// the caller's transaction.
+// loadRoutingSnapshot reads every catalog entity, routing rules and admission
+// fences included, in the caller's transaction.
 // It leaves the versions for the caller to fill in.
 func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*shardingcatalogpb.Snapshot, error) {
 	s := &shardingcatalogpb.Snapshot{}
@@ -473,6 +482,21 @@ func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*sharding
 			ToShardId:        nullableID(r.toShardID),
 			ToShardKeyId:     nullableID(r.toShardKeyID),
 			CreatedVersion:   r.createdVersion,
+		})
+	}
+
+	fences, err := readFences(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range fences {
+		s.Fences = append(s.Fences, &shardingcatalogpb.Fence{
+			FenceId:      f.fenceID,
+			OperationId:  f.operationID,
+			TablegroupId: f.scope.tablegroupID,
+			ShardId:      nullableID(f.scope.shardID),
+			State:        snapshotFenceStates[f.state],
+			Version:      f.version,
 		})
 	}
 	return s, nil

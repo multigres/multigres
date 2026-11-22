@@ -80,9 +80,12 @@ there is no unlogged materialized-view state to worry about.
 
 ## Behaviour on Failover
 
-When a standby is promoted to primary, the multipooler runs a best-effort sweep
-that drops every unlogged ordinary table before the node begins serving client
-traffic as PRIMARY. The two observable outcomes:
+When a standby is promoted to primary, the multipooler starts a best-effort
+sweep that drops every unlogged ordinary table (outside `pg_catalog` and
+`information_schema`). The sweep is launched from the promotion path but runs
+in a background goroutine, so it does not delay the node serving as PRIMARY;
+a query that arrives before the sweep reaches a table sees it empty, not
+missing. The two observable outcomes once the sweep has run:
 
 | Scenario                                  | After failover                                                                 |
 | ----------------------------------------- | ------------------------------------------------------------------------------ |
@@ -119,16 +122,21 @@ table falls back to the silent-empty behaviour.
   functions, so the drop is usually blocked and the table is left empty.
 - **Partitioned unlogged tables.** Only the leaf partitions (ordinary tables)
   are dropped individually; an empty partitioned parent may remain.
+- **Not synchronous with serving.** The sweep runs in the background after
+  promotion, so for a short window a table may still exist (empty) before it is
+  dropped.
 - The sweep runs on the promotion path only, so it does not affect a primary
   that restarts in place without a failover (PostgreSQL's own crash recovery
   already truncates unlogged tables in that case).
 
 ## Code Map
 
-- **Create-time warning**: `engine/unlogged_warning.go`, attached ahead of
-  the CREATE route by `planner/planner.go`.
-- **Sweep logic**: `manager/manager.go`, invoked after the node becomes a
-  writable primary and before the topology transitions to PRIMARY/SERVING.
+- **Create-time warning**: `engine/statement_warning.go` (multigateway),
+  attached ahead of the CREATE route by `planner/planner.go`.
+- **Sweep logic**: `dropUnloggedTablesAfterPromotion` in the multipooler's
+  `internal/manager/manager.go`, started in a goroutine once the node has
+  been promoted. It skips multigres' own unlogged sidecar table
+  (`multigres.backend_vpid`).
 - **Unit tests**: `manager/rpc_consensus_test.go` (verifies the sweep issues
   the drops and that a dependency-blocked drop does not fail the promotion).
 - **End-to-end test**: `test/endtoend/queryserving/unlogged_test.go` (real

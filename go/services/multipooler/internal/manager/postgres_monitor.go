@@ -123,6 +123,10 @@ type postgresState struct {
 	postgresRunning  bool
 	postgresReady    bool
 	backupsAvailable bool
+	// backupsUnusable is true when the repository holds no usable backup and must
+	// not be reset: backups none of which is a complete one of this shard, a stanza
+	// without an unfinished-bootstrap marker, or an archive that a live shard may use.
+	backupsUnusable bool
 	// connInfo is the standby's primary_conninfo (parsed + redacted), read once
 	// per tick in discoverPostgresState so the monitor's decision paths can reuse
 	// it without re-querying. Nil when not running as a standby or when the read
@@ -166,6 +170,7 @@ func postgresStateEqual(a, b postgresState) bool {
 		a.postgresRunning == b.postgresRunning &&
 		a.postgresReady == b.postgresReady &&
 		a.backupsAvailable == b.backupsAvailable &&
+		a.backupsUnusable == b.backupsUnusable &&
 		a.pgMode == b.pgMode &&
 		a.bootstrapSentinelPresent == b.bootstrapSentinelPresent &&
 		a.rewindSentinelPresent == b.rewindSentinelPresent &&
@@ -612,11 +617,16 @@ func (pm *MultipoolerManager) discoverPostgresState(ctx context.Context) (postgr
 	// (e.g. a cipher-key mismatch), or counting a restore that cannot reach the
 	// repository as a failed recovery attempt.
 	if !state.dirInitialized || (state.restoreSentinelPresent && !state.postgresRunning) {
-		available, err := pm.hasCompleteBackups(ctx)
+		repoState, err := pm.repositoryBackupState(ctx)
 		if err != nil {
 			return state, fmt.Errorf("check for complete backups: %w", err)
 		}
-		state.backupsAvailable = available
+		state.backupsAvailable = repoState == completeBackupAvailable
+		state.backupsUnusable = repoState == noUsableBackup || repoState == unmarkedStanza || repoState == archiveInUse
+		if state.backupsUnusable {
+			pm.setMonitorReason(ctx, reasonBackupsUnusable,
+				"MonitorPostgres: repository holds no usable backup and cannot be reset, not bootstrapping")
+		}
 	}
 
 	sentinelPresent, err := pm.bootstrapSentinel().present()
@@ -1365,6 +1375,10 @@ func (pm *MultipoolerManager) determinePostgresNotRunningAction(state postgresSt
 	if state.backupsAvailable {
 		return remedialActionRestoreFromBackup
 	}
+	// Bootstrapping would run initdb and start postgres only to refuse at the lease.
+	if state.backupsUnusable {
+		return remedialActionNone
+	}
 	// Directory not initialized and no backups: try to create the first backup.
 	return remedialActionCreateFirstBackup
 }
@@ -1637,29 +1651,64 @@ func (pm *MultipoolerManager) takeRemedialAction(ctx context.Context, action rem
 	return nil
 }
 
-// hasCompleteBackups checks if there are any complete backups available
-func (pm *MultipoolerManager) hasCompleteBackups(ctx context.Context) (bool, error) {
-	// Get list of backups. ListBackups already reports a missing stanza (a
-	// fresh, never-initialized repo) as an empty list with no error, so a
-	// genuine "no backups yet" still returns (false, nil) and bootstrap
-	// proceeds. Any other error means we could not read the repository — for
-	// example a cipher-key mismatch that leaves archive.info undecryptable.
-	// That is unknown state, not an absence of backups: return the error so
-	// the caller refuses to act rather than bootstrapping a fresh stanza over
-	// a repository it cannot read.
-	backups, err := pm.backup.ListBackups(ctx)
-	if err != nil {
-		return false, err
-	}
+// reasonBackupsUnusable is the monitor reason while the repository cannot be
+// bootstrapped over.
+const reasonBackupsUnusable = "backups_unusable"
 
-	// Filter to only complete backups
-	for _, b := range backups {
-		if b.Status == multipoolermanagerdatapb.BackupMetadata_COMPLETE {
-			return true, nil
+// backupState is what the shard's backup repository holds.
+type backupState int
+
+const (
+	// noStanza means the stanza was never created. Also returned with an error.
+	noStanza backupState = iota
+	// emptyStanza means the stanza exists but holds no backups of any shard.
+	emptyStanza
+	// noUsableBackup means backups exist but none is a complete backup of this
+	// shard (incomplete, or another shard's).
+	noUsableBackup
+	// unmarkedStanza means the stanza holds no backups and no unfinished bootstrap
+	// is recorded for the shard, so it is not known to be stale.
+	unmarkedStanza
+	// archiveInUse means the stanza holds no backups but its archive holds more
+	// than a failed bootstrap leaves, so a live shard may still archive to it.
+	archiveInUse
+	completeBackupAvailable
+)
+
+// repositoryBackupState reports what the repository holds, from one uncached
+// `pgbackrest info`.
+func (pm *MultipoolerManager) repositoryBackupState(ctx context.Context) (backupState, error) {
+	// An error means the repository could not be read (for example a cipher-key
+	// mismatch). That is unknown state, not an absence of backups, so return it
+	// rather than bootstrap over it.
+	info, err := pm.backup.RepositoryInfo(ctx)
+
+	switch {
+	case err != nil:
+		return noStanza, err
+	case latestCompleteBackup(info.Backups) != nil:
+		return completeBackupAvailable, nil
+	case info.TotalBackups > 0:
+		return noUsableBackup, nil
+	case info.StanzaExists:
+		unfinished, err := pm.topoClient.BootstrapInProgress(ctx, pm.shardRef())
+		if err != nil {
+			return noStanza, err
 		}
+		if !unfinished {
+			return unmarkedStanza, nil
+		}
+		inUse, err := pm.backup.ArchiveInUse(ctx)
+		switch {
+		case err != nil:
+			return noStanza, err
+		case inUse:
+			return archiveInUse, nil
+		}
+		return emptyStanza, nil
+	default:
+		return noStanza, err
 	}
-
-	return false, nil
 }
 
 // startPostgres starts PostgreSQL via pgctld

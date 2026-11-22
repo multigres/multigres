@@ -493,6 +493,53 @@ func TestDetermineRemedialAction(t *testing.T) {
 			expectedAction: remedialActionCreateFirstBackup,
 		},
 		{
+			// Bootstrapping would only refuse at the lease, so the monitor must
+			// not run initdb first.
+			name: "unusable_backups_do_not_bootstrap",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: false,
+				dirInitialized:  false,
+				backupsUnusable: true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
+			expectedAction: remedialActionNone,
+		},
+		{
+			// A bootstrap sentinel forces the create-first-backup path so cleanup runs.
+			name: "bootstrap_sentinel_wins_over_unusable_backups",
+			state: postgresState{
+				pgctldAvailable:          true,
+				postgresRunning:          false,
+				backupsUnusable:          true,
+				bootstrapSentinelPresent: true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
+			expectedAction: remedialActionCreateFirstBackup,
+		},
+		{
+			name: "restore_sentinel_wins_over_unusable_backups",
+			state: postgresState{
+				pgctldAvailable:        true,
+				postgresRunning:        false,
+				backupsUnusable:        true,
+				restoreSentinelPresent: true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
+			expectedAction: remedialActionRestoreFromBackup,
+		},
+		{
+			name: "initialized_data_dir_starts_despite_unusable_backups",
+			state: postgresState{
+				pgctldAvailable: true,
+				postgresRunning: false,
+				dirInitialized:  true,
+				backupsUnusable: true,
+			},
+			poolerType:     clustermetadatapb.PoolerType_PRIMARY,
+			expectedAction: remedialActionStartPostgres,
+		},
+		{
 			// Sentinel from a prior crashed first-backup attempt must override
 			// the dirInitialized=true signal, so cleanup+retry runs instead of
 			// a doomed start on a stub data directory.
@@ -1562,7 +1609,7 @@ func TestTakeRemedialAction_ReconcileRole_AppliesRuleDerivedRole(t *testing.T) {
 	assert.Equal(t, committed, obs.GetRule())
 }
 
-func TestHasCompleteBackups_UnreadableRepoSurfacesError(t *testing.T) {
+func TestRepositoryBackupState_UnreadableRepoSurfacesError(t *testing.T) {
 	ctx := t.Context()
 	poolerDir := t.TempDir()
 
@@ -1575,16 +1622,16 @@ func TestHasCompleteBackups_UnreadableRepoSurfacesError(t *testing.T) {
 	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
 	// With no usable pgbackrest config the repository cannot be inspected.
-	// That is unknown state, not an absence of backups: hasCompleteBackups
-	// must surface the error (false, err) rather than masking it as "no
-	// backups", so the monitor refuses to bootstrap over a repo it can't read.
-	result, err := pm.hasCompleteBackups(ctx)
+	// That is unknown state, not an absence of backups: repositoryBackupState
+	// must surface the error rather than masking it as "no backups", so the
+	// monitor refuses to bootstrap over a repo it can't read.
+	result, err := pm.repositoryBackupState(ctx)
 
 	require.Error(t, err)
-	assert.False(t, result)
+	assert.Equal(t, noStanza, result)
 }
 
-func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
+func TestRepositoryBackupState_ActionLockTimeout(t *testing.T) {
 	poolerDir := t.TempDir()
 
 	pm := &MultipoolerManager{
@@ -1595,20 +1642,20 @@ func TestHasCompleteBackups_ActionLockTimeout(t *testing.T) {
 	}
 	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 
-	// Acquire the action lock to block hasCompleteBackups
+	// Acquire the action lock to block repositoryBackupState
 	lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-holder")
 	require.NoError(t, err)
 	defer pm.actionLock.Release(lockCtx)
 
-	// Create a context with timeout for hasCompleteBackups call
+	// Create a context with timeout for the repositoryBackupState call
 	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer cancel()
 
 	// Can't acquire the lock — an unknown-state error, surfaced not masked.
-	result, err := pm.hasCompleteBackups(ctx)
+	result, err := pm.repositoryBackupState(ctx)
 
 	require.Error(t, err)
-	assert.False(t, result)
+	assert.Equal(t, noStanza, result)
 }
 
 func TestLatestCompleteBackup_PicksFirstCompleteInNewestFirstOrder(t *testing.T) {
@@ -1813,6 +1860,7 @@ func TestPostgresStateEqual(t *testing.T) {
 		{"dirInitialized", func() postgresState { s := base; s.dirInitialized = false; return s }()},
 		{"postgresRunning", func() postgresState { s := base; s.postgresRunning = false; return s }()},
 		{"backupsAvailable", func() postgresState { s := base; s.backupsAvailable = false; return s }()},
+		{"backupsUnusable", func() postgresState { s := base; s.backupsUnusable = true; return s }()},
 		{"pgMode", func() postgresState { s := base; s.pgMode = pgmode.InRecovery; return s }()},
 		{"bootstrapSentinelPresent", func() postgresState { s := base; s.bootstrapSentinelPresent = false; return s }()},
 		{"restoreSentinelPresent", func() postgresState { s := base; s.restoreSentinelPresent = true; return s }()},

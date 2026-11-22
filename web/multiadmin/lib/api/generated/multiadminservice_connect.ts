@@ -20,7 +20,7 @@
 import { ApplyCertifiedRuleChangeRequest, ApplyCertifiedRuleChangeResponse, BackupRequest, BackupResponse, ExpireBackupsRequest, ExpireBackupsResponse, GetBackupJobStatusRequest, GetBackupJobStatusResponse, GetBackupsRequest, GetBackupsResponse, GetCellNamesRequest, GetCellNamesResponse, GetCellRequest, GetCellResponse, GetDatabaseNamesRequest, GetDatabaseNamesResponse, GetDatabaseRequest, GetDatabaseResponse, GetGatewayConsolidatorRequest, GetGatewayConsolidatorResponse, GetGatewayQueriesRequest, GetGatewayQueriesResponse, GetGatewaysRequest, GetGatewaysResponse, GetOrchsRequest, GetOrchsResponse, GetPoolersRequest, GetPoolersResponse, GetPoolerStatusRequest, GetPoolerStatusResponse, GetRoutingRulesRequest, GetRoutingRulesResponse, ListDesiredTableGroupsRequest, ListDesiredTableGroupsResponse, SetPostgresRestartsEnabledRequest, SetPostgresRestartsEnabledResponse, SwitchPrimaryRequest, SwitchPrimaryResponse, VerifyBackupsRequest, VerifyBackupsResponse } from "./multiadminservice_pb";
 import { MethodKind } from "@bufbuild/protobuf";
 import { CreateConnectionRequest, CreateConnectionResponse, CreateMigrationRequest, CreateMigrationResponse, DropConnectionRequest, DropConnectionResponse, DropMigrationRequest, DropMigrationResponse, GetConnectionRequest, GetConnectionResponse, GetMigrationJournalRequest, GetMigrationJournalResponse, GetMigrationRequest, GetMigrationResponse, ListConnectionsRequest, ListConnectionsResponse, ListMigrationsRequest, ListMigrationsResponse, SetMigrationDirectionRequest, SetMigrationDirectionResponse } from "./migratorservice_pb";
-import { DeleteRoutingRulesRequest, DeleteRoutingRulesResponse, SetRoutingRulesRequest, SetRoutingRulesResponse } from "./multipoolermanagerdata_pb";
+import { DeleteRoutingRulesRequest, DeleteRoutingRulesResponse, FenceScopesRequest, FenceScopesResponse, SetRoutingRulesRequest, SetRoutingRulesResponse, UnfenceScopesRequest, UnfenceScopesResponse } from "./multipoolermanagerdata_pb";
 
 /**
  * MultiadminService provides administrative APIs for cluster metadata, backups, and shard operations.
@@ -527,6 +527,31 @@ export const MultiadminService = {
       name: "DeleteRoutingRules",
       I: DeleteRoutingRulesRequest,
       O: DeleteRoutingRulesResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * FenceScopes raises an operation's admission fences on a list of scopes,
+     * in one catalog write. Scopes already fenced are skipped, so a retry
+     * succeeds. It records intent only: nothing enforces fences yet.
+     *
+     * @generated from rpc multiadmin.MultiadminService.FenceScopes
+     */
+    fenceScopes: {
+      name: "FenceScopes",
+      I: FenceScopesRequest,
+      O: FenceScopesResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * UnfenceScopes lifts an operation's admission fences on a list of scopes,
+     * in one catalog write.
+     *
+     * @generated from rpc multiadmin.MultiadminService.UnfenceScopes
+     */
+    unfenceScopes: {
+      name: "UnfenceScopes",
+      I: UnfenceScopesRequest,
+      O: UnfenceScopesResponse,
       kind: MethodKind.Unary,
     },
   }

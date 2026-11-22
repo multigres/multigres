@@ -23,7 +23,13 @@ the standby enforces read-only semantics — write attempts receive the standard
 Connections on the primary port behave exactly as before — all queries route to the
 primary multipooler. Connections on the replica port route to replica multipoolers
 instead. The routing decision is made once per connection (based on which port it
-arrived on) and applied transparently in `ScatterConn`.
+arrived on) and applied transparently in `ScatterConn`, which builds every query
+`Target` with `MODE_INCONSISTENT` for replica-port connections and `MODE_WRITABLE`
+otherwise (`buildTarget`).
+
+"Replica" here means any connected pooler of the shard that is not claiming to be
+the routing primary, as judged from live health streams — not the topology's
+pooler type. See [Load Balancing](./load_balancing.md).
 
 ## Design Decisions
 
@@ -77,7 +83,7 @@ treated as healthy to avoid rejecting replicas during startup.
 Replication lag is measured via the heartbeat mechanism already used for multiorch
 reporting. The multipooler's health streamer includes `replication_lag_ns` (int64,
 nanoseconds) in `StreamPoolerHealthResponse`. This value is updated on every heartbeat
-tick and propagated to the multigateway's `PoolerHealth` struct via the health stream.
+tick and propagated to the multigateway's `poolerHealth` struct via the health stream.
 
 ## Load Balancing
 
@@ -86,7 +92,7 @@ selection:
 
 1. **Local cell, serving** — highest priority
 2. **Remote cell, serving** — second priority
-3. **Any remaining** — last resort
+3. **Local cell, not serving** — last resort
 
 Within each tier, a random replica is selected to distribute load evenly.
 
@@ -103,7 +109,7 @@ Environment variables: `MT_PG_REPLICA_PORT`, `MT_LOW_REPLICATION_LAG_MS`,
 
 ## Error Handling
 
-- **No replica available**: `GetConnection` returns `UNAVAILABLE` — the error surfaces
+- **No replica available**: `getConnection` returns `UNAVAILABLE` — the error surfaces
   to the client. There is no silent fallback to primary; the client should handle this
   by connecting to the primary port.
 - **All replicas too lagged**: Same behavior as no replica available.

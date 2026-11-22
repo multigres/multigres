@@ -582,6 +582,13 @@ func (mg *Multigateway) Init(ctx context.Context, ts topoclient.Store) error {
 	// Initialize the executor for query routing
 	// Pass ScatterConn as the IExecute implementation
 	mg.executor = executor.NewExecutor(mg.scatterConn, logger, mg.planCacheMemory.Get())
+	// A fenced statement waits on the sharding catalog cache, for at most
+	// --buffer-window whether or not failover buffering is enabled: a fence is
+	// not a failover, and needs no buffer. A single pooler (minigres) has
+	// nothing to fence, and no retry.
+	if mg.shardingCatalog != nil {
+		mg.executor.SetFenceRetry(mg.shardingCatalog, mg.bufferConfig.Window.Get())
+	}
 	mg.executor.SetSlotBasedReplicationEnabled(mg.slotBasedReplicationEnabled.Get)
 	if mg.clusterViewsEnabled.Get() {
 		mg.executor.SetClusterViewSource(mg)

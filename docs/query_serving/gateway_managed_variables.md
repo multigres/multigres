@@ -92,16 +92,24 @@ return-value parity is preserved. In a **mixed** batch such as
 `SELECT set_config('statement_timeout', …), set_config('work_mem', …)`, only the
 GMV call is rewritten out; ordinary `set_config` calls still run on the backend.
 
-Not handled (rejected up front, not leaked):
+Shapes that are not rewritten:
 
-- A **NULL** value — rejected by the planner for every variable (PostgreSQL
-  would reset-to-default; this is a pre-existing multigres limitation).
+- A **NULL** value on a GMV (literal, or a bound value that resolves to NULL) —
+  rejected with a hint to use `RESET <gmv>`; the gateway has no per-variable
+  reset path through `set_config`. (For ordinary variables,
+  `set_config(name, NULL, false)` is tracked as a reset.)
 - An **expression** value (column reference, function call) on a GMV — rejected
   or routed through the dynamic `set_config` resolve path; it never reaches the
   backend as a raw GMV `set_config`.
-- A **bound variable name** (`set_config($1, …)`) — not recognized as a GMV at
-  plan time, so it routes to the backend. Exotic; real callers use a literal
-  name.
+- A **bound variable name** (`set_config($1, …)`) — invisible to the plan-time
+  rewrite, so the name is resolved at execute time (`resolveSetConfig` in
+  `engine/apply_session_state.go`), before the routed query is sent. If it
+  resolves to a GMV and `is_local` is the literal `true`, the call runs on the
+  backend transaction-locally (so it reverts and cannot persist on a pooled
+  connection) and the value is also applied to gateway state as a
+  transaction-local override. This is PostgREST's role-settings form
+  `set_config($1, $2, true)`. If `is_local` is `false`, the statement is
+  rejected; use a literal name for a session-scoped change.
 
 ## `SHOW` vs `current_setting()`
 
@@ -135,8 +143,8 @@ Scope and limits:
   (re-run by `REFRESH`) — the latter shares the `CREATE TABLE AS` node but is
   excluded by its object type.
 - A **bound variable name** (`current_setting($1)`) is not recognized as a GMV at
-  plan time, so it routes to the backend — the same documented gap as a bound
-  `set_config` name. Real callers use a literal name.
+  plan time, so it routes to the backend and reads the backend GUC. Real callers
+  use a literal name.
 - The observable backend GUC (for leak checks and the like) is
   `SELECT setting FROM pg_settings WHERE name = '<gmv>'`, which reads the pooled
   connection's real state and is never rewritten.

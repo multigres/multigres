@@ -67,9 +67,23 @@ func TestMultiadminRoutingForwarders(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, int64(7), resp.GetRoutingVersion())
 	})
+	t.Run("FenceScopes", func(t *testing.T) {
+		fake.FenceScopesResponses[leader] = &multipoolermanagerdatapb.FenceScopesResponse{RoutingVersion: 8}
+		resp, err := s.FenceScopes(ctx, &multipoolermanagerdatapb.FenceScopesRequest{Database: "db1", OperationId: "op"})
+		require.NoError(t, err)
+		assert.Equal(t, int64(8), resp.GetRoutingVersion())
+	})
+	t.Run("UnfenceScopes", func(t *testing.T) {
+		fake.UnfenceScopesResponses[leader] = &multipoolermanagerdatapb.UnfenceScopesResponse{RoutingVersion: 9}
+		resp, err := s.UnfenceScopes(ctx, &multipoolermanagerdatapb.UnfenceScopesRequest{Database: "db1", OperationId: "op"})
+		require.NoError(t, err)
+		assert.Equal(t, int64(9), resp.GetRoutingVersion())
+	})
 	assert.Equal(t, []string{
 		"SetRoutingRules(" + string(leader) + ")",
 		"DeleteRoutingRules(" + string(leader) + ")",
+		"FenceScopes(" + string(leader) + ")",
+		"UnfenceScopes(" + string(leader) + ")",
 	}, fake.GetCallLog(), "every call goes to the catalog primary")
 
 	t.Run("GetRoutingRules", func(t *testing.T) {

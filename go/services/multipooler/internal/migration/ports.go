@@ -39,6 +39,7 @@ type migrationStore interface {
 	DeleteConnection(ctx context.Context, id int64) error
 	GetConnectionByRef(ctx context.Context, ref Ref) (*Connection, error)
 	ListConnections(ctx context.Context) ([]*Connection, error)
+	Forget()
 }
 
 // migrationTarget is the subset of *target the Coordinator uses: the local

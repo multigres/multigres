@@ -102,7 +102,8 @@ type Listener struct {
 	nextConnectionID uint32
 
 	// connsMu protects conns, open and nextConnectionID. It also serializes
-	// handler registration with shutdown.
+	// connection admission (including wg.Go) with listener cancellation,
+	// so no handler can be added after Close or Shutdown starts waiting.
 	connsMu sync.Mutex
 	// conns maps encoded PID to active connections for cancel request lookup.
 	conns map[uint32]*Conn
@@ -380,15 +381,17 @@ func (l *Listener) Serve() error {
 		l.connsMu.Lock()
 		select {
 		case <-l.ctx.Done():
+			// Accept may have succeeded just before the listener was closed.
+			// Do not admit an untracked handler after shutdown's wait began.
 			l.connsMu.Unlock()
 			_ = conn.Close()
 			return nil
 		default:
 		}
-
-		// Publish the connection and register its handler together so
-		// shutdown can only start waiting after both steps complete.
 		l.open[conn] = netConn
+
+		// Publish the socket and register its handler atomically with respect
+		// to CloseListener. Wait must never race the first wg.Go.
 		l.wg.Go(func() {
 			l.handleConnection(conn)
 		})
@@ -455,8 +458,6 @@ func (l *Listener) handleConnection(conn *Conn) {
 // failure scenarios where initial connections should keep working but new dial
 // attempts should fail.
 func (l *Listener) CloseListener() error {
-	// Prevent a successful Accept already in flight from registering a new
-	// handler after Close or Shutdown starts waiting.
 	l.connsMu.Lock()
 	l.cancel()
 	l.connsMu.Unlock()

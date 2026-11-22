@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -268,6 +269,43 @@ func TestStoreGetByRefAndList(t *testing.T) {
 	require.Len(t, all, 2)
 	require.Equal(t, int64(1), all[0].ID)
 	require.Equal(t, int64(2), all[1].ID)
+}
+
+// TestStoreForgetReloadsOnNextRead covers a node whose cache was loaded in an
+// earlier role: after Forget, the next read must come from the database, and
+// Forget must return even while a load holds the store's lock.
+func TestStoreForgetReloadsOnNextRead(t *testing.T) {
+	qs := &fakeQS{selectResult: &sqltypes.Result{}}
+	s := NewStore(qs)
+	ctx := context.Background()
+
+	_, err := s.Get(ctx, 1)
+	require.ErrorIs(t, err, ErrNotFound)
+
+	// Another primary created the migration; the cache does not know.
+	qs.selectResult = &sqltypes.Result{Rows: []*sqltypes.Row{selectRow(1, "nightly", "2026-01-01T00:00:00Z")}}
+	_, err = s.Get(ctx, 1)
+	require.ErrorIs(t, err, ErrNotFound, "a warm cache answers without reading the table")
+
+	s.mu.Lock() // a load in flight
+	forgot := make(chan struct{})
+	go func() {
+		s.Forget()
+		close(forgot)
+	}()
+	select {
+	case <-forgot:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Forget blocked behind the store lock")
+	}
+	s.mu.Unlock()
+
+	m, err := s.Get(ctx, 1)
+	require.NoError(t, err)
+	require.Equal(t, "nightly", m.Name)
+	all, err := s.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, all, 1)
 }
 
 func TestScanMigration(t *testing.T) {

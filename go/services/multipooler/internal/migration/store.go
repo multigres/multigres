@@ -22,6 +22,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -54,6 +55,10 @@ type Store struct {
 	// return the cached *Migration directly (no copy), so callers MUST treat the
 	// result as read-only — see the doc on Migration.
 	cache map[int64]*Migration
+	// forgotten marks the cache for dropping by the next Get/List (see Forget).
+	// It is atomic rather than guarded by mu because mu is held across the load
+	// query, and Forget must not wait on that.
+	forgotten atomic.Bool
 }
 
 // NewStore returns a Store backed by the given admin query service.
@@ -337,6 +342,25 @@ func (s *Store) invalidateCache() {
 	s.mu.Unlock()
 }
 
+// Forget drops the cache before the next Get/List, which then reloads from the
+// database. It never blocks: it only marks the cache, so a load in flight when
+// it is called is discarded rather than waited for.
+func (s *Store) Forget() {
+	s.forgotten.Store(true)
+}
+
+// ensureLoadedLocked loads the cache if it is absent or has been forgotten. The
+// caller must hold s.mu.
+func (s *Store) ensureLoadedLocked(ctx context.Context) error {
+	if s.forgotten.Swap(false) {
+		s.cache = nil
+	}
+	if s.cache != nil {
+		return nil
+	}
+	return s.loadCacheLocked(ctx)
+}
+
 // cacheStore write-through-updates the entry for m after a successful Update, so
 // the cache stays warm (no reload on the next Get/List). It stores an
 // independent copy — never the caller's *Migration — so a caller that keeps
@@ -369,10 +393,8 @@ func (s *Store) cacheDelete(id int64) {
 func (s *Store) Get(ctx context.Context, id int64) (*Migration, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.cache == nil {
-		if err := s.loadCacheLocked(ctx); err != nil {
-			return nil, err
-		}
+	if err := s.ensureLoadedLocked(ctx); err != nil {
+		return nil, err
 	}
 	m, ok := s.cache[id]
 	if !ok {
@@ -389,10 +411,8 @@ func (s *Store) Get(ctx context.Context, id int64) (*Migration, error) {
 func (s *Store) GetByRef(ctx context.Context, ref Ref) (*Migration, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.cache == nil {
-		if err := s.loadCacheLocked(ctx); err != nil {
-			return nil, err
-		}
+	if err := s.ensureLoadedLocked(ctx); err != nil {
+		return nil, err
 	}
 	if ref.ID != 0 {
 		if m, ok := s.cache[ref.ID]; ok {
@@ -414,10 +434,8 @@ func (s *Store) GetByRef(ctx context.Context, ref Ref) (*Migration, error) {
 func (s *Store) List(ctx context.Context) ([]*Migration, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.cache == nil {
-		if err := s.loadCacheLocked(ctx); err != nil {
-			return nil, err
-		}
+	if err := s.ensureLoadedLocked(ctx); err != nil {
+		return nil, err
 	}
 	out := make([]*Migration, 0, len(s.cache))
 	for _, m := range s.cache {

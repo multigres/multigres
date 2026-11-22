@@ -14,7 +14,12 @@
 
 package backup
 
-import "strings"
+import (
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
+)
 
 // keyToFlagPrefix converts an override key to a pgBackRest CLI flag prefix.
 // Example: "pg2_host" → "--pg2-host="
@@ -37,19 +42,27 @@ func keyToFlagPrefix(key string) string {
 // ApplyPgBackRestOverrides applies override values to pgbackrest arguments.
 // If an override key matches an existing arg prefix, it replaces that arg.
 // Otherwise, it appends the new arg.
-func ApplyPgBackRestOverrides(baseArgs []string, overrides map[string]string) []string {
+//
+// Two keys that name the same flag (pg2_host and pg2-host) are an error rather
+// than a silent pick: either winner would be arbitrary, and the caller asked
+// for two different values of one setting.
+func ApplyPgBackRestOverrides(baseArgs []string, overrides map[string]string) ([]string, error) {
 	if len(overrides) == 0 {
-		return baseArgs
+		return baseArgs, nil
 	}
 
-	// Build map of override keys to pgbackrest flags
 	overrideMap := make(map[string]string)
-	for key, value := range overrides {
+	keyFor := make(map[string]string)
+	for _, key := range slices.Sorted(maps.Keys(overrides)) {
 		prefix := keyToFlagPrefix(key)
 		if prefix == "" {
 			continue // Skip invalid keys
 		}
-		overrideMap[prefix] = prefix + value
+		if other, ok := keyFor[prefix]; ok {
+			return nil, fmt.Errorf("pgbackrest overrides %q and %q both set %s", other, key, strings.TrimSuffix(prefix, "="))
+		}
+		keyFor[prefix] = key
+		overrideMap[prefix] = prefix + overrides[key]
 	}
 
 	// Replace matching args
@@ -69,10 +82,11 @@ func ApplyPgBackRestOverrides(baseArgs []string, overrides map[string]string) []
 		}
 	}
 
-	// Append any overrides that didn't replace existing args
-	for _, overrideArg := range overrideMap {
-		result = append(result, overrideArg)
+	// Append any overrides that didn't replace existing args, in a fixed order:
+	// map iteration would otherwise make the argv differ between runs.
+	for _, prefix := range slices.Sorted(maps.Keys(overrideMap)) {
+		result = append(result, overrideMap[prefix])
 	}
 
-	return result
+	return result, nil
 }

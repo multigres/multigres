@@ -17,6 +17,7 @@ package manager
 import (
 	"context"
 	"errors"
+	"regexp"
 	"testing"
 	"time"
 
@@ -62,6 +63,18 @@ func (env *tableGroupTestEnv) expectRoutingChange() {
 	env.expectLock()
 	env.expectCatalogRows()
 	env.expectAdvance(5)
+}
+
+// expectDropFences answers the drop's admission fence reads: holders are the
+// unfinished operations still fencing the tablegroup (none by default), and
+// the delete of the rest.
+func (env *tableGroupTestEnv) expectDropFences(holders ...string) {
+	var rows [][]any
+	for _, h := range holders {
+		rows = append(rows, []any{h})
+	}
+	env.expect("^"+regexp.QuoteMeta(droppingTableGroupFenceHolderSQL)+"$", []string{"operation_id"}, rows)
+	env.expect("^"+regexp.QuoteMeta(deleteDroppingTableGroupFencesSQL)+"$", nil, nil)
 }
 
 const advanceRoutingVersionSQL = "UPDATE multigres.catalog_state SET routing_version = routing_version + 1 RETURNING routing_version, plan_epoch"
@@ -139,6 +152,7 @@ func TestReconcileTableGroups_FailsACancelledCreationAndDropsIt(t *testing.T) {
 	env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
 	env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
 	env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
+	env.expectDropFences()
 	env.expect("DELETE FROM multigres.shard", nil, nil)
 	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
 	env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
@@ -267,15 +281,57 @@ func TestReconcileTableGroups_ADroppingTableGroupWaitsForTheClaim(t *testing.T) 
 	// The listing patterns from above still answer, which is what we want.
 	require.NoError(t, env.ts.ReleaseTableGroupProvisioning(t.Context(), testTableGroupDB, testTableGroupID))
 	env.expectRoutingChange()
+	env.expectDropFences()
 	env.expect("DELETE FROM multigres.shard", nil, nil)
 	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
 	env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
 	pending, err = env.pm.reconcileTableGroups(t.Context())
 	require.NoError(t, err)
 	assert.Zero(t, pending)
-	assert.Len(t, env.queriesMatching("DELETE"), 2)
+	assert.Len(t, env.queriesMatching("DELETE"), 3, "its fences, shards and row")
 	assert.Contains(t, env.queries, "UPDATE multigres.operation SET state = $3, last_error = NULL, updated_at = now() WHERE kind = $1 AND state = $2 AND (request->>'tablegroup_id')::bigint = $4")
 	assert.Contains(t, env.queries, advanceRoutingVersionSQL)
+}
+
+func TestReconcileTableGroups_ADroppingTableGroupDeletesItsFences(t *testing.T) {
+	// Fences left by finished operations reference the tablegroup and its
+	// shards, so they are deleted first, in the same transaction.
+	env := newCatalogTestEnv(t)
+	env.expectCreations()
+	env.expectDroppings(droppedRow(testTableGroupID, "commerce", ""))
+	env.expectRoutingChange()
+	env.expectDropFences()
+	env.expect("DELETE FROM multigres.shard", nil, nil)
+	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
+	env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
+	env.expectCommit()
+
+	pending, err := env.pm.reconcileTableGroups(t.Context())
+	require.NoError(t, err)
+	assert.Zero(t, pending)
+	assert.Equal(t, []string{
+		droppingTableGroupFenceHolderSQL,
+		deleteDroppingTableGroupFencesSQL,
+		"DELETE FROM multigres.shard WHERE tablegroup_id = $1 AND EXISTS (SELECT 1 FROM multigres.tablegroup WHERE tablegroup_id = $1 AND state = $2)",
+		"DELETE FROM multigres.tablegroup WHERE tablegroup_id = $1 AND state = $2 RETURNING tablegroup_id",
+	}, append(env.queriesMatching("admission_fence f\n"), env.queriesMatching("DELETE")...))
+}
+
+func TestReconcileTableGroups_AFenceOfAnUnfinishedOperationKeepsTheTableGroup(t *testing.T) {
+	// An operation still changing the tablegroup's routing holds it: nothing
+	// is deleted, the transaction rolls back, and the drop stays pending.
+	env := newCatalogTestEnv(t)
+	env.expectCreations()
+	env.expectDroppings(droppedRow(testTableGroupID, "commerce", ""))
+	env.expectLock()
+	env.expectDropFences(importOp)
+	env.expect("ROLLBACK", nil, nil)
+
+	pending, err := env.pm.reconcileTableGroups(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 1, pending)
+	assert.Empty(t, env.queriesMatching("DELETE"))
+	assert.Len(t, env.queriesMatching("ROLLBACK"), 1)
 }
 
 func TestReconcileTableGroups_ADeletedTableGroupIsLeftAlone(t *testing.T) {
@@ -285,6 +341,7 @@ func TestReconcileTableGroups_ADeletedTableGroupIsLeftAlone(t *testing.T) {
 	env.expectCreations()
 	env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
 	env.expectLock()
+	env.expectDropFences()
 	env.expect("DELETE FROM multigres.shard", nil, nil)
 	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, nil)
 
@@ -399,6 +456,7 @@ func TestReconcileTableGroups_AStatementFailureRollsBackAndRetries(t *testing.T)
 		env.expectCreations()
 		env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
 		env.expectLock()
+		env.expectDropFences()
 		env.qs.AddQueryPatternWithError("DELETE FROM multigres.shard", errors.New("lock timeout"))
 		env.expect("ROLLBACK", nil, nil)
 
@@ -487,6 +545,7 @@ func TestReconcileTableGroups_EveryStatementOfATransactionIsChecked(t *testing.T
 		env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
 		env.expectLock()
 		env.qs.AddQueryPatternWithError(failing, errors.New("lock timeout"))
+		env.expectDropFences()
 		env.expect("DELETE FROM multigres.shard", nil, nil)
 		env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
 		env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
@@ -498,6 +557,8 @@ func TestReconcileTableGroups_EveryStatementOfATransactionIsChecked(t *testing.T
 		assert.Equal(t, 1, pending, failing)
 	}
 	for _, failing := range []string{
+		"FROM multigres.admission_fence f\nJOIN",
+		"DELETE FROM multigres.admission_fence",
 		"DELETE FROM multigres.tablegroup",
 		"UPDATE multigres.operation SET state = \\$3",
 		"UPDATE multigres.catalog_state SET routing_version",

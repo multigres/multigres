@@ -16,14 +16,14 @@ This property — that a successful SCRAM handshake reveals `ClientKey` to the v
 
 With `ClientKey` plus `ServerKey` (which Multigateway already has, because Multigateway fetched the verifier from `pg_authid` via Multipooler's admin pool as part of the incoming handshake), Multigateway can impersonate the user against any other SCRAM-SHA-256 verifier of the same password — including the backing PostgreSQL.
 
-Our SCRAM library exposes this via `scram.ScramAuthenticator.ExtractedKeys()`, and the wire-protocol client accepts pre-computed keys via `client.newScramClientWithKeys(...)`.
+Our SCRAM library exposes this via `scram.ScramAuthenticator.ExtractedKeys()`, and the wire-protocol client accepts pre-computed keys via `newScramClientWithKeys(...)` in `pgprotocol/client`.
 
 ### Why this matters
 
 Three things are true in the final design that are not true of a trust-on-the-socket design:
 
 1. **Identity reaches PostgreSQL.** `current_user`, `pg_stat_activity`, audit logs, row-level security predicates — all see the real user. PostgreSQL is no longer asked to authorize on the basis of "some trusted local process asserted a user name."
-2. **`pg_hba.conf` is authoritative.** Access decisions live in one place. There is no configuration path that lets an unauthenticated local process log into PostgreSQL (except replication and the configured superuser, preserved intentionally).
+2. **`pg_hba.conf` is authoritative.** Access decisions live in one place. The default `pg_hba.conf` template has no `trust` lines, so there is no configuration path that lets an unauthenticated local process log into PostgreSQL.
 3. **Plaintext passwords never exist in Multigateway or Multipooler memory.** Only derived `ClientKey`/`ServerKey`, session-scoped, zeroized at client session end.
 
 ## Goals and Non-Goals
@@ -38,7 +38,7 @@ Three things are true in the final design that are not true of a trust-on-the-so
 ### Non-Goals
 
 - **Client-certificate authentication.** Cert-authenticated sessions do not produce SCRAM keys; how Multipooler dials for them is a separate design.
-- **SCRAM-SHA-256-PLUS (channel binding).** Internal gRPC between Multigateway and Multipooler is mTLS-protected, which covers the bulk of the MITM story for the wire segment where keys are exposed.
+- **Channel binding on the pooler-to-PostgreSQL dial.** Multigateway advertises SCRAM-SHA-256-PLUS to clients that connect over TLS (see _Channel binding_), but the passthrough dial itself uses plain SCRAM-SHA-256. Internal gRPC between Multigateway and Multipooler is mTLS-protected, which covers the bulk of the MITM story for the wire segment where keys are exposed.
 - **Per-user key caching on Multipooler.** A pool caches keys at first-creation and relies on rotation-triggered eviction (see _Password rotation_) to refresh them. A short-TTL key cache is a possible future optimization for scenarios where eviction churn becomes visible.
 - **Credential storage outside PostgreSQL.** All verifiers continue to live in `pg_authid`.
 - **Fallback to MD5 or cleartext auth.** Both are explicitly rejected by the wire-protocol client.
@@ -47,7 +47,8 @@ Three things are true in the final design that are not true of a trust-on-the-so
 
 ### Where keys live
 
-Keys live on the Multigateway-side client `Conn` struct (`pgprotocol/server/conn.go`), alongside `user`, `database`, and `params`. They are set exactly once, immediately after `ScramAuthenticator.HandleClientFinal` confirms authentication, by calling `ExtractedKeys()`. They are zeroized exactly once, inside `Conn.Close`, after handler state is released.
+Keys live on the Multigateway-side client `Conn` struct (`pgprotocol/server/conn.go`), alongside `user`, `database`, and `params`. They are set exactly once, immediately after `ScramAuthenticator.HandleClientFinal` confirms authentication, by calling `ExtractedKeys()`.
+They are zeroized by `zeroizeCredentials`, which runs from `Conn.Close` and from `DetachConn` (the connection-hijack path), after handler state is released.
 
 Keys are session-scoped. A PostgreSQL password change invalidates only future client sessions; already-open backend connections remain usable until they close through their normal lifecycle.
 
@@ -55,19 +56,21 @@ Keys are never written to disk, never included in logs, never surfaced in error 
 
 ### Wire format
 
-A `query.UserAuth` message holds `client_key` and `server_key` as bytes. It is embedded as an optional field on `query.ExecuteOptions`. Because `ExecuteOptions` rides on every query-path RPC — `StreamExecute`, `PortalStreamExecute`, `Describe`, `CopyBidiExecute`, `ConcludeTransaction`, `DiscardTempTables`, `ReleaseReservedConnection` — a single field covers the full query path.
+A `query.UserAuth` message holds `client_key` and `server_key` as bytes. It is embedded as an optional field on `query.ExecuteOptions`.
+Because `ExecuteOptions` rides on every query-path RPC — `ExecuteQuery`, `StreamExecute`, `PortalStreamExecute`, `Describe`, `CopyBidiExecute`, `ConcludeTransaction`, `DiscardTempTables`, `ReleaseReservedConnection`, and the same requests multiplexed over `ExecuteStream` — a single field covers the full query path.
+`StreamReplication` does not carry `ExecuteOptions`; its `StreamReplicationInit` message has its own `user_auth` field.
 
 Multigateway populates `UserAuth` from the session's captured keys on every outbound query RPC. Internal gRPC is mTLS-protected, so keys in flight are encrypted on the wire.
 
 ### Multipooler dial logic
 
-`pgprotocol/client.Config` carries optional `ScramClientKey` and `ScramServerKey`. The client-side auth dispatch in `client/startup.go:handleAuthenticationRequest` branches on their presence: when set, it constructs a SCRAM client via `newScramClientWithKeys(user, scramClientKey, scramServerKey)`; otherwise it uses the password path.
+`pgprotocol/client.Config` carries optional `ScramClientKey` and `ScramServerKey`. The client-side auth dispatch in `client/startup.go:handleAuthenticationRequest` branches on their presence: when both are set, it constructs a SCRAM client via `newScramClientWithKeys(conn, user, scramClientKey, scramServerKey)`; otherwise it uses the password path.
 
 `connpoolmanager.Manager` routes keys from the inbound RPC into the user-pool backend dial. User pools are keyed by username and carry the session's keys into their `client.Config` at the pool's first-time creation.
 
 Because `ClientKey` is deterministic over `(user, password)`, keys cached on the pool are correct for every concurrent session of that user as long as the password is stable — see _Password rotation_ below for the self-heal.
 
-The admin pool is unaffected: it authenticates with a configured superuser password, independent of any user's session, and is what makes `GetAuthCredentials` (the `pg_authid` lookup that feeds the handshake) possible in the first place.
+The admin pool is unaffected: it authenticates with a configured superuser password (see _`pg_hba.conf`_), independent of any user's session, and is what makes `GetAuthCredentials` (the `pg_authid` lookup that feeds the handshake) possible in the first place.
 
 ### Password rotation
 
@@ -81,18 +84,23 @@ The retry is single-shot. If the retry itself auth-fails — e.g. the retrier is
 
 ### `pg_hba.conf`
 
-`pg_hba.conf` grants `scram-sha-256` for all non-replication host access and for local socket connections from any user other than the configured admin. The blanket `local all all trust` line no longer exists.
+The default template (`config/postgres/pg_hba_template.conf`) requires `scram-sha-256` on every line: local socket connections, host connections, and replication connections. There are no `trust` lines.
 
-A narrow `local all <admin-user> trust` line is intentionally preserved as the bootstrap path for Multipooler's admin pool (superuser queries: `GetAuthCredentials`, heartbeat, replication tracking).
+Multipooler's admin pool (superuser queries: `GetAuthCredentials`, heartbeat, replication tracking) therefore authenticates with a password.
+`connpoolmanager.Config.ResolvePgPassword` reads it from `--connpool-admin-password-file` / `CONNPOOL_ADMIN_PASSWORD_FILE` / `POSTGRES_PASSWORD_FILE`, or from the `CONNPOOL_ADMIN_PASSWORD` / `POSTGRES_PASSWORD` environment variables.
+When no source is configured, or the configured one is empty, Multipooler fails to start. A user pool dialed for the admin user without session keys (internal queries that carry no SCRAM session) falls back to the same password.
 
-Closing this exception requires pgctld to provision the admin password during `initdb`, so it is tracked as a follow-up rather than shipped in the same change as the query-path flip. Operators running today see a warning on startup when the admin password is empty, surfacing the remaining gap.
+Standbys authenticate replication connections via SCRAM using a passfile referenced from `primary_conninfo`.
 
-Replication-related trust lines remain as a narrower scope, separate from the query path.
+### Channel binding
+
+When a client connects over TLS, Multigateway advertises `SCRAM-SHA-256-PLUS` alongside `SCRAM-SHA-256`, binding to the `tls-server-end-point` hash of the server certificate it presented (`server/startup.go`, `scram/channel_binding.go`).
+If the hash cannot be computed, authentication falls back to advertising `SCRAM-SHA-256` only. Plaintext sessions advertise `SCRAM-SHA-256` only. Key extraction is the same for both mechanisms.
 
 ### Failure modes
 
 - **Stale keys on an existing pool (password rotated in PostgreSQL).** The first dial from the pool with stale keys fails with class-28 SQLSTATE. The manager evicts the pool (see _Password rotation_) and retries with the triggering session's fresh keys. If the retry also auth-fails, the error propagates and the client reconnects to re-derive keys.
-- **Missing keys on an RPC.** The RPC fails closed with a clear error. In steady state this should not happen — every authenticated session has keys — so this is a defensive check, not an expected path.
+- **Missing keys on an RPC.** A pool created for a non-admin user without keys dials with an empty password, so PostgreSQL rejects the connection with an authentication error. In steady state this should not happen — every authenticated session has keys.
 - **Admin pool failure.** Independent of passthrough. If the admin pool cannot reach PostgreSQL, Multipooler cannot serve `GetAuthCredentials` and no handshake can complete; passthrough is a no-op because no session ever reaches the authenticated state.
 
 ### Security properties
@@ -104,10 +112,10 @@ Replication-related trust lines remain as a narrower scope, separate from the qu
 
 ## Open Items / Future Work
 
-- **Close the admin-user trust exception.** Once pgctld provisions the admin password during `initdb`, the `local all <admin-user> trust` line in `pg_hba_template.conf` can be removed and the admin pool switches to SCRAM like everything else.
 - **Per-user key cache on Multipooler.** If RPC payload overhead or repeated handshakes show up in benchmarks, a short-TTL cache with refresh-on-auth-failure is the nearest prior art (Supavisor uses this pattern).
 - **Cert-auth integration.** Cert-authenticated sessions do not produce SCRAM keys. Options include a pooler-side service credential per role, a separate cert-delegation dial path, or rejecting cert auth for the pool path entirely. Deferred to its own design.
-- **Channel binding (SCRAM-SHA-256-PLUS).** Future hardening for the external client-to-gateway handshake, where TLS cert trust is broadest. The internal gateway-to-pooler segment does not run SCRAM at all — the keys are a gRPC payload there, and confidentiality is handled by mTLS. The pooler-to-PostgreSQL handshake is local and has no meaningful MITM surface to bind against.
+- **Channel binding beyond the client-to-gateway handshake.** The external handshake, where TLS cert trust is broadest, already supports SCRAM-SHA-256-PLUS (see _Channel binding_).
+  The internal gateway-to-pooler segment does not run SCRAM at all — the keys are a gRPC payload there, and confidentiality is handled by mTLS. The pooler-to-PostgreSQL handshake is local and has no meaningful MITM surface to bind against.
 
 ## Glossary
 
