@@ -15,6 +15,7 @@
 package tablegroup
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	validator "github.com/pb33f/libopenapi-validator"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -164,6 +166,64 @@ func TestTableGroupCreation(t *testing.T) {
 		requireCode(t, err, codes.FailedPrecondition)
 		_, err = replica.Manager.CreateTableGroup(ctx, &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "elsewhere"})
 		requireCode(t, err, codes.FailedPrecondition)
+	})
+
+	// The cluster is isolated to this test, so nothing here is cleaned up.
+	t.Run("a tablegroup served by an external postgres", func(t *testing.T) {
+		// The fixture goes around the pooler, to the primary postgres.
+		admin, err := pgx.Connect(t.Context(), fmt.Sprintf("host=127.0.0.1 port=%d user=postgres password=%s dbname=postgres sslmode=disable",
+			setup.PrimaryPgctld(t).PgPort, shardsetup.TestPostgresPassword))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = admin.Close(context.Background()) })
+		_, err = admin.Exec(t.Context(), `INSERT INTO multigres.connections (name, dsn, conninfo) VALUES
+			('ext-src', 'not read', '{"host":["db.example.com"],"port":[5432],"dbname":"postgres","user":"app","password":"secret","sslmode":"require"}')`)
+		require.NoError(t, err)
+
+		bind := func(connection string) map[string]string {
+			return map[string]string{constants.DefaultShard: connection}
+		}
+		// The other refusals are unit tests of the catalog write; this is the real lookup.
+		_, err = manager.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "external", ShardBackingConnections: bind("nope")})
+		requireCode(t, err, codes.NotFound)
+		assert.Nil(t, prov.find(t, "external"), "a rejected request leaves the catalog unchanged")
+
+		resp, err := manager.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "external", ShardBackingConnections: bind("ext-src")})
+		require.NoError(t, err)
+		assert.Positive(t, resp.GetTablegroupId())
+
+		// The binding lands on the shard row.
+		var shardName, boundTo string
+		require.NoError(t, admin.QueryRow(t.Context(), `SELECT s.shard_name, c.name FROM multigres.shard s
+			JOIN multigres.connections c ON c.connection_id = s.backing_connection_id
+			WHERE s.tablegroup_id = $1`, resp.GetTablegroupId()).Scan(&shardName, &boundTo))
+		assert.Equal(t, constants.DefaultShard, shardName)
+		assert.Equal(t, "ext-src", boundTo)
+
+		// The provisioner learns the binding from the desired list, and the list is valid
+		// against the published OpenAPI contract.
+		listed := prov.find(t, "external")
+		require.NotNil(t, listed)
+		assert.Equal(t, map[string]string{"0-inf": "ext-src"}, listed.GetShardBackingConnections())
+		assert.Equal(t, []string{"0-inf"}, listed.GetShards())
+		assert.Empty(t, prov.find(t, "analytics").GetShardBackingConnections(), "a managed tablegroup has none")
+
+		// A repeat has to match the binding, with or without IF NOT EXISTS, which ignores the
+		// definition otherwise.
+		again, err := manager.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "external", ShardBackingConnections: bind("ext-src")})
+		require.NoError(t, err)
+		assert.Equal(t, resp.GetOperationId(), again.GetOperationId())
+		_, err = manager.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "external"})
+		requireCode(t, err, codes.FailedPrecondition)
+		_, err = manager.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "external", IfNotExists: true})
+		requireCode(t, err, codes.FailedPrecondition)
+		again, err = manager.CreateTableGroup(t.Context(), &multipoolermanagerdatapb.CreateTableGroupRequest{Name: "external", ShardBackingConnections: bind("ext-src"), IfNotExists: true})
+		require.NoError(t, err)
+		assert.Equal(t, resp.GetOperationId(), again.GetOperationId())
+
+		// A connection a shard is bound to cannot be deleted from under it.
+		_, err = admin.Exec(t.Context(), `DELETE FROM multigres.connections WHERE name = 'ext-src'`)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "shard_backing_connection_id_fkey")
 	})
 
 	t.Run("provisioned shards complete the creation", func(t *testing.T) {
