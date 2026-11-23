@@ -225,18 +225,7 @@ func TestApplyCertifiedRuleChange_FromStuckProposal(t *testing.T) {
 	// rule number is new, since it's simulating an in-flight cohort or policy
 	// change, not a leader change.
 	stuckTerm := currentTerm + 1
-	_, err = primaryClient.Pooler.ExecuteQuery(ctx, fmt.Sprintf(`
-		UPDATE multigres.current_rule
-		SET proposal_coordinator_term = %d,
-		    proposal_leader_subterm = 0,
-		    proposal_leader_id = leader_id,
-		    proposal_cohort_members = cohort_members,
-		    proposal_durability_policy_name = durability_policy_name,
-		    proposal_durability_quorum_type = durability_quorum_type,
-		    proposal_durability_required_count = durability_required_count,
-		    proposal_created_at = now()
-		WHERE shard_id = '0'::bytea`, stuckTerm), 0)
-	require.NoError(t, err, "seeding the stuck proposal should succeed")
+	seedStuckProposal(ctx, t, primaryClient, stuckTerm)
 
 	statusResp, err = primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err)
@@ -402,38 +391,7 @@ func TestStuckProposalAutoRecovers(t *testing.T) {
 	// point of this test is that ordinary failover can recover it without a
 	// cert precisely because nothing but the leader is changing.
 	stuckTerm := currentTerm + 1
-	_, err = primaryClient.Pooler.ExecuteQuery(ctx, fmt.Sprintf(`
-		UPDATE multigres.current_rule
-		SET proposal_coordinator_term = %d,
-		    proposal_leader_subterm = 0,
-		    proposal_leader_id = leader_id,
-		    proposal_cohort_members = cohort_members,
-		    proposal_durability_policy_name = durability_policy_name,
-		    proposal_durability_quorum_type = durability_quorum_type,
-		    proposal_durability_required_count = durability_required_count,
-		    proposal_created_at = now()
-		WHERE shard_id = '0'::bytea`, stuckTerm), 0)
-	require.NoError(t, err, "seeding the stuck proposal should succeed")
-
-	// A real stuck proposal always has a matching decided=false rule_history
-	// row, inserted by the propose step of the two-phase UpdateRule write it got stuck
-	// partway through. markProposalAsDecision's finalize step (propagation)
-	// depends on that row existing, so the raw-SQL seed above must mirror it
-	// too, copying the decision's own leader/cohort/policy since nothing else
-	// is changing here.
-	_, err = primaryClient.Pooler.ExecuteQuery(ctx, fmt.Sprintf(`
-		INSERT INTO multigres.rule_history
-		  (coordinator_term, leader_subterm, event_type, leader_id, coordinator_id,
-		   wal_position, operation, reason, cohort_members, accepted_members,
-		   durability_policy_name, durability_quorum_type, durability_required_count,
-		   decided, created_at)
-		SELECT %d, 0, 'promotion', leader_id, coordinator_id, '0/0', 'promotion',
-		       'seeded stuck proposal', cohort_members, cohort_members,
-		       durability_policy_name, durability_quorum_type, durability_required_count,
-		       false, now()
-		FROM multigres.current_rule
-		WHERE shard_id = '0'::bytea`, stuckTerm), 0)
-	require.NoError(t, err, "seeding the stuck proposal's rule_history row should succeed")
+	seedStuckProposal(ctx, t, primaryClient, stuckTerm)
 
 	statusResp, err = primaryClient.Manager.Status(ctx, &multipoolermanagerdatapb.StatusRequest{})
 	require.NoError(t, err)
@@ -490,4 +448,39 @@ func TestStuckProposalAutoRecovers(t *testing.T) {
 	assert.Greater(t, newPos.GetDecision().GetRuleNumber().GetCoordinatorTerm(), stuckTerm,
 		"the stuck proposal is superseded by a fresh decided rule at a higher term")
 	assert.Nil(t, newPos.GetProposal(), "the new leader's own write is fully decided, not stuck")
+}
+
+// seedStuckProposal writes a stuck proposal at stuckTerm with raw SQL, as a
+// coordinator that crashed between UpdateRule's two write phases would leave it:
+// the proposal on current_rule and its undecided rule_history row, which
+// finishing the proposal (markProposalAsDecision) requires. It reuses the
+// decision's leader, cohort and policy; only the rule number is new.
+func seedStuckProposal(ctx context.Context, t *testing.T, client *shardsetup.MultipoolerClient, stuckTerm int64) {
+	t.Helper()
+	_, err := client.Pooler.ExecuteQuery(ctx, fmt.Sprintf(`
+		UPDATE multigres.current_rule
+		SET proposal_coordinator_term = %d,
+		    proposal_leader_subterm = 0,
+		    proposal_leader_id = leader_id,
+		    proposal_cohort_members = cohort_members,
+		    proposal_durability_policy_name = durability_policy_name,
+		    proposal_durability_quorum_type = durability_quorum_type,
+		    proposal_durability_required_count = durability_required_count,
+		    proposal_created_at = now()
+		WHERE shard_id = '0'::bytea`, stuckTerm), 0)
+	require.NoError(t, err, "seeding the stuck proposal should succeed")
+
+	_, err = client.Pooler.ExecuteQuery(ctx, fmt.Sprintf(`
+		INSERT INTO multigres.rule_history
+		  (coordinator_term, leader_subterm, event_type, leader_id, coordinator_id,
+		   wal_position, operation, reason, cohort_members, accepted_members,
+		   durability_policy_name, durability_quorum_type, durability_required_count,
+		   decided, created_at)
+		SELECT %d, 0, 'promotion', leader_id, coordinator_id, '0/0', 'promotion',
+		       'seeded stuck proposal', cohort_members, cohort_members,
+		       durability_policy_name, durability_quorum_type, durability_required_count,
+		       false, now()
+		FROM multigres.current_rule
+		WHERE shard_id = '0'::bytea`, stuckTerm), 0)
+	require.NoError(t, err, "seeding the stuck proposal's rule_history row should succeed")
 }
