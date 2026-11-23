@@ -1836,13 +1836,11 @@ func (pm *MultipoolerManager) waitUntilOutOfRecovery(ctx context.Context) error 
 		select {
 		case <-ctx.Done():
 			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionWalReplay{}, "error", ctx.Err())
-			pm.logger.ErrorContext(ctx, "context cancelled waiting for postgres to leave recovery mode", "error", ctx.Err())
 			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
 				fmt.Sprintf("promotion wait cancelled: %v", ctx.Err()))
 		case <-ticker.C:
 			pgMode, err := pm.postgresMode(ctx)
 			if err != nil {
-				pm.logger.ErrorContext(ctx, "failed to check recovery status during promotion", "error", err)
 				eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionWalReplay{}, "error", err)
 				return mterrors.Wrap(err, "failed to check recovery status")
 			}
@@ -1864,7 +1862,6 @@ func (pm *MultipoolerManager) waitUntilPostgresReady(ctx context.Context) error 
 		select {
 		case <-ctx.Done():
 			eventlog.Emit(ctx, pm.logger, eventlog.Failed, eventlog.PromotionPostgresReady{}, "error", ctx.Err())
-			pm.logger.ErrorContext(ctx, "context cancelled waiting for postgres to accept connections", "error", ctx.Err())
 			return mterrors.New(mtrpcpb.Code_DEADLINE_EXCEEDED,
 				fmt.Sprintf("promotion wait cancelled: %v", ctx.Err()))
 		case <-ticker.C:

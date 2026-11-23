@@ -275,11 +275,15 @@ func TestPoolerRecord_PublishIfNeeded_WritesOnStateChange(t *testing.T) {
 func TestPoolerRecord_PublishIfNeeded_RetriesAfterFailure(t *testing.T) {
 	ts := &fakeTopoStore{}
 	ts.setError(errors.New("etcd unavailable"))
-	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED))
+	logs := &syncBuffer{}
+	r, err := newPoolerRecord(slog.New(slog.NewTextHandler(logs, nil)), ts, newTestPoolerProto(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_DISABLED))
+	require.NoError(t, err)
 
-	// First attempt fails.
+	// First attempt fails and is reported as a retryable warning, not an error.
 	r.publishIfNeeded(t.Context())
 	assert.Equal(t, int32(0), ts.calls.Load())
+	assert.Contains(t, logs.String(), `level=WARN msg="failed to publish multipooler state to topology; will retry"`)
+	assert.NotContains(t, logs.String(), "level=ERROR")
 
 	// After the error clears, next attempt succeeds.
 	ts.clearError()

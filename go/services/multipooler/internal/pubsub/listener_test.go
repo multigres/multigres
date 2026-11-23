@@ -15,13 +15,18 @@
 package pubsub
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 
 	"github.com/stretchr/testify/assert"
@@ -152,4 +157,50 @@ func TestListenerStaleRequestNotReplayedAfterRestart(t *testing.T) {
 	l.Start(t.Context())
 	require.NotEqual(t, old, l.requests, "Start must begin with an empty queue")
 	l.Stop() // would panic (double close of sub) if the stale subscribe had been replayed
+}
+
+// failingPoolManager fails every reserved-connection acquisition. Only the
+// methods the listener's connect path calls are implemented.
+type failingPoolManager struct {
+	connpoolmanager.PoolManager
+}
+
+func (failingPoolManager) PgUser() string { return "postgres" }
+
+func (failingPoolManager) NewReservedConn(context.Context, map[string]string, string, []byte, []byte, ...reserved.ReservedConnOption) (*reserved.Conn, error) {
+	return nil, errors.New("pool exhausted")
+}
+
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// A failed reserved-connection acquisition is retried on a timer, so it must
+// be logged as a warning rather than an error.
+func TestListenerAcquireFailureLogsWarn(t *testing.T) {
+	metrics, err := NewPubSubMetrics()
+	require.NoError(t, err)
+	logs := &lockedBuffer{}
+	l := NewListener(failingPoolManager{}, slog.New(slog.NewTextHandler(logs, nil)), metrics)
+	t.Cleanup(l.Stop)
+	l.Start(t.Context())
+
+	sub := make(chan *sqltypes.Notification, 1)
+	require.True(t, l.SubscribeCh("ch", sub))
+
+	assert.Contains(t, logs.String(), `level=WARN msg="pubsub: failed to acquire reserved connection"`)
+	assert.NotContains(t, logs.String(), "level=ERROR")
 }

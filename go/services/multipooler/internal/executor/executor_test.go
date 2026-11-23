@@ -15,6 +15,7 @@
 package executor
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -2284,6 +2285,8 @@ func TestCopySendDataReservedConnDeadSocket(t *testing.T) {
 	e, pool, rconn := newDeadReservedConnTestExecutor(t)
 	connID := rconn.ConnID()
 	options := &query.ExecuteOptions{ReservedConnectionId: uint64(connID)}
+	var logs bytes.Buffer
+	e.logger = slog.New(slog.NewTextHandler(&logs, nil))
 
 	rconn.Conn().RawConn().ForceClose()
 
@@ -2293,6 +2296,8 @@ func TestCopySendDataReservedConnDeadSocket(t *testing.T) {
 	assert.NotContains(t, err.Error(), "failed to write COPY data",
 		"must not leak the raw wrap/connection error")
 	assert.Equal(t, mterrors.NewReservedConnectionTerminated(uint64(connID)), err)
+	assert.Contains(t, logs.String(), `level=WARN msg="failed to write COPY data"`)
+	assert.NotContains(t, logs.String(), "level=ERROR")
 
 	_, stillActive := pool.Get(connID)
 	assert.False(t, stillActive, "dead reserved connection must be released, not left dangling")
