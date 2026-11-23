@@ -48,7 +48,7 @@ The script `demo-dashboard.sh` opens a four-pane tmux dashboard.
 
 If a bare `psql` isn't on your PATH (Homebrew, for one, installs it keg-only as `psql-18`), set `PSQL` to the client to use before launching — e.g. `PSQL=psql-18 ./demo-dashboard.sh`. The console panes install a `psql` shim that dispatches to it, so you still just type `psql`. `reset-demo.sh` and `backup-restore.sh` honor `PSQL` too.
 
-It resets the target side on start (drops any leftover migration and the copied `public.accounts` so a re-run bootstraps cleanly — pass `--no-reset` to skip, `--reset-source` to also reseed the source), starts the write client in the **background** (balance-neutral operations — transfers plus account opens and closes — so `SUM(balance)` stays fixed while the row set and individual ids change), and self-heals the balance panes — the target pane (4) shows `waiting for target ledger…` until the migration streams, then fills in on its own, and reconnects itself through the gateway after a target failover; no manual restart needed.
+It resets the target side on start (drops any leftover migration and the copied `public.accounts` so a re-run bootstraps cleanly — pass `--no-reset` to skip, `--reset-source` to also reseed the source), starts the write client in the **background** (`--transfers-only`: balance-neutral transfers between existing accounts, no inserts/deletes — the row set and ids stay fixed so `SUM(balance)` stays constant), and self-heals the balance panes — the target pane (4) shows `waiting for target ledger…` until the migration streams, then fills in on its own, and reconnects itself through the gateway after a target failover; no manual restart needed.
 
 The panes:
 
@@ -56,7 +56,7 @@ The panes:
 - **Pane 2 — target psql console.** `psql` connects to the Multigres gateway (`localhost:15432`) with no options. **This is where you drive the whole migration**, as gateway SQL — open one session here and keep it open for the entire run (see the note below).
 - **Panes 3 and 4 — source and target balances.** Live ledger summaries. The source is seeded large (1000 accounts by default, `ACCOUNTS` in `launch-migration-source.sh`), but each pane shows only a small window — the first `WATCH_LIMIT` accounts (default 12, in `run-appclient.sh`) ordered by account id — so both panes render the **same** subset and you can compare source vs. target row by row. The "accounts: N · total …" line and the `TOTAL` row still roll up the whole ledger, so the no-data-loss invariant covers every account, not just the window. The target fills in once the migration streams.
 
-**One gateway session drives the whole demo.** Everything below runs in **pane 2** as SQL against the gateway — `CREATE CONNECTION` / `CREATE MIGRATION` / `ALTER MIGRATION … PHASE IMPORT | EXPORT` / `SHOW MIGRATION` / `DROP MIGRATION` (migrations are addressed by name, no id needed). Keep **one** psql session open in pane 2 from the create step through the whole run: once you `CREATE MIGRATION` the shard stops serving (within a monitor tick) and the gateway **refuses new connections** (`FATAL: database is temporarily unavailable`), but migration DDL on the already-open session keeps working — it goes to the migrator (a per-shard gRPC service aimed at the primary), not the serving-gated query path, which is the only reason to keep the session open: named connections themselves persist in the shard's Postgres (`multigres.migration_connection`) and are visible from any gateway replica, not gateway-local. The `mg` CLI can drive the same steps from pane 1 at any phase — see the [appendix](#appendix--driving-with-the-mg-cli-pane-1).
+**One gateway session drives the whole demo.** Everything below runs in **pane 2** as SQL against the gateway — `CREATE CONNECTION` / `CREATE MIGRATION` / `ALTER MIGRATION … PHASE IMPORT | EXPORT` / `SELECT ... FROM multigres.stat_migration` / `DROP MIGRATION` (migrations are addressed by name, no id needed). Keep **one** psql session open in pane 2 from the create step through the whole run: once you `CREATE MIGRATION` the shard stops serving (within a monitor tick) and the gateway **refuses new connections** (`FATAL: database is temporarily unavailable`), but migration DDL on the already-open session keeps working — it goes to the migrator (a per-shard gRPC service aimed at the primary), not the serving-gated query path, which is the only reason to keep the session open: named connections themselves persist in the shard's Postgres (`multigres.connections`) and are visible from any gateway replica, not gateway-local. The `mg` CLI can drive the same steps from pane 1 at any phase — see the [appendix](#appendix--driving-with-the-mg-cli-pane-1).
 
 **Serving gate.** As soon as a migration **exists** on the shard — even `CREATED`, before it is started — the pooler stops serving client queries (within a monitor tick, ~5s), so nothing can change the database while a migration is staged against it. Serving is held from `CREATE MIGRATION` through the import, released only at `PHASE EXPORT` (the cutover), re-held on `PHASE IMPORT` (the rollback), and cleared once `DROP MIGRATION` removes the row. Migration DDL on the open session is exempt from the gate; a plain `SELECT` against the target is not — so keep one session open from the create step, and expect new connections and plain queries to be refused from create until activate. The blocking is the point of the demo, not a fault.
 
@@ -71,16 +71,16 @@ psql -v src_host="$SRC_HOST"
 ```sql
 CREATE CONNECTION src OPTIONS (host :'src_host', port '5432', user 'postgres', password 'sourcepass', dbname 'postgres', sslmode 'disable');
 CREATE MIGRATION accounts CONNECTION src FOR TABLE public.accounts;
-SHOW MIGRATIONS;   -- lists the migration (phase CREATED); the shard now stops serving within a few seconds
+SELECT * FROM multigres.stat_migration;   -- lists the migration (phase CREATED); the shard now stops serving within a few seconds
 ```
 
 ## 2. (optional) See the migration row on the shard
 
-`SHOW MIGRATIONS` already reads it through the gateway. To see the replicated sidecar table directly, read the primary pooler's postgres (pane 1) — ports `15433/15434/15435` are the three poolers; the primary is the one not in recovery:
+`SELECT * FROM multigres.stat_migration` already reads it through the gateway. To see the replicated sidecar table directly, read the primary pooler's postgres (pane 1) — ports `15433/15434/15435` are the three poolers; the primary is the one not in recovery:
 
 ```bash
 for p in 15433 15434 15435; do [ "$(PGPASSWORD=postgres psql -h localhost -p $p -U postgres -tAc 'select pg_is_in_recovery()' 2>/dev/null)" = f ] && \
-  PGPASSWORD=postgres psql -h localhost -p $p -U postgres -c "select migration_id, name, phase from multigres.migration"; done
+  PGPASSWORD=postgres psql -h localhost -p $p -U postgres -c "select migration_id, migration_name, migration_phase from multigres.migration"; done
 ```
 
 ## 3. Start the migration
@@ -98,7 +98,7 @@ The shard is already non-serving (it stopped serving when the migration was crea
 In **pane 2** (same session) — this works even though the shard is non-serving, because migration DDL bypasses the serving gate:
 
 ```sql
-SHOW MIGRATION accounts;   -- repeat until phase IMPORTING, caught_up = t
+SELECT * FROM multigres.stat_migration WHERE migration_name = 'accounts';   -- repeat until migration_phase IMPORTING, ready_relations = total_relations, lag_bytes = 0
 ```
 
 ## 5. Move the app to the gateway — it blocks
@@ -134,8 +134,7 @@ PGPASSWORD=sourcepass psql -h localhost -p 5433 -tAc "select count(*), sum(balan
 **Data streams to the source.** Write on the target (pane 2) and see it on the source (pane 1):
 
 ```sql
--- pane 2 (gateway). The writer opens and closes accounts, so fixed ids like 1/2
--- may not exist — pick two that do, then move a unit between them:
+-- pane 2 (gateway). Pick two existing account ids, then move a unit between them:
 SELECT min(id) AS a, max(id) AS b FROM public.accounts \gset
 UPDATE public.accounts SET balance=balance-1 WHERE id=:a;
 UPDATE public.accounts SET balance=balance+1 WHERE id=:b;
@@ -220,11 +219,13 @@ done
 
 ## Appendix — driving with the `mg` CLI (pane 1)
 
-The demo above is driven entirely from the gateway. As an alternative, the `mg` CLI reaches the migrator through multiadmin, so it works from **pane 1** at every phase — no kept-open gateway session needed. Migrations are addressed by generated id, so capture it once:
+The demo above is driven entirely from the gateway. As an alternative, the `mg` CLI reaches the migrator through multiadmin, so it works from **pane 1** at every phase — no kept-open gateway session needed. A Connection can only be created via gateway SQL (there is no `mg` equivalent), so create it once, then drive the rest with `mg`. Migrations are addressed by generated id, so capture it once:
 
 ```bash
-mg create-migration --source-dsn "$SRC_DSN" --target-database postgres --tables public.accounts  # CREATED; shard stops serving
-ID=$(mg list-migrations | jq -r '.migrations[0].id'); echo "$ID"
+psql -v src_host="$SRC_HOST" -c "CREATE CONNECTION src OPTIONS (host :'src_host', port '5432', user 'postgres', password 'sourcepass', dbname 'postgres', sslmode 'disable');"
+
+ID=$(mg create-migration --connection src --target-database postgres --tables public.accounts | jq -r '.migration.id')  # CREATED; shard stops serving
+echo "$ID"
 mg set-migration-direction --id "$ID" --direction=import  # CREATED -> IMPORTING (already non-serving; begins import)
 mg get-migration            --id "$ID"     # repeat until phase IMPORTING, caught_up: true
 mg set-migration-direction  --id "$ID" --direction=export  # IMPORT -> EXPORT (shard serves)
@@ -232,4 +233,4 @@ mg set-migration-direction  --id "$ID" --direction=import  # EXPORT -> IMPORT (s
 mg drop-migration           --id "$ID"     # graceful; add --force to abort from any phase
 ```
 
-Verb mapping to the gateway SQL: `set-migration-direction --direction=import|export` = `ALTER MIGRATION name PHASE IMPORT | EXPORT`; `get` / `list` = `SHOW MIGRATION[S]`; `drop` = `DROP MIGRATION name [FORCE]`.
+Verb mapping to the gateway SQL: `set-migration-direction --direction=import|export` = `ALTER MIGRATION name PHASE IMPORT | EXPORT`; `get` / `list` = `SELECT ... FROM multigres.stat_migration`; `drop` = `DROP MIGRATION name [FORCE]`.
