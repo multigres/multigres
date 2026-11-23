@@ -29,8 +29,7 @@ func (a fakeAction) Execute(context.Context, types.RecheckedProblem) error { ret
 func (a fakeAction) Metadata() types.RecoveryMetadata {
 	return types.RecoveryMetadata{Name: a.name}
 }
-func (fakeAction) RequiresHealthyLeader() bool           { return false }
-func (fakeAction) GracePeriod() *types.GracePeriodConfig { return nil }
+func (fakeAction) RequiresHealthyLeader() bool { return false }
 
 type testActionFactory struct{}
 

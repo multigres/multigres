@@ -43,7 +43,7 @@ func TestActionFactory_BuildsAppointLeaderFromThePolicy(t *testing.T) {
 }
 
 func TestActionFactory_PolicyFollowsItsConfig(t *testing.T) {
-	cfg := config.NewTestConfig(config.WithLeaderFailoverGracePeriodBase(7 * time.Second))
+	cfg := config.NewTestConfig(config.WithLeaderPostgresResponseThreshold(9 * time.Second))
 	factory := &actionFactory{config: cfg}
-	assert.Equal(t, 7*time.Second, factory.AvailabilityPolicy().FailoverGracePeriod)
+	assert.Equal(t, 9*time.Second, factory.AvailabilityPolicy().LeaderPostgresResponseThreshold)
 }
