@@ -220,6 +220,17 @@ func (s *managerService) UnfenceScopes(ctx context.Context, req *multipoolermana
 	return resp, nil
 }
 
+// EnsureImportTarget creates an import's operation if absent, for a tablegroup
+// that is already a bound external database. Only the catalog primary serves
+// it.
+func (s *managerService) EnsureImportTarget(ctx context.Context, req *multipoolermanagerdatapb.EnsureImportTargetRequest) (*multipoolermanagerdatapb.EnsureImportTargetResponse, error) {
+	resp, err := s.manager.EnsureImportTarget(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
 // ReloadConfig triggers a PostgreSQL configuration reload and confirms it took effect.
 func (s *managerService) ReloadConfig(ctx context.Context, req *multipoolermanagerdatapb.ReloadConfigRequest) (*multipoolermanagerdatapb.ReloadConfigResponse, error) {
 	resp, err := s.manager.ReloadConfig(ctx, req)

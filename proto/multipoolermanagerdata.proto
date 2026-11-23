@@ -776,6 +776,11 @@ message CreateTableGroupRequest {
   // (already_exists is set on the response) instead of an error, and joins a
   // creation of this name already in flight whatever its layout.
   bool if_not_exists = 3;
+  // shard_backing_connections maps shard names to the names of the connections
+  // (in the catalog's connections table) of the external PostgreSQL that serves
+  // them. Shards not listed are managed. Fixed at creation; see
+  // docs/sharding/tablegroup-operations.md for what can be bound.
+  map<string, string> shard_backing_connections = 4;
 }
 
 // CreateTableGroupResponse identifies the operation that creates the tablegroup.
@@ -916,6 +921,9 @@ message TableGroup {
   shardingcatalog.TableGroupState state = 3;
   // shards is the shard layout in canonical order.
   repeated string shards = 4;
+  // shard_backing_connections maps each shard served by an external
+  // PostgreSQL to the name of its connection. Shards not listed are managed.
+  map<string, string> shard_backing_connections = 5;
 }
 
 // GetRoutingSnapshotRequest asks the catalog primary for the sharding catalog.
@@ -1068,4 +1076,27 @@ message UnfenceScopesRequest {
 // UnfenceScopesResponse returns the routing version after the change.
 message UnfenceScopesResponse {
   int64 routing_version = 1;
+}
+
+// EnsureImportTargetRequest creates, if it does not exist, the operation of
+// an import of a tablegroup that is already served from an external database.
+// The tablegroup is not created: it must exist, be active, and have the one
+// shard 0-inf, bound to a backing connection (created with CREATE TABLEGROUP
+// ... CONNECTION, or CreateTableGroup with shard_backing_connections).
+message EnsureImportTargetRequest {
+  // database must be the database the pooler serves.
+  string database = 1;
+  // operation_id is the import operation (a UUID).
+  string operation_id = 2;
+  // tablegroup is the tablegroup the import serves the source database from.
+  // It may not be the default tablegroup, nor one another unfinished
+  // operation acts on, such as a tablegroup being created. A tablegroup that
+  // does not exist is NOT_FOUND; one that is not active, is not the single
+  // bound shard 0-inf, or is acted on by another operation is
+  // FAILED_PRECONDITION.
+  string tablegroup = 3;
+}
+
+// EnsureImportTargetResponse confirms the operation exists.
+message EnsureImportTargetResponse {
 }

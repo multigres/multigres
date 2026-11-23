@@ -89,9 +89,7 @@ func TestCreateConnectionDoesNotAskThatAPoolerCanFrontIt(t *testing.T) {
 			conn := &Connection{Name: "mig", DSN: dsn}
 			require.NoError(t, tc.c.CreateConnection(context.Background(), conn))
 			require.NotNil(t, conn.ConnInfo)
-			c, err := conn.Conn()
-			require.NoError(t, err)
-			require.Error(t, c.ForPooler(), "a pooler would refuse it, which is decided where it is served")
+			require.Error(t, conn.ConnInfo.ForPooler(), "a pooler would refuse it, which is decided where it is served")
 		})
 	}
 }
@@ -139,8 +137,6 @@ func TestStoreMarksAConnectionWhoseConnInfoItCannotReadAsUnreadable(t *testing.T
 	require.NoError(t, err)
 	require.ErrorIs(t, conn.Unreadable(), ErrConnectionUnreadable)
 	require.NotContains(t, conn.Unreadable().Error(), "s3cr3t")
-	_, err = conn.Conn()
-	require.ErrorIs(t, err, ErrConnectionUnreadable)
 }
 
 // TestAnUnreadableConnectionIsReportedOnlyToACallerWhoMayUseIt: a connection whose conninfo cannot be
@@ -228,7 +224,7 @@ func TestAStoredConnInfoThatIsNotValidIsRefusedWhereItIsUsed(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			tc := newTestCoord(t)
 			stored := tc.store.conns[defaultConnID]
-			decoded, err := decodeConnInfo("src", conninfo)
+			decoded, err := DecodeConnInfo("src", conninfo)
 			require.NoError(t, err)
 			stored.ConnInfo = decoded
 
@@ -249,11 +245,20 @@ func TestAStoredConnInfoThatIsNotValidIsRefusedWhereItIsUsed(t *testing.T) {
 	}
 }
 
+func TestDecodeConnInfo(t *testing.T) {
+	const conninfo = `{"host":["from-conninfo"],"port":[5432],"dbname":"app","user":"u","password":"pw","sslmode":"prefer"}`
+	got, err := DecodeConnInfo("src", conninfo)
+	require.NoError(t, err)
+	require.Equal(t, &backingconn.Conn{
+		Hosts: []string{"from-conninfo"}, Ports: []int{5432}, Database: "app", User: "u", Password: "pw", SSLMode: "prefer",
+	}, got)
+}
+
 // A connection with no conninfo (a NULL in the column, which a connection stored before the column
 // existed keeps when setup could not convert its dsn) is a connection that cannot be read, which
 // the caller who may use it is told to drop and create again.
 func TestAConnectionWithNoConnInfoIsUnreadable(t *testing.T) {
-	_, err := decodeConnInfo("legacy", "")
+	_, err := DecodeConnInfo("legacy", "")
 	require.ErrorIs(t, err, ErrConnectionUnreadable)
 	require.Contains(t, err.Error(), `connection "legacy"`)
 	require.Contains(t, err.Error(), "drop it and create it again")

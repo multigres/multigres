@@ -69,6 +69,7 @@ const (
 	MultiadminService_DeleteRoutingRules_FullMethodName         = "/multiadmin.MultiadminService/DeleteRoutingRules"
 	MultiadminService_FenceScopes_FullMethodName                = "/multiadmin.MultiadminService/FenceScopes"
 	MultiadminService_UnfenceScopes_FullMethodName              = "/multiadmin.MultiadminService/UnfenceScopes"
+	MultiadminService_EnsureImportTarget_FullMethodName         = "/multiadmin.MultiadminService/EnsureImportTarget"
 )
 
 // MultiadminServiceClient is the client API for MultiadminService service.
@@ -295,6 +296,14 @@ type MultiadminServiceClient interface {
 	// UnfenceScopes lifts an operation's admission fences on a list of scopes,
 	// in one catalog write.
 	UnfenceScopes(ctx context.Context, in *multipoolermanagerdata.UnfenceScopesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UnfenceScopesResponse, error)
+	// EnsureImportTarget creates, if absent, the operation of an import of a
+	// tablegroup that is already served from an external database: an active
+	// tablegroup with the one shard 0-inf, bound to a backing connection. It
+	// creates no tablegroup or shard, and changes no routing. This RPC is
+	// temporary, for the first version of imports, and will be deprecated. The
+	// import's PREPARE step (registering its tables, the default rule and
+	// fencing) will replace it.
+	EnsureImportTarget(ctx context.Context, in *multipoolermanagerdata.EnsureImportTargetRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.EnsureImportTargetResponse, error)
 }
 
 type multiadminServiceClient struct {
@@ -645,6 +654,16 @@ func (c *multiadminServiceClient) UnfenceScopes(ctx context.Context, in *multipo
 	return out, nil
 }
 
+func (c *multiadminServiceClient) EnsureImportTarget(ctx context.Context, in *multipoolermanagerdata.EnsureImportTargetRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.EnsureImportTargetResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.EnsureImportTargetResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_EnsureImportTarget_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // MultiadminServiceServer is the server API for MultiadminService service.
 // All implementations must embed UnimplementedMultiadminServiceServer
 // for forward compatibility.
@@ -869,6 +888,14 @@ type MultiadminServiceServer interface {
 	// UnfenceScopes lifts an operation's admission fences on a list of scopes,
 	// in one catalog write.
 	UnfenceScopes(context.Context, *multipoolermanagerdata.UnfenceScopesRequest) (*multipoolermanagerdata.UnfenceScopesResponse, error)
+	// EnsureImportTarget creates, if absent, the operation of an import of a
+	// tablegroup that is already served from an external database: an active
+	// tablegroup with the one shard 0-inf, bound to a backing connection. It
+	// creates no tablegroup or shard, and changes no routing. This RPC is
+	// temporary, for the first version of imports, and will be deprecated. The
+	// import's PREPARE step (registering its tables, the default rule and
+	// fencing) will replace it.
+	EnsureImportTarget(context.Context, *multipoolermanagerdata.EnsureImportTargetRequest) (*multipoolermanagerdata.EnsureImportTargetResponse, error)
 	mustEmbedUnimplementedMultiadminServiceServer()
 }
 
@@ -980,6 +1007,9 @@ func (UnimplementedMultiadminServiceServer) FenceScopes(context.Context, *multip
 }
 func (UnimplementedMultiadminServiceServer) UnfenceScopes(context.Context, *multipoolermanagerdata.UnfenceScopesRequest) (*multipoolermanagerdata.UnfenceScopesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UnfenceScopes not implemented")
+}
+func (UnimplementedMultiadminServiceServer) EnsureImportTarget(context.Context, *multipoolermanagerdata.EnsureImportTargetRequest) (*multipoolermanagerdata.EnsureImportTargetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EnsureImportTarget not implemented")
 }
 func (UnimplementedMultiadminServiceServer) mustEmbedUnimplementedMultiadminServiceServer() {}
 func (UnimplementedMultiadminServiceServer) testEmbeddedByValue()                           {}
@@ -1614,6 +1644,24 @@ func _MultiadminService_UnfenceScopes_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiadminService_EnsureImportTarget_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.EnsureImportTargetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).EnsureImportTarget(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_EnsureImportTarget_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).EnsureImportTarget(ctx, req.(*multipoolermanagerdata.EnsureImportTargetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiadminService_ServiceDesc is the grpc.ServiceDesc for MultiadminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1756,6 +1804,10 @@ var MultiadminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UnfenceScopes",
 			Handler:    _MultiadminService_UnfenceScopes_Handler,
+		},
+		{
+			MethodName: "EnsureImportTarget",
+			Handler:    _MultiadminService_EnsureImportTarget_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -593,6 +593,75 @@ paths:
       summary: Fence scopes for an operation
       tags:
         - routing
+  /api/v1/databases/{database}/routing/operations/{operation_id}/import-target:
+    put:
+      description: |-
+        EnsureImportTarget creates, if absent, the operation of an import of a
+         tablegroup that is already served from an external database: an active
+         tablegroup with the one shard 0-inf, bound to a backing connection. It
+         creates no tablegroup or shard, and changes no routing. This RPC is
+         temporary, for the first version of imports, and will be deprecated. The
+         import's PREPARE step (registering its tables, the default rule and
+         fencing) will replace it.
+      operationId: multiadmin.MultiadminService.EnsureImportTarget
+      parameters:
+        - description: database must be the database the pooler serves.
+          in: path
+          name: database
+          required: true
+          schema:
+            title: database
+            type: string
+        - description: operation_id is the import operation (a UUID).
+          in: path
+          name: operation_id
+          required: true
+          schema:
+            title: operation_id
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              additionalProperties: false
+              description: |-
+                EnsureImportTargetRequest creates, if it does not exist, the operation of
+                 an import of a tablegroup that is already served from an external database.
+                 The tablegroup is not created: it must exist, be active, and have the one
+                 shard 0-inf, bound to a backing connection (created with CREATE TABLEGROUP
+                 ... CONNECTION, or CreateTableGroup with shard_backing_connections).
+              properties:
+                tablegroup:
+                  description: |-
+                    tablegroup is the tablegroup the import serves the source database from.
+                     It may not be the default tablegroup, nor one another unfinished
+                     operation acts on, such as a tablegroup being created. A tablegroup that
+                     does not exist is NOT_FOUND; one that is not active, is not the single
+                     bound shard 0-inf, or is acted on by another operation is
+                     FAILED_PRECONDITION.
+                  title: tablegroup
+                  type: string
+              title: EnsureImportTargetRequest
+              type: object
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/multipoolermanagerdata.EnsureImportTargetResponse'
+          description: Success
+        "400":
+          $ref: '#/components/responses/RPCError'
+        "401":
+          $ref: '#/components/responses/RPCError'
+        "404":
+          $ref: '#/components/responses/RPCError'
+        default:
+          $ref: '#/components/responses/RPCError'
+      summary: Create an import's operation on a bound tablegroup (temporary)
+      tags:
+        - routing
   /api/v1/databases/{database}/routing/operations/{operation_id}/rules:
     delete:
       description: DeleteRoutingRules deletes every routing rule of an operation.
@@ -4282,6 +4351,11 @@ components:
           type: string
       title: DeleteRoutingRulesResponse
       type: object
+    multipoolermanagerdata.EnsureImportTargetResponse:
+      additionalProperties: false
+      description: EnsureImportTargetResponse confirms the operation exists.
+      title: EnsureImportTargetResponse
+      type: object
     multipoolermanagerdata.FenceScopeSpec:
       additionalProperties: false
       description: |-
@@ -4683,6 +4757,15 @@ components:
         name:
           title: name
           type: string
+        shardBackingConnections:
+          additionalProperties:
+            title: value
+            type: string
+          description: |-
+            shard_backing_connections maps each shard served by an external
+             PostgreSQL to the name of its connection. Shards not listed are managed.
+          title: shard_backing_connections
+          type: object
         shards:
           description: shards is the shard layout in canonical order.
           items:
