@@ -30,7 +30,7 @@ import (
 // advance (see ReconnectRecruitAbandonedAction), not FixReplication — a
 // SetPrimary at the current rule would just be ignored.
 type RecruitAbandonedAnalyzer struct {
-	factory *RecoveryActionFactory
+	factory ActionFactory
 }
 
 func (a *RecruitAbandonedAnalyzer) Name() types.CheckName {

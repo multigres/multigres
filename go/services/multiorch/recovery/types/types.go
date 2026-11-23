@@ -143,6 +143,13 @@ const (
 	ProblemShardStuck             ProblemCode = "ShardStuck"
 	ProblemNoHealthyCohortMembers ProblemCode = "NoHealthyCohortMembers"
 	ProblemLeaderHealthUnknown    ProblemCode = "LeaderHealthUnknown"
+
+	// ProblemLeaderPromotionInProgress: the leader is mid-promotion, so the shard
+	// accepts no writes until it finishes, and failover is held off meanwhile.
+	// Alert-only because recovery can only wait; whether to page on it is a
+	// separate policy. It clears when the promotion finishes, or when the grace
+	// lapses and normal detection applies.
+	ProblemLeaderPromotionInProgress ProblemCode = "LeaderPromotionInProgress"
 )
 
 // Category groups checks by what they monitor.

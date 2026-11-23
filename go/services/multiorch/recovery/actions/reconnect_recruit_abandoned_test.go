@@ -25,7 +25,6 @@ import (
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
-	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
@@ -92,7 +91,7 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 			CurrentPosition: &clustermetadatapb.PoolerPosition{Position: ruleAt(1, 1)},
 		}
 
-		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, leaderCurrentPosition(1)), slog.Default())
+		action := NewReconnectRecruitAbandonedAction(fake, seed(t, leaderCurrentPosition(1)), slog.Default())
 
 		require.NoError(t, action.Execute(ctx, types.RecheckedProblem{Problem: problem}))
 		assert.Contains(t, fake.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)",
@@ -109,7 +108,7 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 		fake := rpcclient.NewFakeClient()
 		// Leader already at term 2: the highest known rule is not revoked by the
 		// follower's revocation, so no advance is needed — just reconnect.
-		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, leaderCurrentPosition(2)), slog.Default())
+		action := NewReconnectRecruitAbandonedAction(fake, seed(t, leaderCurrentPosition(2)), slog.Default())
 
 		require.NoError(t, action.Execute(ctx, types.RecheckedProblem{Problem: problem}))
 		assert.NotContains(t, fake.CallLog, "UpdateConsensusRule(multipooler-cell1-primary)",
@@ -133,7 +132,7 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 				LeaderId:   fixReplPrimaryID,
 			},
 		}}
-		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, undecided), slog.Default())
+		action := NewReconnectRecruitAbandonedAction(fake, seed(t, undecided), slog.Default())
 
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 		require.Error(t, err)
@@ -150,7 +149,7 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 		fake.UpdateConsensusRuleResponses["multipooler-cell1-primary"] = &multipoolermanagerdatapb.UpdateConsensusRuleResponse{
 			CurrentPosition: &clustermetadatapb.PoolerPosition{Position: ruleAt(1, 0)},
 		}
-		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, leaderCurrentPosition(1)), slog.Default())
+		action := NewReconnectRecruitAbandonedAction(fake, seed(t, leaderCurrentPosition(1)), slog.Default())
 
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 		require.Error(t, err)
@@ -165,7 +164,7 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 		fake := rpcclient.NewFakeClient()
 		fake.Errors["multipooler-cell1-primary"] = errors.New("rpc boom")
 
-		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, leaderCurrentPosition(1)), slog.Default())
+		action := NewReconnectRecruitAbandonedAction(fake, seed(t, leaderCurrentPosition(1)), slog.Default())
 
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 		require.Error(t, err)
@@ -179,7 +178,7 @@ func TestReconnectRecruitAbandonedAction(t *testing.T) {
 
 		// Leader already at term 2: no advance needed, so Execute proceeds straight
 		// to the failing SetPrimary.
-		action := NewReconnectRecruitAbandonedAction(config.NewTestConfig(), fake, seed(t, leaderCurrentPosition(2)), slog.Default())
+		action := NewReconnectRecruitAbandonedAction(fake, seed(t, leaderCurrentPosition(2)), slog.Default())
 
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: problem})
 		require.Error(t, err)

@@ -30,7 +30,6 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
-	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 	"github.com/multigres/multigres/go/tools/timer"
@@ -216,7 +215,7 @@ type Engine struct {
 	metrics *Metrics
 
 	// Action factory for creating recovery actions
-	actionFactory *analysis.RecoveryActionFactory
+	actionFactory *actionFactory
 
 	coordinator *consensus.Coordinator
 
@@ -294,7 +293,7 @@ func NewEngine(
 		logger.Error("failed to register stream health callback", "error", err)
 	}
 
-	engine.actionFactory = analysis.NewRecoveryActionFactory(
+	engine.actionFactory = newActionFactory(
 		config,
 		engine.poolerCache,
 		rpcClient,
