@@ -8,14 +8,14 @@ permissions: {}
 
 jobs:
   dispatch:
-    # Run only on the upstream repository. Skip forks and private mirrors.
+    # Run only on the upstream repository. Skip forks and mirrors.
     if: github.repository == 'multigres/multigres'
     runs-on: ubuntu-latest
     environment:
       name: ci
       deployment: false
     steps:
-      - name: Generate GitHub App token for creating a PR
+      - name: Generate GitHub App token for dispatching to the operator
         id: app-token
         uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859 # v3.0.0
         with:
@@ -23,6 +23,7 @@ jobs:
           private-key: ${{ secrets.MULTIGRES_BOT_APP_PRIVATE_KEY }}
           owner: multigres
           repositories: multigres-operator
+          permission-contents: write
 
       - name: Dispatch proto-updated event
         env:
