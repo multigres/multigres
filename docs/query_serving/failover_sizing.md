@@ -15,8 +15,8 @@ The two subsystems being sized are:
   taken over yet. See [Failover Buffering](./failover_buffering.md) for
   the design.
 - The **multipooler graceful drain**, which waits for in-flight
-  reserved connections to finish before completing a `NOT_SERVING`
-  transition. See [Graceful Drain](./graceful_drain_design.md) for the
+  reserved connections, then in-flight single queries, to finish before
+  completing a `NOT_SERVING` transition. See [Graceful Drain](./graceful_drain_design.md) for the
   design.
 
 These two systems are coupled: the gateway holds queries for as long
@@ -65,14 +65,16 @@ trigger several planned failovers to populate the histograms.
 
 ### Gateway side
 
-| Metric                                  | Type      | Question it answers                                            |
-| --------------------------------------- | --------- | -------------------------------------------------------------- |
-| `multigateway.buffer.queue.depth`       | Gauge     | How full is the buffer at this instant?                        |
-| `multigateway.buffer.failover.duration` | Histogram | How long did this failover take (gateway-perceived)?           |
-| `multigateway.buffer.wait.duration`     | Histogram | How long did each buffered request wait?                       |
-| `multigateway.buffer.requests.evicted`  | Counter   | How many requests were evicted, by `reason`?                   |
-| `multigateway.buffer.requests.buffered` | Counter   | How many requests entered the buffer (rate of buffer ingress)? |
-| `multigateway.buffer.failovers`         | Counter   | How many failovers were detected per shard?                    |
+| Metric                                           | Type      | Question it answers                                                                                   |
+| ------------------------------------------------ | --------- | ----------------------------------------------------------------------------------------------------- |
+| `multigateway.buffer.queue.depth`                | Gauge     | How full is the buffer at this instant?                                                               |
+| `multigateway.buffer.failover.duration`          | Histogram | How long did this failover take (gateway-perceived)?                                                  |
+| `multigateway.buffer.wait.duration`              | Histogram | How long did each buffered request wait?                                                              |
+| `multigateway.buffer.requests.evicted`           | Counter   | How many requests were evicted, by `reason`?                                                          |
+| `multigateway.buffer.requests.buffered`          | Counter   | How many requests entered the buffer (rate of buffer ingress)?                                        |
+| `multigateway.buffer.failovers`                  | Counter   | How many failovers were detected per shard?                                                           |
+| `multigateway.buffer.requests.skipped`           | Counter   | How many requests were not buffered, by `reason` (timing guard)?                                      |
+| `multigateway.buffer.requests.failed_unbuffered` | Counter   | How many requests failed with a non-bufferable error (by `code`) while the shard's buffer was active? |
 
 ### Pooler side
 
@@ -244,4 +246,4 @@ so you can spot trends before they become alerts.
 - [Failover Buffering design](./failover_buffering.md)
 - [Graceful Drain design](./graceful_drain_design.md)
 - Metric source: `go/services/multigateway/buffer/metrics.go`,
-  `go/services/multipooler/poolerserver/metrics.go`
+  `go/services/multipooler/internal/poolerserver/metrics.go`

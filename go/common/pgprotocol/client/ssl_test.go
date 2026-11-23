@@ -26,6 +26,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -304,4 +305,46 @@ func tlsStateFromPEM(t *testing.T, certPEM, keyPEM []byte) tls.ConnectionState {
 	}
 	_ = keyPEM // unused in verification path; key is only needed for live TLS
 	return tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}}
+}
+
+// sslrootcert=system (libpq 16) selects the operating system's trusted CAs: nothing is read from
+// a file, verify-full is the only mode it allows, and the hostname is verified as for a file.
+func TestBuildTLSConfig_SystemRootCert(t *testing.T) {
+	cfg, err := BuildTLSConfig(SSLModeVerifyFull, SystemRootCert, "db.example.com")
+	if err != nil {
+		t.Fatalf("verify-full with system roots: %v", err)
+	}
+	if cfg.RootCAs == nil || cfg.VerifyConnection == nil || cfg.ServerName != "db.example.com" {
+		t.Errorf("system roots must be the roots and the host verified: %+v", cfg)
+	}
+	if cfg.MinVersion != tls.VersionTLS12 {
+		t.Errorf("MinVersion = %x", cfg.MinVersion)
+	}
+
+	// As libpq: any weaker mode is an error, not a downgrade.
+	for _, mode := range []SSLMode{SSLModeDisable, SSLModePrefer, SSLModeRequire, SSLModeVerifyCA} {
+		_, err := BuildTLSConfig(mode, SystemRootCert, "db.example.com")
+		if err == nil || !strings.Contains(err.Error(), "sslrootcert=system") {
+			t.Errorf("mode %q with system roots: err = %v, want a refusal naming sslrootcert=system", mode, err)
+		}
+	}
+
+	// "system" is only that exact word; anything else is a path to a file.
+	if _, err := BuildTLSConfig(SSLModeVerifyFull, "System", "db.example.com"); err == nil ||
+		!strings.Contains(err.Error(), "read sslrootcert") {
+		t.Errorf("\"System\" is a path, which does not exist: %v", err)
+	}
+}
+
+// DefaultSSLMode is the fallback, except with sslrootcert=system, where it is libpq's verify-full.
+func TestDefaultSSLMode(t *testing.T) {
+	if got := DefaultSSLMode("", SSLModeRequire); got != SSLModeRequire {
+		t.Errorf("no root: %q", got)
+	}
+	if got := DefaultSSLMode("/ca.pem", SSLModePrefer); got != SSLModePrefer {
+		t.Errorf("a path: %q", got)
+	}
+	if got := DefaultSSLMode(SystemRootCert, SSLModePrefer); got != SSLModeVerifyFull {
+		t.Errorf("system roots: %q", got)
+	}
 }

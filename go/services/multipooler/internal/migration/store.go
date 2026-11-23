@@ -19,9 +19,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -54,6 +56,10 @@ type Store struct {
 	// return the cached *Migration directly (no copy), so callers MUST treat the
 	// result as read-only — see the doc on Migration.
 	cache map[int64]*Migration
+	// forgotten marks the cache for dropping by the next Get/List (see Forget).
+	// It is atomic rather than guarded by mu because mu is held across the load
+	// query, and Forget must not wait on that.
+	forgotten atomic.Bool
 }
 
 // NewStore returns a Store backed by the given admin query service.
@@ -127,12 +133,15 @@ const connectionsPresentSQL = `SELECT to_regclass('multigres.connections') IS NO
 // composite's fields not sharing one order.
 const insertMigrationSQL = `INSERT INTO multigres.migration
 	(migration_id, migration_phase, migration_name, connection_id, migration_target,
-	 sequence_margin, copy_data, skip_schema_copy, direction)
-	VALUES ($1,$2,$3,$4,ROW($5,$7,$6)::multigres.shard_ref,$8,$9,$10,$11)`
+	 sequence_margin, copy_data, skip_schema_copy, direction, quiesce_roles, public_had_connect, quiesce_role_conn_limits, quiesce_roles_had_connect, owner_role)
+	VALUES ($1,$2,$3,$4,ROW($5,$7,$6)::multigres.shard_ref,$8,$9,$10,$11,$12,$13,$14,$15,$16)`
 
 // Insert writes a new migration row and its table list atomically. created_at
 // defaults to now(); streaming_since starts NULL.
 func (s *Store) Insert(ctx context.Context, m *Migration) error {
+	quiesceRolesJSON := marshalQuiesceColumn(m.QuiesceRoles, "[]")
+	connLimitsJSON := marshalQuiesceColumn(m.QuiesceRoleConnLimits, "{}")
+	hadConnectJSON := marshalQuiesceColumn(m.QuiesceRolesHadConnect, "{}")
 	tx, err := s.qs.BeginAdmin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin insert migration: %w", err)
@@ -142,7 +151,7 @@ func (s *Store) Insert(ctx context.Context, m *Migration) error {
 		ctx, insertMigrationSQL,
 		m.ID, string(m.Phase), nullableString(m.Name), m.ConnectionID,
 		m.TargetDatabase, m.TargetShard, m.TargetTableGroup, m.SequenceMargin, m.CopyData, m.SkipSchemaCopy,
-		string(m.effectiveDirection()),
+		string(m.effectiveDirection()), quiesceRolesJSON, m.PublicHadConnect, connLimitsJSON, hadConnectJSON, m.OwnerRole,
 	); err != nil {
 		if isConnectionsFKViolation(err) {
 			// The connection was deleted by another process after it was resolved.
@@ -166,7 +175,8 @@ func (s *Store) Insert(ctx context.Context, m *Migration) error {
 const (
 	updateMigrationSQL = `UPDATE multigres.migration SET
 	migration_phase=$2, connection_id=$3,
-	sequence_margin=$4, last_error=$5, streaming_since=$6, direction=$7, reverse_link_error=$8
+	sequence_margin=$4, last_error=$5, streaming_since=$6, direction=$7, public_had_connect=$8,
+	quiesce_role_conn_limits=$9, reverse_link_error=$10, quiesce_applied=$11, quiesce_roles_had_connect=$12
 	WHERE migration_id=$1`
 
 	deleteMigrationTablesSQL = `DELETE FROM multigres.migration_tables WHERE migration_id=$1`
@@ -179,6 +189,8 @@ func (s *Store) Update(ctx context.Context, m *Migration) error {
 	if m.StreamingSince != nil {
 		streamingSince = *m.StreamingSince
 	}
+	connLimitsJSON := marshalQuiesceColumn(m.QuiesceRoleConnLimits, "{}")
+	hadConnectJSON := marshalQuiesceColumn(m.QuiesceRolesHadConnect, "{}")
 	tx, err := s.qs.BeginAdmin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin update migration: %w", err)
@@ -187,7 +199,8 @@ func (s *Store) Update(ctx context.Context, m *Migration) error {
 	if _, err := tx.QueryArgs(
 		ctx, updateMigrationSQL,
 		m.ID, string(m.Phase), m.ConnectionID,
-		m.SequenceMargin, m.LastError, streamingSince, string(m.effectiveDirection()), m.ReverseLinkError,
+		m.SequenceMargin, m.LastError, streamingSince, string(m.effectiveDirection()), m.PublicHadConnect,
+		connLimitsJSON, m.ReverseLinkError, m.QuiesceApplied, hadConnectJSON,
 	); err != nil {
 		return fmt.Errorf("update migration: %w", err)
 	}
@@ -298,9 +311,9 @@ func scanJournalEntry(row *sqltypes.Row) (*JournalEntry, error) {
 const selectMigrationSQL = `SELECT m.migration_id, m.migration_phase, COALESCE(m.migration_name, ''),
 	m.connection_id, (m.migration_target).database, (m.migration_target).shard, (m.migration_target).table_group,
 	m.sequence_margin,
-	m.copy_data, m.skip_schema_copy, m.direction,
-	m.last_error, m.reverse_link_error,
-	m.created_at, m.streaming_since,
+	m.copy_data, m.skip_schema_copy, m.direction, m.quiesce_roles, m.public_had_connect,
+	m.quiesce_applied, m.quiesce_role_conn_limits, m.quiesce_roles_had_connect, m.last_error, m.reverse_link_error,
+	m.created_at, m.streaming_since, m.owner_role,
 	CASE WHEN count(t.table_name) = 0 THEN '[]'
 	     ELSE json_agg(t.schema_name || '.' || t.table_name)::text
 	END AS tables
@@ -337,6 +350,25 @@ func (s *Store) invalidateCache() {
 	s.mu.Unlock()
 }
 
+// Forget drops the cache before the next Get/List, which then reloads from the
+// database. It never blocks: it only marks the cache, so a load in flight when
+// it is called is discarded rather than waited for.
+func (s *Store) Forget() {
+	s.forgotten.Store(true)
+}
+
+// ensureLoadedLocked loads the cache if it is absent or has been forgotten. The
+// caller must hold s.mu.
+func (s *Store) ensureLoadedLocked(ctx context.Context) error {
+	if s.forgotten.Swap(false) {
+		s.cache = nil
+	}
+	if s.cache != nil {
+		return nil
+	}
+	return s.loadCacheLocked(ctx)
+}
+
 // cacheStore write-through-updates the entry for m after a successful Update, so
 // the cache stays warm (no reload on the next Get/List). It stores an
 // independent copy — never the caller's *Migration — so a caller that keeps
@@ -350,6 +382,9 @@ func (s *Store) cacheStore(m *Migration) {
 	}
 	cp := *m
 	cp.Tables = append([]string(nil), m.Tables...)
+	cp.QuiesceRoles = append([]string(nil), m.QuiesceRoles...)
+	cp.QuiesceRoleConnLimits = maps.Clone(m.QuiesceRoleConnLimits)
+	cp.QuiesceRolesHadConnect = maps.Clone(m.QuiesceRolesHadConnect)
 	s.cache[m.ID] = &cp
 }
 
@@ -369,10 +404,8 @@ func (s *Store) cacheDelete(id int64) {
 func (s *Store) Get(ctx context.Context, id int64) (*Migration, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.cache == nil {
-		if err := s.loadCacheLocked(ctx); err != nil {
-			return nil, err
-		}
+	if err := s.ensureLoadedLocked(ctx); err != nil {
+		return nil, err
 	}
 	m, ok := s.cache[id]
 	if !ok {
@@ -389,10 +422,8 @@ func (s *Store) Get(ctx context.Context, id int64) (*Migration, error) {
 func (s *Store) GetByRef(ctx context.Context, ref Ref) (*Migration, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.cache == nil {
-		if err := s.loadCacheLocked(ctx); err != nil {
-			return nil, err
-		}
+	if err := s.ensureLoadedLocked(ctx); err != nil {
+		return nil, err
 	}
 	if ref.ID != 0 {
 		if m, ok := s.cache[ref.ID]; ok {
@@ -414,10 +445,8 @@ func (s *Store) GetByRef(ctx context.Context, ref Ref) (*Migration, error) {
 func (s *Store) List(ctx context.Context) ([]*Migration, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.cache == nil {
-		if err := s.loadCacheLocked(ctx); err != nil {
-			return nil, err
-		}
+	if err := s.ensureLoadedLocked(ctx); err != nil {
+		return nil, err
 	}
 	out := make([]*Migration, 0, len(s.cache))
 	for _, m := range s.cache {
@@ -440,6 +469,23 @@ var ErrConnectionNotFound = errors.New("connection not found")
 // "not the catalog shard" elsewhere and "catalog ensure not complete yet" there.
 var ErrNoConnectionsTable = errors.New("multigres.connections does not exist")
 
+// NoConnectionsTableMessage is what a caller sees when a connection query finds no
+// multigres.connections. It is true on both kinds of shard: connections live on the catalog
+// shard only, and there the table is created when the pooler opens, so on the catalog shard the
+// error means that has not completed yet.
+const NoConnectionsTableMessage = "multigres.connections is not available on this shard: " +
+	"connections live on the catalog shard (tablegroup default, shard 0-inf), " +
+	"and on the catalog shard the table is created when the pooler opens"
+
+// ErrInvalidConnection is returned for a connection that is not valid (backingconn.Conn.Validate,
+// or the strict parse of its dsn). The message never carries a part of it, which holds the
+// password.
+var ErrInvalidConnection = errors.New("invalid connection")
+
+// ErrConnectionUnreadable is returned when a stored connection cannot be decoded (a field this
+// version does not know, or not JSON). Asking again does not help.
+var ErrConnectionUnreadable = errors.New("stored connection cannot be read")
+
 // ErrConnectionInUse is returned by DeleteConnection when a migration still
 // references the connection.
 var ErrConnectionInUse = errors.New("connection is referenced by a migration")
@@ -458,8 +504,8 @@ func connectionsErr(op string, err error) error {
 }
 
 const insertConnectionSQL = `INSERT INTO multigres.connections
-	(connection_id, name, dsn, owner_role)
-	VALUES ($1,$2,$3,$4)`
+	(connection_id, name, dsn, owner_role, conninfo)
+	VALUES ($1,$2,$3,$4,$5::jsonb)`
 
 // InsertConnection writes a new connection row. created_at defaults to now().
 // Connections are read rarely compared to migrations, so — unlike Migration —
@@ -467,9 +513,13 @@ const insertConnectionSQL = `INSERT INTO multigres.connections
 // load-bearing, not an oversight: a cached, stale Connection would silently
 // defeat the point of migrations referencing connections live.
 func (s *Store) InsertConnection(ctx context.Context, c *Connection) error {
+	conninfo, err := json.Marshal(c.ConnInfo)
+	if err != nil {
+		return fmt.Errorf("encode connection: %w", err)
+	}
 	if _, err := s.qs.QueryAdminArgs(
 		ctx, insertConnectionSQL,
-		c.ID, c.Name, c.DSN, c.OwnerRole,
+		c.ID, c.Name, c.DSN, c.OwnerRole, string(conninfo),
 	); err != nil {
 		return connectionsErr("insert connection", err)
 	}
@@ -532,13 +582,13 @@ func (s *Store) DeleteConnection(ctx context.Context, id int64) error {
 	}
 }
 
-const selectConnectionsSQL = `SELECT connection_id, name, dsn, owner_role, created_at
+const selectConnectionsSQL = `SELECT connection_id, name, dsn, owner_role, created_at, coalesce(conninfo::text, '')
 	FROM multigres.connections`
 
-const selectConnectionByIDSQL = `SELECT connection_id, name, dsn, owner_role, created_at
+const selectConnectionByIDSQL = `SELECT connection_id, name, dsn, owner_role, created_at, coalesce(conninfo::text, '')
 	FROM multigres.connections WHERE connection_id = $1`
 
-const selectConnectionByNameSQL = `SELECT connection_id, name, dsn, owner_role, created_at
+const selectConnectionByNameSQL = `SELECT connection_id, name, dsn, owner_role, created_at, coalesce(conninfo::text, '')
 	FROM multigres.connections WHERE name = $1`
 
 // GetConnectionByRef returns the connection addressed by ref: an exact id match
@@ -591,10 +641,14 @@ func (s *Store) ListConnections(ctx context.Context) ([]*Connection, error) {
 // scanConnection decodes a result row (in selectConnectionsSQL order) into a
 // Connection.
 func scanConnection(row *sqltypes.Row) (*Connection, error) {
-	var c Connection
-	if err := executor.ScanRow(row, &c.ID, &c.Name, &c.DSN, &c.OwnerRole, &c.CreatedAt); err != nil {
+	var (
+		c        Connection
+		conninfo string
+	)
+	if err := executor.ScanRow(row, &c.ID, &c.Name, &c.DSN, &c.OwnerRole, &c.CreatedAt, &conninfo); err != nil {
 		return nil, fmt.Errorf("scan connection: %w", err)
 	}
+	c.ConnInfo, c.connInfoErr = decodeConnInfo(c.Name, conninfo)
 	return &c, nil
 }
 
@@ -602,13 +656,16 @@ func scanConnection(row *sqltypes.Row) (*Connection, error) {
 // Migration. The trailing tables column is a JSON array of "schema.table".
 func scanMigration(row *sqltypes.Row) (*Migration, error) {
 	var (
-		m          Migration
-		phase      string
-		direction  string
-		streaming  *time.Time
-		tablesJSON string
+		m                Migration
+		phase            string
+		direction        string
+		quiesceRolesJSON string
+		connLimitsJSON   string
+		hadConnectJSON   string
+		streaming        *time.Time
+		tablesJSON       string
 	)
-	err := executor.ScanRow(row, &m.ID, &phase, &m.Name, &m.ConnectionID, &m.TargetDatabase, &m.TargetShard, &m.TargetTableGroup, &m.SequenceMargin, &m.CopyData, &m.SkipSchemaCopy, &direction, &m.LastError, &m.ReverseLinkError, &m.CreatedAt, &streaming, &tablesJSON)
+	err := executor.ScanRow(row, &m.ID, &phase, &m.Name, &m.ConnectionID, &m.TargetDatabase, &m.TargetShard, &m.TargetTableGroup, &m.SequenceMargin, &m.CopyData, &m.SkipSchemaCopy, &direction, &quiesceRolesJSON, &m.PublicHadConnect, &m.QuiesceApplied, &connLimitsJSON, &hadConnectJSON, &m.LastError, &m.ReverseLinkError, &m.CreatedAt, &streaming, &m.OwnerRole, &tablesJSON)
 	if err != nil {
 		return nil, fmt.Errorf("scan migration: %w", err)
 	}
@@ -620,7 +677,34 @@ func scanMigration(row *sqltypes.Row) (*Migration, error) {
 			return nil, fmt.Errorf("unmarshal tables: %w", err)
 		}
 	}
+	if connLimitsJSON != "" && connLimitsJSON != "{}" {
+		if err := json.Unmarshal([]byte(connLimitsJSON), &m.QuiesceRoleConnLimits); err != nil {
+			return nil, fmt.Errorf("unmarshal quiesce_role_conn_limits: %w", err)
+		}
+	}
+	if hadConnectJSON != "" && hadConnectJSON != "{}" {
+		if err := json.Unmarshal([]byte(hadConnectJSON), &m.QuiesceRolesHadConnect); err != nil {
+			return nil, fmt.Errorf("unmarshal quiesce_roles_had_connect: %w", err)
+		}
+	}
+	if quiesceRolesJSON != "" {
+		if err := json.Unmarshal([]byte(quiesceRolesJSON), &m.QuiesceRoles); err != nil {
+			return nil, fmt.Errorf("unmarshal quiesce_roles: %w", err)
+		}
+	}
 	return &m, nil
+}
+
+// marshalQuiesceColumn encodes a quiesce column value (the role list, the
+// connection-limit map or the prior-CONNECT map) as the JSON text stored in
+// its column. A nil/empty value encodes as the column default, empty ("[]" or
+// "{}"). These types always marshal, so there is no error to return.
+func marshalQuiesceColumn[T []string | map[string]int32 | map[string]bool](v T, empty string) string {
+	if len(v) == 0 {
+		return empty
+	}
+	b, _ := json.Marshal(v)
+	return string(b)
 }
 
 // nullableString maps an empty string to a SQL NULL — used for migration.name,

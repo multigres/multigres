@@ -39,6 +39,7 @@ import (
 	"github.com/multigres/multigres/go/tools/timer"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	multipoolermanagerdata "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
@@ -1087,6 +1088,18 @@ func TestGetPrimaryAsPg2Args_WithOverrides(t *testing.T) {
 		assert.Contains(t, args, "--pg2-host=localhost")
 		assert.Contains(t, args, "--pg2-port=5432")
 		assert.Contains(t, args, "--pg2-path=/primary/data")
+	})
+
+	t.Run("overrides naming the same flag are rejected", func(t *testing.T) {
+		pm := createTestManager(t, poolerDir, "", "", clustermetadatapb.PoolerType_REPLICA)
+		setBackupPrimary(t, pm, "test-primary-collision", "localhost", 5432)
+
+		_, err := pm.GetPrimaryAsPg2Args(ctx, map[string]string{
+			"pg2_path": "/primary/data",
+			"pg2_host": "a",
+			"pg2-host": "b",
+		}, false)
+		requireRoutingCode(t, err, mtrpcpb.Code_INVALID_ARGUMENT, "both set --pg2-host")
 	})
 
 	t.Run("override replaces existing arg", func(t *testing.T) {

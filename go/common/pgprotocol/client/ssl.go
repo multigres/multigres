@@ -171,8 +171,14 @@ func (m SSLMode) RequiresTLS() bool {
 // be non-empty for verify-full; if empty, the function returns an error rather
 // than silently building a config whose hostname check is guaranteed to fail.
 //
-// rootCertPath is required for verify-ca / verify-full.
+// rootCertPath is required for verify-ca / verify-full. The value "system" (libpq 16) selects the
+// operating system's trusted CAs and, as in libpq, needs verify-full: a weaker mode is an error.
+// ValidateSSLRootCert is applied here too because the mode and the root also come from flags, which
+// never go through backingconn.Conn.Validate.
 func BuildTLSConfig(mode SSLMode, rootCertPath, host string) (*tls.Config, error) {
+	if err := ValidateSSLRootCert(rootCertPath, mode); err != nil {
+		return nil, err
+	}
 	switch mode {
 	case SSLModeDisable:
 		return nil, nil
@@ -213,9 +219,41 @@ func BuildTLSConfig(mode SSLMode, rootCertPath, host string) (*tls.Config, error
 	}
 }
 
+// SystemRootCert is the sslrootcert value that selects the operating system's trusted CAs (libpq
+// 16); nothing is read from a file. Any other value is a path, read where the connection is
+// dialed.
+const SystemRootCert = "system"
+
+// DefaultSSLMode is the sslmode that applies when none is given: fallback, or verify-full when
+// sslrootcert=system, which is libpq's own default for it.
+func DefaultSSLMode(rootCertPath string, fallback SSLMode) SSLMode {
+	if rootCertPath == SystemRootCert {
+		return SSLModeVerifyFull
+	}
+	return fallback
+}
+
+// ValidateSSLRootCert enforces libpq's rules between sslrootcert and sslmode: sslrootcert=system
+// needs verify-full, and any weaker mode is an error rather than a downgrade; and verify-ca and
+// verify-full need an sslrootcert, a path or system, since libpq would otherwise verify against
+// ~/.postgresql/root.crt of whoever dials, which is not there.
+func ValidateSSLRootCert(rootCertPath string, mode SSLMode) error {
+	switch {
+	case rootCertPath == SystemRootCert && mode != SSLModeVerifyFull:
+		return fmt.Errorf("weak sslmode %q may not be used with sslrootcert=system (use \"verify-full\")", mode)
+	case rootCertPath == "" && (mode == SSLModeVerifyCA || mode == SSLModeVerifyFull):
+		return fmt.Errorf("sslmode=%s needs sslrootcert: a path, or system", mode)
+	}
+	return nil
+}
+
 func loadCertPool(path string) (*x509.CertPool, error) {
-	if path == "" {
-		return nil, errors.New("sslrootcert is required for verify-ca and verify-full")
+	if path == SystemRootCert {
+		pool, err := x509.SystemCertPool()
+		if err != nil {
+			return nil, fmt.Errorf("load the system CA pool for sslrootcert=system: %w", err)
+		}
+		return pool, nil
 	}
 	pem, err := os.ReadFile(path)
 	if err != nil {

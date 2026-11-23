@@ -281,9 +281,10 @@ func (pm *MultipoolerManager) GetPrimaryAsPg2Args(
 		}
 	}
 
-	// Apply any additional overrides
-	args = backup.ApplyPgBackRestOverrides(args, overrides)
-
+	args, err := backup.ApplyPgBackRestOverrides(args, overrides)
+	if err != nil {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, err.Error())
+	}
 	return args, nil
 }
 
@@ -341,6 +342,10 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	// TODO: restore is archive-based catch-up, which only an observer should
 	// do — a cohort member should only ever advance via streaming from the
 	// current leader. Might be good to add a best-effort check of this.
+
+	// TODO: a restore moves this pooler back to the backup's position, so it should
+	// first raise the recruit position floor (EnsureRecruitBlockedUntilAtLeast) to
+	// where it had reached. PGDATA is already gone here, so that position is unknown.
 
 	// Check that PGDATA doesn't exist (caller must remove it before restore)
 	if pm.hasDataDirectory() {

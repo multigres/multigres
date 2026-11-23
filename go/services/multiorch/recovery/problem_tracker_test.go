@@ -24,27 +24,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	commontypes "github.com/multigres/multigres/go/common/types"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 )
-
-var testShardKey = &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default", Shard: "0"}
-
-// shardProblem builds a shard-scoped problem for the given code and action.
-func shardProblem(code types.ProblemCode, action types.RecoveryAction) types.Problem {
-	return types.Problem{Code: code, Scope: types.ScopeShard, ShardRef: testShardKey, RecoveryAction: action}
-}
-
-// poolerProblem builds a pooler-scoped problem for the given code and action.
-func poolerProblem(code types.ProblemCode, name string, action types.RecoveryAction) types.Problem {
-	return types.Problem{
-		Code:           code,
-		Scope:          types.ScopePooler,
-		ShardRef:       testShardKey,
-		PoolerID:       &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: name},
-		RecoveryAction: action,
-	}
-}
 
 func TestProblemTracker_AppearsOnceAndStaysQuietWhilePersisting(t *testing.T) {
 	tracker := newProblemTracker()

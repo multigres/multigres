@@ -21,11 +21,55 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/mterrors"
 )
 
+func TestConnectGrantSQL(t *testing.T) {
+	// An empty role list with includePublic false yields no statements — truly
+	// nothing to do.
+	require.Nil(t, connectGrantSQL(false, false, "appdb", nil))
+	require.Nil(t, connectGrantSQL(true, false, "appdb", []string{}))
+
+	// An empty role list with includePublic true still yields the PUBLIC
+	// statement: PUBLIC normally holds CONNECT regardless of whether any named
+	// roles are configured, so it must not be skipped just because the role
+	// list happens to be empty.
+	require.Equal(t, []string{"REVOKE CONNECT ON DATABASE appdb FROM PUBLIC"}, connectGrantSQL(false, true, "appdb", nil))
+
+	// REVOKE fences PUBLIC first (so a role relying only on PUBLIC's grant is still
+	// cut), then each named role; identifiers are quoted per part.
+	revoke := connectGrantSQL(false, true, "appdb", []string{"app", "reporting"})
+	require.Equal(t, []string{
+		"REVOKE CONNECT ON DATABASE appdb FROM PUBLIC",
+		"REVOKE CONNECT ON DATABASE appdb FROM app",
+		"REVOKE CONNECT ON DATABASE appdb FROM reporting",
+	}, revoke)
+
+	// GRANT restores PUBLIC and each named role symmetrically when includePublic.
+	grant := connectGrantSQL(true, true, "appdb", []string{"app"})
+	require.Equal(t, []string{
+		"GRANT CONNECT ON DATABASE appdb TO PUBLIC",
+		"GRANT CONNECT ON DATABASE appdb TO app",
+	}, grant)
+
+	// GRANT omits PUBLIC when it didn't have CONNECT beforehand (includePublic
+	// false) — only the named roles are restored.
+	grantNoPublic := connectGrantSQL(true, false, "appdb", []string{"app"})
+	require.Equal(t, []string{
+		"GRANT CONNECT ON DATABASE appdb TO app",
+	}, grantNoPublic)
+
+	// Mixed-case / reserved database and role names are quoted.
+	q := connectGrantSQL(false, true, "AppDB", []string{"User"})
+	require.Equal(t, []string{
+		`REVOKE CONNECT ON DATABASE "AppDB" FROM PUBLIC`,
+		`REVOKE CONNECT ON DATABASE "AppDB" FROM "User"`,
+	}, q)
+}
+
 func TestTerminateClientBackendsSQL(t *testing.T) {
-	// The write-cut must target only ordinary client backends, spare
+	// The hard-quiesce write-cut must target only ordinary client backends, spare
 	// the caller's own backend, and exclude the migrator's connections (parameter
 	// $1) -- gated on BOTH application_name and usename = current_user, since
 	// application_name alone is client-spoofable (an ordinary application could
@@ -52,86 +96,6 @@ func TestDumpSchemaArgs_QuotesTableNamesAgainstPatternExpansion(t *testing.T) {
 		"the metacharacter must be inside a quoted, literal identifier, never an unquoted pattern")
 }
 
-// TestStripConnInfoPassword is the regression test for the finding this
-// guards against: pg_dump's connection argument is visible in this process's
-// argv (e.g. /proc/<pid>/cmdline, `ps`) to any co-resident process, so the
-// password must never travel there — it is stripped and returned separately
-// for the caller to supply via PGPASSWORD instead.
-func TestStripConnInfoPassword(t *testing.T) {
-	t.Run("password is stripped and returned separately", func(t *testing.T) {
-		dsn, password := stripConnInfoPassword("host=src user=app password=supersecret dbname=appdb")
-		require.NotContains(t, dsn, "supersecret", "the sanitized conninfo must never contain the password")
-		require.Equal(t, "supersecret", password)
-		// The sanitized conninfo must still be a valid, complete conninfo for
-		// pg_dump to actually connect with (host/user/dbname preserved).
-		require.Contains(t, dsn, "host")
-		require.Contains(t, dsn, "app")
-		require.Contains(t, dsn, "appdb")
-	})
-
-	t.Run("no password: dsn returned unchanged", func(t *testing.T) {
-		dsn, password := stripConnInfoPassword("host=src user=app dbname=appdb")
-		require.Equal(t, "host=src user=app dbname=appdb", dsn)
-		require.Empty(t, password)
-	})
-
-	t.Run("quoted password with special characters round-trips", func(t *testing.T) {
-		dsn, password := stripConnInfoPassword(`host=src password='a b\'c'`)
-		require.NotContains(t, dsn, "a b")
-		require.Equal(t, `a b'c`, password)
-	})
-
-	// Regression test for the finding this guards against: a pgx/libpq URI DSN
-	// (postgres://user:password@host/db) is valid input (pgx.Connect accepts it
-	// same as keyword=value), but ParseConnInfo understands only keyword=value
-	// and returns an empty map for a URI — silently leaving its password
-	// unstripped and reaching pg_dump's argv verbatim.
-	t.Run("postgres:// URI password is stripped and returned separately", func(t *testing.T) {
-		dsn, password := stripConnInfoPassword("postgres://app:supersecret@src:5432/appdb")
-		require.NotContains(t, dsn, "supersecret", "the sanitized DSN must never contain the password")
-		require.Equal(t, "supersecret", password)
-		require.Contains(t, dsn, "app")
-		require.Contains(t, dsn, "src")
-		require.Contains(t, dsn, "appdb")
-	})
-
-	t.Run("postgresql:// URI password is stripped and returned separately", func(t *testing.T) {
-		dsn, password := stripConnInfoPassword("postgresql://app:supersecret@src:5432/appdb")
-		require.NotContains(t, dsn, "supersecret")
-		require.Equal(t, "supersecret", password)
-	})
-
-	t.Run("URI with no password: dsn returned unchanged", func(t *testing.T) {
-		dsn, password := stripConnInfoPassword("postgres://app@src:5432/appdb")
-		require.Equal(t, "postgres://app@src:5432/appdb", dsn)
-		require.Empty(t, password)
-	})
-
-	// Regression test for the finding this guards against: libpq's own
-	// connection-URI format also accepts "password" as a query parameter, not
-	// just embedded in userinfo — stripURIPassword only checked userinfo,
-	// leaving a query-parameter password completely unstripped in what the
-	// caller treats as the sanitized DSN, reaching pg_dump's argv verbatim.
-	t.Run("URI password given as a query parameter is stripped and returned separately", func(t *testing.T) {
-		dsn, password := stripConnInfoPassword("postgres://app@src:5432/appdb?password=supersecret&sslmode=require")
-		require.NotContains(t, dsn, "supersecret", "the sanitized DSN must never contain the password")
-		require.Equal(t, "supersecret", password)
-		require.Contains(t, dsn, "sslmode=require", "other query parameters must survive")
-	})
-
-	t.Run("URI with no userinfo at all but a query-parameter password is still caught", func(t *testing.T) {
-		dsn, password := stripConnInfoPassword("postgres://src:5432/appdb?user=app&password=supersecret")
-		require.NotContains(t, dsn, "supersecret")
-		require.Equal(t, "supersecret", password)
-	})
-
-	t.Run("URI password with special characters round-trips", func(t *testing.T) {
-		dsn, password := stripConnInfoPassword("postgres://app:a%20b%2Fc@src:5432/appdb")
-		require.NotContains(t, dsn, "a%20b%2Fc")
-		require.Equal(t, "a b/c", password)
-	})
-}
-
 // TestNewSource_RejectsUnixSocketHost is the regression test for the HIGH
 // finding this guards against: the gateway's CREATE CONNECTION DDL has no
 // authorization check restricting who can set a connection's host, so any
@@ -145,15 +109,22 @@ func TestStripConnInfoPassword(t *testing.T) {
 // just keyword=value.
 func TestNewSource_RejectsUnixSocketHost(t *testing.T) {
 	for _, dsn := range []string{
-		"host=/data/pg_sockets user=postgres dbname=postgres",
-		"postgresql://postgres@/postgres?host=%2Fdata%2Fpg_sockets",
+		"host=/data/pg_sockets user=postgres password=p dbname=postgres",
+		"postgresql://postgres:p@/postgres?host=%2Fdata%2Fpg_sockets",
 		// Regression case for the finding this guards against: a Unix-socket
 		// path hidden as a *fallback* host (second in a comma-separated list)
 		// behind a deliberately unreachable first host must be rejected too —
 		// cfg.Host alone only ever holds the first entry.
-		"host=unreachable.invalid,/data/pg_sockets user=postgres dbname=postgres",
+		"host=unreachable.invalid,/data/pg_sockets user=postgres password=p dbname=postgres",
 	} {
-		_, err := newSource(context.Background(), dsn)
+		// A connection that is validated names a network host, so the connection is made
+		// without Validate to reach the check of newSource, which does not rely on it.
+		_, err := backingconn.FromDSN(dsn)
+		require.ErrorContains(t, err, "a network host is required", "dsn: %s", dsn)
+		conn, err := backingconn.ParseDSN(dsn)
+		require.NoError(t, err, "dsn: %s", dsn)
+		conn.Complete()
+		_, err = newSource(context.Background(), conn)
 		require.ErrorContains(t, err, "Unix-domain socket", "dsn: %s", dsn)
 	}
 }
@@ -163,7 +134,9 @@ func TestNewSource_RejectsUnixSocketHost(t *testing.T) {
 // actually tries (and, in this offline unit test, fails) to dial it, not on
 // the host-validation check itself.
 func TestNewSource_AllowsNetworkHost(t *testing.T) {
-	_, err := newSource(context.Background(), "host=src.example.invalid user=postgres dbname=postgres")
+	conn, err := backingconn.FromDSN("host=src.example.invalid user=postgres password=p dbname=postgres")
+	require.NoError(t, err)
+	_, err = newSource(context.Background(), conn)
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "Unix-domain socket")
 }

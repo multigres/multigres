@@ -240,6 +240,12 @@ type MultipoolerManager struct {
 	// background pg queries. Guarded by pm.mu.
 	backupHealthEnabled bool
 
+	// tableGroupOpsEnabled records whether the service layer opted this manager
+	// into the tablegroup completion loop (via StartTableGroupOperations).
+	// Like backupHealthEnabled: openLocked relaunches the loop on every open.
+	// Guarded by pm.mu.
+	tableGroupOpsEnabled bool
+
 	// healthStreamer streams health state to subscribers.
 	// Owns all health-related state and provides typed update methods.
 	healthStreamer *healthStreamer
@@ -257,6 +263,10 @@ type MultipoolerManager struct {
 	// guarded by pm.mu.
 	migrationCoord         *migration.Coordinator
 	migrationSchemaEnsured bool
+
+	// connectionDir replaces the sharding catalog as the directory of backing connections
+	// the default primary serves. Nil outside tests.
+	connectionDir connectionDirectory
 
 	// migrationImportHold is the migration serving gate, stored as a
 	// migrationHoldState: held when an active migration on this shard is in
@@ -663,6 +673,13 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	// the passive backup-health gauges frozen for the rest of the process.
 	if pm.backupHealthEnabled {
 		pm.startBackupHealthPollerLocked()
+	}
+
+	// Relaunch the tablegroup completion loop on the fresh context when the
+	// service layer has opted in (see StartTableGroupOperations). It runs
+	// passes only while this pooler is the catalog primary.
+	if pm.tableGroupOpsEnabled {
+		pm.startTableGroupOperationsLocked()
 	}
 
 	// Relaunch the migration reconcile poller on the fresh context when the
@@ -1101,23 +1118,37 @@ func (pm *MultipoolerManager) checkReady() error {
 	}
 }
 
+// roleMismatchError identifies a valid role observation that does not permit
+// the requested operation. It is distinct from a failed role probe, even if
+// that failure happens to carry the same RPC code.
+type roleMismatchError struct {
+	message string
+}
+
+func (e *roleMismatchError) Error() string { return e.message }
+
+func (e *roleMismatchError) ErrorCode() mtrpcpb.Code { return mtrpcpb.Code_FAILED_PRECONDITION }
+
+func isRoleMismatch(err error) bool {
+	var mismatch *roleMismatchError
+	return errors.As(err, &mismatch)
+}
+
 // checkReplicaGuardrails verifies that PostgreSQL is in recovery mode (a standby),
 // the authoritative precondition for replication-related operations. The physical
 // recovery state — not the topology PoolerType label — is what governs whether a
 // standby replication op is valid, so a demoted-but-not-yet-relabeled pooler
 // (still labeled PRIMARY, already in recovery) is correctly treated as a standby.
+// It only validates; callers decide whether a rejection warrants a log.
 func (pm *MultipoolerManager) checkReplicaGuardrails(ctx context.Context) error {
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
 	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "failed to check if instance is in recovery", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
 	}
 
 	if pgMode.OutOfRecovery() {
-		pm.logger.ErrorContext(ctx, "replication operation called on non-standby instance", "service_id", pm.serviceID.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
+		return &roleMismatchError{message: fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String())}
 	}
 
 	return nil
@@ -1125,17 +1156,15 @@ func (pm *MultipoolerManager) checkReplicaGuardrails(ctx context.Context) error 
 
 // checkPrimaryGuardrails verifies that PostgreSQL is not in recovery mode.
 // This is the canonical guardrail for primary-only operations.
+// It only validates; callers decide whether a rejection warrants a log.
 func (pm *MultipoolerManager) checkPrimaryGuardrails(ctx context.Context) error {
 	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "failed to check if instance is in recovery", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
 	}
 
 	if !pgMode.OutOfRecovery() {
-		pm.logger.ErrorContext(ctx, "primary operation called on standby instance", "service_id", pm.serviceID.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("operation not allowed: the PostgreSQL instance is in standby mode (service_id: %s)", pm.serviceID.String()))
+		return &roleMismatchError{message: fmt.Sprintf("operation not allowed: the PostgreSQL instance is in standby mode (service_id: %s)", pm.serviceID.String())}
 	}
 
 	return nil
@@ -1604,6 +1633,10 @@ func (pm *MultipoolerManager) checkPromotionState(ctx context.Context) (*promoti
 // position, not just the term) so a later re-promotion can't inherit a stale
 // mark.
 func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state *promotionState, promotedPosition *clustermetadatapb.RulePosition) error {
+	// Ahead of the early return too: a retry after a promotion that failed past
+	// pg_promote must still start the new tenure with nothing remembered.
+	pm.forgetMigrationState()
+
 	// Return early if already promoted
 	if state.pgMode.OutOfRecovery() {
 		pm.logger.InfoContext(ctx, "Postgres already promoted, skipping") //nolint:sloglint // message intentionally starts with an operation name or proper noun

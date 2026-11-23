@@ -23,7 +23,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/require"
 
-	"github.com/multigres/multigres/go/common/backingconn/backingconntest"
+	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -93,24 +93,20 @@ func TestManagedPostgresFlagsAreRegisteredFlags(t *testing.T) {
 	}
 }
 
-func TestBackingConnectionValidate(t *testing.T) {
-	for _, tc := range backingconntest.Cases() {
-		t.Run(tc.Name, func(t *testing.T) {
-			c := backingConnection{Host: tc.Host, Port: tc.Port, Database: tc.Database, User: tc.User}
-			if tc.Refused == "" {
-				require.NoError(t, c.Validate())
-				return
-			}
-			require.ErrorContains(t, c.Validate(), tc.Refused)
-		})
+// endpointConn is a connection to the one server host:port, with no host when host is empty.
+func endpointConn(name, host string, port int, database, user string) *backingconn.Conn {
+	c := &backingconn.Conn{Name: name, Ports: []int{port}, Database: database, User: user, Password: "pw", SSLMode: "prefer"}
+	if host != "" {
+		c.Hosts = []string{host}
 	}
+	return c
 }
 
 type fakeSource struct {
-	conn *backingConnection
+	conn *backingconn.Conn
 }
 
-func (f fakeSource) BackingConnection(_ context.Context, name string) (*backingConnection, error) {
+func (f fakeSource) BackingConnection(_ context.Context, name string) (*backingconn.Conn, error) {
 	if name != "src" {
 		return nil, errors.New("unknown connection")
 	}
@@ -123,7 +119,7 @@ func TestConnectionSourceIsAnExplicitSeam(t *testing.T) {
 	_, err := mp.connections.BackingConnection(t.Context(), "src")
 	require.ErrorContains(t, err, "no source of backing connections")
 
-	want := &backingConnection{Name: "src", Host: "db.example.com", Port: 5432, Database: "app", User: "u"}
+	want := endpointConn("src", "db.example.com", 5432, "app", "u")
 	mp.connections = fakeSource{conn: want}
 	got, err := mp.connections.BackingConnection(t.Context(), "src")
 	require.NoError(t, err)
@@ -134,7 +130,7 @@ func TestConnectionSourceIsAnExplicitSeam(t *testing.T) {
 // incomplete connection and a connection that names several servers are refused, and the
 // refusal is permanent.
 func TestAConnectionIsUsedOnlyIfTheSourceGaveAUsableOne(t *testing.T) {
-	good := &backingConnection{Name: "src", Host: "db.example.com", Port: 5432, Database: "app", User: "u"}
+	good := endpointConn("src", "db.example.com", 5432, "app", "u")
 	got, err := fetchBackingConnection(t.Context(), fakeSource{conn: good}, "src")
 	require.NoError(t, err)
 	require.Same(t, good, got)
@@ -148,25 +144,18 @@ func TestAConnectionIsUsedOnlyIfTheSourceGaveAUsableOne(t *testing.T) {
 	require.ErrorIs(t, err, errInvalidBackingConnection)
 
 	hostList := *good
-	hostList.Host = "a.example.com,b.example.com"
+	hostList.Hosts = []string{"a.example.com", "b.example.com"}
 	_, err = fetchBackingConnection(t.Context(), fakeSource{conn: &hostList}, "src")
 	require.ErrorIs(t, err, errInvalidBackingConnection)
 
 	withCredentials := *good
-	withCredentials.Host = "alice@db.example.com"
+	withCredentials.Hosts = []string{"alice@db.example.com"}
 	_, err = fetchBackingConnection(t.Context(), fakeSource{conn: &withCredentials}, "src")
 	require.ErrorIs(t, err, errInvalidBackingConnection)
 
 	_, err = fetchBackingConnection(t.Context(), fakeSource{conn: good}, "other")
 	require.ErrorContains(t, err, "unknown connection")
 	require.NotErrorIs(t, err, errInvalidBackingConnection, "a source's own failure is not a verdict on the connection")
-}
-
-// TestIPv6HostsAreValidAndKeepTheirColons: a literal IPv6 address is a host, and is dialed as
-// one (see the pgprotocol client).
-func TestIPv6HostsAreValidAndKeepTheirColons(t *testing.T) {
-	c := backingConnection{Host: "::1", Port: 5432, Database: "app", User: "u"}
-	require.NoError(t, c.Validate())
 }
 
 func TestResolveLeadershipMode(t *testing.T) {
@@ -270,7 +259,7 @@ func TestAnUnreadableRecordRefusesOnlyAnUnmanagedPooler(t *testing.T) {
 // countingSource counts the fetches it is asked for.
 type countingSource struct{ fetches int }
 
-func (c *countingSource) BackingConnection(context.Context, string) (*backingConnection, error) {
+func (c *countingSource) BackingConnection(context.Context, string) (*backingconn.Conn, error) {
 	c.fetches++
 	return nil, errors.New("not reached")
 }
@@ -321,7 +310,7 @@ func TestAPoolerRefusesABackingConnectionThatServesAnotherDatabase(t *testing.T)
 	ts, _ := memorytopo.NewServerAndFactory(t.Context(), "zone1")
 	t.Cleanup(func() { _ = ts.Close() })
 	mp := newTestMultipooler()
-	mp.connections = fakeSource{conn: &backingConnection{Name: "src", Host: "db.example.com", Port: 5432, Database: "other", User: "u"}}
+	mp.connections = fakeSource{conn: endpointConn("src", "db.example.com", 5432, "other", "u")}
 	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	mp.RegisterFlags(flags)
 	require.NoError(t, flags.Parse([]string{

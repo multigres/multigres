@@ -67,3 +67,18 @@ func TestParseConnInfo(t *testing.T) {
 	original := map[string]string{"host": "h", "password": `has space ' and \ backslash`}
 	assert.Equal(t, original, ParseConnInfo(ConnInfoString(original)))
 }
+
+func TestIsConnURI(t *testing.T) {
+	for dsn, want := range map[string]bool{
+		"postgres://u@h:5432/db":     true,
+		"postgresql://u@h:5432/db":   true,
+		"host=h port=5432 dbname=db": false,
+		"":                           false,
+		"postgres:host=h":            false,
+		"mysql://u@h/db":             false,
+	} {
+		if got := IsConnURI(dsn); got != want {
+			t.Errorf("IsConnURI(%q) = %v, want %v", dsn, got, want)
+		}
+	}
+}

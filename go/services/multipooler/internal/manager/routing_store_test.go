@@ -17,6 +17,7 @@ package manager
 import (
 	"context"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -64,7 +65,7 @@ func (f *fakeRoutingTx) writes() []fakeRoutingCall {
 	for _, c := range f.calls {
 		switch c.sql {
 		case selectTablegroupsSQL, selectShardsSQL, selectRoutingRulesSQL,
-			countDefaultTablesSQL, selectOperationSQL, selectOtherOperationsSQL:
+			countDefaultTablesSQL, selectOperationSQL, selectOtherOperationsSQL, selectFencesSQL:
 			continue
 		}
 		out = append(out, c)
@@ -82,7 +83,8 @@ const testRoutingNext = int64(6)
 
 // newFakeRoutingTx returns the catalog reads of a catalog with the default
 // tablegroup, an import target srctg and a two-shard commerce, the import
-// operation, and the given rule rows.
+// operation with FENCED fences on all three tablegroups, and the given rule
+// rows.
 func newFakeRoutingTx(rules ...[]any) *fakeRoutingTx {
 	return &fakeRoutingTx{results: routingCatalogResults(rules...)}
 }
@@ -106,7 +108,19 @@ func routingCatalogResults(rules ...[]any) map[string]*sqltypes.Result {
 		}, rules),
 		countDefaultTablesSQL: mock.MakeQueryResult([]string{"count"}, [][]any{{0}}),
 		selectOperationSQL:    mock.MakeQueryResult([]string{"kind", "state"}, [][]any{{importOperationKind, "preparing"}}),
+		selectFencesSQL: fenceResult(
+			[]any{100, importOp, 1, nil, fenceStateFenced, 5, "preparing"},
+			[]any{101, importOp, 2, nil, fenceStateFenced, 5, "preparing"},
+			[]any{102, importOp, 3, nil, fenceStateFenced, 5, "preparing"},
+		),
 	}
+}
+
+// fenceResult is selectFencesSQL's result with the given rows.
+func fenceResult(rows ...[]any) *sqltypes.Result {
+	return mock.MakeQueryResult([]string{
+		"fence_id", "operation_id", "tablegroup_id", "shard_id", "state", "version", "operation_state",
+	}, rows)
 }
 
 func TestLoadRoutingCatalog(t *testing.T) {
@@ -207,6 +221,28 @@ func TestApplyRoutingRuleChange_Delete(t *testing.T) {
 	}, tx.writes())
 }
 
+// A rule change names its operation in any spelling uuid.Parse accepts; its
+// rules and fences are still found.
+func TestApplyRoutingRuleChange_CanonicalOperationID(t *testing.T) {
+	tx := newFakeRoutingTx([]any{7, importOp, routingScopeTablegroup, 1, nil, 2, 2, nil, 5})
+	change, err := applyRoutingRuleChange(context.Background(), tx, testRoutingCurrent, testRoutingNext, routingRuleChange{
+		operationID:            "urn:uuid:" + importOp,
+		rules:                  []shardRuleSpec{{fromTablegroup: "default", toTablegroup: "srctg", toShard: "0-inf"}},
+		expectedRoutingVersion: 4,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, catalogNoSnapshotChange, change, "the operation's existing rule is found: a retry")
+	assert.Empty(t, tx.writes())
+
+	// A delete in another spelling finds the rule and the fences.
+	tx = newFakeRoutingTx([]any{7, importOp, routingScopeTablegroup, 1, nil, 2, 2, nil, 5})
+	change, err = applyRoutingRuleChange(context.Background(), tx, testRoutingCurrent, testRoutingNext,
+		routingRuleChange{operationID: strings.ReplaceAll(importOp, "-", ""), expectedRoutingVersion: 5})
+	require.NoError(t, err)
+	assert.Equal(t, catalogRoutingChange, change)
+	assert.Equal(t, []fakeRoutingCall{{sql: deleteOperationRulesSQL, args: []any{importOp}}}, tx.writes(), "written with the canonical id")
+}
+
 func TestApplyRoutingRuleChange_WritesNothing(t *testing.T) {
 	existing := []any{7, importOp, routingScopeTablegroup, 1, nil, 2, 2, nil, 5}
 	for _, tt := range []struct {
@@ -262,10 +298,16 @@ func TestApplyRoutingRuleChange_WritesNothing(t *testing.T) {
 // with (the same catalog, whose rules read as the given rows), and COMMIT,
 // all recorded in env.queries.
 func (env *tableGroupTestEnv) expectRoutingCatalog(rules ...[]any) {
+	env.expectCatalogWrite(routingCatalogResults(rules...))
+}
+
+// expectCatalogWrite is expectRoutingCatalog with the routing store's reads
+// answered from results, and the fence writes registered too.
+func (env *tableGroupTestEnv) expectCatalogWrite(results map[string]*sqltypes.Result) {
 	env.expectPrimary()
 	env.expect("FROM multigres.catalog_state FOR UPDATE", []string{"routing_version", "plan_epoch"},
 		[][]any{{testRoutingCurrent.routingVersion, testRoutingCurrent.planEpoch}})
-	for sql, res := range routingCatalogResults(rules...) {
+	for sql, res := range results {
 		env.qs.AddQueryPatternWithCallback("^"+regexp.QuoteMeta(sql)+"$", res, func(q string) {
 			env.queries = append(env.queries, q)
 		})
@@ -273,6 +315,9 @@ func (env *tableGroupTestEnv) expectRoutingCatalog(rules ...[]any) {
 	env.expect("^"+regexp.QuoteMeta(selectOtherOperationsSQL)+"$", []string{"operation_id", "tablegroup_id"}, nil)
 	env.expect("^"+regexp.QuoteMeta(deleteOperationRulesSQL)+"$", nil, nil)
 	env.expect("^"+regexp.QuoteMeta(insertRoutingRuleSQL)+"$", nil, nil)
+	env.expect("^"+regexp.QuoteMeta(insertFenceSQL)+"$", nil, nil)
+	env.expect("^"+regexp.QuoteMeta(updateFenceSQL)+"$", nil, nil)
+	env.expect("^"+regexp.QuoteMeta(deleteFenceSQL)+"$", nil, nil)
 	env.expect("^"+regexp.QuoteMeta(snapshotTableGroupsQuery)+"$", []string{"tablegroup_id", "name", "state"}, [][]any{
 		{int64(1), "default", "active"}, {int64(2), "srctg", "active"}, {int64(3), "commerce", "active"},
 	})
