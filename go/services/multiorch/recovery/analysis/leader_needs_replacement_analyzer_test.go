@@ -33,6 +33,7 @@ import (
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
+	"github.com/multigres/multigres/go/services/multiorch/recovery/actions"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
@@ -1186,7 +1187,10 @@ func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
 
 		problems, err := analyzer.Analyze(sa)
 		require.NoError(t, err)
-		require.Empty(t, problems, "should suppress failover while pg_promote() is explicitly in progress")
+		require.Len(t, problems, 1, "failover is suppressed, but the reason is surfaced")
+		require.Equal(t, types.ProblemLeaderPromotionInProgress, problems[0].Code)
+		require.Equal(t, types.ScopePooler, problems[0].Scope)
+		require.Equal(t, actions.AlertOnlyActionName, problems[0].RecoveryAction.Metadata().Name, "must never trigger a recovery")
 	})
 
 	t.Run("does not suppress a promotion that has outlasted the grace window", func(t *testing.T) {

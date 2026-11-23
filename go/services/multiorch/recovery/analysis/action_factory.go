@@ -96,11 +96,6 @@ func (f *RecoveryActionFactory) NewReconnectRecruitAbandonedAction() types.Recov
 	return actions.NewReconnectRecruitAbandonedAction(f.config, f.rpcClient, f.poolerStore, f.logger)
 }
 
-// Logger returns the factory's logger for use by analyzers.
-func (f *RecoveryActionFactory) Logger() *slog.Logger {
-	return f.logger
-}
-
 // AvailabilityPolicy returns the policy built from the factory's current
 // configuration. The engine freezes this same policy into every snapshot, so the
 // analyzers and the action timings read one source.
