@@ -1151,11 +1151,69 @@ func applyMigrationOptions(req *migratorpb.CreateMigrationRequest, list *ast.Nod
 				return fmt.Errorf("sequence_margin must be an integer: %q", val)
 			}
 			req.Migration.SequenceMargin = n
+		case "quiesce_roles":
+			roles, err := parseRoleList(val)
+			if err != nil {
+				return err
+			}
+			req.QuiesceRoles = roles
 		default:
 			return fmt.Errorf("unknown migration option %q", d.Defname)
 		}
 	}
 	return nil
+}
+
+// parseRoleList splits a comma-separated quiesce_roles option value into role
+// names, in order and without repeats. An unquoted name is taken as written,
+// trimmed, and case-sensitive. A name wrapped in double quotes may contain
+// commas and surrounding spaces, and "" inside it stands for one quote, as in a
+// SQL identifier. Blank entries are dropped.
+func parseRoleList(v string) ([]string, error) {
+	const space = " \t\r\n"
+	var roles []string
+	seen := make(map[string]bool)
+	for v != "" {
+		v = strings.TrimLeft(v, space)
+		var name string
+		if strings.HasPrefix(v, `"`) {
+			var b strings.Builder
+			i := 1
+			for {
+				if i >= len(v) {
+					return nil, errors.New("quiesce_roles has an unterminated quoted role name")
+				}
+				if v[i] == '"' {
+					if i+1 < len(v) && v[i+1] == '"' {
+						b.WriteByte('"')
+						i += 2
+						continue
+					}
+					break
+				}
+				b.WriteByte(v[i])
+				i++
+			}
+			name = b.String()
+			v = strings.TrimLeft(v[i+1:], space)
+			if v != "" && v[0] != ',' {
+				return nil, fmt.Errorf("quiesce_roles has unexpected text after the quoted role name %q", name)
+			}
+		} else {
+			end := strings.IndexByte(v, ',')
+			if end < 0 {
+				end = len(v)
+			}
+			name = strings.TrimSpace(v[:end])
+			v = v[end:]
+		}
+		v = strings.TrimPrefix(v, ",")
+		if name != "" && !seen[name] {
+			seen[name] = true
+			roles = append(roles, name)
+		}
+	}
+	return roles, nil
 }
 
 // parseBoolOption parses a WITH-option's string value as a boolean, using

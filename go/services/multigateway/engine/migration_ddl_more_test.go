@@ -434,11 +434,13 @@ func TestMigrationDDLHelpers_applyMigrationOptions(t *testing.T) {
 		ast.NewString("skip"), // non-DefElem skipped
 		defElem("skip_schema_copy", "true"),
 		defElem("sequence_margin", "9"),
+		defElem("quiesce_roles", "app, reporting"),
 	)
 	require.NoError(t, applyMigrationOptions(req, list))
 	assert.True(t, req.GetOptions().GetSkipCopyData(), "copy_data=false inverts to skip_copy_data=true")
 	assert.True(t, req.GetOptions().GetSkipSchemaCopy())
 	assert.Equal(t, int64(9), req.GetMigration().GetSequenceMargin())
+	assert.Equal(t, []string{"app", "reporting"}, req.GetQuiesceRoles())
 
 	assert.ErrorContains(t, applyMigrationOptions(&migratorpb.CreateMigrationRequest{},
 		ast.NewNodeList(defElem("sequence_margin", "x"))), "integer")
@@ -456,11 +458,42 @@ func TestMigrationDDLHelpers_applyMigrationOptions(t *testing.T) {
 		ast.NewNodeList(defElem("source_publication", "pub1"))), "unknown migration option")
 	assert.ErrorContains(t, applyMigrationOptions(&migratorpb.CreateMigrationRequest{},
 		ast.NewNodeList(defElem("publish_via_partition_root", "yes"))), "unknown migration option")
-	// quiesce_roles isn't recognized yet (the coordinator doesn't read it, and
-	// the exact shape this takes isn't settled); it's just another unknown
-	// option until the commit that wires it up gives it a case of its own.
+}
+
+func TestParseRoleList(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{"two names", "app, reporting", []string{"app", "reporting"}},
+		{"one name", "app", []string{"app"}},
+		{"empty", "", nil},
+		{"blank entries between separators are dropped", "  ,  ,", nil},
+		{"unquoted names keep their case", "App,reporting", []string{"App", "reporting"}},
+		{"repeats are dropped, order kept", "app,reporting,app", []string{"app", "reporting"}},
+		{"a quoted name may hold a comma", `"a,b", c`, []string{"a,b", "c"}},
+		{"a quoted name keeps inner spaces", `" app "`, []string{" app "}},
+		{"a doubled quote is one quote", `"say ""hi"""`, []string{`say "hi"`}},
+		{"a quoted and an unquoted spelling are the same role", `app, "app"`, []string{"app"}},
+		{"a quoted name between separators", `a, "b" ,c`, []string{"a", "b", "c"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseRoleList(tc.in)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+
+	_, err := parseRoleList(`"app`)
+	assert.ErrorContains(t, err, "unterminated")
+	_, err = parseRoleList(`"app" x`)
+	assert.ErrorContains(t, err, "unexpected text")
+
+	// A malformed value is a syntax error from the option list, not a silently
+	// empty role set.
 	assert.ErrorContains(t, applyMigrationOptions(&migratorpb.CreateMigrationRequest{},
-		ast.NewNodeList(defElem("quiesce_roles", "app, reporting"))), "unknown migration option")
+		ast.NewNodeList(defElem("quiesce_roles", `"app`))), "unterminated")
 }
 
 func TestMigrationDDLHelpers_applyDropWithOptions(t *testing.T) {
