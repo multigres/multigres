@@ -78,18 +78,18 @@ func TestStartRequest_FenceMatrix(t *testing.T) {
 	gates := map[string]gateState{
 		"open":                 {fenceGateOpen, drainNone},
 		"unread":               {fenceGateUnread, drainNone},
-		"fencing, stage 1":     {fenceGateClosed, drainReserved},
-		"fencing, stage 2":     {fenceGateClosed, drainRegular},
-		"fenced":               {fenceGateClosed, drainNone},
+		"draining, stage 1":    {fenceGateDraining, drainReserved},
+		"draining, stage 2":    {fenceGateDraining, drainRegular},
+		"closed":               {fenceGateClosed, drainNone},
 		"off (nothing fenced)": {fenceGateOff, drainNone},
 	}
 	// want[gate][kind] on a primary that is serving and not draining.
 	primary := map[string]map[RequestKind]string{
 		"open":                 {RequestExistingReserved: allow, RequestSingleQuery: allow, RequestNewReservation: allow},
 		"unread":               {RequestExistingReserved: allow, RequestSingleQuery: mtf02, RequestNewReservation: mtf02},
-		"fencing, stage 1":     {RequestExistingReserved: allow, RequestSingleQuery: allow, RequestNewReservation: mtf02},
-		"fencing, stage 2":     {RequestExistingReserved: allow, RequestSingleQuery: mtf02, RequestNewReservation: mtf02},
-		"fenced":               {RequestExistingReserved: allow, RequestSingleQuery: mtf02, RequestNewReservation: mtf02},
+		"draining, stage 1":    {RequestExistingReserved: allow, RequestSingleQuery: allow, RequestNewReservation: mtf02},
+		"draining, stage 2":    {RequestExistingReserved: allow, RequestSingleQuery: mtf02, RequestNewReservation: mtf02},
+		"closed":               {RequestExistingReserved: allow, RequestSingleQuery: mtf02, RequestNewReservation: mtf02},
 		"off (nothing fenced)": {RequestExistingReserved: allow, RequestSingleQuery: allow, RequestNewReservation: allow},
 	}
 	kinds := map[RequestKind]string{RequestExistingReserved: "existing reserved", RequestSingleQuery: "single query", RequestNewReservation: "new reservation"}
@@ -452,4 +452,98 @@ func TestFenceGate_RefusesAnOlderSnapshot(t *testing.T) {
 	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "the floor survives a promotion: %v", err)
 	require.NoError(t, s.ApplyFence(t.Context(), FenceRead{Epoch: s.FenceEpoch(), Position: at(3, 2), Fenced: false}, time.Second))
 	require.NoError(t, admit(s.StartRequest(nil, RequestSingleQuery)))
+}
+
+// startFenceDrain starts a fence drain that cannot finish (a reserved
+// connection is open) and waits until the gate is draining.
+func startFenceDrain(t *testing.T, s *QueryPoolerServer, mock *drainMockPoolManager, pos shardingcatalog.Position) <-chan error {
+	t.Helper()
+	mock.reservedAdd(1)
+	t.Cleanup(func() { mock.reservedAdd(-1) })
+	done := make(chan error, 1)
+	read := FenceRead{Epoch: s.FenceEpoch(), Position: pos, Fenced: true}
+	go func() { done <- s.ApplyFence(context.Background(), read, 5*time.Second) }()
+	waitForFenceDrainPhase(t, s, drainReserved)
+	return done
+}
+
+// A read that finds the gate draining joins the running drain: it returns
+// once that drain has ended, or when its own context ends. Closed then means
+// drained.
+func TestFenceGate_JoinsTheRunningDrain(t *testing.T) {
+	mock := newDrainMockPoolManager()
+	s := newFencedTestPooler(t, mock, servingstate.RoutingRolePrimary)
+	applyFence(t, s, false)
+	running := startFenceDrain(t, s, mock, shardingcatalog.Position{})
+
+	joined := make(chan error, 1)
+	go func() {
+		joined <- s.ApplyFence(context.Background(), FenceRead{Epoch: s.FenceEpoch(), Fenced: true}, time.Millisecond)
+	}()
+	requirePending(t, joined, "a read joining a running drain")
+
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	err := s.ApplyFence(ctx, FenceRead{Epoch: s.FenceEpoch(), Fenced: true}, time.Second)
+	assert.Equal(t, mtrpcpb.Code_DEADLINE_EXCEEDED, mterrors.Code(err), "%v", err)
+
+	mock.reservedAdd(-1)
+	require.NoError(t, requireReturns(t, running, "the running drain"))
+	require.NoError(t, requireReturns(t, joined, "the joined read"))
+	mock.reservedAdd(1) // for the cleanup
+	s.mu.Lock()
+	assert.Equal(t, fenceGateClosed, s.fence.state)
+	s.mu.Unlock()
+	assert.Zero(t, mock.closeReservedCallCount(), "the joiner's shorter timeout does not apply")
+}
+
+// An unfence while the gate drains opens it at once and cancels the drain,
+// which force-closes nothing; the drain's caller is told to read again.
+func TestFenceGate_UnfenceCancelsTheDrain(t *testing.T) {
+	reader := setupPoolerTelemetry(t)
+	mock := newDrainMockPoolManager()
+	s := newFencedTestPooler(t, mock, servingstate.RoutingRolePrimary)
+	applyFence(t, s, false)
+	running := startFenceDrain(t, s, mock, at(1, 4))
+
+	require.NoError(t, s.ApplyFence(t.Context(), FenceRead{Epoch: s.FenceEpoch(), Position: at(1, 5), Fenced: false}, time.Second))
+	require.NoError(t, admit(s.StartRequest(nil, RequestNewReservation)), "the gate opened")
+	err := requireReturns(t, running, "the cancelled drain")
+	assert.Equal(t, mtrpcpb.Code_ABORTED, mterrors.Code(err), "%v", err)
+	assert.Zero(t, mock.closeReservedCallCount(), "a cancelled drain force-closes nothing")
+	outcome := map[string]string{"reason": drainReasonFence, "routing_role": "primary", "outcome": drainOutcomeCancelled}
+	assert.Equal(t, int64(1), readCounterByAttrs(t, reader, "mg.pooler.drain.outcome", outcome))
+}
+
+// A pooler that stops being primary while it drains cancels the drain and
+// leaves the gate closed; promoted again, the gate is unread, and a read is
+// applied at once rather than waiting out the old drain.
+func TestFenceGate_RoleChangeCancelsTheDrain(t *testing.T) {
+	mock := newDrainMockPoolManager()
+	s := newFencedTestPooler(t, mock, servingstate.RoutingRolePrimary)
+	applyFence(t, s, false)
+	running := startFenceDrain(t, s, mock, shardingcatalog.Position{})
+
+	require.NoError(t, s.OnStateChange(t.Context(), servingState(servingstate.RoutingRoleReplica)))
+	err := requireReturns(t, running, "the cancelled drain")
+	assert.Equal(t, mtrpcpb.Code_ABORTED, mterrors.Code(err), "%v", err)
+	s.mu.Lock()
+	assert.Equal(t, fenceGateClosed, s.fence.state)
+	s.mu.Unlock()
+
+	require.NoError(t, s.OnStateChange(t.Context(), servingState(servingstate.RoutingRolePrimary)))
+	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)), "unread")
+	applyFence(t, s, false)
+	require.NoError(t, admit(s.StartRequest(nil, RequestSingleQuery)))
+	assert.Zero(t, mock.closeReservedCallCount())
+}
+
+// A fence drain always has a bound: the caller's timeout, else the grace
+// period, else the default.
+func TestFenceDrainTimeout(t *testing.T) {
+	s := newStartRequestTestServer()
+	assert.Equal(t, 7*time.Second, s.fenceDrainTimeout(7*time.Second))
+	assert.Equal(t, s.gracePeriod, s.fenceDrainTimeout(0))
+	s.gracePeriod = 0
+	assert.Equal(t, defaultFenceDrainTimeout, s.fenceDrainTimeout(0))
 }

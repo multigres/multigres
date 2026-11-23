@@ -176,10 +176,15 @@ transactions finish; then single queries are refused too and the in-flight
 ones finish. Each stage of either drain also waits for the requests admitted
 before it that don't hold a connection yet, so a `BEGIN` admitted just before
 the fence can't get its connection after the drain has finished. At
-`drain_timeout` (the pooler's drain grace period when unset), the remaining
-reserved connections are force-closed and their transactions get `40001`. The
-drain metrics (`mg.pooler.drain.*`) carry `reason=fence`, or `reason=failover`
-for the not-serving drain.
+`drain_timeout` (at most 10 minutes; when unset, the pooler's drain grace
+period, or 30 seconds when that is zero), the remaining reserved connections
+are force-closed and their transactions get `40001`. A refresh that finds a
+drain running waits for it, bounded by its own deadline, and succeeds when it
+ends, so success always means drained. A read that finds no fence, or the
+pooler losing or regaining the primary role, cancels a running drain, which
+then force-closes nothing; its callers read the fences again. The drain
+metrics (`mg.pooler.drain.*`) carry `reason=fence`, or `reason=failover` for
+the not-serving drain; a cancelled fence drain has `outcome=cancelled`.
 
 `FenceScopes` still writes `FENCED` directly and refreshes no pooler, so until
 the caller has refreshed every pooler of every scope, the fence is not

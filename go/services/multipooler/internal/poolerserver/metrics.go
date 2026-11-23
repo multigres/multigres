@@ -78,6 +78,9 @@ func newDrainStats() *drainStats {
 const (
 	drainOutcomeGraceful   = "graceful"
 	drainOutcomeForceClose = "force_close"
+	// drainOutcomeCancelled: a fence drain was cancelled before it ended, by
+	// an unfence or a change of the pooler's role (see fence_gate.go).
+	drainOutcomeCancelled = "cancelled"
 )
 
 // Drain reasons, the reason attribute of every drain metric: the not-serving

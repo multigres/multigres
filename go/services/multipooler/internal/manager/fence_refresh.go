@@ -91,8 +91,8 @@ func (pm *MultipoolerManager) RefreshFences(ctx context.Context, req *multipoole
 		return nil, err
 	}
 	if d := req.GetDrainTimeout(); d != nil {
-		if err := d.CheckValid(); err != nil || d.AsDuration() < 0 {
-			return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "invalid drain_timeout %v", d)
+		if err := d.CheckValid(); err != nil || d.AsDuration() < 0 || d.AsDuration() > poolerserver.MaxFenceDrainTimeout {
+			return nil, mterrors.Errorf(mtrpcpb.Code_INVALID_ARGUMENT, "invalid drain_timeout %v: it must be between 0 and %v", d, poolerserver.MaxFenceDrainTimeout)
 		}
 	}
 	version, fenced, err := pm.refreshFences(ctx, req.GetMinRoutingVersion(), req.GetDrainTimeout().AsDuration())
@@ -105,12 +105,12 @@ func (pm *MultipoolerManager) RefreshFences(ctx context.Context, req *multipoole
 // refreshFences reads the catalog snapshot, checks it is at minRoutingVersion
 // or later, and applies whether it fences this pooler's scope, draining the
 // pooler when it has just become fenced. It returns the snapshot's routing
-// version and whether the scope is fenced. Reads and applies are serialized.
-// A read that raced a promotion (the gate was reset meanwhile) is read again;
-// one of a snapshot older than one already applied fails with UNAVAILABLE.
+// version and whether the scope is fenced. Reads may run concurrently; the
+// gate orders them (poolerserver fence_gate.go). A read the gate refuses
+// because a promotion reset it, or because the drain it ran or joined was
+// cancelled, is read again; one it refuses as older than a snapshot already
+// applied fails with UNAVAILABLE.
 func (pm *MultipoolerManager) refreshFences(ctx context.Context, minRoutingVersion int64, drainTimeout time.Duration) (int64, bool, error) {
-	pm.fenceMu.Lock()
-	defer pm.fenceMu.Unlock()
 	for {
 		epoch := pm.qsc.FenceEpoch()
 		pos, fenced, err := pm.readFences(ctx)

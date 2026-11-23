@@ -314,10 +314,12 @@ func TestRefreshFences_StaticLeaderHasNoFences(t *testing.T) {
 	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
 }
 
-func TestRefreshFences_RejectsANegativeDrainTimeout(t *testing.T) {
+func TestRefreshFences_RejectsADrainTimeoutOutOfRange(t *testing.T) {
 	env := newFenceTestEnv(t, fenceTestCommerceID)
-	_, err := env.pm.RefreshFences(t.Context(), &multipoolermanagerdatapb.RefreshFencesRequest{DrainTimeout: durationpb.New(-time.Second)})
-	assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err))
+	for _, d := range []time.Duration{-time.Second, poolerserver.MaxFenceDrainTimeout + time.Second} {
+		_, err := env.pm.RefreshFences(t.Context(), &multipoolermanagerdatapb.RefreshFencesRequest{DrainTimeout: durationpb.New(d)})
+		assert.Equal(t, mtrpcpb.Code_INVALID_ARGUMENT, mterrors.Code(err), "drain_timeout %v", d)
+	}
 }
 
 // catalogGateController is a real query server, for its fence gate, whose

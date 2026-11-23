@@ -4765,8 +4765,9 @@ type RefreshFencesRequest struct {
 	// min_routing_version is the lowest routing version the snapshot read may
 	// be at: the version of the fence change the caller wants applied.
 	MinRoutingVersion int64 `protobuf:"varint,1,opt,name=min_routing_version,json=minRoutingVersion,proto3" json:"min_routing_version,omitempty"`
-	// drain_timeout bounds the drain of a pooler the refresh fences. Unset or
-	// zero uses the pooler's drain grace period.
+	// drain_timeout bounds the drain of a pooler the refresh fences, at most
+	// 10 minutes. Unset or zero uses the pooler's drain grace period, or 30
+	// seconds when that is zero.
 	DrainTimeout  *durationpb.Duration `protobuf:"bytes,2,opt,name=drain_timeout,json=drainTimeout,proto3" json:"drain_timeout,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

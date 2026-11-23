@@ -272,8 +272,6 @@ type MultipoolerManager struct {
 	// static leader: Minigres). It arms the query server's fence gate and
 	// enables the fence reader (fence_refresh.go). Immutable.
 	fenceGateEnabled bool
-	// fenceMu serializes fence reads and their application to the gate.
-	fenceMu sync.Mutex
 	// fenceReadsOnce starts the background fence reader once.
 	fenceReadsOnce sync.Once
 

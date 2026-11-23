@@ -4103,8 +4103,9 @@ export class RefreshFencesRequest extends Message<RefreshFencesRequest> {
   minRoutingVersion = protoInt64.zero;
 
   /**
-   * drain_timeout bounds the drain of a pooler the refresh fences. Unset or
-   * zero uses the pooler's drain grace period.
+   * drain_timeout bounds the drain of a pooler the refresh fences, at most
+   * 10 minutes. Unset or zero uses the pooler's drain grace period, or 30
+   * seconds when that is zero.
    *
    * @generated from field: google.protobuf.Duration drain_timeout = 2;
    */

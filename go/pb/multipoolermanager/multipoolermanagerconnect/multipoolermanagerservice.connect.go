@@ -224,15 +224,19 @@ type MultipoolerManagerClient interface {
 	// single queries stop too and the in-flight ones finish. Each stage also
 	// waits for requests admitted before it that hold no connection yet. The
 	// call returns once the drain completes; at drain_timeout the remaining
-	// reserved connections are force-closed and their transactions get 40001. A read
-	// that finds no fence on the scope reopens the gate. A refresh that changes
+	// reserved connections are force-closed and their transactions get 40001.
+	// A call that finds a drain already running waits for that drain instead,
+	// bounded by its own deadline. A read that finds no fence on the scope
+	// reopens the gate, cancelling a running drain. A refresh that changes
 	// nothing is a no-op. Replicas record the result but are not fenced.
 	//
 	// Returns the routing version it applied. A catalog primary that cannot be
 	// reached returns UNAVAILABLE and applies nothing, as does a snapshot older
 	// (by consensus rule, then routing version) than one the pooler already
 	// applied: a catalog primary deposed by a failover may still answer. A
-	// snapshot below min_routing_version returns FAILED_PRECONDITION.
+	// snapshot below min_routing_version returns FAILED_PRECONDITION. A drain
+	// that is cancelled by a concurrent unfence or a change of the pooler's
+	// role is followed by a new read, whose result is returned.
 	RefreshFences(context.Context, *connect.Request[multipoolermanagerdata.RefreshFencesRequest]) (*connect.Response[multipoolermanagerdata.RefreshFencesResponse], error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
@@ -700,15 +704,19 @@ type MultipoolerManagerHandler interface {
 	// single queries stop too and the in-flight ones finish. Each stage also
 	// waits for requests admitted before it that hold no connection yet. The
 	// call returns once the drain completes; at drain_timeout the remaining
-	// reserved connections are force-closed and their transactions get 40001. A read
-	// that finds no fence on the scope reopens the gate. A refresh that changes
+	// reserved connections are force-closed and their transactions get 40001.
+	// A call that finds a drain already running waits for that drain instead,
+	// bounded by its own deadline. A read that finds no fence on the scope
+	// reopens the gate, cancelling a running drain. A refresh that changes
 	// nothing is a no-op. Replicas record the result but are not fenced.
 	//
 	// Returns the routing version it applied. A catalog primary that cannot be
 	// reached returns UNAVAILABLE and applies nothing, as does a snapshot older
 	// (by consensus rule, then routing version) than one the pooler already
 	// applied: a catalog primary deposed by a failover may still answer. A
-	// snapshot below min_routing_version returns FAILED_PRECONDITION.
+	// snapshot below min_routing_version returns FAILED_PRECONDITION. A drain
+	// that is cancelled by a concurrent unfence or a change of the pooler's
+	// role is followed by a new read, whose result is returned.
 	RefreshFences(context.Context, *connect.Request[multipoolermanagerdata.RefreshFencesRequest]) (*connect.Response[multipoolermanagerdata.RefreshFencesResponse], error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by

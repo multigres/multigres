@@ -1076,8 +1076,9 @@ message RefreshFencesRequest {
   // min_routing_version is the lowest routing version the snapshot read may
   // be at: the version of the fence change the caller wants applied.
   int64 min_routing_version = 1;
-  // drain_timeout bounds the drain of a pooler the refresh fences. Unset or
-  // zero uses the pooler's drain grace period.
+  // drain_timeout bounds the drain of a pooler the refresh fences, at most
+  // 10 minutes. Unset or zero uses the pooler's drain grace period, or 30
+  // seconds when that is zero.
   google.protobuf.Duration drain_timeout = 2;
 }
 
