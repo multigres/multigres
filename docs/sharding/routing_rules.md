@@ -186,6 +186,12 @@ then force-closes nothing; its callers read the fences again. The drain
 metrics (`mg.pooler.drain.*`) carry `reason=fence`, or `reason=failover` for
 the not-serving drain; a cancelled fence drain has `outcome=cancelled`.
 
+A fence closes only the poolers of its own scope. A rule `A → B` sends
+traffic planned for `A` to `B`'s poolers, so while it is in effect a fence on
+`A` alone stops none of that traffic. An operation that needs to stop traffic
+that a rule routes must fence the rule's target too, as a rule change already
+must (see `SetRoutingRules` above).
+
 `FenceScopes` still writes `FENCED` directly and refreshes no pooler, so until
 the caller has refreshed every pooler of every scope, the fence is not
 enforced everywhere. A later change makes `FenceScopes` write the whole list as
