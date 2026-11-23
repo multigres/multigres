@@ -37,7 +37,7 @@ import (
 )
 
 func TestReconcileCohortAction_Metadata(t *testing.T) {
-	action := NewReconcileCohortAction(nil, nil, nil, nil, slog.Default())
+	action := NewReconcileCohortAction(nil, nil, slog.Default())
 	md := action.Metadata()
 	assert.Equal(t, "ReconcileCohort", md.Name)
 	assert.True(t, md.Retryable)
@@ -107,7 +107,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		ps, cleanup := setupStore(t, fakeClient)
 		defer cleanup()
 
-		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		action := NewReconcileCohortAction(fakeClient, ps, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardRef: shardRef,
@@ -158,7 +158,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		ps, cleanup := setupStore(t, fakeClient)
 		defer cleanup()
 
-		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		action := NewReconcileCohortAction(fakeClient, ps, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemCohortMemberIneligible,
 			ShardRef: shardRef,
@@ -179,7 +179,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		ps := store.NewTestCache(t)
 		// No poolers added to the store — FindPoolerByID will fail.
 
-		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		action := NewReconcileCohortAction(fakeClient, ps, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardRef: shardRef,
@@ -215,7 +215,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		ps, cleanup := setupStore(t, fakeClient)
 		defer cleanup()
 
-		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		action := NewReconcileCohortAction(fakeClient, ps, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardRef: shardRef,
@@ -236,7 +236,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		defer ts.Close()
 		ps := store.NewTestCache(t)
 
-		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		action := NewReconcileCohortAction(fakeClient, ps, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardRef: shardRef,
@@ -256,7 +256,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 			Decision: &clustermetadatapb.ShardRule{LeaderId: primaryID},
 		})
 
-		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		action := NewReconcileCohortAction(fakeClient, ps, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardRef: shardRef,
@@ -296,7 +296,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 			},
 		}, nil))
 
-		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		action := NewReconcileCohortAction(fakeClient, ps, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardRef: shardRef,
@@ -321,7 +321,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		ps, cleanup := setupStore(t, fakeClient)
 		defer cleanup()
 
-		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		action := NewReconcileCohortAction(fakeClient, ps, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardRef: shardRef,
@@ -350,7 +350,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		ps, cleanup := setupStore(t, fakeClient)
 		defer cleanup()
 
-		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		action := NewReconcileCohortAction(fakeClient, ps, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemPoolerNotInCohort,
 			ShardRef: shardRef,
@@ -374,7 +374,7 @@ func TestReconcileCohortAction_Execute(t *testing.T) {
 		ps, cleanup := setupStore(t, fakeClient)
 		defer cleanup()
 
-		action := NewReconcileCohortAction(nil, fakeClient, ps, nil, slog.Default())
+		action := NewReconcileCohortAction(fakeClient, ps, slog.Default())
 		err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 			Code:     types.ProblemReplicaNotReplicating,
 			ShardRef: shardRef,

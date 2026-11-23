@@ -77,12 +77,12 @@ func (f *actionFactory) NewFixReplicationAction() types.RecoveryAction {
 
 // NewDemoteStaleLeaderAction creates an action to demote a stale primary.
 func (f *actionFactory) NewDemoteStaleLeaderAction() types.RecoveryAction {
-	return actions.NewDemoteStaleLeaderAction(f.config, f.rpcClient, f.poolerStore, f.topoStore, f.logger)
+	return actions.NewDemoteStaleLeaderAction(f.rpcClient, f.poolerStore, f.logger)
 }
 
 // NewReconcileCohortAction creates an action to add or remove a cohort member.
 func (f *actionFactory) NewReconcileCohortAction() types.RecoveryAction {
-	return actions.NewReconcileCohortAction(f.config, f.rpcClient, f.poolerStore, f.topoStore, f.logger)
+	return actions.NewReconcileCohortAction(f.rpcClient, f.poolerStore, f.logger)
 }
 
 // NewAlertOnlyAction creates a no-op action for non-actionable problems (e.g.
@@ -94,7 +94,7 @@ func (f *actionFactory) NewAlertOnlyAction() types.RecoveryAction {
 // NewReconnectRecruitAbandonedAction creates an action to reconnect a follower
 // stranded by an abandoned recruit via a leader-led no-op rule advance.
 func (f *actionFactory) NewReconnectRecruitAbandonedAction() types.RecoveryAction {
-	return actions.NewReconnectRecruitAbandonedAction(f.config, f.rpcClient, f.poolerStore, f.logger)
+	return actions.NewReconnectRecruitAbandonedAction(f.rpcClient, f.poolerStore, f.logger)
 }
 
 // AvailabilityPolicy returns the policy built from the factory's current
