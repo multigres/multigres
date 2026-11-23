@@ -30,7 +30,11 @@
 
 name: Notify Main Failure
 
-on: # yamllint disable-line rule:truthy
+# zizmor flags every workflow_run workflow, because it runs with secrets. This
+# one is safe: it never checks out code, downloads artifacts or runs anything
+# from the triggering run. It only reads event fields, through env.
+# yamllint disable-line rule:truthy
+on: # zizmor: ignore[dangerous-triggers]
   workflow_run:
     workflows: ["*"]
     types: [completed]
@@ -41,6 +45,9 @@ jobs:
   notify:
     name: Notify Slack
     runs-on: ubuntu-24.04
+    environment:
+      name: ci
+      deployment: false
     if: >-
       github.event.workflow_run.name != 'Notify Main Failure' &&
       !contains(fromJSON('["PostgreSQL Compatibility Tests", "SQLLogicTest Differential Suite", "pgproto Wire-Protocol Conformance Suite"]'), github.event.workflow_run.name) &&
