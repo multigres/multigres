@@ -48,6 +48,10 @@ func NewAvailabilityPolicy(cfg *config.Config) snapshot.AvailabilityPolicy {
 // the default health-snapshot interval, so a brief stream interruption does not
 // flip a pooler's liveness while a genuinely stalled stream is caught well
 // before the staleness watchdog's much longer window.
+//
+// Config-backed values take their declared defaults, not the environment.
 func DefaultAvailabilityPolicy() snapshot.AvailabilityPolicy {
-	return NewAvailabilityPolicy(config.NewConfig(viperutil.NewRegistry()))
+	p := NewAvailabilityPolicy(nil)
+	p.LeaderPostgresResponseThreshold = config.NewConfig(viperutil.NewRegistry()).DefaultLeaderPostgresResponseThreshold()
+	return p
 }

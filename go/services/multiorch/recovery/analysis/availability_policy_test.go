@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/services/multiorch/config"
 )
@@ -35,5 +36,12 @@ func TestNewAvailabilityPolicy_NilConfigLeavesTheConfigValuesUnset(t *testing.T)
 }
 
 func TestDefaultAvailabilityPolicy_MatchesTheConfigDefaults(t *testing.T) {
+	assert.Equal(t, 30*time.Second, DefaultAvailabilityPolicy().LeaderPostgresResponseThreshold)
+}
+
+func TestDefaultAvailabilityPolicy_IgnoresTheEnvironment(t *testing.T) {
+	t.Setenv("MT_LEADER_POSTGRES_RESPONSE_THRESHOLD", "1s")
+	require.Equal(t, time.Second, NewAvailabilityPolicy(config.NewTestConfig()).LeaderPostgresResponseThreshold,
+		"the environment reaches a configured policy")
 	assert.Equal(t, 30*time.Second, DefaultAvailabilityPolicy().LeaderPostgresResponseThreshold)
 }
