@@ -75,7 +75,7 @@ const defaultReplicationHeartbeatStalenessThreshold = 30 * time.Second
 // with backstops for when a pooler is wrong, rather than second-guessing postgres
 // state here.
 type LeaderNeedsReplacementAnalyzer struct {
-	factory *RecoveryActionFactory
+	factory ActionFactory
 }
 
 func (a *LeaderNeedsReplacementAnalyzer) Name() types.CheckName {

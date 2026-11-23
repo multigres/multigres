@@ -37,9 +37,3 @@ func TestNewAvailabilityPolicy_NilConfigLeavesTheConfigValuesUnset(t *testing.T)
 func TestDefaultAvailabilityPolicy_MatchesTheConfigDefaults(t *testing.T) {
 	assert.Equal(t, 30*time.Second, DefaultAvailabilityPolicy().LeaderPostgresResponseThreshold)
 }
-
-func TestRecoveryActionFactory_PolicyFollowsItsConfig(t *testing.T) {
-	cfg := config.NewTestConfig(config.WithLeaderPostgresResponseThreshold(9 * time.Second))
-	factory := &RecoveryActionFactory{config: cfg}
-	assert.Equal(t, 9*time.Second, factory.AvailabilityPolicy().LeaderPostgresResponseThreshold)
-}

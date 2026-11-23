@@ -12,29 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package analysis
+package recovery
 
 import (
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
+	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
+	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
-func TestRecoveryActionFactory_BuildsAppointLeaderFromThePolicy(t *testing.T) {
+func TestActionFactory_BuildsAppointLeaderFromThePolicy(t *testing.T) {
 	ts, _ := memorytopo.NewServerAndFactory(t.Context(), "cell1")
 	rpcClient := &rpcclient.FakeClient{}
 	coord := consensus.NewCoordinator(nil, ts, rpcClient, slog.Default())
-	factory := NewRecoveryActionFactory(nil, store.NewTestCache(t), rpcClient, ts, coord, slog.Default())
+	factory := newActionFactory(nil, store.NewTestCache(t), rpcClient, ts, coord, slog.Default())
 
 	metadata := factory.NewAppointLeaderAction().Metadata()
 
-	assert.Equal(t, DefaultAvailabilityPolicy().PreRecheckRefreshTimeout, metadata.RefreshBeforeRecheckTimeout,
+	assert.Equal(t, analysis.DefaultAvailabilityPolicy().PreRecheckRefreshTimeout, metadata.RefreshBeforeRecheckTimeout,
 		"the failover's refresh budget must come from the availability policy")
 	assert.Positive(t, metadata.RefreshBeforeRecheckTimeout)
+}
+
+func TestActionFactory_PolicyFollowsItsConfig(t *testing.T) {
+	cfg := config.NewTestConfig(config.WithLeaderFailoverGracePeriodBase(7 * time.Second))
+	factory := &actionFactory{config: cfg}
+	assert.Equal(t, 7*time.Second, factory.AvailabilityPolicy().FailoverGracePeriod)
 }

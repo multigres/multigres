@@ -15,8 +15,6 @@
 package analysis
 
 import (
-	"context"
-	"log/slog"
 	"testing"
 	"time"
 
@@ -24,35 +22,17 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
-	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/services/multiorch/config"
-	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/actions"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 func TestLeaderNeedsReplacementAnalyzer_Analyze(t *testing.T) {
-	// Set up factory for tests
-	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-	defer ts.Close()
-	rpcClient := &rpcclient.FakeClient{}
-	poolerStore := store.NewTestCache(t)
-	coordID := &clustermetadatapb.ID{
-		Component: clustermetadatapb.ID_MULTIORCH,
-		Cell:      "cell1",
-		Name:      "test-coord",
-	}
-	coord := consensus.NewCoordinator(coordID, ts, rpcClient, slog.Default())
-	cfg := config.NewTestConfig()
-	factory := NewRecoveryActionFactory(cfg, poolerStore, rpcClient, ts, coord, slog.Default())
+	factory := newTestActionFactory()
 
 	analyzer := &LeaderNeedsReplacementAnalyzer{factory: factory}
 
