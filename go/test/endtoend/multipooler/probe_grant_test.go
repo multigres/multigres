@@ -26,7 +26,7 @@ import (
 )
 
 // A probe role created after bootstrap gets read-only access to the heartbeat
-// table the next time the primary pooler opens.
+// table the next time the primary pooler opens, without relying on PUBLIC.
 //
 // Uses an isolated shard because it restarts the primary pooler.
 func TestProbeRole_HeartbeatGrantOnOpen(t *testing.T) {
@@ -58,19 +58,14 @@ func TestProbeRole_HeartbeatGrantOnOpen(t *testing.T) {
 		return err == nil && ok
 	}
 
-	_, err := primaryDB.Exec(`CREATE ROLE multigres_probe`)
+	// A shard bootstrapped before the schema granted USAGE to PUBLIC.
+	_, err := primaryDB.Exec(`CREATE ROLE multigres_probe; REVOKE USAGE ON SCHEMA multigres FROM PUBLIC`)
 	require.NoError(t, err)
 	require.False(t, canSelect(primaryDB), "a new role must not read the heartbeat table yet")
 
 	restartMultipooler(t, primary)
 	require.Eventually(t, func() bool { return canSelect(primaryDB) },
 		30*time.Second, 200*time.Millisecond, "open should grant the probe role SELECT on the heartbeat table")
-
-	var ownUsage bool
-	require.NoError(t, primaryDB.QueryRow(`SELECT EXISTS (
-		SELECT FROM pg_namespace n, aclexplode(n.nspacl) a
-		WHERE n.nspname = 'multigres' AND a.grantee = 'multigres_probe'::regrole AND a.privilege_type = 'USAGE')`).Scan(&ownUsage))
-	require.True(t, ownUsage, "the probe role must hold USAGE on the schema itself, not only through PUBLIC")
 
 	var canWrite bool
 	require.NoError(t, primaryDB.QueryRow(
