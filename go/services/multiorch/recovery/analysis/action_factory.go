@@ -35,12 +35,6 @@ type RecoveryActionFactory struct {
 	topoStore   topoclient.Store
 	coordinator *consensus.Coordinator
 	logger      *slog.Logger
-	// policy supplies the timings actions are built with.
-	//
-	// TODO: this is a second copy of the policy: the recovery loop's snapshot options
-	// build their own from DefaultAvailabilityPolicy(). Build one policy and inject it into both, so
-	// the action timings and the analyzers' timings cannot drift once it is configurable.
-	policy snapshot.AvailabilityPolicy
 }
 
 // NewRecoveryActionFactory creates a factory for recovery actions.
@@ -62,7 +56,6 @@ func NewRecoveryActionFactory(
 		topoStore:   topoStore,
 		coordinator: coordinator,
 		logger:      logger,
-		policy:      DefaultAvailabilityPolicy(),
 	}
 }
 
@@ -73,7 +66,7 @@ func (f *RecoveryActionFactory) NewShardInitAction() types.RecoveryAction {
 
 // NewAppointLeaderAction creates an appoint leader action.
 func (f *RecoveryActionFactory) NewAppointLeaderAction() types.RecoveryAction {
-	return actions.NewAppointLeaderAction(f.config, f.coordinator, f.poolerStore, f.logger, f.policy.PreRecheckRefreshTimeout)
+	return actions.NewAppointLeaderAction(f.config, f.coordinator, f.poolerStore, f.logger, f.AvailabilityPolicy().PreRecheckRefreshTimeout)
 }
 
 // NewFixReplicationAction creates a fix replication action.
@@ -108,7 +101,9 @@ func (f *RecoveryActionFactory) Logger() *slog.Logger {
 	return f.logger
 }
 
-// Config returns the factory's config for use by analyzers.
-func (f *RecoveryActionFactory) Config() *config.Config {
-	return f.config
+// AvailabilityPolicy returns the policy built from the factory's current
+// configuration. The engine freezes this same policy into every snapshot, so the
+// analyzers and the action timings read one source.
+func (f *RecoveryActionFactory) AvailabilityPolicy() snapshot.AvailabilityPolicy {
+	return NewAvailabilityPolicy(f.config)
 }

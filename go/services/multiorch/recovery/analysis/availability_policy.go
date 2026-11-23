@@ -17,17 +17,17 @@ package analysis
 import (
 	"time"
 
+	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
+	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
-// DefaultAvailabilityPolicy returns the built-in policy used when no operator
-// configuration is supplied. The freshness thresholds are a small multiple of
-// the default health-snapshot interval, so a brief stream interruption does not
-// flip a pooler's liveness while a genuinely stalled stream is caught well
-// before the staleness watchdog's much longer window.
-func DefaultAvailabilityPolicy() snapshot.AvailabilityPolicy {
-	return snapshot.AvailabilityPolicy{
+// NewAvailabilityPolicy builds the policy from the current configuration. Some of
+// the config values are dynamic, so callers build a fresh policy for each
+// snapshot instead of keeping one.
+func NewAvailabilityPolicy(cfg *config.Config) snapshot.AvailabilityPolicy {
+	p := snapshot.AvailabilityPolicy{
 		LeaderLivenessFreshness:         15 * time.Second,
 		FollowerStreamFreshness:         15 * time.Second,
 		LeaderChangeFreshness:           snapshot.DefaultLeaderWriteFreshness,
@@ -37,4 +37,17 @@ func DefaultAvailabilityPolicy() snapshot.AvailabilityPolicy {
 		PreRecheckRefreshTimeout:        5 * time.Second,
 		RecruitAbandonedAfter:           12 * time.Second,
 	}
+	if cfg != nil {
+		p.LeaderPostgresResponseThreshold = cfg.GetLeaderPostgresResponseThreshold()
+	}
+	return p
+}
+
+// DefaultAvailabilityPolicy returns the built-in policy used when no operator
+// configuration is supplied. The freshness thresholds are a small multiple of
+// the default health-snapshot interval, so a brief stream interruption does not
+// flip a pooler's liveness while a genuinely stalled stream is caught well
+// before the staleness watchdog's much longer window.
+func DefaultAvailabilityPolicy() snapshot.AvailabilityPolicy {
+	return NewAvailabilityPolicy(config.NewConfig(viperutil.NewRegistry()))
 }

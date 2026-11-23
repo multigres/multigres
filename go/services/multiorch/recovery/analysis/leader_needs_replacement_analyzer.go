@@ -472,7 +472,7 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 		// must not block failover forever. (Interim guard, replaced by the LSN
 		// progress signal when LeaderQuorumWritesStalled lands.)
 		if intendedLeaderPostgresRunning(sa) {
-			threshold := a.factory.Config().GetLeaderPostgresResponseThreshold()
+			threshold := sa.AvailabilityPolicy.LeaderPostgresResponseThreshold
 			lastReady := intendedLeaderLastPostgresReadyTime(sa)
 			if !lastReady.IsZero() && sa.Now.Sub(lastReady) <= threshold {
 				return "", "", false
