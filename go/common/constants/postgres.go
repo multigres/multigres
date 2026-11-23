@@ -144,6 +144,17 @@ const (
 	// backups.
 	BootstrapSentinelFile = ".multigres-bootstrap-in-progress"
 
+	// RewindPendingFile preserves suspected WAL divergence across pooler restarts.
+	// It keeps reads disabled until rewind completes or consensus elects this node
+	// leader. Unlike RewindSentinelFile, it does not mean recovery has started or
+	// the data directory has been modified. Lives in pooler_dir, outside backups.
+	RewindPendingFile = ".multigres-rewind-pending"
+
+	// RewindGuardFile is armed before a coordinated pooler can serve. A
+	// later process uses it to hold serving if its predecessor exited
+	// without recording a clean shutdown.
+	RewindGuardFile = ".multigres-rewind-guard"
+
 	// RewindSentinelFile marks an in-progress pg_rewind. Written before the actual
 	// (mutating) pg_rewind runs and removed only after postgres is verified back up
 	// as a standby; its presence on startup means a prior rewind was interrupted

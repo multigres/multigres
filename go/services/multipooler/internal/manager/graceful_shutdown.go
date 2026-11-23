@@ -116,11 +116,12 @@ func (pm *MultipoolerManager) GracefulShutdown(ctx context.Context) {
 	//
 	// Best-effort: a failure here is logged but doesn't block the rest of
 	// shutdown.
-	if err := pm.stateManager.Mutate(lockCtx, func(s *servingStateMutation) {
+	drainErr := pm.stateManager.Mutate(lockCtx, func(s *servingStateMutation) {
 		s.ServingStatus = clustermetadatapb.PoolerServingStatus_DISABLED
-	}); err != nil {
+	})
+	if drainErr != nil {
 		pm.logger.WarnContext(lockCtx, "transition to DISABLED returned error; proceeding with shutdown",
-			"error", err)
+			"error", drainErr)
 	}
 
 	// An unmanaged pooler leaves the external PostgreSQL running: close our own
@@ -134,9 +135,11 @@ func (pm *MultipoolerManager) GracefulShutdown(ctx context.Context) {
 		return
 	}
 
-	if err := pm.pgctldStopWithEscalation(lockCtx); err != nil {
-		pm.logger.ErrorContext(lockCtx, "pgctld.Stop failed during graceful shutdown", "error", err)
+	stopErr := pm.pgctldStopWithEscalation(lockCtx)
+	if stopErr != nil {
+		pm.logger.ErrorContext(lockCtx, "pgctld.Stop failed during graceful shutdown", "error", stopErr)
 	}
+	pm.rewindGuardCleanStop.Store(drainErr == nil && stopErr == nil)
 
 	// Advertise cohort ineligibility only after postgres has stopped (or we've
 	// given up trying), so the leader's WAL is already frozen before multiorch

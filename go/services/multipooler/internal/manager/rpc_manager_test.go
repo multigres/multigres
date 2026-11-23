@@ -1150,6 +1150,11 @@ func rewindAsStandbyForTest(t *testing.T, manager *MultipoolerManager, source *c
 	if _, err := manager.consensusMgr.SetSuspectedDivergence(lockCtx, true); err != nil {
 		return false, err
 	}
+	// The source is a fake host with no postgres to dial; treat it as reachable
+	// unless the test says otherwise.
+	if manager.leaderReachableFn == nil {
+		manager.leaderReachableFn = func(string, int32) bool { return true }
+	}
 	return manager.restartAsStandbyLocked(lockCtx, source.Hostname, source.PortMap["postgres"])
 }
 
@@ -1913,6 +1918,20 @@ func TestRestartAsStandby_RewindKeepsHigherOutstandingFloor(t *testing.T) {
 	assert.True(t, proto.Equal(outstanding, manager.consensusMgr.Promises().GetRecruitBlockedUntil()),
 		"a second rewind measured below the outstanding floor must not lower it, got %v", manager.consensusMgr.Promises().GetRecruitBlockedUntil())
 	assert.Len(t, mockPgctld.PgRewindCalls, 2, "the rewind itself still runs")
+}
+
+func TestRestartAsStandby_PendingRewindRemovalError(t *testing.T) {
+	queryService := mock.NewQueryService()
+	expectRewindPositionFloorMocks(queryService)
+	pm, pgctld, source := newRewindFloorManager(t, queryService)
+	blockPendingRewindMarker(t, pm)
+
+	_, err := rewindAsStandbyForTest(t, pm, source)
+
+	require.ErrorContains(t, err, "failed to clear suspected divergence after restart as standby")
+	assert.Len(t, pgctld.PgRewindCalls, 2, "both the dry run and the rewind completed")
+	assert.True(t, pm.consensusMgr.SuspectedDivergence())
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DRAINING, pm.healthStreamer.getState().ServingStatus)
 }
 
 func TestRestartAsStandby_RewindAbortsWhenFloorCannotBeRecorded(t *testing.T) {

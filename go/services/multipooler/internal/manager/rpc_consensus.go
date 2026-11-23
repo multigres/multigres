@@ -189,19 +189,9 @@ func (pm *MultipoolerManager) ResignLeadership(ctx context.Context, req *multipo
 		return nil, restartErr
 	}
 
-	// Step 6: mark rewind as not needed — this is a planned failover so there is
-	// no WAL divergence between the old primary and the new timeline.
-	if _, err := pm.consensusMgr.SetSuspectedDivergence(ctx, false); err != nil {
-		pm.logger.WarnContext(ctx, "resign_leadership: failed to clear suspected divergence (non-fatal)", "error", err)
-	}
-
-	// Re-enable serving now that we're back as a healthy standby.
-	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
-		s.PostgresMode = pgmode.InRecovery
-		if s.ServingStatus == clustermetadatapb.PoolerServingStatus_DRAINING {
-			s.ServingStatus = clustermetadatapb.PoolerServingStatus_SERVING
-		}
-	}); err != nil {
+	// Step 6: Resume serving if there is no pre-existing hold. A planned
+	// resignation changes the local role but cannot establish WAL authority.
+	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.rewindRequired(), pm.migrationServingHold()); err != nil {
 		return nil, mterrors.Wrap(err, "failed to re-enable serving after resign")
 	}
 
@@ -652,6 +642,12 @@ func (pm *MultipoolerManager) promoteLocked(ctx context.Context, req *consensusd
 	if _, err = pm.DoUpdateRule(ctx, ruleUpdate); err != nil {
 		return nil, mterrors.Wrap(err, "promote failed: could not write rule")
 	}
+	// The committed rule makes this node's WAL authoritative, superseding a
+	// pending rewind. Clear the durable hold even if postgres was already out of
+	// recovery and the promotion hook skipped pg_promote.
+	if err := pm.clearSuspectedDivergence(ctx); err != nil {
+		return nil, mterrors.Wrap(err, "failed to clear suspected divergence after promotion")
+	}
 	// Advertise PRIMARY + SERVING now that the rule has committed — this opens the
 	// gateway to write traffic, so it must run only after UpdateRule succeeds
 	// (UpdateRule is the durability gate: it waits for sync-standby acknowledgment).
@@ -894,7 +890,7 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	walRule := commonconsensus.PossiblyUndecidedRule(selfPos.GetPosition())
 	if pgMode.OutOfRecovery() || commonconsensus.RuleNamesLeader(walRule, pm.serviceID) {
 		if err := pm.markSuspectedDivergence(ctx); err != nil {
-			pm.logger.ErrorContext(ctx, "failed to set suspected divergence in SetPrimary", "error", err)
+			return nil, mterrors.Wrap(err, "failed to record suspected divergence in SetPrimary")
 		}
 	}
 
@@ -902,7 +898,7 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	// entrypoint) before the no-op position gate, so it covers this apply path as
 	// well as the no-op path that never reaches here.
 
-	if pm.consensusMgr.SuspectedDivergence() {
+	if pm.rewindRequired() {
 		// Demoting a (likely diverged) stale primary restarts it as a standby of the
 		// new leader, which requires a pg_rewind. Defer that until the leader is
 		// rewind-ready — it has checkpointed onto its current timeline, relayed here
@@ -982,7 +978,7 @@ func (pm *MultipoolerManager) setPrimaryLocked(ctx context.Context, req *consens
 	// the published writable signal immediately rather than waiting a monitor
 	// cycle. Re-enable reads only after the restart path has cleared suspected
 	// divergence.
-	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.consensusMgr.SuspectedDivergence(), pm.migrationServingHold()); err != nil {
+	if err := pm.stateManager.fixDrift(ctx, pgmode.InRecovery, pm.rewindRequired(), pm.migrationServingHold()); err != nil {
 		pm.logger.WarnContext(ctx, "failed to update postgres mode to InRecovery after SetPrimary", "error", err)
 	}
 
