@@ -64,6 +64,16 @@ func TestLogCopyFailure_Level(t *testing.T) {
 			want: slog.LevelDebug,
 		},
 		{
+			name: "fatal postgres error kills the connection",
+			err:  mterrors.NewPgError("FATAL", "57P01", "terminating connection due to administrator command", ""),
+			want: slog.LevelError,
+		},
+		{
+			name: "wrapped fatal postgres error kills the connection",
+			err:  fmt.Errorf("copy: %w", mterrors.NewPgError("FATAL", "57P01", "terminating connection due to administrator command", "")),
+			want: slog.LevelError,
+		},
+		{
 			name: "connection failure",
 			err:  errors.New("failed to read message type: EOF"),
 			want: slog.LevelError,
