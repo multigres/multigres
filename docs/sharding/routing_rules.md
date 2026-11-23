@@ -192,18 +192,23 @@ enforced everywhere. A later change makes `FenceScopes` write the whole list as
 `FENCING`, refresh and drain every pooler of every scope in parallel, and only
 then write the list as `FENCED`.
 
-The gateway side of enforcement is in place
-(`go/services/multigateway/executor/fence.go`). A pooler that refuses work on
-a fenced target is to answer `MTF02`; nothing returns it yet. When a statement
-is refused with it, the gateway waits until its cached catalog snapshot has a
-`routing_version` newer than the one the statement was planned against and no
-longer fences that tablegroup and shard, then plans and runs the statement
-again. The total wait of one statement is bounded by `--buffer-window`,
-whether or not failover buffering is enabled; when it runs out, the client
-gets the `MTF02`. A statement is not retried, and the client gets the `MTF02`
-at once, when the session is in a transaction or a pipeline, when an earlier
-step of its plan already ran on a pooler, or when output has already reached
-the client. Minigres has no catalog cache and runs every statement once.
+When a statement is refused with `MTF02`, the gateway
+(`go/services/multigateway/executor/fence.go`) waits until its cached catalog
+snapshot no longer fences the tablegroup and shard that refused it, then plans
+and runs the statement again. The first retry runs at once; a pooler that
+refuses again hasn't caught up with the snapshot yet (it hasn't read its
+fences since it started, or hasn't been refreshed since the unfence), so each
+later retry backs off, from 10 ms doubling to 250 ms. The total wait of one
+statement is bounded by `--buffer-window`, whether or not failover buffering
+is enabled; when it runs out, the client gets the `MTF02`. A statement in a
+transaction is retried only while the session holds no reserved connection: a
+transaction's `BEGIN` is deferred to its first statement, so until a statement
+of it reaches a pooler, nothing of it has run. A statement is not retried, and
+the client gets the `MTF02` at once, when its session holds a reserved
+connection in a transaction, when it is in an extended-protocol pipeline
+before its Sync, when an earlier step of its plan already ran on a pooler, or
+when output has already reached the client. Minigres has no catalog cache and
+runs every statement once.
 
 ## API
 

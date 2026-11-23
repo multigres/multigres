@@ -31,8 +31,8 @@ import (
 // its shard) in the sharding catalog. It is a condition of its own, separate
 // from the serving status: a fenced pooler stays SERVING, keeps its consensus
 // role and reports the same health, and only StartRequest changes, refusing
-// new work with MTF02. The gateway then waits for a catalog snapshot that no
-// longer fences the target and runs the statement again.
+// new work with MTF02. The gateway then retries the statement with backoff
+// until the gate admits it.
 //
 // The gate guards application work only, admitted through StartRequest. The
 // internal query service (InternalQueryService) never consults it: the
