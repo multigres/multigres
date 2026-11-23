@@ -24,3 +24,29 @@ const CreateTableSQL = `CREATE TABLE multigres.heartbeat (
 		quorum_commit_lsn pg_lsn,
 		quorum_commit_ts TIMESTAMPTZ
 	)`
+
+// ProbeRole is the role an external availability probe logs in as.
+const ProbeRole = "multigres_probe"
+
+// GrantProbeReadSQL lets ProbeRole read the heartbeat table. It does nothing
+// if the role or the table is missing, or the grants are already there.
+//
+// The schema check reads the ACL because has_schema_privilege is also true
+// through PUBLIC, and the probe should not depend on that grant.
+const GrantProbeReadSQL = `DO $$ BEGIN
+	IF to_regclass('multigres.heartbeat') IS NULL
+		OR NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '` + ProbeRole + `') THEN
+		RETURN;
+	END IF;
+	IF NOT EXISTS (
+		SELECT FROM pg_namespace n, aclexplode(n.nspacl) a
+		WHERE n.nspname = 'multigres'
+			AND a.grantee = '` + ProbeRole + `'::regrole
+			AND a.privilege_type = 'USAGE'
+	) THEN
+		GRANT USAGE ON SCHEMA multigres TO ` + ProbeRole + `;
+	END IF;
+	IF NOT has_table_privilege('` + ProbeRole + `', 'multigres.heartbeat', 'SELECT') THEN
+		GRANT SELECT ON TABLE multigres.heartbeat TO ` + ProbeRole + `;
+	END IF;
+END $$`
