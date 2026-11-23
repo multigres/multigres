@@ -214,8 +214,10 @@ mode:
 
 1. Wait until the sharding catalog cache's snapshot no longer has an admission
    fence on the target that refused it, on its shard or its whole tablegroup
-   (`shardingcatalogcache.Cache.WaitForUnfenced`, which always triggers a
-   fetch, so a gateway behind the fence learns of it).
+   (`shardingcatalogcache.Cache.WaitForUnfenced`). It always triggers a
+   fetch but doesn't wait for it: a gateway whose snapshot predates the fence
+   retries against the refusing pooler, with the backoff, until the fetch
+   installs a snapshot that shows the fence, and then waits.
 2. Plan the statement again.
 3. Run it again: the first retry at once, each later one after a backoff that
    starts at 10ms and doubles up to 250ms.

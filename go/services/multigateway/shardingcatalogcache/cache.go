@@ -198,14 +198,17 @@ func (c *Cache) database(name string) *database {
 // first. A tablegroup or shard the snapshot does not know counts as unfenced.
 //
 // It always triggers a fetch, rather than wait for the next health update or
-// poll: the caller was just refused as fenced, so either the cached snapshot
-// does not show the fence yet and a fetch learns of it, or the snapshot
-// already shows it lifted and the pooler that refused has not caught up. In
-// the second case it returns at once, and the caller retries with backoff (see
-// executor.runFenced). A database the cache has not seen is treated as
-// ObserveCatalogShard treats one: its fetch loop starts, and the wait lasts
-// until its first snapshot that does not fence the target is installed. Any
-// number of callers may wait on one database.
+// poll, because the caller was just refused as fenced: either the cached
+// snapshot does not show the fence yet, or it already shows the fence lifted
+// and the pooler that refused has not caught up. It does not wait for that
+// fetch: whenever the installed snapshot shows the target unfenced, it returns
+// at once, in both cases, and the caller retries with backoff (see
+// executor.runFenced). In the first case those retries go to the fenced
+// pooler, and are refused, until the fetch installs a snapshot that shows the
+// fence, after which the wait holds them. A database the cache has not seen
+// is treated as ObserveCatalogShard treats one: its fetch loop starts, and the
+// wait lasts until its first snapshot that does not fence the target is
+// installed. Any number of callers may wait on one database.
 func (c *Cache) WaitForUnfenced(ctx context.Context, name, tableGroup, shard string) error {
 	db := c.database(name)
 	db.trigger()
