@@ -8,6 +8,8 @@ permissions: {}
 
 jobs:
   dispatch:
+    # Run only on the upstream repository. Skip forks and private mirrors.
+    if: github.repository == 'multigres/multigres'
     runs-on: ubuntu-latest
     environment:
       name: ci
