@@ -776,6 +776,11 @@ message CreateTableGroupRequest {
   // (already_exists is set on the response) instead of an error, and joins a
   // creation of this name already in flight whatever its layout.
   bool if_not_exists = 3;
+  // shard_backing_connections maps shard names to the names of the connections
+  // (in the catalog's connections table) of the external PostgreSQL that serves
+  // them. Shards not listed are managed. Fixed at creation; see
+  // docs/sharding/tablegroup-operations.md for what can be bound.
+  map<string, string> shard_backing_connections = 4;
 }
 
 // CreateTableGroupResponse identifies the operation that creates the tablegroup.
@@ -916,6 +921,9 @@ message TableGroup {
   shardingcatalog.TableGroupState state = 3;
   // shards is the shard layout in canonical order.
   repeated string shards = 4;
+  // shard_backing_connections maps each shard served by an external
+  // PostgreSQL to the name of its connection. Shards not listed are managed.
+  map<string, string> shard_backing_connections = 5;
 }
 
 // GetRoutingSnapshotRequest asks the catalog primary for the sharding catalog.
