@@ -58,6 +58,7 @@ func TestAnalyzeStatementTableGroupDDL(t *testing.T) {
 	for _, sql := range []string{
 		"CREATE TABLEGROUP commerce",
 		"CREATE TABLEGROUP IF NOT EXISTS commerce SHARDS ('0-80', '80-inf')",
+		"CREATE TABLEGROUP srctg CONNECTION ext",
 		"DROP TABLEGROUP commerce",
 		"DROP TABLEGROUP IF EXISTS commerce",
 	} {
@@ -125,6 +126,8 @@ func TestPlanTableGroupDDL(t *testing.T) {
 	for sql, want := range map[string]string{
 		"CREATE TABLEGROUP commerce":                                         "TableGroupDDL(CREATE TABLEGROUP commerce shards=[] if_not_exists=false)",
 		"CREATE TABLEGROUP IF NOT EXISTS commerce SHARDS ('80-inf', '0-80')": "TableGroupDDL(CREATE TABLEGROUP commerce shards=[80-inf 0-80] if_not_exists=true)",
+		"CREATE TABLEGROUP srctg CONNECTION ext":                             "TableGroupDDL(CREATE TABLEGROUP srctg connection=ext if_not_exists=false)",
+		"CREATE TABLEGROUP IF NOT EXISTS srctg CONNECTION ext":               "TableGroupDDL(CREATE TABLEGROUP srctg connection=ext if_not_exists=true)",
 		"DROP TABLEGROUP commerce":                                           "TableGroupDDL(DROP TABLEGROUP commerce if_exists=false)",
 		"DROP TABLEGROUP IF EXISTS commerce RESTRICT":                        "TableGroupDDL(DROP TABLEGROUP commerce if_exists=true)",
 	} {

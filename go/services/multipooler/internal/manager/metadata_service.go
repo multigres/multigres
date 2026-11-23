@@ -23,24 +23,6 @@ import (
 	multipoolerservicepb "github.com/multigres/multigres/go/pb/multipoolerservice"
 )
 
-// connectionDirectory holds the backing connections of the cluster, which the default
-// primary serves to the poolers that front an external PostgreSQL. It is the sharding
-// catalog (connectionStore); the interface is the seam tests replace it through.
-type connectionDirectory interface {
-	// BackingConnection returns the named connection, and false when there is none of
-	// that name. Its Name is set by the caller.
-	BackingConnection(ctx context.Context, name string) (conn *multipoolerservicepb.BackingConnection, found bool, err error)
-}
-
-// connections returns the directory the default primary reads connections from: the
-// sharding catalog, unless a test replaced it.
-func (pm *MultipoolerManager) connections() connectionDirectory {
-	if pm.connectionDir != nil {
-		return pm.connectionDir
-	}
-	return newConnectionStore(pm)
-}
-
 // requireDefaultPrimary checks that this pooler is the current writable primary
 // of the managed default tablegroup, the only place cluster metadata may be
 // read. A follower's copy is never a source of truth.
@@ -64,27 +46,31 @@ func (pm *MultipoolerManager) requireDefaultPrimary(database string) error {
 	return nil
 }
 
-// GetBackingConnection returns the named backing connection from the default
-// primary's metadata.
+// GetBackingConnection says how a shard is served, from the default primary's catalog: the backing
+// connection of an external shard, or that it is managed.
 func (pm *MultipoolerManager) GetBackingConnection(ctx context.Context, req *multipoolerservicepb.GetBackingConnectionRequest) (*multipoolerservicepb.GetBackingConnectionResponse, error) {
 	if err := pm.requireDefaultPrimary(req.GetDatabase()); err != nil {
 		return nil, err
 	}
-	return pm.backingConnection(ctx, req.GetConnectionName())
+	return pm.shardBinding(ctx, req.GetTablegroupId(), req.GetShard())
 }
 
-// backingConnection reads the named connection from the directory.
-func (pm *MultipoolerManager) backingConnection(ctx context.Context, name string) (*multipoolerservicepb.GetBackingConnectionResponse, error) {
-	if name == "" {
-		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "connection name is required")
+func (pm *MultipoolerManager) shardBinding(ctx context.Context, tablegroupID int64, shard string) (*multipoolerservicepb.GetBackingConnectionResponse, error) {
+	if tablegroupID <= 0 {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "tablegroup id is required")
 	}
-	conn, found, err := pm.connections().BackingConnection(ctx, name)
+	if shard == "" {
+		return nil, mterrors.New(mtrpcpb.Code_INVALID_ARGUMENT, "shard is required")
+	}
+	conn, found, err := newConnectionStore(pm).ShardBinding(ctx, tablegroupID, shard)
 	if err != nil {
-		return nil, mterrors.Wrap(err, "read backing connection")
+		return nil, mterrors.Wrap(err, "read shard binding")
 	}
 	if !found {
-		return nil, mterrors.Errorf(mtrpcpb.Code_NOT_FOUND, "backing connection %q not found", name)
+		return nil, mterrors.Errorf(mtrpcpb.Code_NOT_FOUND, "shard %s of tablegroup %d not found", shard, tablegroupID)
 	}
-	conn.Name = name
+	if conn == nil {
+		return &multipoolerservicepb.GetBackingConnectionResponse{Managed: true}, nil
+	}
 	return &multipoolerservicepb.GetBackingConnectionResponse{Connection: conn}, nil
 }
