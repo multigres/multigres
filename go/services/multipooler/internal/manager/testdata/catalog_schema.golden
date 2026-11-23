@@ -123,6 +123,8 @@ CREATE TABLE IF NOT EXISTS multigres.admission_fence (
 	state         text   NOT NULL CHECK (state IN ('FENCING', 'FENCED')),
 	version       bigint NOT NULL
 )
+== table
+ALTER TABLE multigres.shard ADD COLUMN IF NOT EXISTS backing_connection_id bigint REFERENCES multigres.connections (connection_id)
 == seed
 INSERT INTO multigres.catalog_state (format_version) VALUES (0) ON CONFLICT (singleton) DO NOTHING
 == seed

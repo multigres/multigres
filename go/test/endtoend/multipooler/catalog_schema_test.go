@@ -32,12 +32,13 @@ import (
 // for the catalog schema ensure ("multigrs" in ASCII).
 const catalogSchemaLockKey int64 = 0x6d756c7469677273
 
-// catalogFormat1Columns are the catalog tables format 1 creates, each with its
-// columns in declaration order.
+// catalogFormat1Columns are the catalog tables of format 1 with their columns in declaration
+// order. An additive column (shard.backing_connection_id) comes last, so a fresh and an upgraded
+// catalog agree.
 var catalogFormat1Columns = map[string][]string{
 	"catalog_state":    {"singleton", "format_version", "routing_version", "plan_epoch"},
 	"tablegroup":       {"tablegroup_id", "name", "state", "created_at"},
-	"shard":            {"shard_id", "tablegroup_id", "shard_name", "range_start", "range_end", "state"},
+	"shard":            {"shard_id", "tablegroup_id", "shard_name", "range_start", "range_end", "state", "backing_connection_id"},
 	"tablegroup_table": {"table_id", "schema_name", "table_name", "tablegroup_id"},
 	"shard_index":      {"shard_index_id", "name", "type", "params", "state"},
 	"shard_key":        {"shard_key_id", "table_id", "shard_index_id", "name", "role", "state"},
@@ -132,6 +133,19 @@ func requireCatalogFormat1(t *testing.T, db *sql.DB) {
 	// multigres.migration references the connections table by a foreign key, which the
 	// migrator's schema ensure adds on this (the catalog) shard, right after the catalog.
 	requireMigrationForeignKey(t, db)
+
+	// A shard served by an external postgres is bound to its connection by a foreign key, which
+	// a fresh catalog and an upgraded one both have.
+	var shardFK string
+	require.NoError(t, db.QueryRow(`SELECT pg_get_constraintdef(oid) FROM pg_constraint
+		WHERE conrelid = 'multigres.shard'::regclass AND contype = 'f'
+		  AND conname = 'shard_backing_connection_id_fkey'`).Scan(&shardFK),
+		"multigres.shard.backing_connection_id must reference multigres.connections")
+	assert.Equal(t, "FOREIGN KEY (backing_connection_id) REFERENCES multigres.connections(connection_id)", shardFK)
+	var defaultBound bool
+	require.NoError(t, db.QueryRow(`SELECT bool_or(s.backing_connection_id IS NOT NULL) FROM multigres.shard s
+		JOIN multigres.tablegroup t USING (tablegroup_id) WHERE t.name = 'default'`).Scan(&defaultBound))
+	assert.False(t, defaultBound, "the default tablegroup's shard is never bound")
 
 	var formatVersion int
 	var routingVersion, planEpoch int64
