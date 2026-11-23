@@ -16,6 +16,7 @@ package migration
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -449,6 +450,17 @@ WHERE r.rolname IS NULL OR NOT pg_has_role($1::name, r.rolname, 'USAGE')`
 		require.Equal(t, "42501", mterrors.ExtractSQLSTATE(err))
 		require.ErrorContains(t, err, `"mallory"`)
 		require.NotContains(t, err.Error(), "alice", "must not reveal who owns the connection either")
+	})
+
+	t.Run("query failure is wrapped, not reported as a denial", func(t *testing.T) {
+		qs := &fakeQS{scriptedErrs: map[string]error{checkSQL: errors.New("connection reset")}}
+		tg := newTarget(qs)
+
+		err := tg.CheckConnectionOwnership(context.Background(), "mallory", "alice")
+
+		require.ErrorContains(t, err, "check connection ownership")
+		require.ErrorContains(t, err, "connection reset")
+		require.NotEqual(t, "42501", mterrors.ExtractSQLSTATE(err), "an infrastructure failure must not look like insufficient_privilege")
 	})
 
 	// Regression test: a dropped ownerRole must still come back as an
