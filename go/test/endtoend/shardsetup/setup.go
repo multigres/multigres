@@ -1829,11 +1829,6 @@ func (s *ShardSetup) wipeTopologyForReinit(t *testing.T, database, tableGroup st
 //   - Replication is already configured from bootstrap
 //   - Registers cleanup to restore baseline GUCs and reset state after test
 //
-// WithoutReplication():
-//   - Actively breaks replication: clears primary_conninfo and synchronous_standby_names
-//   - Use for tests that need to set up replication from scratch
-//   - Cleanup restores baseline (re-enables replication)
-//
 // WithPausedReplication():
 //   - Pauses WAL replay on standbys (replication already configured)
 //   - Use for tests that need to test pg_wal_replay_resume()
@@ -1878,11 +1873,6 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-
-	// If WithoutReplication is set, actively break replication
-	if config.NoReplication {
-		s.breakReplication(t, ctx)
-	}
 
 	// If WithPausedReplication is set, pause WAL replay on standbys
 	if config.PauseReplication {
@@ -1949,56 +1939,6 @@ func (s *ShardSetup) SetupTest(t *testing.T, opts ...SetupTestOption) {
 			return s.ValidateCleanState() == nil
 		}, 15*time.Second, 50*time.Millisecond, "Test cleanup failed: state did not return to clean state")
 	})
-}
-
-// breakReplication clears replication configuration on all nodes.
-// Use this for tests that need to set up replication from scratch.
-func (s *ShardSetup) breakReplication(t *testing.T, ctx context.Context) {
-	t.Helper()
-
-	// Clear synchronous_standby_names on primary
-	primary := s.GetMultipoolerInstance(s.PrimaryName)
-	if primary != nil {
-		client, err := NewMultipoolerClient(primary.Multipooler.GrpcPort)
-		if err == nil {
-			_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET synchronous_standby_names", 0)
-			_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET synchronous_commit", 0)
-			ReloadConfig(ctx, t, client.Pooler, s.PrimaryName)
-			client.Close()
-			t.Logf("SetupTest: Cleared synchronous_standby_names on primary %s", s.PrimaryName)
-		}
-	}
-
-	// Clear primary_conninfo on standbys and wait for WAL receiver to stop
-	for name, inst := range s.Multipoolers {
-		if name == s.PrimaryName {
-			continue
-		}
-
-		client, err := NewMultipoolerClient(inst.Multipooler.GrpcPort)
-		if err != nil {
-			t.Logf("SetupTest: failed to connect to %s: %v", name, err)
-			continue
-		}
-
-		_, _ = client.Pooler.ExecuteQuery(ctx, "ALTER SYSTEM RESET primary_conninfo", 0)
-		ReloadConfig(ctx, t, client.Pooler, name)
-
-		// Wait for the WAL receiver to stop. ReloadConfig has already confirmed
-		// primary_conninfo is cleared; this waits for postgres to act on it.
-		require.Eventually(t, func() bool {
-			connInfo, err := QueryStringValue(ctx, client.Pooler, "SHOW primary_conninfo")
-			if err != nil || connInfo != "" {
-				return false
-			}
-			// Also verify WAL receiver has stopped
-			resp, err := client.Pooler.ExecuteQuery(ctx, "SELECT status FROM pg_stat_wal_receiver", 1)
-			return err == nil && len(resp.Rows) == 0
-		}, 10*time.Second, 100*time.Millisecond, "%s primary_conninfo should be cleared and WAL receiver stopped", name)
-
-		client.Close()
-		t.Logf("SetupTest: Cleared primary_conninfo on standby %s", name)
-	}
 }
 
 // pauseReplicationOnStandbys pauses WAL replay on all standbys.
