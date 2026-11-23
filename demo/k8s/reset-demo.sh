@@ -78,7 +78,7 @@ else
 fi
 
 # 2. Drop every migration, forcibly.
-ids="$("$MG" list-migrations --admin-server "$ADMIN" 2>/dev/null | jq -r '.migrations[]?.id' 2>/dev/null || true)"
+ids="$("$MG" list-migrations --admin-server "$ADMIN" 2>/dev/null | jq -r '.migration.id' 2>/dev/null || true)"
 if [[ -z "$ids" ]]; then
   echo "[reset] no migrations to drop"
 else
