@@ -395,8 +395,9 @@ func TestUserPool_SetCapacity(t *testing.T) {
 
 // countingLogHandler counts how many records match msg.
 type countingLogHandler struct {
-	msg   string
-	count int
+	msg    string
+	count  int
+	levels []slog.Level
 }
 
 func (h *countingLogHandler) Enabled(context.Context, slog.Level) bool { return true }
@@ -404,6 +405,7 @@ func (h *countingLogHandler) Enabled(context.Context, slog.Level) bool { return 
 func (h *countingLogHandler) Handle(_ context.Context, r slog.Record) error {
 	if r.Message == h.msg {
 		h.count++
+		h.levels = append(h.levels, r.Level)
 	}
 	return nil
 }
@@ -451,6 +453,10 @@ func TestUserPool_SetCapacity_SkipsLogWhenUnchanged(t *testing.T) {
 
 	require.NoError(t, pool.SetCapacity(ctx, 2, 6))
 	assert.Equal(t, 2, handler.count, "repeating that capacity should not log again")
+
+	for _, level := range handler.levels {
+		assert.Equal(t, slog.LevelDebug, level, "capacity updates are routine and log at debug")
+	}
 }
 
 func TestUserPool_SetCapacity_WithIdleConnections(t *testing.T) {

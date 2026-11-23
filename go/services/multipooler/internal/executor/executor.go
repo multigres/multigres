@@ -1777,7 +1777,7 @@ func (e *Executor) CopyFinalize(
 	// them to the client as NoticeResponse frames.
 	commandTag, rowsAffected, notices, err := conn.ReadCopyDoneResponse(ctx)
 	if err != nil {
-		e.logger.ErrorContext(ctx, "COPY operation failed", "error", err)
+		e.logCopyFailure(ctx, err)
 		// For a PG ErrorResponse (e.g., constraint violation, type mismatch,
 		// missing column), ReadCopyDoneResponse drains the trailing
 		// ReadyForQuery so the socket is back in a clean state. The reserved
@@ -1832,6 +1832,17 @@ func (e *Executor) CopyFinalize(
 	}
 
 	return result, e.buildReservedState(reservedConn), nil
+}
+
+// logCopyFailure logs a failed COPY completion. A Postgres ErrorResponse is a
+// client error that is also returned to the client, so it only logs at debug.
+func (e *Executor) logCopyFailure(ctx context.Context, err error) {
+	var pgDiag *mterrors.PgDiagnostic
+	if errors.As(err, &pgDiag) {
+		e.logger.DebugContext(ctx, "COPY operation failed", "error", err)
+		return
+	}
+	e.logger.ErrorContext(ctx, "COPY operation failed", "error", err)
 }
 
 // CopyAbort aborts a COPY operation.
