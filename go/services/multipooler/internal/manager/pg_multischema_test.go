@@ -153,6 +153,9 @@ func addCatalogMigrationEnsure(m *mock.QueryService, fkErr error) {
 	m.AddQueryPatternOnce(exactPattern(migration.GrantStatMigrationSQL), mock.MakeQueryResult(nil, nil))
 }
 
+// probeGrantPattern matches grantHeartbeatToProbe's statement.
+const probeGrantPattern = "GRANT SELECT ON TABLE multigres.heartbeat TO multigres_probe"
+
 func TestCreateSidecarSchema(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -168,6 +171,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce(probeGrantPattern, mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
@@ -261,6 +265,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				addShardRefEnsure(m, nil)
 				addMigrationTableCreate(m)
 				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce(probeGrantPattern, mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("pg_advisory_xact_lock", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce(catalogStatePresentPattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{false}}))
 				m.AddQueryPatternOnceWithError("^DROP TABLE IF EXISTS multigres.shard", errors.New("drop failed"))
@@ -275,6 +280,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce(probeGrantPattern, mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
@@ -294,6 +300,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce(probeGrantPattern, mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
@@ -382,6 +389,10 @@ func TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard(t *testing.T) {
 				assert.Less(t, indexOf(want), vpid, "ensureSidecarSchemas must run after %q", want)
 			}
 
+			grant := indexOf(probeGrantPattern)
+			assert.Greater(t, grant, vpid, "the probe grant must run as part of ensureSidecarSchemas")
+			assert.Greater(t, grant, indexOf("CREATE TABLE multigres.heartbeat"), "the probe grant needs the heartbeat table")
+
 			firstCatalog := slices.IndexFunc(queries, catalogRef.MatchString)
 			fkey := slices.Index(queries, migration.AddConnectionForeignKeySQL)
 			view := slices.Index(queries, migration.CreateStatMigrationViewSQL)
@@ -430,6 +441,18 @@ func TestCreateBackendVpidTableDDL(t *testing.T) {
 	err := pm.createBackendVpidTable(context.Background())
 	assert.NoError(t, err)
 	assert.True(t, seen, "backend_vpid DDL should run")
+}
+
+// A failed probe grant must not stop the rest of the ensure.
+func TestEnsureSidecarSchemas_ProbeGrantFailureDoesNotBlock(t *testing.T) {
+	pm, mockQueryService := newTestManagerWithMock(t, "commerce", constants.DefaultShard)
+
+	addShardRefEnsure(mockQueryService, nil)
+	mockQueryService.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+	mockQueryService.AddQueryPatternOnceWithError(probeGrantPattern, errors.New("grant failed"))
+
+	require.NoError(t, pm.ensureSidecarSchemas(context.Background()))
+	require.NoError(t, mockQueryService.ExpectationsWereMet(), "the grant should have been attempted")
 }
 
 // TestCreateBackendVpidTable_IdempotentAcrossRepeatedCalls guards the
