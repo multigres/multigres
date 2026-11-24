@@ -53,7 +53,8 @@ func (s *QueryPoolerServer) GetAuthCredentials(ctx context.Context, req *multipo
 
 	// Admin credential fetch (not a query). Treat like a new reservation so it is
 	// buffered during any drain — the same behavior as before the two-stage drain.
-	if err := s.StartRequest(nil, RequestNewReservation); err != nil {
+	// The fence gate does not apply (see startUnfencedRequest).
+	if err := s.startUnfencedRequest(nil, RequestNewReservation); err != nil {
 		return nil, err
 	}
 

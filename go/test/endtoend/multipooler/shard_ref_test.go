@@ -103,7 +103,7 @@ func TestShardRef_FreshCatalogShard(t *testing.T) {
 		getPostgresSocketPath(setup.PrimaryPgctld.PoolerDir), setup.PrimaryPgctld.PgPort)
 	defer primaryDB.Close()
 	requireShardRefLayout(t, primaryDB)
-	requireCatalogFormat1(t, primaryDB)
+	requireCurrentCatalog(t, primaryDB)
 
 	standbyDB := connectToPostgresViaSocket(t,
 		getPostgresSocketPath(setup.StandbyPgctld.PoolerDir), setup.StandbyPgctld.PgPort)
@@ -173,7 +173,7 @@ COMMIT`)
 	}, 30*time.Second, 200*time.Millisecond, "open should recreate the catalog shard_key tables")
 
 	requireShardRefLayout(t, primaryDB)
-	requireCatalogFormat1(t, primaryDB)
+	requireCurrentCatalog(t, primaryDB)
 	assert.Equal(t, "multigres.shard_ref", columnType(t, primaryDB, "public.shard_ref_upgrade_probe", "target"))
 	var tableGroup string
 	require.NoError(t, primaryDB.QueryRow(`SELECT (target).table_group FROM public.shard_ref_upgrade_probe`).Scan(&tableGroup))

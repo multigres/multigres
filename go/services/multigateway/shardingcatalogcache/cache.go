@@ -62,26 +62,8 @@ type Source interface {
 // the cached snapshot's position, nil when there is none.
 type FetchFunc func(ctx context.Context, database string, since *Position) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error)
 
-// Position orders snapshots: the consensus rule the serving primary held,
-// then the routing_version.
-type Position struct {
-	Rule           *clustermetadatapb.RuleNumber
-	RoutingVersion int64
-}
-
-// Compare returns -1, 0 or 1 as p is before, equal to or after other.
-func (p Position) Compare(other Position) int {
-	if c := commonconsensus.CompareRuleNumbers(p.Rule, other.Rule); c != 0 {
-		return c
-	}
-	switch {
-	case p.RoutingVersion < other.RoutingVersion:
-		return -1
-	case p.RoutingVersion > other.RoutingVersion:
-		return 1
-	}
-	return 0
-}
+// Position orders snapshots (see shardingcatalog.Position).
+type Position = shardingcatalog.Position
 
 // fetchTimeout bounds one fetch.
 const fetchTimeout = 30 * time.Second
@@ -156,15 +138,6 @@ func (c *Cache) Installed(name string) (*shardingcatalog.Snapshot, Position) {
 	return nil, Position{}
 }
 
-// RoutingVersion returns the routing_version of the database's current
-// snapshot, 0 when there is none.
-func (c *Cache) RoutingVersion(name string) int64 {
-	if cur := c.current(name); cur != nil {
-		return cur.position.RoutingVersion
-	}
-	return 0
-}
-
 func (c *Cache) current(name string) *installed {
 	c.mu.Lock()
 	db := c.databases[name]
@@ -220,31 +193,31 @@ func (c *Cache) database(name string) *database {
 	return db
 }
 
-// WaitForUnfenced returns once the database's installed snapshot has a
-// routing_version greater than after and no admission fence on shard of
-// tableGroup, or with ctx's error when ctx ends first. Both are needed: a
-// gateway behind the fence has a snapshot that does not show it yet, so it
-// first waits to learn of the fence, then for the snapshot that lifts it. A
-// tablegroup or shard the snapshot does not know counts as unfenced.
+// WaitForUnfenced returns once the database's installed snapshot has no
+// admission fence on shard of tableGroup, or with ctx's error when ctx ends
+// first. A tablegroup or shard the snapshot does not know counts as unfenced.
 //
-// It triggers a fetch when the snapshot does not satisfy it yet, rather than
-// wait for the next health update or poll, and then waits for installs. A
-// database the cache has not seen is treated as ObserveCatalogShard treats
-// one: its fetch loop starts, and the wait lasts until its first snapshot that
-// satisfies it is installed. Any number of callers may wait on one database.
-func (c *Cache) WaitForUnfenced(ctx context.Context, name, tableGroup, shard string, after int64) error {
+// It always triggers a fetch, rather than wait for the next health update or
+// poll, because the caller was just refused as fenced: either the cached
+// snapshot does not show the fence yet, or it already shows the fence lifted
+// and the pooler that refused has not caught up. It does not wait for that
+// fetch: whenever the installed snapshot shows the target unfenced, it returns
+// at once, in both cases, and the caller retries with backoff (see
+// executor.runFenced). In the first case those retries go to the fenced
+// pooler, and are refused, until the fetch installs a snapshot that shows the
+// fence, after which the wait holds them. A database the cache has not seen
+// is treated as ObserveCatalogShard treats one: its fetch loop starts, and the
+// wait lasts until its first snapshot that does not fence the target is
+// installed. Any number of callers may wait on one database.
+func (c *Cache) WaitForUnfenced(ctx context.Context, name, tableGroup, shard string) error {
 	db := c.database(name)
-	triggered := false
+	db.trigger()
 	for {
 		// Take the channel before reading the snapshot: an install between
 		// the two closes the channel, so it is never missed.
 		installs := db.installsChannel()
-		if cur := db.current.Load(); cur != nil && cur.position.RoutingVersion > after && !fenced(cur.snapshot, tableGroup, shard) {
+		if cur := db.current.Load(); cur != nil && !fenced(cur.snapshot, tableGroup, shard) {
 			return nil
-		}
-		if !triggered {
-			db.trigger()
-			triggered = true
 		}
 		select {
 		case <-installs:
@@ -255,20 +228,11 @@ func (c *Cache) WaitForUnfenced(ctx context.Context, name, tableGroup, shard str
 }
 
 // fenced reports whether snap has an admission fence on shard of tableGroup,
-// whether on the shard or on the whole tablegroup.
+// whether on the shard or on the whole tablegroup, as the pooler decides it
+// (shardingcatalog.TableGroup.Fenced).
 func fenced(snap *shardingcatalog.Snapshot, tableGroup, shard string) bool {
 	g, ok := snap.TableGroupByName(tableGroup)
-	if !ok {
-		return false
-	}
-	var target *shardingcatalog.Shard
-	for _, sh := range g.Shards() {
-		if sh.Name() == shard {
-			target = sh
-			break
-		}
-	}
-	return len(g.FencesFor(target)) > 0
+	return ok && g.Fenced(shard)
 }
 
 func (db *database) installsChannel() chan struct{} {

@@ -22,6 +22,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/queryservice"
@@ -54,7 +55,18 @@ func (m *mockPoolerController) OnStateChange(context.Context, servingstate.State
 	return nil
 }
 
-func (m *mockPoolerController) StartRequest(*query.Target, poolerserver.RequestKind) error {
+func (m *mockPoolerController) StartRequest(*query.Target, poolerserver.RequestKind) (poolerserver.Admission, error) {
+	return poolerserver.Admission{}, nil
+}
+
+func (m *mockPoolerController) EnableFenceGate()                      {}
+func (m *mockPoolerController) FenceEpoch() uint64                    { return 0 }
+func (m *mockPoolerController) FenceReadState() (unread, closed bool) { return false, false }
+func (m *mockPoolerController) FenceGateChanged() <-chan struct{} {
+	return nil
+}
+
+func (m *mockPoolerController) ApplyFence(context.Context, poolerserver.FenceRead, time.Duration) error {
 	return nil
 }
 

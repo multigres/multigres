@@ -39,7 +39,7 @@ import (
 // writes. In this scenario, the new primary cannot accept writes because it cannot
 // recruit standbys while the stale leader exists.
 type StaleLeaderAnalyzer struct {
-	factory *RecoveryActionFactory
+	factory ActionFactory
 }
 
 func (a *StaleLeaderAnalyzer) Name() types.CheckName {

@@ -85,10 +85,10 @@ func (env *tableGroupTestEnv) expectCatalogRows() {
 		{int64(41), importOp, "table", int64(7), int64(10), int64(1), nil, int64(30), int64(9)},
 	})
 	env.expect("^"+regexp.QuoteMeta(selectFencesSQL)+"$", []string{
-		"fence_id", "operation_id", "tablegroup_id", "shard_id", "state", "version", "operation_state",
+		"fence_id", "operation_id", "tablegroup_id", "shard_id", "state", "version",
 	}, [][]any{
-		{int64(50), importOp, int64(1), nil, "FENCED", int64(7), "preparing"},
-		{int64(51), importOp, int64(7), int64(2), "FENCING", int64(9), "preparing"},
+		{int64(50), importOp, int64(1), nil, "FENCED", int64(7)},
+		{int64(51), importOp, int64(7), int64(2), "FENCING", int64(9)},
 	})
 }
 

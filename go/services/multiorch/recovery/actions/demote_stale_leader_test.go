@@ -24,8 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/rpcclient"
-	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
-	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
@@ -96,7 +94,7 @@ func makeDemoteScenarioPoolers(t *testing.T, poolerStore *store.PoolerCache) (st
 }
 
 func TestDemoteStaleLeaderAction_Metadata(t *testing.T) {
-	action := NewDemoteStaleLeaderAction(config.NewTestConfig(), nil, nil, nil, slog.Default())
+	action := NewDemoteStaleLeaderAction(nil, nil, slog.Default())
 	md := action.Metadata()
 	assert.Equal(t, "DemoteStaleLeader", md.Name)
 	assert.True(t, md.Retryable)
@@ -104,7 +102,7 @@ func TestDemoteStaleLeaderAction_Metadata(t *testing.T) {
 }
 
 func TestDemoteStaleLeaderAction_RequiresHealthyLeader(t *testing.T) {
-	action := NewDemoteStaleLeaderAction(config.NewTestConfig(), nil, nil, nil, slog.Default())
+	action := NewDemoteStaleLeaderAction(nil, nil, slog.Default())
 	// We are repairing a leader, so requiring a healthy one is the wrong precondition.
 	assert.False(t, action.RequiresHealthyLeader())
 }
@@ -116,8 +114,6 @@ func TestDemoteStaleLeaderAction_RequiresHealthyLeader(t *testing.T) {
 // SetPrimary and forwards the correct-leader contact info + position.
 func TestDemoteStaleLeaderAction_Execute(t *testing.T) {
 	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-	defer ts.Close()
 
 	fakeClient := rpcclient.NewFakeClient()
 	fakeClient.SetPrimaryResponses["multipooler-cell1-stale-leader"] = &consensusdatapb.SetPrimaryResponse{}
@@ -125,8 +121,7 @@ func TestDemoteStaleLeaderAction_Execute(t *testing.T) {
 	poolerStore := store.NewTestCache(t)
 	staleLeaderID := makeDemoteScenarioPoolers(t, poolerStore)
 
-	cfg := config.NewTestConfig()
-	action := NewDemoteStaleLeaderAction(cfg, fakeClient, poolerStore, ts, slog.Default())
+	action := NewDemoteStaleLeaderAction(fakeClient, poolerStore, slog.Default())
 
 	problem := types.Problem{
 		Code: types.ProblemStaleLeader,
@@ -156,8 +151,6 @@ func TestDemoteStaleLeaderAction_Execute(t *testing.T) {
 // surface a clear error rather than calling either RPC.
 func TestDemoteStaleLeaderAction_ExecuteNoCorrectLeader(t *testing.T) {
 	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-	defer ts.Close()
 
 	fakeClient := rpcclient.NewFakeClient()
 	poolerStore := store.NewTestCache(t)
@@ -181,8 +174,7 @@ func TestDemoteStaleLeaderAction_ExecuteNoCorrectLeader(t *testing.T) {
 		},
 	}, nil))
 
-	cfg := config.NewTestConfig()
-	action := NewDemoteStaleLeaderAction(cfg, fakeClient, poolerStore, ts, slog.Default())
+	action := NewDemoteStaleLeaderAction(fakeClient, poolerStore, slog.Default())
 
 	err := action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 		Code:     types.ProblemStaleLeader,
@@ -201,8 +193,6 @@ func TestDemoteStaleLeaderAction_ExecuteNoCorrectLeader(t *testing.T) {
 // stale node's own (lower-term) self-claim.
 func TestDemoteStaleLeaderAction_ExecuteRewindsTowardRuleNamedLeader(t *testing.T) {
 	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-	defer ts.Close()
 
 	shardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default", Shard: "0"}
 	staleID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-leader"}
@@ -231,7 +221,7 @@ func TestDemoteStaleLeaderAction_ExecuteRewindsTowardRuleNamedLeader(t *testing.
 		ConsensusStatus: replicaFollowingRule(replicaID, newID, 6),
 	}, nil))
 
-	action := NewDemoteStaleLeaderAction(config.NewTestConfig(), fakeClient, ps, ts, slog.Default())
+	action := NewDemoteStaleLeaderAction(fakeClient, ps, slog.Default())
 	require.NoError(t, action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 		Code:     types.ProblemStaleLeader,
 		ShardRef: shardRef,
@@ -253,8 +243,6 @@ func TestDemoteStaleLeaderAction_ExecuteRewindsTowardRuleNamedLeader(t *testing.
 // would otherwise be self-targeted, which the pooler rejects).
 func TestDemoteStaleLeaderAction_ExecuteNoOpWhenNodeIsCurrentLeader(t *testing.T) {
 	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-	defer ts.Close()
 
 	shardRef := &clustermetadatapb.ShardRef{Database: "testdb", TableGroup: "default", Shard: "0"}
 	nodeID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "cell1", Name: "stale-leader"}
@@ -267,7 +255,7 @@ func TestDemoteStaleLeaderAction_ExecuteNoOpWhenNodeIsCurrentLeader(t *testing.T
 		ConsensusStatus: selfLeaderRule(nodeID, 7),
 	}, nil))
 
-	action := NewDemoteStaleLeaderAction(config.NewTestConfig(), fakeClient, ps, ts, slog.Default())
+	action := NewDemoteStaleLeaderAction(fakeClient, ps, slog.Default())
 	require.NoError(t, action.Execute(ctx, types.RecheckedProblem{Problem: types.Problem{
 		Code:     types.ProblemStaleLeader,
 		ShardRef: shardRef,

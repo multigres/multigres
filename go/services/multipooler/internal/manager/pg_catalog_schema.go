@@ -36,9 +36,11 @@ import (
 // ensureCatalogSchema keeps it current on every primary open from three lists:
 //
 //   - catalogMigrations: breaking changes (drop or rename a table or column,
-//     change a type or constraint, backfill data), numbered and applied once,
-//     in order. multigres.catalog_state.format_version counts how many have
-//     been applied.
+//     change a type or constraint, backfill or delete data), numbered and
+//     applied once, in order. A migration's schema changes run before
+//     catalogTables and its data changes after it (see catalogMigration).
+//     multigres.catalog_state.format_version counts how many have been
+//     applied.
 //   - catalogTables: every catalog table, declared idempotently and re-run on
 //     every open. Additive changes (a new table, a new nullable or defaulted
 //     column) are appended here and need no format bump.
@@ -57,8 +59,20 @@ const catalogSchemaLockKey int64 = 0x6d756c7469677273
 // including the wait for the advisory lock.
 const catalogSchemaTimeout = 10 * time.Second
 
-// catalogMigration upgrades the catalog from format version-1 to version.
-// Its statements run in order inside ensureCatalogSchema's transaction.
+// catalogMigration upgrades the catalog from format version-1 to version, in
+// two phases inside ensureCatalogSchema's transaction:
+//
+//   - statements run before catalogTables, against the catalog as the previous
+//     format left it: a schema change (drop, rename, retype) that catalogTables
+//     must not see the old shape of. On a fresh shard the tables do not exist
+//     yet, so these must be no-ops there (IF EXISTS).
+//   - postStatements run after catalogTables and catalogSeed, so every current
+//     table and the initial rows exist: a data migration (a backfill, or
+//     deleting rows an older binary left) that is plain SQL against the
+//     current tables. On a fresh shard the tables are new, so these must find
+//     nothing to do there.
+//
+// Each phase runs the missing formats in order.
 //
 // change declares what the migration does to the rows a routing snapshot
 // contains, as a writeCatalog writer does: a migration that rewrites or
@@ -66,9 +80,10 @@ const catalogSchemaTimeout = 10 * time.Second
 // so gateways holding a snapshot at the old routing_version refetch. The zero
 // value, catalogNoSnapshotChange, advances nothing.
 type catalogMigration struct {
-	version    int
-	statements []string
-	change     catalogChange
+	version        int
+	statements     []string
+	postStatements []string
+	change         catalogChange
 }
 
 // connectionsTableSQL declares multigres.connections: named connections to a
@@ -137,9 +152,11 @@ const (
 // upgrades format i to format i+1. Append new formats; never edit or reorder
 // an existing entry, since deployed catalogs have already applied it.
 //
-// Migrations run before catalogTables, so on a fresh shard they run against
-// tables that do not exist yet and must be no-ops there (IF EXISTS); a fresh
-// shard gets the current shape from catalogTables directly. A migration that
+// A migration's statements run before catalogTables, so on a fresh shard they
+// run against tables that do not exist yet and must be no-ops there (IF
+// EXISTS); a fresh shard gets the current shape from catalogTables directly.
+// Its postStatements run after catalogTables, as plain SQL against the
+// current tables, and must find nothing to do on a fresh shard. A migration that
 // changes the shape of something catalogTables declares must also edit or
 // remove that catalogTables statement in the same change, or the next open
 // recreates the old shape; the golden test in pg_catalog_schema_test.go allows
@@ -155,6 +172,23 @@ var catalogMigrations = []catalogMigration{
 		statements: []string{
 			`DROP TABLE IF EXISTS multigres.shard, multigres.tablegroup_table, multigres.tablegroup`,
 		},
+	},
+	{
+		// Format 2 deletes the admission fences of finished operations. From
+		// format 2 on, the write that finishes an operation deletes its fences
+		// (see admission_fences.go), so every fence row holds its scope; a
+		// fence a finished operation never lifted, left by an older pooler,
+		// would otherwise close its scope for good. The fences are in the
+		// snapshot. It needs admission_fence, which a catalog from before
+		// fences lacks until catalogTables creates it, so it runs after the
+		// tables; on a fresh shard, or one whose catalog predates fences, the
+		// table is new and empty.
+		version: 2,
+		postStatements: []string{
+			`DELETE FROM multigres.admission_fence f USING multigres.operation o
+WHERE f.operation_id = o.operation_id AND o.state IN ('` + opStateDone + `', '` + opStateFailed + `')`,
+		},
+		change: catalogRoutingChange,
 	},
 }
 
@@ -321,11 +355,12 @@ func latestCatalogFormat() int {
 }
 
 // ensureCatalogSchema brings the catalog shard's catalog up to date in one
-// transaction: it applies the missing catalogMigrations in order, then runs
-// catalogTables and catalogSeed, then records latestCatalogFormat. Steps after
-// the migrations run on every call, including when the format is already
-// current; they are idempotent, and they are how an existing catalog picks up
-// tables added by a later release.
+// transaction: it applies the statements of the missing catalogMigrations in
+// order, then runs catalogTables and catalogSeed, then applies the missing
+// migrations' postStatements in order, then records latestCatalogFormat.
+// catalogTables and catalogSeed run on every call, including when the format
+// is already current; they are idempotent, and they are how an existing
+// catalog picks up tables added by a later release.
 //
 // A catalog at a format newer than this binary knows (written by a newer
 // pooler) is left untouched, including catalogTables and catalogSeed: a newer
@@ -395,6 +430,15 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 	for _, stmt := range catalogSeed {
 		if _, err := tx.Query(execCtx, stmt); err != nil {
 			return mterrors.Wrap(err, "failed to seed catalog")
+		}
+	}
+	if current < latest {
+		for _, m := range catalogMigrations[current:] {
+			for _, stmt := range m.postStatements {
+				if _, err := tx.Query(execCtx, stmt); err != nil {
+					return mterrors.Wrap(err, fmt.Sprintf("failed to apply catalog format %d data migration", m.version))
+				}
+			}
 		}
 	}
 	if err := fillConnInfo(execCtx, tx, pm.logger); err != nil {

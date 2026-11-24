@@ -30,11 +30,10 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager"
 )
 
-// TestManagerServiceIsNotRegisteredOnAnUnmanagedPooler: an unmanaged pooler has no lifecycle
-// RPCs. The service is not registered at all, so every method, any added later included,
-// answers Unimplemented, and a managed pooler still registers it.
-func TestManagerServiceIsNotRegisteredOnAnUnmanagedPooler(t *testing.T) {
-	service := multipoolermanagerpb.MultipoolerManager_ServiceDesc.ServiceName
+// TestManagerServiceOnAnUnmanagedPooler: an unmanaged pooler has no lifecycle RPCs. Its service
+// serves only RefreshFences, so every other method, any added later included, answers
+// Unimplemented, and a managed pooler serves them all.
+func TestManagerServiceOnAnUnmanagedPooler(t *testing.T) {
 	for name, tc := range map[string]struct {
 		mode       clustermetadata.LeadershipMode
 		tablegroup string
@@ -46,8 +45,6 @@ func TestManagerServiceIsNotRegisteredOnAnUnmanagedPooler(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			server := grpc.NewServer()
 			registerManagerService(server, manager.NewManagerForTesting(t, tc.mode, tc.tablegroup))
-			_, registered := server.GetServiceInfo()[service]
-			require.Equal(t, tc.registered, registered)
 
 			lis, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(t, err)
@@ -57,13 +54,17 @@ func TestManagerServiceIsNotRegisteredOnAnUnmanagedPooler(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = conn.Close() })
 
-			_, err = multipoolermanagerpb.NewMultipoolerManagerClient(conn).Status(t.Context(), &multipoolermanagerdata.StatusRequest{})
+			client := multipoolermanagerpb.NewMultipoolerManagerClient(conn)
+			_, err = client.Status(t.Context(), &multipoolermanagerdata.StatusRequest{})
 			if tc.registered {
 				// Served: it answers, or fails for its own reasons, but not as an unknown method.
 				require.NotEqual(t, codes.Unimplemented, status.Code(err), "a managed pooler serves the call: %v", err)
 			} else {
 				require.Equal(t, codes.Unimplemented, status.Code(err))
 			}
+			// Every pooler serves RefreshFences.
+			_, err = client.RefreshFences(t.Context(), &multipoolermanagerdata.RefreshFencesRequest{})
+			require.NotEqual(t, codes.Unimplemented, status.Code(err), "every pooler serves RefreshFences: %v", err)
 		})
 	}
 }

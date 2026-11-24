@@ -90,7 +90,7 @@ func TestCatalogSchema_CompletesWithoutAMigrationTable(t *testing.T) {
 	primaryDB := connectToPostgresViaSocket(t,
 		getPostgresSocketPath(primary.Pgctld.PoolerDir), primary.Pgctld.PgPort)
 	defer primaryDB.Close()
-	requireCatalogFormat1(t, primaryDB)
+	requireCurrentCatalog(t, primaryDB)
 
 	// No migrator tables, and no connections table either: the ensure creates the latter again.
 	_, err := primaryDB.Exec(`

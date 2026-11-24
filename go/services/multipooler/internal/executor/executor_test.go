@@ -279,6 +279,8 @@ func (m *stubPoolManager) GetReservedConn(int64, string) (*reserved.Conn, bool) 
 	return m.reservedConn, m.reservedConnOK
 }
 
+func (m *stubPoolManager) AddAdmitted(bool)                             {}
+func (m *stubPoolManager) RemoveAdmitted(bool)                          {}
 func (m *stubPoolManager) WaitForDrain(context.Context) error           { return nil }
 func (m *stubPoolManager) WaitForReservedDrain(context.Context) error   { return nil }
 func (m *stubPoolManager) CloseReservedConnections(context.Context) int { return 0 }

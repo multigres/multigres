@@ -15,39 +15,27 @@
 package analysis
 
 import (
-	"context"
-	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/multigres/multigres/go/common/rpcclient"
-	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
-	"github.com/multigres/multigres/go/services/multiorch/config"
-	"github.com/multigres/multigres/go/services/multiorch/consensus"
 	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
-	ctx := context.Background()
-	ts, _ := memorytopo.NewServerAndFactory(ctx, "cell1")
-	defer ts.Close()
-	rpcClient := &rpcclient.FakeClient{}
-	coordID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell1", Name: "test-coord"}
-	coord := consensus.NewCoordinator(coordID, ts, rpcClient, slog.Default())
-
 	primaryID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "primary1"}
 	replicaID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "replica1"}
 	shardRef := &clustermetadatapb.ShardRef{Database: "db", TableGroup: "tg", Shard: "0"}
 
 	now := time.Now()
+
+	coordID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell1", Name: "test-coord"}
 
 	// ruleLedBy is the leader's committed rule at term 1 — the rule orch would
 	// relay to the follower.
@@ -103,7 +91,7 @@ func TestRecruitAbandonedAnalyzer_Analyze(t *testing.T) {
 		}, highestPosition, leaderHealth())
 	}
 
-	factory := NewRecoveryActionFactory(config.NewTestConfig(), store.NewTestCache(t), rpcClient, ts, coord, slog.Default())
+	factory := newTestActionFactory()
 
 	t.Run("detects a stranded over-recruited follower", func(t *testing.T) {
 		analyzer := &RecruitAbandonedAnalyzer{factory: factory}

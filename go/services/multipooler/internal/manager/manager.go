@@ -268,6 +268,13 @@ type MultipoolerManager struct {
 	// the default primary serves. Nil outside tests.
 	connectionDir connectionDirectory
 
+	// fenceGateEnabled is set unless the pooler has nothing to fence (a
+	// static leader: Minigres). It arms the query server's fence gate and
+	// enables the fence reader (fence_refresh.go). Immutable.
+	fenceGateEnabled bool
+	// fenceReadsOnce starts the background fence reader once.
+	fenceReadsOnce sync.Once
+
 	// migrationImportHold is the migration serving gate, stored as a
 	// migrationHoldState: held when an active migration on this shard is in
 	// the IMPORT direction, so this pooler must not serve client queries
@@ -438,6 +445,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 		connPoolMgr:              connPoolMgr,
 		readyChan:                make(chan struct{}),
 		pgMonitor:                monitorRunner,
+		fenceGateEnabled:         !config.StaticLeader,
 		healthStreamer:           newHealthStreamer(logger, multipooler.Id, multipooler.GetShardRef().GetTableGroup(), multipooler.GetShardRef().GetShard()),
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
@@ -467,6 +475,11 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 		pm.qsc = ov.qsc
 	} else {
 		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multipooler.Id, multipooler.GetShardRef().GetTableGroup(), multipooler.GetShardRef().GetShard(), pm, drainGracePeriod, config.BackendVpidTrackingEnabled)
+	}
+	// Armed before anything is served, so a primary admits no application
+	// work until it has read its fences (see fence_refresh.go).
+	if pm.fenceGateEnabled {
+		pm.qsc.EnableFenceGate()
 	}
 
 	// ConsensusManager owns its own wiring (durable promise store + rule store +
@@ -2049,6 +2062,9 @@ func (pm *MultipoolerManager) startPostgresMonitorPollerLocked() {
 // surfaced to operators. Idempotent: only the first call takes effect.
 func (pm *MultipoolerManager) StartTopoRegistration(alarm func(string)) {
 	pm.record.Register(pm.shutdownCtx, alarm)
+	// The fence reader waits for the registration to land before it reads
+	// the catalog (see runFenceReads).
+	pm.startFenceReads()
 }
 
 // StopTopoRegistration transitions the pooler to its shutdown topology

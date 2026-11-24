@@ -470,6 +470,22 @@ func (m *MultigatewayConnectionState) HasReservedConnectionFor(tableGroup, shard
 	return false
 }
 
+// HasReservedConnection reports whether the session holds a reserved
+// connection on any shard. In a transaction, none means no statement of it has
+// reached a pooler yet: BEGIN is deferred, and the first statement that does
+// opens the transaction's reserved connection. Like HasReservedConnectionFor,
+// it checks the reserved-connection id.
+func (m *MultigatewayConnectionState) HasReservedConnection() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ss := range m.ShardStates {
+		if ss.ReservedState.GetReservedConnectionId() != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // ClearAllReservedConnections removes all reserved connection entries.
 // Called after COMMIT or ROLLBACK to clean up stale shard state.
 func (m *MultigatewayConnectionState) ClearAllReservedConnections() {

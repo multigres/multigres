@@ -140,7 +140,7 @@ func TestAsyncWALArchive_PushRetryAndArchiveReplay(t *testing.T) {
 
 	// --- 3. A fresh pooler restores from the bootstrap backup and replays
 	// the archive. Nothing wires it to a streaming primary (no multiorch),
-	// so every row it sees came through restore_command = async archive-get.
+	// so every row it sees came through restore_command (archive-get).
 	const restoredName = "pooler-3"
 	restored := setup.CreateMultipoolerInstance(t, restoredName,
 		utils.GetFreePort(t), utils.GetFreePort(t), utils.GetFreePort(t))
@@ -159,9 +159,16 @@ func TestAsyncWALArchive_PushRetryAndArchiveReplay(t *testing.T) {
 		return n == 3
 	}, 120*time.Second, 1*time.Second, "restored pooler should replay every archived segment")
 
-	requireLogLine(t, filepath.Join(restored.Pgctld.PoolerDir, "pg_data", "postgresql.log"),
-		fmt.Sprintf("found %s in the archive asynchronously", seg2),
-		"the retried segment must have been replayed through async archive-get")
+	// The retried segment can come from the async spool or, when postgres asks
+	// before the async batch has fetched it, straight from the repo; which one
+	// depends on download timing. Require the replay, and that the async path
+	// served some segment.
+	restoredLog := filepath.Join(restored.Pgctld.PoolerDir, "pg_data", "postgresql.log")
+	requireLogLine(t, restoredLog,
+		fmt.Sprintf("restored log file %q from archive", seg2),
+		"the retried segment must have been replayed from the archive")
+	requireLogLine(t, restoredLog, "in the archive asynchronously",
+		"restore_command must have used async archive-get")
 	t.Logf("%s replayed the archive, including retried segment %s, through async archive-get", restoredName, seg2)
 }
 

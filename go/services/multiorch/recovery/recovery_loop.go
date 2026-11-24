@@ -510,7 +510,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (*t
 func (re *Engine) snapshotOptions(ctx context.Context) store.SnapshotOptions {
 	return store.SnapshotOptions{
 		Now:                       time.Now(),
-		AvailabilityPolicy:        analysis.DefaultAvailabilityPolicy(),
+		AvailabilityPolicy:        re.actionFactory.AvailabilityPolicy(),
 		BootstrapDurabilityPolicy: re.bootstrapPolicyLookup(ctx),
 	}
 }
