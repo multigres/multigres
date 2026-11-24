@@ -62,6 +62,7 @@ const (
 // PostgreSQL data exceptions raised by scalar evaluation.
 const (
 	PgSSNumericValueOutOfRange          = "22003" // numeric_value_out_of_range
+	PgSSNullValueNotAllowed             = "22004" // null_value_not_allowed
 	PgSSDivisionByZero                  = "22012" // division_by_zero
 	PgSSInvalidPrecedingOrFollowingSize = "22013" // invalid_preceding_or_following_size
 	PgSSInvalidBinaryRepresentation     = "22P03" // invalid_binary_representation
