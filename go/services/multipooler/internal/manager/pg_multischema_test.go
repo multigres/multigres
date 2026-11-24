@@ -455,16 +455,24 @@ func TestCreateBackendVpidTableDDL(t *testing.T) {
 	assert.True(t, seen, "backend_vpid DDL should run")
 }
 
-// A failed probe grant must not stop the rest of the ensure.
+// A failed probe grant must not stop the rest of the ensure. The catalog shard
+// has steps after the grant, so it shows whether they still ran.
 func TestEnsureSidecarSchemas_ProbeGrantFailureDoesNotBlock(t *testing.T) {
-	pm, mockQueryService := newTestManagerWithMock(t, "commerce", constants.DefaultShard)
+	pm, mockQueryService := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
 
-	addShardRefEnsure(mockQueryService, nil)
-	mockQueryService.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+	var queries []string
+	record := func(q string) { queries = append(queries, q) }
+	addShardRefEnsure(mockQueryService, record)
 	mockQueryService.AddQueryPatternOnceWithError(probeGrantPattern, errors.New("grant failed"))
+	mockQueryService.AddQueryPatternWithCallback(catalogStatePresentPattern,
+		mock.MakeQueryResult([]string{"exists"}, [][]any{{false}}), record)
+	mockQueryService.AddQueryPatternWithCallback(connectionsProbePattern,
+		mock.MakeQueryResult([]string{"exists"}, [][]any{{true}}), record)
+	mockQueryService.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), record)
 
 	require.NoError(t, pm.ensureSidecarSchemas(context.Background()))
 	require.NoError(t, mockQueryService.ExpectationsWereMet(), "the grant should have been attempted")
+	assert.Contains(t, queries, migration.GrantStatMigrationSQL, "the catalog ensure should run after a failed grant")
 }
 
 // TestCreateBackendVpidTable_IdempotentAcrossRepeatedCalls guards the
