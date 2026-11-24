@@ -135,6 +135,18 @@ linters:
           deny:
             - pkg: "github.com/multigres/multigres/go/services/pgctld"
               desc: "pgctld can only be imported by its own package and cmd"
+        multiorch-analysis-purity:
+          files:
+            - "!$test"
+            - "**/go/services/multiorch/recovery/analysis/*.go"
+          list-mode: lax
+          deny:
+            - pkg: "github.com/multigres/multigres/go/services/multiorch/store"
+              desc: "analyzers read the frozen snapshot, not the live store"
+            - pkg: "github.com/multigres/multigres/go/services/multiorch/recovery/actions"
+              desc: "analyzers attach actions through analysis.ActionFactory, not by building them"
+            - pkg: "github.com/multigres/multigres/go/common/rpcclient"
+              desc: "analyzers must not make RPCs"
         multigateway-isolation:
           files:
             - "!**/go/services/multigateway/*.go"

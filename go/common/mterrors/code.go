@@ -62,6 +62,7 @@ const (
 // PostgreSQL data exceptions raised by scalar evaluation.
 const (
 	PgSSNumericValueOutOfRange          = "22003" // numeric_value_out_of_range
+	PgSSNullValueNotAllowed             = "22004" // null_value_not_allowed
 	PgSSDivisionByZero                  = "22012" // division_by_zero
 	PgSSInvalidPrecedingOrFollowingSize = "22013" // invalid_preceding_or_following_size
 	PgSSInvalidBinaryRepresentation     = "22P03" // invalid_binary_representation
@@ -310,9 +311,9 @@ var (
 	// MTF02 is returned by multipooler when its target is fenced: an operation
 	// moving the target's data has closed it to new application work, before
 	// any of the work ran. Unlike MTF01 there is no new leader to wait for:
-	// the change that lifts a fence advances the sharding catalog's
-	// routing_version, so the gateway waits for a newer snapshot, resolves the
-	// target again and retries.
+	// the gateway waits until its sharding catalog snapshot no longer fences
+	// the target, plans the statement again and retries it, with backoff while
+	// the pooler has not caught up with that snapshot.
 	MTF02 = &MTError{
 		ID: "MTF02", Severity: "ERROR",
 		Format:      "fenced: the target is closed to application traffic while an operation moves its data",

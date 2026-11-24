@@ -643,3 +643,20 @@ func TestReparsePendingEndsWithTransaction(t *testing.T) {
 		assert.False(t, state.ConsumeReparsePending("stmt"), "a later transaction must not inherit an unused rewrite refresh")
 	}
 }
+
+// HasReservedConnection counts only entries with a reserved-connection id, on
+// any shard.
+func TestMultigatewayConnectionState_HasReservedConnection(t *testing.T) {
+	state := NewMultigatewayConnectionState()
+	assert.False(t, state.HasReservedConnection())
+
+	target := &query.Target{ShardRef: &clustermetadatapb.ShardRef{TableGroup: "commerce", Shard: "80-inf"}}
+	state.SetReservedConnection(target, &query.ReservedState{})
+	assert.False(t, state.HasReservedConnection(), "an entry without an id reserves nothing")
+
+	state.SetReservedConnection(target, &query.ReservedState{ReservedConnectionId: 7})
+	assert.True(t, state.HasReservedConnection())
+
+	state.ClearAllReservedConnections()
+	assert.False(t, state.HasReservedConnection())
+}

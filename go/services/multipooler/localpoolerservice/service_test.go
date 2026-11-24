@@ -466,6 +466,11 @@ type failingReplPoolManager struct {
 	err error
 }
 
+// AddAdmitted and RemoveAdmitted are the drain accounting of an admission,
+// which the test does not drain.
+func (failingReplPoolManager) AddAdmitted(bool)    {}
+func (failingReplPoolManager) RemoveAdmitted(bool) {}
+
 func (f failingReplPoolManager) NewLogicalReplicationConn(context.Context, string, []byte, []byte) (*reserved.Conn, error) {
 	return nil, f.err
 }
@@ -575,6 +580,11 @@ type stalledReplPoolManager struct {
 	release  chan struct{}
 	returned chan struct{}
 }
+
+// AddAdmitted and RemoveAdmitted are the drain accounting of an admission,
+// which the test does not drain.
+func (*stalledReplPoolManager) AddAdmitted(bool)    {}
+func (*stalledReplPoolManager) RemoveAdmitted(bool) {}
 
 func newStalledReplPoolManager(release chan struct{}) *stalledReplPoolManager {
 	return &stalledReplPoolManager{entered: make(chan struct{}), release: release, returned: make(chan struct{})}

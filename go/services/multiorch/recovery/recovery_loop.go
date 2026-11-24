@@ -67,6 +67,12 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 		}
 	}
 
+	span.SetAttributes(attribute.Int("problems.count", len(problems)))
+
+	// Record what appeared and cleared this cycle. This must run once per cycle,
+	// after all analyzers, with the full detected set.
+	re.observeProblems(ctx, problems, time.Now())
+
 	// Refresh the retry-backoff tracker against everything detected this cycle
 	// and each shard's current rule: state for resolved problems, and for shards
 	// whose rule changed (a new leader), is dropped so the next attempt starts
@@ -77,15 +83,11 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 	}
 	re.recoveryRetryBackoffTracker.Reconcile(problems, epochs)
 
-	// Update detected problems metric
-	re.updateDetectedProblems(problems)
-
 	if len(problems) == 0 {
 		return // no problems detected
 	}
 
-	span.SetAttributes(attribute.Int("problems.count", len(problems)))
-	re.logger.InfoContext(ctx, "problems detected", "count", len(problems))
+	re.logger.DebugContext(ctx, "problems detected", "count", len(problems))
 
 	// Group problems by shard
 	problemsByShard := re.groupProblemsByShard(problems)
@@ -142,6 +144,8 @@ func (re *Engine) processShardProblems(ctx context.Context, shardRef *clustermet
 	for _, problem := range filteredProblems {
 		// Skip follower recoveries if leader is unhealthy and action requires healthy leader
 		if problem.RecoveryAction.RequiresHealthyLeader() && hasLeaderProblem {
+			// TODO: once planning is separate from assessment, planning should report
+			// which actions are waiting and why, without logging every cycle.
 			re.logger.InfoContext(ctx, "skipping recovery - requires healthy leader but leader is unhealthy",
 				"problem_code", problem.Code,
 				"pooler_id", topoclient.ComponentIDString(problem.PoolerID),
@@ -506,7 +510,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (*t
 func (re *Engine) snapshotOptions(ctx context.Context) store.SnapshotOptions {
 	return store.SnapshotOptions{
 		Now:                       time.Now(),
-		AvailabilityPolicy:        analysis.DefaultAvailabilityPolicy(),
+		AvailabilityPolicy:        re.actionFactory.AvailabilityPolicy(),
 		BootstrapDurabilityPolicy: re.bootstrapPolicyLookup(ctx),
 	}
 }

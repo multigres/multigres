@@ -576,6 +576,25 @@ func (g *TableGroup) FencesFor(sh *Shard) []*Fence {
 	return out
 }
 
+// Fenced reports whether an admission fence applies to the shard of the
+// tablegroup named shard: a fence on the whole tablegroup, or one on that
+// shard, in either state (FENCING or FENCED). A fence row exists only while
+// its operation holds the scope, so this is the one definition of "fenced"
+// every reader uses: the pooler admits no new application work on a fenced
+// shard, and the gateway waits for a snapshot in which a shard that refused
+// it is no longer fenced.
+func (g *TableGroup) Fenced(shard string) bool {
+	if g.fence != nil {
+		return true
+	}
+	for _, sh := range g.shards {
+		if sh.name == shard {
+			return sh.fence != nil
+		}
+	}
+	return false
+}
+
 // IsSharded reports whether the tablegroup has more than one active shard.
 // A tablegroup with no active shards yet (one being created) is not sharded.
 func (g *TableGroup) IsSharded() bool { return len(g.activeShards) > 1 }
