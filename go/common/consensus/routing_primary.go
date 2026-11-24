@@ -16,7 +16,6 @@ package consensus
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -30,9 +29,16 @@ import (
 // learned it yet). Poolers that shut down are skipped. Every cell is searched,
 // as the primary may be in any of them.
 //
-// It fails with UNAVAILABLE when the cells cannot be listed, or when no
-// pooler of the shard advertises PRIMARY; the error names the cells that could
-// not be read, since the primary may be registered in one of them.
+// It fails with UNAVAILABLE when the cells cannot be listed, when any cell
+// cannot be read, or when no pooler of the shard advertises PRIMARY. A cell
+// that cannot be read may hold the primary under a higher rule than any the
+// others show, so the best of a partial read is not the primary: during a
+// failover it can be the deposed primary, which still answers with its older
+// state.
+//
+// TODO: with the consensus rules this can do better: a primary whose rule
+// the shard's cohort confirms is current is the primary even while a cell
+// cannot be read, so reaching the rest of the cells should be enough.
 func FindRoutingPrimary(ctx context.Context, ts topoclient.Store, shard *clustermetadatapb.ShardRef) (*clustermetadatapb.Multipooler, error) {
 	cells, err := ts.GetCellNames(ctx)
 	if err != nil {
@@ -45,8 +51,8 @@ func FindRoutingPrimary(ctx context.Context, ts topoclient.Store, shard *cluster
 			DatabaseShard: &topoclient.DatabaseShard{Database: shard.GetDatabase(), TableGroup: shard.GetTableGroup()},
 		})
 		if err != nil {
-			// A partial result still holds the records that were read.
 			unread = append(unread, cell)
+			continue
 		}
 		for _, info := range infos {
 			p := info.Multipooler
@@ -63,12 +69,14 @@ func FindRoutingPrimary(ctx context.Context, ts topoclient.Store, shard *cluster
 			}
 		}
 	}
+	if len(unread) > 0 {
+		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+			"cells %v could not be read, so the routing primary of %s/%s/%s cannot be determined",
+			unread, shard.GetDatabase(), shard.GetTableGroup(), shard.GetShard())
+	}
 	if best == nil {
-		msg := fmt.Sprintf("no routing primary of %s/%s/%s is registered", shard.GetDatabase(), shard.GetTableGroup(), shard.GetShard())
-		if len(unread) > 0 {
-			msg += fmt.Sprintf("; cells %v could not be read", unread)
-		}
-		return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, msg)
+		return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "no routing primary of %s/%s/%s is registered",
+			shard.GetDatabase(), shard.GetTableGroup(), shard.GetShard())
 	}
 	return best, nil
 }

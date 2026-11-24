@@ -142,7 +142,10 @@ A pooler reads the fences from its database's catalog primary
   calls on every pooler of a scope it fences or unfences. The snapshot read
   must be at `min_routing_version` or later (`FAILED_PRECONDITION`
   otherwise), and a catalog primary that can't be reached fails the call
-  (`UNAVAILABLE`) without applying anything. A refresh that changes nothing is
+  (`UNAVAILABLE`) without applying anything. So does a cell whose topology
+  can't be read while the pooler looks for the catalog primary: it may hold
+  the current catalog primary, so the best primary of the other cells may be a
+  deposed one. A refresh that changes nothing is
   a no-op; one that finds no fence on the scope reopens the gate. Every
   pooler serves it, unmanaged ones included.
 - when it starts, and each time it becomes primary. Until that read is

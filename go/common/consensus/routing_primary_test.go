@@ -15,6 +15,7 @@
 package consensus
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -85,4 +86,38 @@ func TestFindRoutingPrimary_UnreadableTopology(t *testing.T) {
 	_, err := FindRoutingPrimary(t.Context(), ts, routingPrimaryShard)
 	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
 	assert.Contains(t, err.Error(), "etcd unreachable")
+}
+
+// cellFailingStore fails the multipooler lookup of one cell.
+type cellFailingStore struct {
+	topoclient.Store
+	cell string
+}
+
+func (s cellFailingStore) GetMultipoolersByCell(ctx context.Context, cell string, opt *topoclient.GetMultipoolersByCellOptions) ([]*topoclient.MultipoolerInfo, error) {
+	if cell == s.cell {
+		return nil, errors.New("etcd unreachable")
+	}
+	return s.Store.GetMultipoolersByCell(ctx, cell, opt)
+}
+
+// A cell that cannot be read may hold the primary under a higher rule, so the
+// best of the cells that were read is not returned: during a failover it is
+// the deposed primary.
+func TestFindRoutingPrimary_UnreadableCell(t *testing.T) {
+	const (
+		primary = clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY
+		active  = clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE
+	)
+	ts, _ := memorytopo.NewServerAndFactory(t.Context(), "cell1", "cell2")
+	addRoutingPooler(t, ts, "cell1", "deposed", routingPrimaryShard, primary, 4, active)
+	addRoutingPooler(t, ts, "cell2", "leader", routingPrimaryShard, primary, 5, active)
+
+	_, err := FindRoutingPrimary(t.Context(), cellFailingStore{Store: ts, cell: "cell2"}, routingPrimaryShard)
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
+	assert.Contains(t, err.Error(), "cells [cell2] could not be read")
+
+	got, err := FindRoutingPrimary(t.Context(), ts, routingPrimaryShard)
+	require.NoError(t, err)
+	assert.Equal(t, "leader", got.GetId().GetName())
 }
