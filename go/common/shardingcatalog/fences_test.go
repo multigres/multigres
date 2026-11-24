@@ -90,6 +90,16 @@ func TestNew_Fences(t *testing.T) {
 		assert.Equal(t, []int64{50}, fenceIDs(analytics.FencesFor(nil)))
 		assert.Equal(t, []int64{50}, fenceIDs(analytics.FencesFor(byName(commerce, "0-80"))), "another tablegroup's shard matches only the whole-tablegroup fence")
 	})
+	t.Run("Fenced", func(t *testing.T) {
+		assert.True(t, commerce.Fenced("0-80"), "a shard fence")
+		assert.True(t, commerce.Fenced("80-inf"), "a FENCING fence fences like a FENCED one")
+		assert.False(t, commerce.Fenced("0-inf"), "another shard of the tablegroup")
+		assert.False(t, commerce.Fenced("no-such-shard"))
+		assert.True(t, analytics.Fenced("0-40"), "a whole-tablegroup fence fences every shard")
+		assert.True(t, analytics.Fenced("no-such-shard"), "and any shard name")
+		def, _ := s.TableGroupByName("default")
+		assert.False(t, def.Fenced("0-inf"), "another tablegroup")
+	})
 	t.Run("both a whole-tablegroup and a shard fence apply", func(t *testing.T) {
 		p := fencedSnapshot(t)
 		p.Fences = append(p.Fences, &pb.Fence{FenceId: 54, OperationId: testOperation, TablegroupId: 2, State: fenceFenced, Version: 12})

@@ -280,26 +280,6 @@ func TestPlanFenceChange_Overlap(t *testing.T) {
 		_, err := planFenceChange(unfencedCatalog(fenceRow(7, otherOp, tgOrders, 0, fenceStateFenced)), fence(importOp, "commerce", ""))
 		require.NoError(t, err)
 	})
-
-	taken := []struct {
-		name string
-		held catalogFence
-	}{
-		{"a fence of a finished operation", func() catalogFence {
-			f := fenceRow(7, otherOp, tgCommerce, shardC0080, fenceStateFenced)
-			f.operationState = opStateDone
-			return f
-		}()},
-	}
-	for _, tt := range taken {
-		t.Run(tt.name+" is taken over", func(t *testing.T) {
-			plan, err := planFenceChange(unfencedCatalog(tt.held), fence(importOp, "commerce", "0-80"))
-			require.NoError(t, err)
-			w := onlyWrite(t, plan)
-			assert.Equal(t, int64(7), w.fenceID, "the scope keeps its one row")
-			assert.Equal(t, fenceStateFenced, w.state)
-		})
-	}
 }
 
 func TestPlanFenceChange_Unfence(t *testing.T) {
@@ -478,7 +458,7 @@ func TestApplyFenceChange(t *testing.T) {
 	})
 	t.Run("update", func(t *testing.T) {
 		tx := newFakeRoutingTx()
-		tx.results[selectFencesSQL] = fenceResult([]any{70, importOp, 3, 11, fenceStateFencing, 4, "preparing"})
+		tx.results[selectFencesSQL] = fenceResult([]any{70, importOp, 3, 11, fenceStateFencing, 4})
 		got, err := applyFenceChange(context.Background(), tx, testRoutingCurrent, next, fence(importOp, "commerce", "0-80"))
 		require.NoError(t, err)
 		assert.Equal(t, catalogRoutingChange, got)
@@ -488,7 +468,7 @@ func TestApplyFenceChange(t *testing.T) {
 	})
 	t.Run("unfence deletes the row", func(t *testing.T) {
 		tx := newFakeRoutingTx()
-		tx.results[selectFencesSQL] = fenceResult([]any{70, importOp, 3, 11, fenceStateFenced, 4, "preparing"})
+		tx.results[selectFencesSQL] = fenceResult([]any{70, importOp, 3, 11, fenceStateFenced, 4})
 		got, err := applyFenceChange(context.Background(), tx, testRoutingCurrent, next, unfence(importOp, "commerce", "0-80"))
 		require.NoError(t, err)
 		assert.Equal(t, catalogRoutingChange, got)
@@ -508,7 +488,7 @@ func TestApplyFenceChange(t *testing.T) {
 	}
 	t.Run("a list writes every row at one version", func(t *testing.T) {
 		tx := newFakeRoutingTx()
-		tx.results[selectFencesSQL] = fenceResult([]any{70, importOp, 3, 11, fenceStateFenced, 4, "preparing"})
+		tx.results[selectFencesSQL] = fenceResult([]any{70, importOp, 3, 11, fenceStateFenced, 4})
 		got, err := applyFenceChange(context.Background(), tx, testRoutingCurrent, next,
 			fences(importOp, fenceSpec("commerce", "0-80"), fenceSpec("commerce", "80-inf"), fenceSpec("srctg", "")))
 		require.NoError(t, err)
@@ -522,7 +502,7 @@ func TestApplyFenceChange(t *testing.T) {
 	})
 	t.Run("an operation id in another spelling is the same operation", func(t *testing.T) {
 		tx := newFakeRoutingTx()
-		tx.results[selectFencesSQL] = fenceResult([]any{70, importOp, 3, 11, fenceStateFenced, 4, "preparing"})
+		tx.results[selectFencesSQL] = fenceResult([]any{70, importOp, 3, 11, fenceStateFenced, 4})
 		// The same uuid without hyphens: a retry, not another operation
 		// whose fence overlaps.
 		got, err := applyFenceChange(context.Background(), tx, testRoutingCurrent, next,
@@ -533,7 +513,7 @@ func TestApplyFenceChange(t *testing.T) {
 	})
 	t.Run("a refused change writes nothing", func(t *testing.T) {
 		tx := newFakeRoutingTx()
-		tx.results[selectFencesSQL] = fenceResult([]any{70, otherOp, 3, nil, fenceStateFenced, 4, "preparing"})
+		tx.results[selectFencesSQL] = fenceResult([]any{70, otherOp, 3, nil, fenceStateFenced, 4})
 		_, err := applyFenceChange(context.Background(), tx, testRoutingCurrent, next, fence(importOp, "commerce", "0-80"))
 		requireRoutingCode(t, err, mtrpcpb.Code_FAILED_PRECONDITION, `tablegroup "commerce" is fenced by operation `+otherOp)
 		assert.Empty(t, tx.writes())
@@ -543,14 +523,14 @@ func TestApplyFenceChange(t *testing.T) {
 func TestLoadRoutingCatalog_Fences(t *testing.T) {
 	tx := newFakeRoutingTx()
 	tx.results[selectFencesSQL] = fenceResult(
-		[]any{70, importOp, 3, 11, fenceStateFenced, 4, "preparing"},
-		[]any{71, otherOp, 2, nil, fenceStateFencing, 5, opStateDone},
+		[]any{70, importOp, 3, 11, fenceStateFenced, 4},
+		[]any{71, otherOp, 2, nil, fenceStateFencing, 5},
 	)
 	cat, err := loadRoutingCatalog(context.Background(), tx, testRoutingCurrent, importOp)
 	require.NoError(t, err)
 	assert.Equal(t, []catalogFence{
-		{fenceID: 70, operationID: importOp, scope: fenceScope{tablegroupID: 3, shardID: 11}, state: fenceStateFenced, version: 4, operationState: "preparing"},
-		{fenceID: 71, operationID: otherOp, scope: fenceScope{tablegroupID: 2}, state: fenceStateFencing, version: 5, operationState: opStateDone},
+		{fenceID: 70, operationID: importOp, scope: fenceScope{tablegroupID: 3, shardID: 11}, state: fenceStateFenced, version: 4},
+		{fenceID: 71, operationID: otherOp, scope: fenceScope{tablegroupID: 2}, state: fenceStateFencing, version: 5},
 	}, cat.fences)
 }
 
@@ -579,7 +559,7 @@ func TestChangeFence(t *testing.T) {
 	})
 	t.Run("an unfence advances routing_version by one", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
-		env.expectCatalogWrite(fenceWriteResults([]any{70, importOp, 3, 11, fenceStateFenced, 4, "preparing"}))
+		env.expectCatalogWrite(fenceWriteResults([]any{70, importOp, 3, 11, fenceStateFenced, 4}))
 		env.expectAdvance(6)
 
 		v, err := env.pm.changeFences(t.Context(), unfence(importOp, "commerce", "0-80"))
@@ -590,7 +570,7 @@ func TestChangeFence(t *testing.T) {
 	})
 	t.Run("a no-op writes nothing and returns the current versions", func(t *testing.T) {
 		env := newCatalogTestEnv(t)
-		env.expectCatalogWrite(fenceWriteResults([]any{70, importOp, 3, 11, fenceStateFenced, 4, "preparing"}))
+		env.expectCatalogWrite(fenceWriteResults([]any{70, importOp, 3, 11, fenceStateFenced, 4}))
 
 		c := fence(importOp, "commerce", "0-80")
 		c.expectedRoutingVersion = 2

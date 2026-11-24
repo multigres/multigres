@@ -4087,3 +4087,103 @@ export class UnfenceScopesResponse extends Message<UnfenceScopesResponse> {
   }
 }
 
+/**
+ * RefreshFencesRequest makes a pooler read and apply the admission fences on
+ * its scope.
+ *
+ * @generated from message multipoolermanagerdata.RefreshFencesRequest
+ */
+export class RefreshFencesRequest extends Message<RefreshFencesRequest> {
+  /**
+   * min_routing_version is the lowest routing version the snapshot read may
+   * be at: the version of the fence change the caller wants applied.
+   *
+   * @generated from field: int64 min_routing_version = 1;
+   */
+  minRoutingVersion = protoInt64.zero;
+
+  /**
+   * drain_timeout bounds the drain of a pooler the refresh fences, at most
+   * 10 minutes. Unset or zero uses the pooler's drain grace period, or 30
+   * seconds when that is zero.
+   *
+   * @generated from field: google.protobuf.Duration drain_timeout = 2;
+   */
+  drainTimeout?: Duration;
+
+  constructor(data?: PartialMessage<RefreshFencesRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.RefreshFencesRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "min_routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 2, name: "drain_timeout", kind: "message", T: Duration },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RefreshFencesRequest {
+    return new RefreshFencesRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RefreshFencesRequest {
+    return new RefreshFencesRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RefreshFencesRequest {
+    return new RefreshFencesRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RefreshFencesRequest | PlainMessage<RefreshFencesRequest> | undefined, b: RefreshFencesRequest | PlainMessage<RefreshFencesRequest> | undefined): boolean {
+    return proto3.util.equals(RefreshFencesRequest, a, b);
+  }
+}
+
+/**
+ * RefreshFencesResponse returns the routing version the pooler applied.
+ *
+ * @generated from message multipoolermanagerdata.RefreshFencesResponse
+ */
+export class RefreshFencesResponse extends Message<RefreshFencesResponse> {
+  /**
+   * @generated from field: int64 routing_version = 1;
+   */
+  routingVersion = protoInt64.zero;
+
+  /**
+   * fenced reports whether the snapshot fences the pooler's scope.
+   *
+   * @generated from field: bool fenced = 2;
+   */
+  fenced = false;
+
+  constructor(data?: PartialMessage<RefreshFencesResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.RefreshFencesResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "routing_version", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 2, name: "fenced", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RefreshFencesResponse {
+    return new RefreshFencesResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RefreshFencesResponse {
+    return new RefreshFencesResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RefreshFencesResponse {
+    return new RefreshFencesResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: RefreshFencesResponse | PlainMessage<RefreshFencesResponse> | undefined, b: RefreshFencesResponse | PlainMessage<RefreshFencesResponse> | undefined): boolean {
+    return proto3.util.equals(RefreshFencesResponse, a, b);
+  }
+}
+

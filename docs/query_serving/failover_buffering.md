@@ -197,37 +197,52 @@ Several mechanisms prevent unbounded buffering:
 
 While an operation moves a target's data, its poolers can be fenced: they
 refuse new application work so that two placements of the same data never take
-writes at once. A pooler refuses fenced work with `MTF02` before running any of
-it.
+writes at once. A primary pooler refuses fenced work with `MTF02` before
+running any of it, once it has read the fence from the catalog (see
+[how poolers enforce fences](../sharding/routing_rules.md#how-poolers-enforce-fences)).
+It stays `SERVING` while fenced, so nothing in the health stream changes and
+the failover buffer is not involved. A pooler also refuses with `MTF02` until
+it has read its fences, after it starts and each time it becomes primary, so a
+failover's buffered statements can meet a new primary that has not read them
+yet; they are retried like any other fenced statement, below.
 
 A fenced shard never gets a new leader, so `MTF02` does not go through the
-failover buffer. The change that lifts a fence (a routing switch, a revert, an
-unfence) always advances the catalog's `routing_version`, and it can change the
-statement's plan, not only its targets: table rules apply when a statement is
-planned. So the executor, like Vitess's, retries a fenced statement in every
+failover buffer. Lifting a fence (a routing switch, a revert, an unfence) can
+change the statement's plan, not only its targets: table rules apply when a
+statement is planned. So the executor retries a fenced statement in every
 mode:
 
-1. Wait until the sharding catalog cache has installed a snapshot whose
-   `routing_version` is greater than the one the refused attempt planned
-   against, and which no longer has an admission fence on the target that
-   refused it, on its shard or its whole tablegroup
-   (`shardingcatalogcache.Cache.WaitForUnfenced`, which triggers a fetch at
-   once). Both conditions matter: a gateway behind the fence first learns of
-   it from a newer snapshot that still fences the target.
+1. Wait until the sharding catalog cache's snapshot no longer has an admission
+   fence on the target that refused it, on its shard or its whole tablegroup
+   (`shardingcatalogcache.Cache.WaitForUnfenced`). It always triggers a
+   fetch but doesn't wait for it: a gateway whose snapshot predates the fence
+   retries against the refusing pooler, with the backoff, until the fetch
+   installs a snapshot that shows the fence, and then waits.
 2. Plan the statement again.
-3. Run it again.
+3. Run it again: the first retry at once, each later one after a backoff that
+   starts at 10ms and doubles up to 250ms.
+
+The snapshot can show a fence lifted while the pooler still refuses: the
+pooler has not read its fences since it started, or has not been refreshed
+since the unfence. The backoff waits for it to catch up rather than for a
+catalog change, which may never come.
+
+Inside an explicit transaction, the gateway sends a Parse to the backend at
+once, as PostgreSQL does. A Parse refused as fenced is retried under the same
+rule as an Execute: only while the session holds no reserved connection, so
+the Parse is what opens the transaction on a pooler and, refused at admission,
+ran nowhere.
 
 A statement is not run again when the session is in a transaction, explicit or
-implicit (a multi-statement query, or an extended-protocol pipeline before its
-Sync), when an earlier step of its plan already ran on a pooler (for example
+implicit (a multi-statement query), that has already reached a pooler (it holds
+a reserved connection), when it is in an extended-protocol pipeline before its
+Sync, when an earlier step of its plan already ran on a pooler (for example
 the resolve query of a dynamic `set_config`), or when output has already
 reached the client. The client then gets the `MTF02`, which tells
 it to retry.
 
 The waits of one statement share one `--buffer-window`, whether or not
-`--buffer-enabled` is set, and that is the only bound: a cutover writes several
-routing versions (raise the fence, change the rule, lift the fence), and each
-retry already needs a newer snapshot that lifts the fence. When the window runs
+`--buffer-enabled` is set, and that is the only bound. When the window runs
 out, the statement fails with the last `MTF02`. A single
 pooler (minigres) has nothing to fence, so its gateway never retries. Work on
 an existing reserved connection is never fenced, since the pooler always admits

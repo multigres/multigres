@@ -148,8 +148,11 @@ type Manager struct {
 	// concurrently. Zero until the first Open.
 	globalCapacity atomic.Int64
 
-	// Drain tracking: counts connections currently lent out across all pools.
-	// Used for graceful drain during state transitions (not-serving).
+	// Drain tracking: counts connections currently lent out across all pools,
+	// and requests the query server admitted that may not hold a connection
+	// yet (AddAdmitted), counted as the kind of connection they will hold.
+	// Used for graceful drain during state transitions (not-serving) and the
+	// fence drain.
 	//
 	// regularCount tracks regular (single-query) borrows; reservedCount tracks
 	// reserved connections (transactions, temp tables, portals, COPY, etc.). They
@@ -1060,8 +1063,28 @@ func (m *Manager) reservedAdd(n int64) {
 	signalZeroChanLocked(m.regularCount+m.reservedCount, &m.zeroCh)
 }
 
+// AddAdmitted counts an admitted request as a reserved connection
+// (reservation) or a single-query borrow, until RemoveAdmitted.
+func (m *Manager) AddAdmitted(reservation bool) {
+	if reservation {
+		m.reservedAdd(1)
+	} else {
+		m.regularAdd(1)
+	}
+}
+
+// RemoveAdmitted uncounts a request AddAdmitted counted.
+func (m *Manager) RemoveAdmitted(reservation bool) {
+	if reservation {
+		m.reservedAdd(-1)
+	} else {
+		m.regularAdd(-1)
+	}
+}
+
 // WaitForDrain blocks until all lent connections (regular + reserved) have been
-// returned or ctx is cancelled.
+// returned, and every admitted request (AddAdmitted) removed, or ctx is
+// cancelled.
 func (m *Manager) WaitForDrain(ctx context.Context) error {
 	m.drainMu.Lock()
 	if m.regularCount+m.reservedCount == 0 {
@@ -1080,7 +1103,8 @@ func (m *Manager) WaitForDrain(ctx context.Context) error {
 }
 
 // WaitForReservedDrain blocks until all RESERVED connections (transactions, temp
-// tables, portals, COPY, etc.) have been released or ctx is cancelled. Unlike
+// tables, portals, COPY, etc.), and every admitted request that will reserve
+// one, have been released or ctx is cancelled. Unlike
 // WaitForDrain it ignores transient single-query borrows, so the first stage of
 // a graceful drain can wait for in-flight transactions to finish while the
 // pooler keeps serving single autocommit queries.

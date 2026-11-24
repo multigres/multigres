@@ -96,6 +96,9 @@ const (
 	// MultipoolerManagerUnfenceScopesProcedure is the fully-qualified name of the MultipoolerManager's
 	// UnfenceScopes RPC.
 	MultipoolerManagerUnfenceScopesProcedure = "/multipoolermanager.MultipoolerManager/UnfenceScopes"
+	// MultipoolerManagerRefreshFencesProcedure is the fully-qualified name of the MultipoolerManager's
+	// RefreshFences RPC.
+	MultipoolerManagerRefreshFencesProcedure = "/multipoolermanager.MultipoolerManager/RefreshFences"
 	// MultipoolerManagerReloadConfigProcedure is the fully-qualified name of the MultipoolerManager's
 	// ReloadConfig RPC.
 	MultipoolerManagerReloadConfigProcedure = "/multipoolermanager.MultipoolerManager/ReloadConfig"
@@ -195,10 +198,11 @@ type MultipoolerManagerClient interface {
 	// overlapping scope (a whole-tablegroup fence overlaps every shard fence of
 	// the tablegroup) returns FAILED_PRECONDITION.
 	//
-	// In this version FenceScopes records the fences as FENCED directly: it
-	// records intent and guarantees nothing. No pooler reads fences yet, so
-	// the scopes' application traffic is neither refused nor drained, and the
-	// caller must still quiesce it before changing routing rules.
+	// In this version FenceScopes records the fences as FENCED directly and
+	// refreshes no pooler: a pooler of a fenced scope enforces the fence only
+	// once it reads it (RefreshFences, or on start and promotion), so the
+	// caller must refresh every pooler of every scope before changing routing
+	// rules.
 	FenceScopes(context.Context, *connect.Request[multipoolermanagerdata.FenceScopesRequest]) (*connect.Response[multipoolermanagerdata.FenceScopesResponse], error)
 	// UnfenceScopes lifts an operation's admission fences on a list of scopes:
 	// it deletes them in one catalog write, at one new routing version. Scopes
@@ -209,6 +213,31 @@ type MultipoolerManagerClient interface {
 	// routing version (see UnfenceScopesRequest); a fence set after it returns
 	// FAILED_PRECONDITION.
 	UnfenceScopes(context.Context, *connect.Request[multipoolermanagerdata.UnfenceScopesRequest]) (*connect.Response[multipoolermanagerdata.UnfenceScopesResponse], error)
+	// RefreshFences makes this pooler read the admission fences from its
+	// database's catalog primary (GetRoutingSnapshot; the catalog primary reads
+	// its own catalog) and apply the ones on its scope: its whole tablegroup,
+	// or its shard. Served by every pooler, managed or unmanaged.
+	//
+	// A primary pooler that the read finds fenced refuses new application
+	// work with MTF02, keeps serving existing reserved connections and drains:
+	// first the open transactions finish while single queries continue, then
+	// single queries stop too and the in-flight ones finish. Each stage also
+	// waits for requests admitted before it that hold no connection yet. The
+	// call returns once the drain completes; at drain_timeout the remaining
+	// reserved connections are force-closed and their transactions get 40001.
+	// A call that finds a drain already running waits for that drain instead,
+	// bounded by its own deadline. A read that finds no fence on the scope
+	// reopens the gate, cancelling a running drain. A refresh that changes
+	// nothing is a no-op. Replicas record the result but are not fenced.
+	//
+	// Returns the routing version it applied. A catalog primary that cannot be
+	// reached returns UNAVAILABLE and applies nothing, as does a snapshot older
+	// (by consensus rule, then routing version) than one the pooler already
+	// applied: a catalog primary deposed by a failover may still answer. A
+	// snapshot below min_routing_version returns FAILED_PRECONDITION. A drain
+	// that is cancelled by a concurrent unfence or a change of the pooler's
+	// role is followed by a new read, whose result is returned.
+	RefreshFences(context.Context, *connect.Request[multipoolermanagerdata.RefreshFencesRequest]) (*connect.Response[multipoolermanagerdata.RefreshFencesResponse], error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
@@ -372,6 +401,12 @@ func NewMultipoolerManagerClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(multipoolerManagerMethods.ByName("UnfenceScopes")),
 			connect.WithClientOptions(opts...),
 		),
+		refreshFences: connect.NewClient[multipoolermanagerdata.RefreshFencesRequest, multipoolermanagerdata.RefreshFencesResponse](
+			httpClient,
+			baseURL+MultipoolerManagerRefreshFencesProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("RefreshFences")),
+			connect.WithClientOptions(opts...),
+		),
 		reloadConfig: connect.NewClient[multipoolermanagerdata.ReloadConfigRequest, multipoolermanagerdata.ReloadConfigResponse](
 			httpClient,
 			baseURL+MultipoolerManagerReloadConfigProcedure,
@@ -435,6 +470,7 @@ type multipoolerManagerClient struct {
 	deleteRoutingRules         *connect.Client[multipoolermanagerdata.DeleteRoutingRulesRequest, multipoolermanagerdata.DeleteRoutingRulesResponse]
 	fenceScopes                *connect.Client[multipoolermanagerdata.FenceScopesRequest, multipoolermanagerdata.FenceScopesResponse]
 	unfenceScopes              *connect.Client[multipoolermanagerdata.UnfenceScopesRequest, multipoolermanagerdata.UnfenceScopesResponse]
+	refreshFences              *connect.Client[multipoolermanagerdata.RefreshFencesRequest, multipoolermanagerdata.RefreshFencesResponse]
 	reloadConfig               *connect.Client[multipoolermanagerdata.ReloadConfigRequest, multipoolermanagerdata.ReloadConfigResponse]
 	createTableGroup           *connect.Client[multipoolermanagerdata.CreateTableGroupRequest, multipoolermanagerdata.CreateTableGroupResponse]
 	getOperation               *connect.Client[multipoolermanagerdata.GetOperationRequest, multipoolermanagerdata.GetOperationResponse]
@@ -523,6 +559,11 @@ func (c *multipoolerManagerClient) FenceScopes(ctx context.Context, req *connect
 // UnfenceScopes calls multipoolermanager.MultipoolerManager.UnfenceScopes.
 func (c *multipoolerManagerClient) UnfenceScopes(ctx context.Context, req *connect.Request[multipoolermanagerdata.UnfenceScopesRequest]) (*connect.Response[multipoolermanagerdata.UnfenceScopesResponse], error) {
 	return c.unfenceScopes.CallUnary(ctx, req)
+}
+
+// RefreshFences calls multipoolermanager.MultipoolerManager.RefreshFences.
+func (c *multipoolerManagerClient) RefreshFences(ctx context.Context, req *connect.Request[multipoolermanagerdata.RefreshFencesRequest]) (*connect.Response[multipoolermanagerdata.RefreshFencesResponse], error) {
+	return c.refreshFences.CallUnary(ctx, req)
 }
 
 // ReloadConfig calls multipoolermanager.MultipoolerManager.ReloadConfig.
@@ -637,10 +678,11 @@ type MultipoolerManagerHandler interface {
 	// overlapping scope (a whole-tablegroup fence overlaps every shard fence of
 	// the tablegroup) returns FAILED_PRECONDITION.
 	//
-	// In this version FenceScopes records the fences as FENCED directly: it
-	// records intent and guarantees nothing. No pooler reads fences yet, so
-	// the scopes' application traffic is neither refused nor drained, and the
-	// caller must still quiesce it before changing routing rules.
+	// In this version FenceScopes records the fences as FENCED directly and
+	// refreshes no pooler: a pooler of a fenced scope enforces the fence only
+	// once it reads it (RefreshFences, or on start and promotion), so the
+	// caller must refresh every pooler of every scope before changing routing
+	// rules.
 	FenceScopes(context.Context, *connect.Request[multipoolermanagerdata.FenceScopesRequest]) (*connect.Response[multipoolermanagerdata.FenceScopesResponse], error)
 	// UnfenceScopes lifts an operation's admission fences on a list of scopes:
 	// it deletes them in one catalog write, at one new routing version. Scopes
@@ -651,6 +693,31 @@ type MultipoolerManagerHandler interface {
 	// routing version (see UnfenceScopesRequest); a fence set after it returns
 	// FAILED_PRECONDITION.
 	UnfenceScopes(context.Context, *connect.Request[multipoolermanagerdata.UnfenceScopesRequest]) (*connect.Response[multipoolermanagerdata.UnfenceScopesResponse], error)
+	// RefreshFences makes this pooler read the admission fences from its
+	// database's catalog primary (GetRoutingSnapshot; the catalog primary reads
+	// its own catalog) and apply the ones on its scope: its whole tablegroup,
+	// or its shard. Served by every pooler, managed or unmanaged.
+	//
+	// A primary pooler that the read finds fenced refuses new application
+	// work with MTF02, keeps serving existing reserved connections and drains:
+	// first the open transactions finish while single queries continue, then
+	// single queries stop too and the in-flight ones finish. Each stage also
+	// waits for requests admitted before it that hold no connection yet. The
+	// call returns once the drain completes; at drain_timeout the remaining
+	// reserved connections are force-closed and their transactions get 40001.
+	// A call that finds a drain already running waits for that drain instead,
+	// bounded by its own deadline. A read that finds no fence on the scope
+	// reopens the gate, cancelling a running drain. A refresh that changes
+	// nothing is a no-op. Replicas record the result but are not fenced.
+	//
+	// Returns the routing version it applied. A catalog primary that cannot be
+	// reached returns UNAVAILABLE and applies nothing, as does a snapshot older
+	// (by consensus rule, then routing version) than one the pooler already
+	// applied: a catalog primary deposed by a failover may still answer. A
+	// snapshot below min_routing_version returns FAILED_PRECONDITION. A drain
+	// that is cancelled by a concurrent unfence or a change of the pooler's
+	// role is followed by a new read, whose result is returned.
+	RefreshFences(context.Context, *connect.Request[multipoolermanagerdata.RefreshFencesRequest]) (*connect.Response[multipoolermanagerdata.RefreshFencesResponse], error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
@@ -810,6 +877,12 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 		connect.WithSchema(multipoolerManagerMethods.ByName("UnfenceScopes")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multipoolerManagerRefreshFencesHandler := connect.NewUnaryHandler(
+		MultipoolerManagerRefreshFencesProcedure,
+		svc.RefreshFences,
+		connect.WithSchema(multipoolerManagerMethods.ByName("RefreshFences")),
+		connect.WithHandlerOptions(opts...),
+	)
 	multipoolerManagerReloadConfigHandler := connect.NewUnaryHandler(
 		MultipoolerManagerReloadConfigProcedure,
 		svc.ReloadConfig,
@@ -886,6 +959,8 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 			multipoolerManagerFenceScopesHandler.ServeHTTP(w, r)
 		case MultipoolerManagerUnfenceScopesProcedure:
 			multipoolerManagerUnfenceScopesHandler.ServeHTTP(w, r)
+		case MultipoolerManagerRefreshFencesProcedure:
+			multipoolerManagerRefreshFencesHandler.ServeHTTP(w, r)
 		case MultipoolerManagerReloadConfigProcedure:
 			multipoolerManagerReloadConfigHandler.ServeHTTP(w, r)
 		case MultipoolerManagerCreateTableGroupProcedure:
@@ -971,6 +1046,10 @@ func (UnimplementedMultipoolerManagerHandler) FenceScopes(context.Context, *conn
 
 func (UnimplementedMultipoolerManagerHandler) UnfenceScopes(context.Context, *connect.Request[multipoolermanagerdata.UnfenceScopesRequest]) (*connect.Response[multipoolermanagerdata.UnfenceScopesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.UnfenceScopes is not implemented"))
+}
+
+func (UnimplementedMultipoolerManagerHandler) RefreshFences(context.Context, *connect.Request[multipoolermanagerdata.RefreshFencesRequest]) (*connect.Response[multipoolermanagerdata.RefreshFencesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.RefreshFences is not implemented"))
 }
 
 func (UnimplementedMultipoolerManagerHandler) ReloadConfig(context.Context, *connect.Request[multipoolermanagerdata.ReloadConfigRequest]) (*connect.Response[multipoolermanagerdata.ReloadConfigResponse], error) {
