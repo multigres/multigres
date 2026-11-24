@@ -391,6 +391,12 @@ every pull request. The pgproto, sqllogictest and PostgREST suites run on both
 topologies when their pull request label is set; pgproto also runs daily and
 sqllogictest weekly.
 
+The PostgreSQL regression suites (`pgregresstest`) also run on either topology
+with the same switch, for example
+`MULTIGRES_E2E_TOPOLOGY=minigres RUN_PGREGRESS=1 go test ./go/test/endtoend/pgregresstest/`.
+In CI they run on both topologies when the pull request label is set, and three
+times a week; each topology keeps its own regression baseline.
+
 ## Known limitations
 
 - `multigres cluster init --topology minigres` only generates a single
