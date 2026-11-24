@@ -70,7 +70,9 @@ jobs:
           if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
 
           sha_short="${HEAD_SHA:0:7}"
-          # Use only the first line of the commit message.
+          # Use only the first line of the commit message. It is not trusted
+          # (for example, a PR title), so the jq filter escapes the Slack
+          # control characters before it goes into the mrkdwn block.
           title="${COMMIT_TITLE%%$'\n'*}"
 
           case "$CONCLUSION" in
@@ -89,7 +91,7 @@ jobs:
             '{
               blocks: [
                 {type: "header", text: {type: "plain_text", text: (":rotating_light: " + $name + " " + $verb + " on main")}},
-                {type: "section", text: {type: "mrkdwn", text: ("Trigger: `" + $event + "`, commit `" + $sha + "`, attempt " + $attempt + "\n" + $title)}},
+                {type: "section", text: {type: "mrkdwn", text: ("Trigger: `" + $event + "`, commit `" + $sha + "`, attempt " + $attempt + "\n" + ($title | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;")))}},
                 {type: "section", text: {type: "mrkdwn", text: ("<" + $url + "|View CI run>")}}
               ]
             }')
