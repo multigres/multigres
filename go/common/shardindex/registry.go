@@ -17,6 +17,8 @@ package shardindex
 import (
 	"encoding/json"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/multigres/multigres/go/common/mterrors"
@@ -32,14 +34,36 @@ var (
 	registry   = make(map[string]Factory)
 )
 
-// Register makes an implementation available under the type name typ. Call it
-// from the implementation's init. It panics when typ is empty, f is nil or typ
-// is already registered: a type name identifies one permanent mapping, so two
+// Register makes a user-provided implementation available under the type name
+// typ. Call it from the implementation's init.
+//
+// typ must be namespaced: "<namespace>.<name>", such as "acme.region", with
+// both parts non-empty. Names without a dot are reserved for the built-in
+// implementations, so a built-in added in a later release can never take a
+// name that a catalog already stores for a user-provided one.
+//
+// It panics when typ is not namespaced, f is nil or typ is already
+// registered: a type name identifies one permanent mapping, so two
 // implementations claiming it is a build error, not a runtime condition.
 func Register(typ string, f Factory) {
-	if typ == "" {
-		panic("shardindex: Register with an empty type")
+	namespace, name, namespaced := strings.Cut(typ, ".")
+	if !namespaced || namespace == "" || name == "" {
+		panic("shardindex: type " + strconv.Quote(typ) +
+			" is not namespaced: user-provided types are named <namespace>.<name>, names without a dot are reserved for built-in types")
 	}
+	register(typ, f)
+}
+
+// registerBuiltin registers a built-in implementation, whose type name has no
+// dot.
+func registerBuiltin(typ string, f Factory) {
+	if typ == "" || strings.Contains(typ, ".") {
+		panic("shardindex: built-in type " + strconv.Quote(typ) + " must be a non-empty name without a dot")
+	}
+	register(typ, f)
+}
+
+func register(typ string, f Factory) {
 	if f == nil {
 		panic("shardindex: Register of type " + typ + " with a nil factory")
 	}

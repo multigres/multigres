@@ -28,7 +28,7 @@ type ShardIndex interface {
 	// Name is the name of this instance, unique within the database.
 	Name() string
 
-	// Type is the implementation's type name, as passed to Register.
+	// Type is the implementation's type name, as registered.
 	Type() string
 
 	// Cost lets the planner choose between indexes: 1 when the routing
@@ -48,19 +48,24 @@ type SingleColumn interface {
 
 	// Map returns one destination per value, in order. A unique index
 	// returns a single routing identifier (or a key range, when it cannot
-	// narrow further) for each value.
+	// narrow further) for each value. A NULL maps to DestinationNone
+	// rather than failing: col = NULL is true for no row, so a predicate
+	// on it reaches no shard. A caller placing a row must reject
+	// DestinationNone itself, since no shard is chosen to reject it.
 	Map(ctx context.Context, exec Executor, values []Value) ([]Destination, error)
 
 	// Verify reports, for each value, whether it maps to the routing
 	// identifier at the same position. values and routingIDs have the same
-	// length.
+	// length. A value that maps to DestinationNone, such as a NULL, is
+	// false.
 	Verify(ctx context.Context, exec Executor, values []Value, routingIDs [][]byte) ([]bool, error)
 }
 
 // Hashing is implemented by indexes whose mapping is a pure function of the
 // value, so that a multi-column index can use them as a component.
 type Hashing interface {
-	// Hash returns the routing identifier of value.
+	// Hash returns the routing identifier of value. A NULL has none and is
+	// an error.
 	Hash(value Value) ([]byte, error)
 }
 

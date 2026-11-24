@@ -15,6 +15,7 @@
 package shardindex
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,20 +26,38 @@ import (
 
 // userDefinedType is the type name of the user-provided implementation that
 // userdefined_test.go registers from outside the package.
-const userDefinedType = "test_identity"
+const userDefinedType = "test.identity"
 
 func TestRegister_Duplicate(t *testing.T) {
 	t.Parallel()
 	assert.PanicsWithValue(t, "shardindex: type hash is already registered", func() {
-		Register(HashType, newHashIndex)
+		registerBuiltin(HashType, newHashIndex)
 	})
-	assert.PanicsWithValue(t, "shardindex: type test_identity is already registered", func() {
+	assert.PanicsWithValue(t, "shardindex: type test.identity is already registered", func() {
 		Register(userDefinedType, newHashIndex)
 	})
-	assert.Panics(t, func() { Register("", newHashIndex) })
-	assert.Panics(t, func() { Register("test_nil_factory", nil) })
+	assert.Panics(t, func() { Register("test.nil_factory", nil) })
+	assert.Panics(t, func() { registerBuiltin("test_nil_factory", nil) })
 	// A rejected registration leaves nothing behind.
+	assert.NotContains(t, Types(), "test.nil_factory")
 	assert.NotContains(t, Types(), "test_nil_factory")
+}
+
+// Names without a dot belong to the built-in implementations, so a built-in
+// added later cannot collide with a user-provided type already in a catalog.
+func TestRegister_Namespaces(t *testing.T) {
+	t.Parallel()
+	for _, typ := range []string{"", "range", "lookup", ".range", "acme.", "."} {
+		assert.PanicsWithValue(t,
+			"shardindex: type "+strconv.Quote(typ)+
+				" is not namespaced: user-provided types are named <namespace>.<name>, names without a dot are reserved for built-in types",
+			func() { Register(typ, newHashIndex) }, "Register(%q)", typ)
+		assert.NotContains(t, Types(), typ)
+	}
+	for _, typ := range []string{"", "acme.range"} {
+		assert.Panics(t, func() { registerBuiltin(typ, newHashIndex) }, "registerBuiltin(%q)", typ)
+		assert.NotContains(t, Types(), typ)
+	}
 }
 
 func TestNew_UnknownType(t *testing.T) {

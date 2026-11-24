@@ -45,8 +45,14 @@ const hashIDLen = 8
 //
 // exactly as PostgreSQL computes it, written as 8 bytes big-endian, so that
 // byte order is the unsigned numeric order of the hash. int2, int4 and int8
-// are sign-extended to int8 first, and so hash identically when equal. The
-// same identifier is computable in SQL on any shard as
+// are sign-extended to int8 first, and so hash identically when equal.
+//
+// The mapping is not injective: hashint8extended folds the int8 to 32 bits
+// before hashing, so distinct bigints share a routing identifier (1 and
+// 4294967296, for example). An identifier places a value; it never
+// identifies one.
+//
+// The same identifier is computable in SQL on any shard as
 //
 //	int8send(hashint8extended(col::int8, 8816678312871386365))
 //
@@ -63,7 +69,7 @@ var (
 )
 
 func init() {
-	Register(HashType, newHashIndex)
+	registerBuiltin(HashType, newHashIndex)
 }
 
 // newHashIndex is the Factory of hash. It takes no parameters.
@@ -92,7 +98,8 @@ func (h *hashIndex) AcceptsType(typ pgoid.Oid) bool {
 	return false
 }
 
-// Hash returns the 8-byte routing identifier of value.
+// Hash returns the 8-byte routing identifier of value. A NULL has none and is
+// an error.
 func (h *hashIndex) Hash(value Value) ([]byte, error) {
 	hash, err := h.hash(value)
 	if err != nil {
@@ -101,13 +108,18 @@ func (h *hashIndex) Hash(value Value) ([]byte, error) {
 	return binary.BigEndian.AppendUint64(make([]byte, 0, hashIDLen), hash), nil
 }
 
-// Map returns a single routing identifier for each value.
+// Map returns a single routing identifier for each value, and
+// DestinationNone for a NULL: col = NULL is true for no row.
 func (h *hashIndex) Map(_ context.Context, _ Executor, values []Value) ([]Destination, error) {
 	// One backing array holds every identifier, so mapping any number of
 	// values costs two allocations.
 	out := make([]Destination, len(values))
 	ids := make([]byte, hashIDLen*len(values))
 	for i, value := range values {
+		if value.IsNull {
+			// The zero Destination is DestinationNone.
+			continue
+		}
 		hash, err := h.hash(value)
 		if err != nil {
 			return nil, err
@@ -120,7 +132,8 @@ func (h *hashIndex) Map(_ context.Context, _ Executor, values []Value) ([]Destin
 	return out, nil
 }
 
-// Verify reports whether each value hashes to its routing identifier.
+// Verify reports whether each value hashes to its routing identifier. A NULL
+// maps to none, so it is false.
 func (h *hashIndex) Verify(_ context.Context, _ Executor, values []Value, routingIDs [][]byte) ([]bool, error) {
 	if len(values) != len(routingIDs) {
 		return nil, mterrors.Errorf(mtrpcpb.Code_INTERNAL,
@@ -128,6 +141,9 @@ func (h *hashIndex) Verify(_ context.Context, _ Executor, values []Value, routin
 	}
 	out := make([]bool, len(values))
 	for i, value := range values {
+		if value.IsNull {
+			continue
+		}
 		hash, err := h.hash(value)
 		if err != nil {
 			return nil, err
@@ -138,10 +154,12 @@ func (h *hashIndex) Verify(_ context.Context, _ Executor, values []Value, routin
 	return out, nil
 }
 
-// hash is the mapping itself: hashint8extended(value::int8, HashSeed).
+// hash is the mapping itself: hashint8extended(value::int8, HashSeed). A NULL
+// is an error here; Map and Verify handle it before calling.
 func (h *hashIndex) hash(value Value) (uint64, error) {
 	if value.IsNull {
-		// Primary shard key columns are NOT NULL, so a NULL has no shard.
+		// Primary shard key columns are NOT NULL, so a NULL has no
+		// routing identifier.
 		return 0, mterrors.NewPgError("ERROR", mterrors.PgSSNullValueNotAllowed,
 			"shard index \""+h.name+"\" cannot map a null value", "")
 	}

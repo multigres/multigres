@@ -21,7 +21,9 @@
 // # Implementations and instances
 //
 // An implementation is a type name ("hash") and a Factory, registered once per
-// binary with Register. A shard index is an instance of an implementation: a
+// binary. Built-in type names have no dot; a user-provided implementation
+// registers with Register under a namespaced name ("acme.region"), so the two
+// can never collide. A shard index is an instance of an implementation: a
 // catalog row (multigres.shard_index) with a name, the type and parameters,
 // built with New. Parameters are a string map; each factory validates its own
 // and rejects names it does not know (see CheckParams).
@@ -40,7 +42,8 @@
 // do is declared by the optional interfaces it also implements, each matching
 // a kind of predicate the planner can route, and detected by type assertion:
 //
-//   - SingleColumn maps one column's values for equality and IN lists.
+//   - SingleColumn maps one column's values for equality and IN lists. A NULL
+//     maps to DestinationNone, because col = NULL is true for no row.
 //   - Hashing exposes the raw hash, so the index can be a component of a
 //     multi-column index.
 //   - TypeChecking says which column types the index accepts.
@@ -66,7 +69,9 @@
 // # Destinations
 //
 // Map returns one Destination per value: a routing identifier, several, a key
-// range, every shard, or none. A destination is independent of any shard
+// range, every shard, or none. A caller placing a row must treat none as an
+// error: no shard is chosen, so no PostgreSQL would see the row to reject it.
+// A destination is independent of any shard
 // layout; the caller resolves it against a tablegroup's active shards with
 // Destination.Resolve at the moment it routes. Resolution lives here rather
 // than in shardingcatalog because the set of destination kinds belongs to the
@@ -81,10 +86,10 @@
 //
 //	package regionindex
 //
-//	func init() { shardindex.Register("region", newIndex) }
+//	func init() { shardindex.Register("acme.region", newIndex) }
 //
 //	func newIndex(name string, params map[string]string) (shardindex.ShardIndex, error) {
-//		if err := shardindex.CheckParams("region", name, params, "default"); err != nil {
+//		if err := shardindex.CheckParams("acme.region", name, params, "default"); err != nil {
 //			return nil, err
 //		}
 //		return &index{name: name, def: params["default"]}, nil

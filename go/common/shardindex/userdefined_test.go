@@ -42,7 +42,7 @@ type identityIndex struct {
 	prefix []byte
 }
 
-const identityType = "test_identity"
+const identityType = "test.identity"
 
 func init() {
 	shardindex.Register(identityType, func(name string, params map[string]string) (shardindex.ShardIndex, error) {

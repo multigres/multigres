@@ -15,8 +15,11 @@ indexes come later.
 ## The model
 
 - **Implementation**: a type name (`hash`) and a factory, compiled into the
-  binaries and registered once with `shardindex.Register`. Built-in
-  implementations and user-provided ones register the same way.
+  binaries and registered once. Built-in type names have no dot. A
+  user-provided implementation registers with `shardindex.Register` under a
+  namespaced name, `<namespace>.<name>` (`acme.region`); `Register` panics on
+  a name without a dot. A built-in added in a later release can therefore
+  never take a name that a catalog already stores for a user-provided type.
 - **Shard index**: an instance of an implementation. It is a row of
   `multigres.shard_index` with a `name`, the implementation's `type` and JSON
   `params`, built with `shardindex.New(type, name, params)`.
@@ -49,6 +52,11 @@ assertion. Each matches a kind of predicate the planner can route.
 
 A `Value` is a PostgreSQL type OID, a datum, and whether it is NULL.
 
+`Map` sends a NULL to no shard (`DestinationNone()`) instead of failing:
+`col = NULL` is true for no row, so `WHERE col IN (1, NULL)` routes by `1`
+alone, as PostgreSQL would answer it. `Verify` is false for a NULL, and `Hash`
+fails, because a NULL has no routing identifier.
+
 `Map` and `Verify` take an `Executor`. Its method set is empty today; it is in the
 signatures so that lookup indexes can later query shards without changing what
 every implementation compiles against.
@@ -75,6 +83,10 @@ routes, with `Destination.Resolve(tableGroup, add)`, against the tablegroup's
 active shards in the catalog snapshot. Routing rules and fences are applied by
 the caller, not by `Resolve`.
 
+A caller that places a row (an `INSERT`, or an `UPDATE` of a shard key column)
+must treat `DestinationNone()` as an error. No shard is chosen, so no
+PostgreSQL sees the row to raise its NOT NULL violation.
+
 ## The stability contract
 
 **The mapping is permanent.** Rows are placed by the routing identifier, so
@@ -99,15 +111,15 @@ RUN_PGEVAL_DIFFERENTIAL=1 /mt-dev integration pgeval TestScalarsAgainstPostgres
 
 `hash` maps an integer column to a point spread uniformly over the keyspace.
 
-| Property       | Value                                                |
-| -------------- | ---------------------------------------------------- |
-| Column types   | `smallint`, `integer`, `bigint`                      |
-| Parameters     | None; any parameter is an error                      |
-| `IsUnique()`   | true                                                 |
-| `Cost()`       | 1                                                    |
-| Capabilities   | `SingleColumn`, `Hashing`, `TypeChecking`            |
-| NULL           | An error: primary shard key columns must be NOT NULL |
-| Any other type | An error                                             |
+| Property       | Value                                              |
+| -------------- | -------------------------------------------------- |
+| Column types   | `smallint`, `integer`, `bigint`                    |
+| Parameters     | None; any parameter is an error                    |
+| `IsUnique()`   | true                                               |
+| `Cost()`       | 1                                                  |
+| Capabilities   | `SingleColumn`, `Hashing`, `TypeChecking`          |
+| NULL           | `Map`: no shard. `Verify`: false. `Hash`: an error |
+| Any other type | An error                                           |
 
 ### Definition
 
@@ -123,6 +135,11 @@ exactly as PostgreSQL computes it, encoded as 8 bytes, big-endian.
   so that equal numbers hash equally at every width, then hashed with
   `hash_bytes_uint32_extended`. The port lives in `go/common/pghash`, which the
   expression engine's `hashint*` builtins share.
+- **Collisions.** Because of the fold, distinct `bigint` values share a
+  routing identifier: 1 and 4294967296 both map to `52d621058124e6d5`, and -1
+  and 4294967295 both map to `ba5fc748095606c2`. This does not affect
+  placement. A routing identifier says where a value lives; it must never be
+  used to identify a value or to test two values for equality.
 - **Widths.** `smallint` and `integer` values are sign-extended to `bigint`
   first. A value has the same routing identifier whatever integer type its
   column has, as it does in PostgreSQL's hash opclasses.
@@ -184,20 +201,20 @@ import (
   "github.com/multigres/multigres/go/common/shardindex"
 )
 
-func init() { shardindex.Register("region", newIndex) }
+func init() { shardindex.Register("acme.region", newIndex) }
 
 type index struct{ name string }
 
 func newIndex(name string, params map[string]string) (shardindex.ShardIndex, error) {
   // No parameters: any name is unknown.
-  if err := shardindex.CheckParams("region", name, params); err != nil {
+  if err := shardindex.CheckParams("acme.region", name, params); err != nil {
     return nil, err
   }
   return &index{name: name}, nil
 }
 
 func (x *index) Name() string   { return x.name }
-func (x *index) Type() string   { return "region" }
+func (x *index) Type() string   { return "acme.region" }
 func (x *index) Cost() int      { return 1 }
 func (x *index) IsUnique() bool { return true }
 
@@ -225,8 +242,10 @@ import _ "example.com/regionindex"
 
 Rules for an implementation:
 
-- Registering a type name twice panics at start-up. Type names are global:
-  pick one that will not collide with a future built-in.
+- The type name is namespaced, `<namespace>.<name>`, with both parts
+  non-empty. Names without a dot are reserved for built-ins, and registering
+  one, or registering a name twice, panics at start-up.
+- `Map` returns `DestinationNone()` for a NULL rather than an error.
 - All binaries of a cluster must link the implementation, and it must compute
   the same routing identifier in each. Do not depend on the platform, locale,
   time or anything outside the value and the parameters.

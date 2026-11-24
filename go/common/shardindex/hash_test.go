@@ -259,12 +259,10 @@ func TestHash_Errors(t *testing.T) {
 		value Value
 		state string
 	}{
-		"null":             {Value{Type: pgoid.INT8OID, IsNull: true}, mterrors.PgSSNullValueNotAllowed},
-		"null of any type": {Value{Type: pgoid.TEXTOID, IsNull: true}, mterrors.PgSSNullValueNotAllowed},
-		"text":             {Value{Type: pgoid.TEXTOID, Datum: datum.BytesGetDatum([]byte("7"))}, mterrors.PgSSFeatureNotSupported},
-		"bool":             {Value{Type: pgoid.BOOLOID, Datum: datum.BoolGetDatum(true)}, mterrors.PgSSFeatureNotSupported},
-		"oid":              {Value{Type: pgoid.OIDOID, Datum: datum.ObjectIdGetDatum(7)}, mterrors.PgSSFeatureNotSupported},
-		"no type":          {Value{Datum: datum.Int64GetDatum(7)}, mterrors.PgSSFeatureNotSupported},
+		"text":    {Value{Type: pgoid.TEXTOID, Datum: datum.BytesGetDatum([]byte("7"))}, mterrors.PgSSFeatureNotSupported},
+		"bool":    {Value{Type: pgoid.BOOLOID, Datum: datum.BoolGetDatum(true)}, mterrors.PgSSFeatureNotSupported},
+		"oid":     {Value{Type: pgoid.OIDOID, Datum: datum.ObjectIdGetDatum(7)}, mterrors.PgSSFeatureNotSupported},
+		"no type": {Value{Datum: datum.Int64GetDatum(7)}, mterrors.PgSSFeatureNotSupported},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -280,12 +278,65 @@ func TestHash_Errors(t *testing.T) {
 		})
 	}
 
+	// A NULL has no routing identifier, whatever its type.
+	for _, typ := range []pgoid.Oid{pgoid.INT8OID, pgoid.TEXTOID} {
+		_, err := h.Hash(Value{Type: typ, IsNull: true})
+		requireSQLState(t, err, mterrors.PgSSNullValueNotAllowed)
+		assert.Contains(t, err.Error(), `"by_id"`)
+	}
+
 	_, err := New(HashType, "by_id", map[string]string{"seed": "1"})
 	requireSQLState(t, err, mterrors.PgSSInvalidParameterValue)
 	assert.Contains(t, err.Error(), `"seed"`)
 	// An empty map is no parameters.
 	_, err = New(HashType, "by_id", map[string]string{})
 	require.NoError(t, err)
+}
+
+// The int8 fold makes distinct bigints share a routing identifier, so an
+// identifier never identifies a value. These are the pairs the docs quote.
+func TestHash_DistinctValuesShareRoutingID(t *testing.T) {
+	t.Parallel()
+	h := newHash(t)
+	for _, tc := range []struct {
+		a, b int64
+		id   string
+	}{
+		{1, 4294967296, "52d621058124e6d5"},
+		{-1, 4294967295, "ba5fc748095606c2"},
+	} {
+		a, err := h.Hash(intValue(t, tc.a, 8))
+		require.NoError(t, err)
+		b, err := h.Hash(intValue(t, tc.b, 8))
+		require.NoError(t, err)
+		assert.Equal(t, tc.id, hex.EncodeToString(a), "%d", tc.a)
+		assert.Equal(t, tc.id, hex.EncodeToString(b), "%d", tc.b)
+	}
+}
+
+// A NULL is not an error for Map and Verify: col = NULL is true for no row,
+// so it maps to no shard, and the other values of the batch still map.
+func TestHash_Null(t *testing.T) {
+	t.Parallel()
+	h := newHash(t)
+	ctx := context.Background()
+	seven := intValue(t, 7, 8)
+	id, err := h.Hash(seven)
+	require.NoError(t, err)
+
+	// The NULL's type is not looked at.
+	values := []Value{{Type: pgoid.INT8OID, IsNull: true}, seven, {Type: pgoid.TEXTOID, IsNull: true}}
+	destinations, err := h.Map(ctx, nil, values)
+	require.NoError(t, err)
+	require.Len(t, destinations, 3)
+	assert.Equal(t, DestinationNone(), destinations[0])
+	assert.Equal(t, KindRoutingID, destinations[1].Kind())
+	assert.Equal(t, id, destinations[1].RoutingID())
+	assert.Equal(t, DestinationNone(), destinations[2])
+
+	verified, err := h.Verify(ctx, nil, values, [][]byte{id, id, nil})
+	require.NoError(t, err)
+	assert.Equal(t, []bool{false, true, false}, verified)
 }
 
 func TestHash_Verify(t *testing.T) {
