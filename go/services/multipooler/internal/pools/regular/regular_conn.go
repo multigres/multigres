@@ -867,6 +867,40 @@ func execWithContextCancel[T any](c *Conn, ctx context.Context, op func() (T, er
 	}
 }
 
+// WatchContextCancel cancels the backend's running statement if ctx is
+// cancelled before stop is called, as execOnce does for a single call. It is
+// for operations made of many blocking reads that must all be cancellable,
+// such as a COPY ... TO STDOUT stream: one watcher covers every read, instead
+// of a goroutine per read. The reads in flight then fail with PostgreSQL's
+// cancel error, or, if the cancel does not take effect within
+// postCancelDrainGrace, on the force-closed socket.
+//
+// stop must be called once the operation has finished reading, and before the
+// connection is released: it waits for a cancel that has already started, so
+// that cancel cannot reach a later statement on this connection.
+func (c *Conn) WatchContextCancel(ctx context.Context) (stop func()) {
+	finished := make(chan struct{}) // closed by stop
+	requested := make(chan struct{})
+	stopWatch := context.AfterFunc(ctx, func() {
+		c.handleContextCancellation()
+		close(requested)
+		timer := time.NewTimer(postCancelDrainGrace)
+		defer timer.Stop()
+		select {
+		case <-finished:
+		case <-timer.C:
+			c.conn.ForceClose()
+		}
+	})
+	return func() {
+		if stopWatch() {
+			return // ctx was not cancelled in time; nothing ran
+		}
+		close(finished)
+		<-requested
+	}
+}
+
 // --- COPY FROM STDIN operations ---
 
 // InitiateCopyFromStdin sends a COPY FROM STDIN command and reads the CopyInResponse.
