@@ -31,8 +31,9 @@ const ProbeRole = "multigres_probe"
 // GrantProbeReadSQL lets ProbeRole read the heartbeat table. It does nothing
 // if the role or the table is missing, or the grants are already there.
 //
-// The schema check reads the ACL because has_schema_privilege is also true
-// through PUBLIC, and the probe should not depend on that grant.
+// Both checks read the ACLs because has_schema_privilege and
+// has_table_privilege are also true through PUBLIC or a parent role, and the
+// probe should not depend on those grants.
 const GrantProbeReadSQL = `DO $$ BEGIN
 	IF to_regclass('multigres.heartbeat') IS NULL
 		OR NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '` + ProbeRole + `') THEN
@@ -46,7 +47,12 @@ const GrantProbeReadSQL = `DO $$ BEGIN
 	) THEN
 		GRANT USAGE ON SCHEMA multigres TO ` + ProbeRole + `;
 	END IF;
-	IF NOT has_table_privilege('` + ProbeRole + `', 'multigres.heartbeat', 'SELECT') THEN
+	IF NOT EXISTS (
+		SELECT FROM pg_class c, aclexplode(c.relacl) a
+		WHERE c.oid = 'multigres.heartbeat'::regclass
+			AND a.grantee = '` + ProbeRole + `'::regrole
+			AND a.privilege_type = 'SELECT'
+	) THEN
 		GRANT SELECT ON TABLE multigres.heartbeat TO ` + ProbeRole + `;
 	END IF;
 END $$`
