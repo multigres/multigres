@@ -670,8 +670,8 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 		// upgrades the sharding catalog to this binary's catalog format.
 		//
 		// The function createSidecarSchema only ever runs once, at genuine shard
-		// bootstrap, and promoteStandbyToPrimary's equivalent call only fires on an
-		// actual pg_promote() transition. Without this, a plain process restart of
+		// bootstrap, and promoteStandbyToPrimary only re-ensures backend_vpid, the
+		// heartbeat table and the probe grant. Without this, a plain process restart of
 		// an already-primary pooler would never re-ensure them, even after
 		// upgrading to a pooler version that knows about them.
 		if mode, err := pm.postgresMode(ctx); err == nil {
@@ -1786,6 +1786,12 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// table of the release that bootstrapped the shard. Upgrade it before the new
 	// leader's first heartbeat. Never fails the promotion.
 	pm.ensureHeartbeatSchema(ctx)
+
+	// This node opened in recovery and skipped the grant, so a switchover
+	// would otherwise leave the probe locked out until the next open.
+	if err := pm.grantHeartbeatToProbe(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "failed to grant heartbeat read access to the probe role after promotion", "error", err)
+	}
 
 	return nil
 }
