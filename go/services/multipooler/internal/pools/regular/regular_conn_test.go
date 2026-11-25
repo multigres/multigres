@@ -19,6 +19,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -651,6 +652,126 @@ func TestHungQuery_ContextTimeoutNotRespected_AfterSuccessfulCancel(t *testing.T
 			"execWithContextCancel blocks on <-ch after a successful pg_cancel_backend, " +
 			"so a hung statement ignores the context timeout and holds the connection.")
 	}
+}
+
+// --- WatchContextCancel tests ---
+
+// addCancelBackendResult makes the fake server answer pg_cancel_backend with
+// result ("t" or "f"), running onCall (if set) before it answers. It returns a
+// counter of the calls.
+func addCancelBackendResult(server *fakepgserver.Server, result string, onCall func()) *atomic.Int32 {
+	var calls atomic.Int32
+	server.AddQueryPatternWithCallback(`SELECT pg_cancel_backend\(\d+\)`,
+		fakepgserver.MakeResult([]string{"pg_cancel_backend"}, [][]any{{result}}),
+		func(string) {
+			calls.Add(1)
+			if onCall != nil {
+				onCall()
+			}
+		})
+	return &calls
+}
+
+func TestWatchContextCancel_StopBeforeCancel_DoesNothing(t *testing.T) {
+	server := fakepgserver.New(t)
+	t.Cleanup(server.Close)
+	calls := addCancelBackendResult(server, "t", nil)
+	conn := newTestDirectConnWithAdmin(t, server, newTestAdminPool(t, server))
+	defer conn.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stop := conn.WatchContextCancel(ctx)
+	stop()
+	cancel() // after stop: must not cancel anything
+
+	time.Sleep(50 * time.Millisecond)
+	assert.Zero(t, calls.Load(), "no cancel may be sent once stop has returned")
+	assert.False(t, conn.IsClosed())
+}
+
+func TestWatchContextCancel_CancelSendsBackendCancel(t *testing.T) {
+	server := fakepgserver.New(t)
+	t.Cleanup(server.Close)
+	calls := addCancelBackendResult(server, "t", nil)
+	conn := newTestDirectConnWithAdmin(t, server, newTestAdminPool(t, server))
+	defer conn.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stop := conn.WatchContextCancel(ctx)
+	cancel()
+	require.Eventually(t, func() bool { return calls.Load() == 1 }, 5*time.Second, 10*time.Millisecond)
+	stop()
+
+	assert.False(t, conn.IsClosed(), "a delivered cancel leaves the connection open")
+}
+
+func TestWatchContextCancel_NoAdminPool_ClosesConnection(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	conn := newTestDirectConn(t, server) // adminPool is nil
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stop := conn.WatchContextCancel(ctx)
+	cancel()
+	require.Eventually(t, conn.IsClosed, 5*time.Second, 10*time.Millisecond)
+	stop()
+}
+
+// TestWatchContextCancel_StopWaitsForCancelInFlight checks that stop does not
+// return while pg_cancel_backend is still running: otherwise the caller could
+// release the connection and the cancel could reach its next statement.
+func TestWatchContextCancel_StopWaitsForCancelInFlight(t *testing.T) {
+	server := fakepgserver.New(t)
+	t.Cleanup(server.Close)
+	inCancel := make(chan struct{})
+	release := make(chan struct{})
+	addCancelBackendResult(server, "t", func() {
+		close(inCancel)
+		<-release
+	})
+	conn := newTestDirectConnWithAdmin(t, server, newTestAdminPool(t, server))
+	defer conn.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stop := conn.WatchContextCancel(ctx)
+	cancel()
+	<-inCancel
+
+	stopped := make(chan struct{})
+	go func() {
+		stop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+		t.Fatal("stop returned while pg_cancel_backend was still in flight")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stop did not return after the cancel finished")
+	}
+}
+
+// TestWatchContextCancel_ForceClosesWhenCancelIgnored checks that a cancel
+// PostgreSQL reports delivered, but that does not end the operation, still
+// unblocks it: the connection is force-closed after postCancelDrainGrace.
+func TestWatchContextCancel_ForceClosesWhenCancelIgnored(t *testing.T) {
+	server := fakepgserver.New(t)
+	t.Cleanup(server.Close)
+	addCancelBackendResult(server, "t", nil)
+	conn := newTestDirectConnWithAdmin(t, server, newTestAdminPool(t, server))
+	defer conn.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	stop := conn.WatchContextCancel(ctx)
+	defer stop()
+	cancel()
+
+	require.Eventually(t, conn.IsClosed, postCancelDrainGrace+5*time.Second, 50*time.Millisecond,
+		"an operation that ignores the cancel must be unblocked by force-closing the connection")
 }
 
 // TestPool_ClosedConnectionRecycled_CapacityPreserved verifies that when

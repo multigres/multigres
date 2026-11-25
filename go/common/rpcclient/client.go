@@ -231,6 +231,19 @@ type MultipoolerClient interface {
 	// catalog primary pooler.
 	DeleteRoutingRules(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.DeleteRoutingRulesRequest) (*multipoolermanagerdatapb.DeleteRoutingRulesResponse, error)
 
+	// FenceScopes raises an operation's admission fences on a list of scopes
+	// on the catalog primary pooler.
+	FenceScopes(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.FenceScopesRequest) (*multipoolermanagerdatapb.FenceScopesResponse, error)
+
+	// UnfenceScopes lifts an operation's admission fences on a list of scopes
+	// on the catalog primary pooler.
+	UnfenceScopes(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.UnfenceScopesRequest) (*multipoolermanagerdatapb.UnfenceScopesResponse, error)
+
+	// RefreshFences makes a pooler read the admission fences from its
+	// database's catalog primary and apply the ones on its scope, draining it
+	// when it has just become fenced. Served by every pooler.
+	RefreshFences(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.RefreshFencesRequest) (*multipoolermanagerdatapb.RefreshFencesResponse, error)
+
 	//
 	// Manager Service Methods - Tablegroup operations (catalog primary only)
 	//

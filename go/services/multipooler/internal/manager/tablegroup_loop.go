@@ -45,6 +45,8 @@ import (
 // for a change the snapshot contains, and commits. A pooler demoted between
 // the check and the commit cannot commit, because its postgres is read-only,
 // so the role checks are a courtesy rather than the fence.
+// A role mismatch at a write check means another primary now owns the work:
+// leave it pending quietly. Probe and catalog failures are still reported.
 const (
 	// tableGroupOpsInterval is the pass interval. A pass with nothing pending
 	// is two small queries over tiny tables and reads no topology, so the
@@ -261,7 +263,9 @@ func (pm *MultipoolerManager) reconcileCreations(ctx context.Context, ops []oper
 			pending++
 		}
 		if err != nil {
-			pm.logger.WarnContext(ctx, "tablegroup creation not advanced", "operation_id", op.id, "tablegroup", op.request.Name, "error", err)
+			if !isRoleMismatch(err) {
+				pm.logger.WarnContext(ctx, "tablegroup creation not advanced", "operation_id", op.id, "tablegroup", op.request.Name, "error", err)
+			}
 			pending++
 		}
 	}
@@ -269,7 +273,8 @@ func (pm *MultipoolerManager) reconcileCreations(ctx context.Context, ops []oper
 }
 
 // completeCreateTableGroup activates a tablegroup in one catalog write: the
-// operation to done, its shards to active, the tablegroup to active. The
+// operation to done, its fences deleted, its shards to active, the tablegroup
+// to active. The
 // first statement is a compare-and-set on the operation's state and
 // cancellation flag, so a concurrent or repeated completion finds nothing to
 // do and reports no change, and a cancel that landed after this pass read the
@@ -286,6 +291,9 @@ func (pm *MultipoolerManager) completeCreateTableGroup(ctx context.Context, op o
 		}
 		if len(res.Rows) == 0 {
 			return catalogNoSnapshotChange, nil // completed, failed or cancelled by another pass or caller
+		}
+		if err := deleteOperationFences(ctx, tx, op.id); err != nil {
+			return catalogNoSnapshotChange, err
 		}
 		if _, err := tx.QueryArgs(ctx,
 			"UPDATE multigres.shard SET state = $2 WHERE tablegroup_id = $1 AND state = $3",
@@ -308,7 +316,8 @@ func (pm *MultipoolerManager) completeCreateTableGroup(ctx context.Context, op o
 }
 
 // failCreateTableGroup fails a creation in one catalog write: the operation to
-// failed with the reason, and the tablegroup to dropping, which tells the
+// failed with the reason, its fences deleted, and the tablegroup to dropping,
+// which tells the
 // provisioner to remove whatever it provisioned. The rows are deleted by
 // reconcileDroppings once no pooler record and no claim remain, and that is
 // what frees the name for a retry. The operation keeps its request, so it
@@ -325,6 +334,9 @@ func (pm *MultipoolerManager) failCreateTableGroup(ctx context.Context, op opera
 		}
 		if len(res.Rows) == 0 {
 			return catalogNoSnapshotChange, nil
+		}
+		if err := deleteOperationFences(ctx, tx, op.id); err != nil {
+			return catalogNoSnapshotChange, err
 		}
 		if _, err := tx.QueryArgs(ctx,
 			"UPDATE multigres.tablegroup SET state = $2 WHERE tablegroup_id = $1 AND state = $3",
@@ -367,7 +379,9 @@ func (pm *MultipoolerManager) reconcileDroppings(ctx context.Context, groups []d
 			continue
 		}
 		if err := pm.finishDropTableGroup(ctx, tg.name, tg.id); err != nil {
-			pm.logger.WarnContext(ctx, "dropping tablegroup not deleted", "tablegroup", tg.name, "tablegroup_id", tg.id, "error", err)
+			if !isRoleMismatch(err) {
+				pm.logger.WarnContext(ctx, "dropping tablegroup not deleted", "tablegroup", tg.name, "tablegroup_id", tg.id, "error", err)
+			}
 			pending++
 		}
 	}
@@ -390,13 +404,19 @@ func (pm *MultipoolerManager) tableGroupClaimHeld(ctx context.Context, id int64)
 }
 
 // finishDropTableGroup deletes a dropping tablegroup in one catalog write:
-// its shard rows, its tablegroup row, and any drop operation on it to done.
+// its shard rows, its tablegroup row, and any drop operation on it to done,
+// with that operation's fences deleted. A fence on the tablegroup refuses the
+// write, and the tablegroup stays pending (see
+// checkDroppingTableGroupUnfenced).
 // The tablegroup delete is conditional on the state, so a concurrent or
 // repeated pass finds nothing to delete and reports no change. A failed
 // creation has no drop operation; its creation operation already reads
 // failed.
 func (pm *MultipoolerManager) finishDropTableGroup(ctx context.Context, name string, id int64) error {
 	_, err := pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {
+		if err := checkDroppingTableGroupUnfenced(ctx, tx, name, id); err != nil {
+			return catalogNoSnapshotChange, err
+		}
 		if _, err := tx.QueryArgs(ctx,
 			"DELETE FROM multigres.shard WHERE tablegroup_id = $1 AND EXISTS (SELECT 1 FROM multigres.tablegroup WHERE tablegroup_id = $1 AND state = $2)",
 			id, tableGroupStateDropping); err != nil {
@@ -411,10 +431,20 @@ func (pm *MultipoolerManager) finishDropTableGroup(ctx context.Context, name str
 		if len(res.Rows) == 0 {
 			return catalogNoSnapshotChange, nil // deleted by another pass
 		}
-		if _, err := tx.QueryArgs(ctx,
-			"UPDATE multigres.operation SET state = $3, last_error = NULL, updated_at = now() WHERE kind = $1 AND state = $2 AND (request->>'tablegroup_id')::bigint = $4",
-			operationKindDropTableGroup, operationStateDropping, operationStateDone, id); err != nil {
+		res, err = tx.QueryArgs(ctx,
+			"UPDATE multigres.operation SET state = $3, last_error = NULL, updated_at = now() WHERE kind = $1 AND state = $2 AND (request->>'tablegroup_id')::bigint = $4 RETURNING operation_id::text",
+			operationKindDropTableGroup, operationStateDropping, operationStateDone, id)
+		if err != nil {
 			return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to complete drop operation")
+		}
+		for _, row := range res.Rows {
+			var opID string
+			if err := executor.ScanRow(row, &opID); err != nil {
+				return catalogNoSnapshotChange, mterrors.Wrap(err, "failed to read completed drop operation")
+			}
+			if err := deleteOperationFences(ctx, tx, opID); err != nil {
+				return catalogNoSnapshotChange, err
+			}
 		}
 		pm.logger.InfoContext(ctx, "tablegroup is gone", "tablegroup", name, "tablegroup_id", id)
 		return catalogRoutingChange, nil
@@ -432,7 +462,7 @@ func (pm *MultipoolerManager) writeOperationRow(ctx context.Context, what, query
 		_, err := tx.QueryArgs(ctx, query, args...)
 		return catalogNoSnapshotChange, err
 	})
-	if err != nil {
+	if err != nil && !isRoleMismatch(err) {
 		pm.logger.WarnContext(ctx, "failed to "+what, "error", err)
 	}
 }

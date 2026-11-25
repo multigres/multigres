@@ -16,11 +16,14 @@ package backup
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -327,4 +330,75 @@ func TestEngineAccessors(t *testing.T) {
 	e, _ := newTestEngine(t, t.TempDir(), "test-tg", "myshard", "/tmp/backups")
 	assert.Equal(t, "myshard", e.shardID())
 	assert.NotNil(t, e.Metrics())
+}
+
+func TestIOTimeoutArgs(t *testing.T) {
+	withTimeout := func(d time.Duration) context.Context {
+		ctx, cancel := context.WithTimeout(context.Background(), d)
+		t.Cleanup(cancel)
+		return ctx
+	}
+
+	tests := []struct {
+		name string
+		ctx  context.Context
+		want []string
+	}{
+		{name: "no deadline leaves pgbackrest's default", ctx: context.Background()},
+		{name: "30s context gets two thirds", ctx: withTimeout(30 * time.Second), want: []string{"--io-timeout=19"}},
+		{name: "5s context gets a few seconds", ctx: withTimeout(5 * time.Second), want: []string{"--io-timeout=3"}},
+		{name: "sub-second context is raised to one second", ctx: withTimeout(500 * time.Millisecond), want: []string{"--io-timeout=1"}},
+		{name: "expired context is raised to one second", ctx: withTimeout(-time.Second), want: []string{"--io-timeout=1"}},
+		{name: "context longer than the default needs no override", ctx: withTimeout(2 * time.Minute)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, ioTimeoutArgs(tt.ctx))
+		})
+	}
+}
+
+// TestPgbackrestCmd_IOTimeout checks --io-timeout reaches repository commands
+// and not start and stop, which reject it.
+func TestPgbackrestCmd_IOTimeout(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "calls")
+	stubPgbackrest(t, fmt.Sprintf("#!/bin/bash\necho \"$*\" >> %s\n", callLog))
+	e, _ := newTestEngine(t, t.TempDir(), "", "", "/tmp/backups")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	require.NoError(t, e.pgbackrestIOTimeoutCmd(ctx, "info").Run())
+	require.NoError(t, e.pgbackrestCmd(ctx, "stop").Run())
+
+	data, err := os.ReadFile(callLog)
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	require.Len(t, lines, 2)
+	require.Equal(t, "--io-timeout=19 info", lines[0])
+	require.Equal(t, "stop", lines[1])
+}
+
+// TestRepositoryCommandsPassIOTimeout checks info and stanza-create pass an
+// --io-timeout derived from their own timeouts.
+func TestRepositoryCommandsPassIOTimeout(t *testing.T) {
+	callLog := filepath.Join(t.TempDir(), "calls")
+	stubPgbackrest(t, fmt.Sprintf("#!/bin/bash\necho \"$*\" >> %s\n", callLog))
+	poolerDir := t.TempDir()
+	e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
+	configPath := setupMockPgBackRestConfig(t, poolerDir)
+	e.SetConfigPath(configPath)
+
+	_, err := e.runInfoCmd(context.Background(), configPath)
+	require.NoError(t, err)
+	require.NoError(t, e.StanzaCreate(context.Background()))
+
+	data, err := os.ReadFile(callLog)
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	require.Len(t, lines, 2)
+	assert.True(t, strings.HasPrefix(lines[0], "--io-timeout=19 "), lines[0])
+	assert.Contains(t, lines[0], " info")
+	assert.True(t, strings.HasPrefix(lines[1], "--io-timeout=3 "), lines[1])
+	assert.Contains(t, lines[1], " stanza-create")
 }

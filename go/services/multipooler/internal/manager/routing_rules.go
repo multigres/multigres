@@ -124,6 +124,9 @@ type routingCatalog struct {
 	// otherOperations maps the catalog id of each tablegroup that another
 	// unfinished operation acts on to that operation's id.
 	otherOperations map[int64]string
+
+	// fences is every admission fence, in fence_id order.
+	fences []catalogFence
 }
 
 // shardRuleSpec is a requested shard rule: the routing identifiers of
@@ -157,11 +160,13 @@ type routingRulePlan struct {
 
 // planRoutingRuleChange validates change against cat and returns what to
 // write. Malformed requests fail with INVALID_ARGUMENT; a stale
-// expectedRoutingVersion or a change the catalog does not allow fails with
+// expectedRoutingVersion, a change the catalog does not allow, or one whose
+// rules are not fenced by the operation (checkRuleFences) fails with
 // FAILED_PRECONDITION.
 //
 // A change whose result already holds returns a noop plan whatever its
-// expectedRoutingVersion, so a retry of a change that committed succeeds.
+// expectedRoutingVersion, and needs no fences, so a retry of a change that
+// committed succeeds even after the operation has unfenced.
 func planRoutingRuleChange(cat *routingCatalog, change routingRuleChange) (routingRulePlan, error) {
 	if err := checkRuleChangeRequest(change); err != nil {
 		return routingRulePlan{}, err
@@ -201,11 +206,28 @@ func planRoutingRuleChange(cat *routingCatalog, change routingRuleChange) (routi
 	if err := cat.checkRuleSet(kept, insert); err != nil {
 		return routingRulePlan{}, err
 	}
+	// Removing a rule changes where traffic goes as much as inserting one.
+	if err := cat.checkRuleFences(change.operationID, removed, insert); err != nil {
+		return routingRulePlan{}, err
+	}
 
 	return routingRulePlan{
 		insert:        insert,
 		bumpPlanEpoch: cat.needsPlanEpochBump(removed) || cat.needsPlanEpochBump(insert),
 	}, nil
+}
+
+// canonicalOperationID returns id in the form the catalog reads operation ids
+// back in (operation_id::text: lowercase and hyphenated), so ids from a
+// request compare equal to the ones stored. uuid.Parse also accepts upper
+// case, no hyphens, braces and a urn:uuid: prefix. An id that is not a uuid is
+// returned unchanged, for checkRuleChangeRequest to refuse.
+func canonicalOperationID(id string) string {
+	u, err := uuid.Parse(id)
+	if err != nil {
+		return id
+	}
+	return u.String()
 }
 
 // checkRuleChangeRequest checks the shape of a change, before it is resolved

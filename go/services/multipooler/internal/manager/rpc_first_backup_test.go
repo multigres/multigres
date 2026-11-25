@@ -17,9 +17,11 @@ package manager
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -452,11 +454,21 @@ func TestCreateFirstBackupAndInitialize_CleansUpAfterLaterFailure(t *testing.T) 
 	assert.Equal(t, "immediate", pgctld.lastStopReq.Mode)
 }
 
+// installPgbackrestStub puts a fake pgbackrest on PATH that succeeds for every command.
+func installPgbackrestStub(t *testing.T) {
+	t.Helper()
+	binDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "pgbackrest"), []byte("#!/bin/bash\nexit 0\n"), 0o755))
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+}
+
 // writeMockPgBackRestConfig writes a minimal pgbackrest.conf so that
 // ConfigureArchiveMode's config-path existence check passes. Only the file's
 // presence matters here; its contents are not parsed by ConfigureArchiveMode.
+// It also installs a fake pgbackrest.
 func writeMockPgBackRestConfig(t *testing.T, poolerDir string) string {
 	t.Helper()
+	installPgbackrestStub(t)
 	pgbackrestDir := filepath.Join(poolerDir, "pgbackrest")
 	require.NoError(t, os.MkdirAll(pgbackrestDir, 0o755))
 	configPath := filepath.Join(pgbackrestDir, "pgbackrest.conf")
@@ -928,4 +940,219 @@ func TestWithBackupLease_ReturnsNodeExistsWhenHeld(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, &topoclient.TopoError{Code: topoclient.NodeExists}),
 		"expected NodeExists when lease is held, got: %v", err)
+}
+
+func TestClearArchiveSpool(t *testing.T) {
+	t.Run("removes acknowledgements left by an earlier attempt", func(t *testing.T) {
+		poolerDir := t.TempDir()
+		outDir := filepath.Join(poolerDir, "pgbackrest", "spool", "archive", "multigres", "out")
+		require.NoError(t, os.MkdirAll(outDir, 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(outDir, "000000010000000000000001.ok"), nil, 0o640))
+
+		require.NoError(t, clearArchiveSpool(poolerDir))
+
+		_, err := os.Stat(filepath.Join(poolerDir, "pgbackrest", "spool", "archive"))
+		assert.True(t, os.IsNotExist(err))
+		_, err = os.Stat(filepath.Join(poolerDir, "pgbackrest", "spool"))
+		assert.NoError(t, err, "the spool directory itself must stay for pgbackrest")
+	})
+
+	t.Run("is a no-op when there is no spool", func(t *testing.T) {
+		require.NoError(t, clearArchiveSpool(t.TempDir()))
+	})
+}
+
+// stepRecordingPgctldClient logs initdb (with the spool state) and postgres start.
+type stepRecordingPgctldClient struct {
+	successStubPgctldClient
+	log       string
+	spoolFile string
+	t         *testing.T
+}
+
+func appendLine(t *testing.T, path, line string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	require.NoError(t, err)
+	defer f.Close()
+	_, err = f.WriteString(line + "\n")
+	require.NoError(t, err)
+}
+
+func (s *stepRecordingPgctldClient) InitDataDir(ctx context.Context, req *pgctldpb.InitDataDirRequest, opts ...grpc.CallOption) (*pgctldpb.InitDataDirResponse, error) {
+	state := "spool-cleared"
+	if _, err := os.Stat(s.spoolFile); err == nil {
+		state = "spool-present"
+	}
+	appendLine(s.t, s.log, "initdb "+state)
+	return s.successStubPgctldClient.InitDataDir(ctx, req, opts...)
+}
+
+func (s *stepRecordingPgctldClient) Start(ctx context.Context, req *pgctldpb.StartRequest, opts ...grpc.CallOption) (*pgctldpb.StartResponse, error) {
+	appendLine(s.t, s.log, "postgres-start")
+	return s.successStubPgctldClient.Start(ctx, req, opts...)
+}
+
+// bootstrapStepHarness runs bootstrap up to PostgreSQL start with a stale archive
+// acknowledgement planted, a pgctld stub that logs its steps, and a pgbackrest
+// stub built from the caller's script.
+type bootstrapStepHarness struct {
+	pm        *MultipoolerManager
+	pgctld    *stepRecordingPgctldClient
+	poolerDir string
+	dataDir   string
+	stepLog   string
+}
+
+func newBootstrapStepHarness(t *testing.T, pgbackrestScript func(autoConf, stepLog string) string) *bootstrapStepHarness {
+	t.Helper()
+	ctx := t.Context()
+
+	store, _ := memorytopo.NewServerAndFactory(ctx, "test-cell")
+	t.Cleanup(func() { store.Close() })
+
+	const dbName = "testdb"
+	require.NoError(t, store.CreateDatabase(ctx, dbName, &clustermetadatapb.Database{
+		Name:                      dbName,
+		BootstrapDurabilityPolicy: topoclient.AtLeastN(2),
+	}))
+
+	poolerDir := t.TempDir()
+	dataDir := filepath.Join(poolerDir, "pg_data")
+	t.Setenv(constants.PgDataDirEnvVar, dataDir)
+	configPath := writeMockPgBackRestConfig(t, poolerDir)
+
+	stepLog := filepath.Join(t.TempDir(), "steps")
+	binDir := t.TempDir()
+	script := pgbackrestScript(filepath.Join(dataDir, "postgresql.auto.conf"), stepLog)
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "pgbackrest"), []byte(script), 0o755))
+	t.Setenv("PATH", binDir+":"+os.Getenv("PATH"))
+
+	staleAck := filepath.Join(poolerDir, "pgbackrest", "spool", "archive", "multigres", "out", "000000010000000000000001.ok")
+	require.NoError(t, os.MkdirAll(filepath.Dir(staleAck), 0o750))
+	require.NoError(t, os.WriteFile(staleAck, nil, 0o640))
+
+	pgctld := &stepRecordingPgctldClient{
+		successStubPgctldClient: successStubPgctldClient{
+			pgDataDir: dataDir,
+			startErr:  mterrors.New(mtrpcpb.Code_UNAVAILABLE, "stub: start failed"),
+		},
+		log:       stepLog,
+		spoolFile: staleAck,
+		t:         t,
+	}
+
+	pm := &MultipoolerManager{
+		logger:       slog.Default(),
+		topoClient:   store,
+		actionLock:   actionlock.NewActionLock(),
+		pgctldClient: pgctld,
+		record: newRecordFromProto(&clustermetadatapb.Multipooler{
+			PoolerDir: poolerDir,
+			ShardRef: &clustermetadatapb.ShardRef{
+				Database:   dbName,
+				TableGroup: constants.DefaultTableGroup,
+				Shard:      constants.DefaultShard,
+			},
+		}),
+		config: &Config{},
+	}
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: dataDir})
+	pm.backup.SetConfigPath(configPath)
+	backupCfg, err := commonbackup.NewConfig(utils.FilesystemBackupLocation(filepath.Join(poolerDir, "backups")))
+	require.NoError(t, err)
+	pm.backup.SetBackupConfig(backupCfg)
+
+	return &bootstrapStepHarness{pm: pm, pgctld: pgctld, poolerDir: poolerDir, dataDir: dataDir, stepLog: stepLog}
+}
+
+func (h *bootstrapStepHarness) run(t *testing.T) error {
+	t.Helper()
+	lockCtx, err := h.pm.actionLock.Acquire(t.Context(), "test")
+	require.NoError(t, err)
+	defer h.pm.actionLock.Release(lockCtx)
+
+	_, _, err = h.pm.createFirstBackupAndInitializeLocked(lockCtx)
+	return err
+}
+
+func (h *bootstrapStepHarness) steps(t *testing.T) []string {
+	t.Helper()
+	data, err := os.ReadFile(h.stepLog)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	require.NoError(t, err)
+	return strings.Split(strings.TrimSpace(string(data)), "\n")
+}
+
+func (h *bootstrapStepHarness) requireCleanedUp(t *testing.T) {
+	t.Helper()
+	assert.NoDirExists(t, h.dataDir, "data directory should be removed after the failure")
+	assert.NoFileExists(t, filepath.Join(h.poolerDir, constants.BootstrapSentinelFile),
+		"sentinel should be removed once cleanup succeeded")
+	require.NotNil(t, h.pgctld.lastStopReq, "cleanup must stop postgres")
+}
+
+// TestCreateFirstBackupAndInitialize_StepOrder pins the step order: the spool is
+// cleared before initdb, and `pgbackrest start` runs after the archive config is
+// written and before postgres starts.
+func TestCreateFirstBackupAndInitialize_StepOrder(t *testing.T) {
+	h := newBootstrapStepHarness(t, func(autoConf, stepLog string) string {
+		return fmt.Sprintf(`#!/bin/bash
+if [ "${@: -1}" = start ]; then
+  if grep -q archive_mode %[1]q 2>/dev/null; then
+    echo "pgbackrest-start after-archive-config" >> %[2]q
+  else
+    echo "pgbackrest-start before-archive-config" >> %[2]q
+  fi
+fi
+exit 0
+`, autoConf, stepLog)
+	})
+
+	require.ErrorContains(t, h.run(t), "failed to start PostgreSQL")
+
+	assert.Equal(t, []string{
+		"initdb spool-cleared",
+		"pgbackrest-start after-archive-config",
+		"postgres-start",
+	}, h.steps(t))
+}
+
+// TestCreateFirstBackupAndInitialize_StanzaStartFails checks a failed
+// `pgbackrest start` aborts bootstrap before postgres starts, with cleanup.
+func TestCreateFirstBackupAndInitialize_StanzaStartFails(t *testing.T) {
+	h := newBootstrapStepHarness(t, func(_, stepLog string) string {
+		return fmt.Sprintf(`#!/bin/bash
+if [ "${@: -1}" = start ]; then
+  echo "pgbackrest-start failed" >> %q
+  exit 1
+fi
+exit 0
+`, stepLog)
+	})
+
+	require.ErrorContains(t, h.run(t), "failed to start the pgbackrest stanza")
+
+	assert.Equal(t, []string{"initdb spool-cleared", "pgbackrest-start failed"}, h.steps(t))
+	h.requireCleanedUp(t)
+}
+
+// TestCreateFirstBackupAndInitialize_ClearArchiveSpoolFails checks a spool that
+// cannot be cleared aborts bootstrap before initdb, with cleanup.
+func TestCreateFirstBackupAndInitialize_ClearArchiveSpoolFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("directory permissions do not stop root from removing the spool")
+	}
+	h := newBootstrapStepHarness(t, func(_, _ string) string { return "#!/bin/bash\nexit 0\n" })
+	spool := filepath.Join(h.poolerDir, "pgbackrest", "spool")
+	require.NoError(t, os.Chmod(spool, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(spool, 0o755) })
+
+	require.ErrorContains(t, h.run(t), "failed to clear stale archive spool")
+
+	assert.Empty(t, h.steps(t), "initdb must not run when the spool cannot be cleared")
+	assert.NoFileExists(t, filepath.Join(h.poolerDir, constants.BootstrapSentinelFile))
+	require.NotNil(t, h.pgctld.lastStopReq, "cleanup must stop postgres")
 }

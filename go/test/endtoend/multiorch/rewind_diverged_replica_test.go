@@ -236,6 +236,10 @@ func TestRewindDivergedReplica(t *testing.T) {
 	// which the not-replicating problem clears.
 	setup.RequireRecovery(t, "multiorch", shardsetup.RecoveryScenarioFixReplication)
 
+	// No detected problems doesn't mean R1 is back: its postgres can still be
+	// stopped mid-rewind. Wait until it streams from the primary before connecting.
+	verifyReplicaReplicating(t, setup, r1Name, "")
+
 	// Verify data consistency: baseline present, diverged row absent
 	r1DBAfter := connectToPostgres(t, r1SocketDir, r1Inst.Pgctld.PgPort)
 	defer r1DBAfter.Close()

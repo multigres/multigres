@@ -353,3 +353,181 @@ func TestCache_RuleOrdering(t *testing.T) {
 		assert.Same(t, installed, c.Snapshot(testDB))
 	})
 }
+
+// The target the wait tests wait on: the default tablegroup's only shard.
+const (
+	testTableGroup = "default"
+	testShard      = "0-inf"
+)
+
+// waitResult starts WaitForUnfenced on the test target in the background and
+// returns the channel its result arrives on.
+func waitResult(ctx context.Context, c *Cache, name string) <-chan error {
+	done := make(chan error, 1)
+	go func() { done <- c.WaitForUnfenced(ctx, name, testTableGroup, testShard) }()
+	return done
+}
+
+// requireBlocked checks, after a quiet period, that no wait has returned.
+func requireBlocked(t *testing.T, dones ...<-chan error) {
+	t.Helper()
+	time.Sleep(quietPeriod)
+	for _, done := range dones {
+		select {
+		case err := <-done:
+			require.FailNow(t, "WaitForUnfenced returned early", "err: %v", err)
+		default:
+		}
+	}
+}
+
+// settle lets the fetches the first observation triggered finish, so a later
+// fetch count is only what the test causes.
+func settle(t *testing.T, f *fakePrimary) int {
+	t.Helper()
+	time.Sleep(quietPeriod)
+	return f.callCount()
+}
+
+func requireReturned(t *testing.T, done <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(waitFor):
+		require.FailNow(t, "WaitForUnfenced never returned")
+		return nil
+	}
+}
+
+// fencedAt is snapshotAt with an admission fence on the default tablegroup's
+// shard, or on the whole tablegroup when onShard is false.
+func fencedAt(routingVersion int64, onShard bool) *shardingcatalogpb.Snapshot {
+	s := snapshotAt(routingVersion)
+	f := &shardingcatalogpb.Fence{
+		FenceId: 1, OperationId: "00000000-0000-0000-0000-000000000001", TablegroupId: 1,
+		State: shardingcatalogpb.FenceState_FENCE_STATE_FENCED, Version: routingVersion,
+	}
+	if onShard {
+		shardID := int64(1)
+		f.ShardId = &shardID
+	}
+	s.Fences = []*shardingcatalogpb.Fence{f}
+	return s
+}
+
+// A newer snapshot that still fences the target does not end the wait; the
+// one that lifts the fence does. A fence on the whole tablegroup fences its
+// shards too.
+func TestWaitForUnfenced_WaitsForTheFenceToLift(t *testing.T) {
+	for name, onShard := range map[string]bool{"shard fence": true, "tablegroup fence": false} {
+		t.Run(name, func(t *testing.T) {
+			f := &fakePrimary{catalog: fencedAt(3, onShard)}
+			c := newTestCache(t, f, noPoll)
+			c.ObserveCatalogShard(testDB, true, nil, 3)
+			waitForVersion(t, c, 3)
+
+			done := waitResult(t.Context(), c, testDB)
+			requireBlocked(t, done)
+			f.set(fencedAt(4, onShard), nil)
+			c.ObserveCatalogShard(testDB, true, nil, 4)
+			waitForVersion(t, c, 4)
+			requireBlocked(t, done)
+
+			f.set(snapshotAt(5), nil)
+			c.ObserveCatalogShard(testDB, true, nil, 5)
+			require.NoError(t, requireReturned(t, done))
+		})
+	}
+}
+
+// A snapshot that already shows the target unfenced returns at once: the
+// pooler that refused has not caught up with it, and the caller retries. The
+// wait still fetches, so a gateway whose snapshot does not show the fence yet
+// learns of it.
+func TestWaitForUnfenced_AlreadyUnfencedReturnsAtOnceAndFetches(t *testing.T) {
+	f := &fakePrimary{catalog: snapshotAt(6)}
+	c := newTestCache(t, f, noPoll)
+	c.ObserveCatalogShard(testDB, true, nil, 6)
+	waitForVersion(t, c, 6)
+	calls := settle(t, f)
+
+	require.NoError(t, c.WaitForUnfenced(t.Context(), testDB, testTableGroup, testShard))
+	waitForCalls(t, f, calls+1)
+
+	// The fetch it triggered installs the fence it did not know of, and the
+	// next wait waits for the fence to lift.
+	f.set(fencedAt(7, true), nil)
+	require.NoError(t, c.WaitForUnfenced(t.Context(), testDB, testTableGroup, testShard))
+	waitForVersion(t, c, 7)
+	done := waitResult(t.Context(), c, testDB)
+	requireBlocked(t, done)
+	f.set(snapshotAt(8), nil)
+	c.ObserveCatalogShard(testDB, true, nil, 8)
+	require.NoError(t, requireReturned(t, done))
+}
+
+// A database the cache has never seen starts its fetch loop, and the wait
+// ends with its first install that does not fence the target.
+func TestWaitForUnfenced_UnseenDatabase(t *testing.T) {
+	f := &fakePrimary{catalog: snapshotAt(2)}
+	c := newTestCache(t, f, noPoll)
+	require.NoError(t, requireReturned(t, waitResult(t.Context(), c, testDB)))
+	assert.Equal(t, []string{testDB}, c.Databases())
+	assert.Equal(t, int64(2), c.Snapshot(testDB).RoutingVersion())
+}
+
+func TestWaitForUnfenced_HonoursItsContext(t *testing.T) {
+	f := &fakePrimary{catalog: fencedAt(3, true)}
+	c := newTestCache(t, f, noPoll)
+	c.ObserveCatalogShard(testDB, true, nil, 3)
+	waitForVersion(t, c, 3)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := waitResult(ctx, c, testDB)
+	requireBlocked(t, done)
+	cancel()
+	assert.ErrorIs(t, requireReturned(t, done), context.Canceled)
+
+	ctx, cancel = context.WithTimeout(t.Context(), quietPeriod)
+	defer cancel()
+	assert.ErrorIs(t, c.WaitForUnfenced(ctx, testDB, testTableGroup, testShard), context.DeadlineExceeded)
+}
+
+// Many waiters on one database are all released by the install that lifts the
+// fence.
+func TestWaitForUnfenced_ManyWaiters(t *testing.T) {
+	f := &fakePrimary{catalog: fencedAt(3, true)}
+	c := newTestCache(t, f, noPoll)
+	c.ObserveCatalogShard(testDB, true, nil, 3)
+	waitForVersion(t, c, 3)
+
+	const n = 50
+	var dones []<-chan error
+	for range n {
+		dones = append(dones, waitResult(t.Context(), c, testDB))
+	}
+	requireBlocked(t, dones...)
+
+	f.set(snapshotAt(4), nil)
+	c.ObserveCatalogShard(testDB, true, nil, 4)
+	for _, done := range dones {
+		require.NoError(t, requireReturned(t, done))
+	}
+}
+
+// A fence on another shard, or a target the snapshot does not know, does not
+// hold the wait.
+func TestWaitForUnfenced_OtherTargetsAreUnfenced(t *testing.T) {
+	f := &fakePrimary{catalog: fencedAt(4, true)}
+	c := newTestCache(t, f, noPoll)
+	c.ObserveCatalogShard(testDB, true, nil, 4)
+	waitForVersion(t, c, 4)
+
+	require.NoError(t, c.WaitForUnfenced(t.Context(), testDB, testTableGroup, "80-inf"), "another shard")
+	require.NoError(t, c.WaitForUnfenced(t.Context(), testDB, "commerce", testShard), "an unknown tablegroup")
+
+	ctx, cancel := context.WithTimeout(t.Context(), quietPeriod)
+	defer cancel()
+	assert.ErrorIs(t, c.WaitForUnfenced(ctx, testDB, testTableGroup, testShard), context.DeadlineExceeded, "the fenced shard")
+}

@@ -77,10 +77,15 @@ func (s *QueryPoolerServer) ServeReplication(
 
 	// A replication stream opens a fresh, dedicated, session-pinned backend, so
 	// it is admitted like a new reservation (rejected during graceful drain).
-	if err := s.StartRequest(init.GetTarget(), AdmissionKind(0, true)); err != nil {
+	adm, err := s.StartRequest(init.GetTarget(), AdmissionKind(0, true))
+	if err != nil {
 		s.ReplicationMetrics().RecordSetupError(replication.SetupErrorAdmissionRejected)
 		return err
 	}
+	// The drains never wait for a replication stream (see
+	// NewLogicalReplicationConn): it cannot write. So the admission ends at
+	// once, and only its check applies.
+	adm.Done()
 
 	pm := s.PoolManager()
 	if pm == nil {

@@ -188,8 +188,10 @@ artifacts are emitted.
 ## CI integration
 
 `pgparity` runs as part of the normal integration test suite in
-`.github/workflows/test-integration.yml`, which executes
-`go test ./go/test/endtoend/...` on every push and PR to `main`. There is no
+`.github/workflows/test-integration.yml`, on every push and PR to `main`. That
+workflow splits the end-to-end tree into one job per slice; pgparity runs in
+the `rest` slice against a multigres shard, and again in the
+`minigres-queryserving-*` slices against a single minigres process. There is no
 separate cron, workflow, or label gate — a parity regression fails the standard
 integration check like any other bug.
 
@@ -201,7 +203,6 @@ go/test/endtoend/queryserving/pgparity/
 ├── pgparity_test.go          # TestPgParity orchestrator, divergence check
 ├── parser.go                 # .slt file parser
 ├── runner.go                 # pgx-based execution + result comparison
-├── schema.go                 # Between-file schema reset helper
 ├── parser_test.go            # Parser unit tests
 ├── runner_test.go            # formatValue / rowsort / comparison unit tests
 ├── corpus_parse_test.go      # Parses every testdata file to catch typos
@@ -219,8 +220,9 @@ go/test/endtoend/queryserving/pgparity/
 1. **Create the file.** Drop `<topic>.slt` under
    `go/test/endtoend/queryserving/pgparity/testdata/`. Group related SQL in one file — the
    parser reuses connection state within a file, so DDL and the queries that
-   exercise it belong together. Between files, the schema is reset (DROP
-   SCHEMA public CASCADE), so you can assume a clean slate at the top.
+   exercise it belong together. Before each target runs a file, the `public`
+   schema is reset (`suiteutil.ResetPublicSchema`, always over the direct
+   postgres connection), so you can assume a clean slate at the top.
 
 2. **Write records.** Each record is a directive header, the SQL, and (for
    `query`) a `----` separator plus expected rows. Separate records with a

@@ -60,6 +60,7 @@ const (
 	MultiadminService_GetMigrationJournal_FullMethodName        = "/multiadmin.MultiadminService/GetMigrationJournal"
 	MultiadminService_SetMigrationDirection_FullMethodName      = "/multiadmin.MultiadminService/SetMigrationDirection"
 	MultiadminService_DropMigration_FullMethodName              = "/multiadmin.MultiadminService/DropMigration"
+	MultiadminService_ReseedReverseLink_FullMethodName          = "/multiadmin.MultiadminService/ReseedReverseLink"
 	MultiadminService_CreateConnection_FullMethodName           = "/multiadmin.MultiadminService/CreateConnection"
 	MultiadminService_GetConnection_FullMethodName              = "/multiadmin.MultiadminService/GetConnection"
 	MultiadminService_ListConnections_FullMethodName            = "/multiadmin.MultiadminService/ListConnections"
@@ -67,6 +68,8 @@ const (
 	MultiadminService_GetRoutingRules_FullMethodName            = "/multiadmin.MultiadminService/GetRoutingRules"
 	MultiadminService_SetRoutingRules_FullMethodName            = "/multiadmin.MultiadminService/SetRoutingRules"
 	MultiadminService_DeleteRoutingRules_FullMethodName         = "/multiadmin.MultiadminService/DeleteRoutingRules"
+	MultiadminService_FenceScopes_FullMethodName                = "/multiadmin.MultiadminService/FenceScopes"
+	MultiadminService_UnfenceScopes_FullMethodName              = "/multiadmin.MultiadminService/UnfenceScopes"
 )
 
 // MultiadminServiceClient is the client API for MultiadminService service.
@@ -269,6 +272,9 @@ type MultiadminServiceClient interface {
 	SetMigrationDirection(ctx context.Context, in *migrator.SetMigrationDirectionRequest, opts ...grpc.CallOption) (*migrator.SetMigrationDirectionResponse, error)
 	// DropMigration tears down and removes a migration.
 	DropMigration(ctx context.Context, in *migrator.DropMigrationRequest, opts ...grpc.CallOption) (*migrator.DropMigrationResponse, error)
+	// ReseedReverseLink repairs a degraded EXPORT reverse link: an explicit,
+	// operator-triggered full-copy reseed.
+	ReseedReverseLink(ctx context.Context, in *migrator.ReseedReverseLinkRequest, opts ...grpc.CallOption) (*migrator.ReseedReverseLinkResponse, error)
 	// CreateConnection stores a named source conninfo, shard-scoped.
 	CreateConnection(ctx context.Context, in *migrator.CreateConnectionRequest, opts ...grpc.CallOption) (*migrator.CreateConnectionResponse, error)
 	// GetConnection returns one connection, addressed by ref (id or name).
@@ -286,6 +292,13 @@ type MultiadminServiceClient interface {
 	SetRoutingRules(ctx context.Context, in *multipoolermanagerdata.SetRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.SetRoutingRulesResponse, error)
 	// DeleteRoutingRules deletes every routing rule of an operation.
 	DeleteRoutingRules(ctx context.Context, in *multipoolermanagerdata.DeleteRoutingRulesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error)
+	// FenceScopes raises an operation's admission fences on a list of scopes,
+	// in one catalog write. Scopes already fenced are skipped, so a retry
+	// succeeds. It records intent only: nothing enforces fences yet.
+	FenceScopes(ctx context.Context, in *multipoolermanagerdata.FenceScopesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.FenceScopesResponse, error)
+	// UnfenceScopes lifts an operation's admission fences on a list of scopes,
+	// in one catalog write.
+	UnfenceScopes(ctx context.Context, in *multipoolermanagerdata.UnfenceScopesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UnfenceScopesResponse, error)
 }
 
 type multiadminServiceClient struct {
@@ -546,6 +559,16 @@ func (c *multiadminServiceClient) DropMigration(ctx context.Context, in *migrato
 	return out, nil
 }
 
+func (c *multiadminServiceClient) ReseedReverseLink(ctx context.Context, in *migrator.ReseedReverseLinkRequest, opts ...grpc.CallOption) (*migrator.ReseedReverseLinkResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(migrator.ReseedReverseLinkResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_ReseedReverseLink_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multiadminServiceClient) CreateConnection(ctx context.Context, in *migrator.CreateConnectionRequest, opts ...grpc.CallOption) (*migrator.CreateConnectionResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(migrator.CreateConnectionResponse)
@@ -610,6 +633,26 @@ func (c *multiadminServiceClient) DeleteRoutingRules(ctx context.Context, in *mu
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.DeleteRoutingRulesResponse)
 	err := c.cc.Invoke(ctx, MultiadminService_DeleteRoutingRules_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiadminServiceClient) FenceScopes(ctx context.Context, in *multipoolermanagerdata.FenceScopesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.FenceScopesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.FenceScopesResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_FenceScopes_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *multiadminServiceClient) UnfenceScopes(ctx context.Context, in *multipoolermanagerdata.UnfenceScopesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.UnfenceScopesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.UnfenceScopesResponse)
+	err := c.cc.Invoke(ctx, MultiadminService_UnfenceScopes_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -816,6 +859,9 @@ type MultiadminServiceServer interface {
 	SetMigrationDirection(context.Context, *migrator.SetMigrationDirectionRequest) (*migrator.SetMigrationDirectionResponse, error)
 	// DropMigration tears down and removes a migration.
 	DropMigration(context.Context, *migrator.DropMigrationRequest) (*migrator.DropMigrationResponse, error)
+	// ReseedReverseLink repairs a degraded EXPORT reverse link: an explicit,
+	// operator-triggered full-copy reseed.
+	ReseedReverseLink(context.Context, *migrator.ReseedReverseLinkRequest) (*migrator.ReseedReverseLinkResponse, error)
 	// CreateConnection stores a named source conninfo, shard-scoped.
 	CreateConnection(context.Context, *migrator.CreateConnectionRequest) (*migrator.CreateConnectionResponse, error)
 	// GetConnection returns one connection, addressed by ref (id or name).
@@ -833,6 +879,13 @@ type MultiadminServiceServer interface {
 	SetRoutingRules(context.Context, *multipoolermanagerdata.SetRoutingRulesRequest) (*multipoolermanagerdata.SetRoutingRulesResponse, error)
 	// DeleteRoutingRules deletes every routing rule of an operation.
 	DeleteRoutingRules(context.Context, *multipoolermanagerdata.DeleteRoutingRulesRequest) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error)
+	// FenceScopes raises an operation's admission fences on a list of scopes,
+	// in one catalog write. Scopes already fenced are skipped, so a retry
+	// succeeds. It records intent only: nothing enforces fences yet.
+	FenceScopes(context.Context, *multipoolermanagerdata.FenceScopesRequest) (*multipoolermanagerdata.FenceScopesResponse, error)
+	// UnfenceScopes lifts an operation's admission fences on a list of scopes,
+	// in one catalog write.
+	UnfenceScopes(context.Context, *multipoolermanagerdata.UnfenceScopesRequest) (*multipoolermanagerdata.UnfenceScopesResponse, error)
 	mustEmbedUnimplementedMultiadminServiceServer()
 }
 
@@ -918,6 +971,9 @@ func (UnimplementedMultiadminServiceServer) SetMigrationDirection(context.Contex
 func (UnimplementedMultiadminServiceServer) DropMigration(context.Context, *migrator.DropMigrationRequest) (*migrator.DropMigrationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DropMigration not implemented")
 }
+func (UnimplementedMultiadminServiceServer) ReseedReverseLink(context.Context, *migrator.ReseedReverseLinkRequest) (*migrator.ReseedReverseLinkResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReseedReverseLink not implemented")
+}
 func (UnimplementedMultiadminServiceServer) CreateConnection(context.Context, *migrator.CreateConnectionRequest) (*migrator.CreateConnectionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateConnection not implemented")
 }
@@ -938,6 +994,12 @@ func (UnimplementedMultiadminServiceServer) SetRoutingRules(context.Context, *mu
 }
 func (UnimplementedMultiadminServiceServer) DeleteRoutingRules(context.Context, *multipoolermanagerdata.DeleteRoutingRulesRequest) (*multipoolermanagerdata.DeleteRoutingRulesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteRoutingRules not implemented")
+}
+func (UnimplementedMultiadminServiceServer) FenceScopes(context.Context, *multipoolermanagerdata.FenceScopesRequest) (*multipoolermanagerdata.FenceScopesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FenceScopes not implemented")
+}
+func (UnimplementedMultiadminServiceServer) UnfenceScopes(context.Context, *multipoolermanagerdata.UnfenceScopesRequest) (*multipoolermanagerdata.UnfenceScopesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UnfenceScopes not implemented")
 }
 func (UnimplementedMultiadminServiceServer) mustEmbedUnimplementedMultiadminServiceServer() {}
 func (UnimplementedMultiadminServiceServer) testEmbeddedByValue()                           {}
@@ -1410,6 +1472,24 @@ func _MultiadminService_DropMigration_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiadminService_ReseedReverseLink_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(migrator.ReseedReverseLinkRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).ReseedReverseLink(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_ReseedReverseLink_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).ReseedReverseLink(ctx, req.(*migrator.ReseedReverseLinkRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultiadminService_CreateConnection_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(migrator.CreateConnectionRequest)
 	if err := dec(in); err != nil {
@@ -1536,6 +1616,42 @@ func _MultiadminService_DeleteRoutingRules_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultiadminService_FenceScopes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.FenceScopesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).FenceScopes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_FenceScopes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).FenceScopes(ctx, req.(*multipoolermanagerdata.FenceScopesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _MultiadminService_UnfenceScopes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.UnfenceScopesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultiadminServiceServer).UnfenceScopes(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultiadminService_UnfenceScopes_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultiadminServiceServer).UnfenceScopes(ctx, req.(*multipoolermanagerdata.UnfenceScopesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // MultiadminService_ServiceDesc is the grpc.ServiceDesc for MultiadminService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1644,6 +1760,10 @@ var MultiadminService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _MultiadminService_DropMigration_Handler,
 		},
 		{
+			MethodName: "ReseedReverseLink",
+			Handler:    _MultiadminService_ReseedReverseLink_Handler,
+		},
+		{
 			MethodName: "CreateConnection",
 			Handler:    _MultiadminService_CreateConnection_Handler,
 		},
@@ -1670,6 +1790,14 @@ var MultiadminService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteRoutingRules",
 			Handler:    _MultiadminService_DeleteRoutingRules_Handler,
+		},
+		{
+			MethodName: "FenceScopes",
+			Handler:    _MultiadminService_FenceScopes_Handler,
+		},
+		{
+			MethodName: "UnfenceScopes",
+			Handler:    _MultiadminService_UnfenceScopes_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

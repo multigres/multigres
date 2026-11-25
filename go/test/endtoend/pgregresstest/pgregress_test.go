@@ -252,7 +252,7 @@ func TestPostgreSQLRegression(t *testing.T) {
 			defer cancel()
 			// Scaffolding helper functions are pre-seeded through a gateway direct
 			// connection (see preseedRegressHelpers), so no direct-postgres port is needed.
-			results, err := builder.RunRegressionTests(t, suiteCtx, setup.MultigatewayPgPort, shardsetup.TestPostgresPassword)
+			results, err := builder.RunRegressionTests(t, suiteCtx, setup.ClientPort(), shardsetup.TestPostgresPassword)
 			if results == nil {
 				if err != nil {
 					t.Fatalf("Test harness failed to execute: %v", err)
@@ -311,8 +311,8 @@ func TestPostgreSQLRegression(t *testing.T) {
 			// The isolation harness installs a lock-detection shim on the
 			// primary's PostgreSQL directly, bypassing multigateway, so it
 			// needs the primary's direct PG port too.
-			directPgPort := setup.GetPrimary(t).Pgctld.PgPort
-			results, err := builder.RunIsolationTests(t, suiteCtx, setup.MultigatewayPgPort, directPgPort, shardsetup.TestPostgresPassword)
+			directPgPort := setup.PostgresPort(t)
+			results, err := builder.RunIsolationTests(t, suiteCtx, setup.ClientPort(), directPgPort, shardsetup.TestPostgresPassword)
 			if results == nil {
 				if err != nil {
 					t.Fatalf("Isolation test harness failed to execute: %v", err)
@@ -367,8 +367,8 @@ func TestPostgreSQLRegression(t *testing.T) {
 			modules := ContribModules()
 			// directPgPort lets the harness reset the public schema on the
 			// primary between modules (bypassing the gateway's DDL block).
-			directPgPort := setup.GetPrimary(t).Pgctld.PgPort
-			results, err := builder.RunContribTests(t, suiteCtx, modules, setup.MultigatewayPgPort, directPgPort, shardsetup.TestPostgresPassword)
+			directPgPort := setup.PostgresPort(t)
+			results, err := builder.RunContribTests(t, suiteCtx, modules, setup.ClientPort(), directPgPort, shardsetup.TestPostgresPassword)
 			if results == nil {
 				if err != nil {
 					t.Fatalf("Contrib test harness failed to execute: %v", err)
@@ -418,8 +418,8 @@ func TestPostgreSQLRegression(t *testing.T) {
 			exts := ExternalModules()
 			// directPgPort lets the harness reset the public schema on the
 			// primary between extensions (bypassing the gateway's DDL block).
-			directPgPort := setup.GetPrimary(t).Pgctld.PgPort
-			results, err := builder.RunExternalTests(t, suiteCtx, exts, setup.MultigatewayPgPort, directPgPort, shardsetup.TestPostgresPassword)
+			directPgPort := setup.PostgresPort(t)
+			results, err := builder.RunExternalTests(t, suiteCtx, exts, setup.ClientPort(), directPgPort, shardsetup.TestPostgresPassword)
 			if results == nil {
 				if err != nil {
 					t.Fatalf("External test harness failed to execute: %v", err)

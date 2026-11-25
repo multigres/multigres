@@ -224,3 +224,27 @@ func TestWaitForReservedDrain_BlocksUntilReservedZero(t *testing.T) {
 	// Combined drain is also satisfied now.
 	require.NoError(t, m.WaitForDrain(t.Context()))
 }
+
+// An admitted request is waited for as the connection it will hold: an
+// admitted reservation by both drains, an admitted single query only by the
+// combined one.
+func TestAddAdmitted_IsWaitedForAsItsConnection(t *testing.T) {
+	m := newDrainTestManager()
+	short := func() context.Context {
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+		t.Cleanup(cancel)
+		return ctx
+	}
+
+	m.AddAdmitted(true)
+	require.Error(t, m.WaitForReservedDrain(short()), "an admitted reservation holds the reserved drain")
+	require.Error(t, m.WaitForDrain(short()))
+	m.RemoveAdmitted(true)
+	require.NoError(t, m.WaitForReservedDrain(short()))
+
+	m.AddAdmitted(false)
+	require.NoError(t, m.WaitForReservedDrain(short()), "an admitted single query does not hold the reserved drain")
+	require.Error(t, m.WaitForDrain(short()))
+	m.RemoveAdmitted(false)
+	require.NoError(t, m.WaitForDrain(short()))
+}

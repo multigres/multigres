@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package shardsetup
+package clustersetup
 
 import (
 	"fmt"
@@ -23,13 +23,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestWaitForPortFree exercises the three branches of waitForPortFree: a port
+// TestWaitForPortFree exercises the three branches of WaitForPortFree: a port
 // that is already free, a port that becomes free during the wait, and a port
 // that stays in use until the timeout.
 func TestWaitForPortFree(t *testing.T) {
 	// Grab an ephemeral port, then release it so it is free. Loopback bind
 	// avoids gosec G102 (the literal all-interfaces ":0" form is flagged). The
-	// occupied-path holders below bind the same ":port" waitForPortFree probes,
+	// occupied-path holders below bind the same ":port" WaitForPortFree probes,
 	// since on BSD/macOS a loopback listener does not collide with an
 	// all-interfaces bind.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -39,7 +39,7 @@ func TestWaitForPortFree(t *testing.T) {
 
 	// Already free: returns promptly.
 	start := time.Now()
-	waitForPortFree(t, port, 2*time.Second)
+	WaitForPortFree(t, port, 2*time.Second)
 	require.Less(t, time.Since(start), time.Second, "should return promptly when the port is already free")
 
 	// Occupied, then freed mid-wait: returns once the listener closes.
@@ -50,7 +50,7 @@ func TestWaitForPortFree(t *testing.T) {
 		_ = occupied.Close()
 	}()
 	start = time.Now()
-	waitForPortFree(t, port, 5*time.Second)
+	WaitForPortFree(t, port, 5*time.Second)
 	elapsed := time.Since(start)
 	require.GreaterOrEqual(t, elapsed, 200*time.Millisecond, "should wait until the port is released")
 	require.Less(t, elapsed, 5*time.Second, "should return well before the timeout once freed")
@@ -60,6 +60,6 @@ func TestWaitForPortFree(t *testing.T) {
 	require.NoError(t, err)
 	defer held.Close()
 	start = time.Now()
-	waitForPortFree(t, port, 300*time.Millisecond)
+	WaitForPortFree(t, port, 300*time.Millisecond)
 	require.GreaterOrEqual(t, time.Since(start), 300*time.Millisecond, "should wait out the timeout when the port never frees")
 }
