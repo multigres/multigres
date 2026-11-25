@@ -29,8 +29,9 @@ Key capabilities:
   served on the still-primary until transactions have drained, then
   buffered — minimizing latency during what can be a multi-second wait
 - **Bounded grace period**: both stages share a configurable timeout
-  (default 3s); on expiry everything is force-closed so shutdown is never
-  blocked indefinitely
+  (default 3s); on expiry the drain ends the work left (below), and the
+  transition completes whatever the outcome, so shutdown is never blocked
+  indefinitely
 - **Pool-level drain tracking**: borrow/recycle and reserve/release
   events feed two zero-polling counters — a combined count and a
   reserved-only count — so each stage waits on exactly its pool
@@ -235,12 +236,9 @@ the old role and pass `checkTargetLocked` throughout.
 3. **Complete**: re-acquire the mutex, set `routingRole`,
    `servingStatus` to the not-serving target, and `drainPhase=drainNone`.
 
-If the shared deadline expires in either stage, all reserved connections
-are force-closed via `poolManager.CloseReservedConnections()` (killing
-the backend processes; their transactions surface `40001`), and the
-transition completes. Any still-running single queries are then killed
-by the postgres demotion that follows — acceptable, since that is
-exactly what the grace period bounds.
+If the shared deadline expires in either stage, the drain ends the work
+left (see [Ending a Drain at its Timeout](#ending-a-drain-at-its-timeout)).
+The transition completes whatever the outcome.
 
 A late operation (e.g. a `COMMIT`) that arrives after its reserved
 connection was force-closed is admitted by the gate (`ExistingReserved`)
@@ -251,6 +249,194 @@ for what the gateway does with that error.
 
 When `OnStateChange` receives `SERVING`, the transition is immediate:
 set `routingRole`, `servingStatus=SERVING` and `drainPhase=drainNone`.
+
+## Ending a Drain at its Timeout
+
+Every drain of the pooler runs the same routine (`runDrain` in
+`poolerserver/drain.go`): the not-serving drain above, used by demotion,
+graceful shutdown, pause and the serving holds (migration IMPORT, suspected
+divergence), and the fence drain of a fenced primary (see
+[routing rules](../sharding/routing_rules.md#how-poolers-enforce-fences)).
+They differ only in what bounds them, which phase they move, and which error
+they refuse work with.
+
+### What a timed-out drain must stop
+
+When the timeout fires, the gate already refuses all new work. What is left
+is work admitted **before** the drain:
+
+- **Single queries still running.** Stage 1 admits single queries, so one
+  admitted just before the timeout, or one still running when stage 2
+  times out, runs to the end. An autocommit `UPDATE` commits.
+- **Transactions still open,** on reserved connections. Their statements
+  are always admitted, because they run on an existing reserved connection.
+- **Requests still waiting for a connection.** A `BEGIN` admitted before
+  the drain may still be queued for a connection. It is not a reserved
+  connection yet, so killing reserved connections misses it, and it gets
+  its connection as soon as one frees up. Its whole transaction then runs.
+
+Closing a connection's socket is not enough either: postgres notices a
+client has gone only when it next reads from or writes to the socket, so a
+running statement finishes, and commits, after its socket is closed. The
+backend has to be terminated.
+
+A drain that reports drained while any of this can still run breaks what
+its caller relies on: a fence's caller moves the scope's data once
+`RefreshFences` succeeds, and the IMPORT hold's caller drops target tables.
+
+### The steps
+
+1. **Stage 1:** refuse new reservations, and wait for the reserved
+   connections, and the admitted reservations still waiting for one, to be
+   released (`WaitForReservedDrain`), bounded by the timeout.
+2. **Stage 2:** refuse single queries too, and wait for everything lent and
+   admitted to be returned (`WaitForDrain`), within the same timeout. If it
+   finishes in time the drain is **graceful**: nothing was sealed or killed.
+3. **At the timeout,** in either stage:
+   1. Move to stage 2, so nothing new is admitted.
+   2. **Seal** the user pools (`SealPools`, below). From now on no request
+      gets a connection: the ones waiting are refused, and so is every later
+      one, with the drain's retryable error.
+   3. **Kill** what is still lent (`KillLent`, below): terminate the
+      backend of every reserved and regular connection still lent, and
+      confirm each one exited. An unmanaged pooler skips this step.
+4. **Settle:** wait, with a fresh bound of 10 seconds, until nothing is
+   lent and nothing admitted is left (`WaitForDrain`).
+5. **Unseal** the pools, which refill on demand. The drain is
+   **force_close**: drained, after ending the work left.
+
+If a kill is not confirmed (step 3), or something is still lent or admitted
+at the settle bound (step 4), the drain **fails**
+(`ErrDrainIncomplete`, `UNAVAILABLE`) and leaves the pools sealed. See
+[A drain that fails](#a-drain-that-fails).
+
+### Why two waits for the drain
+
+Steps 2 and 4 wait for the same thing, nothing lent and nothing admitted,
+but for different reasons, and neither can go:
+
+- **Step 2** is the graceful wait, inside the drain's timeout: it gives
+  in-flight single queries until the deadline to finish on their own.
+  Without it, every drain that reached stage 2 would kill them at once.
+- **Step 4** runs after the kills, when step 2's deadline has passed, so it
+  needs a bound of its own. It waits for the killed and refused work to come
+  back: a borrower whose backend was killed returns its connection, which
+  the sealed pool closes, and a request still between admission and the
+  pool reaches the sealed pool, is refused, and its admission ends. A kill
+  being confirmed does not mean that has happened yet, so without step 4 a
+  drain could report drained while such a request was still on its way to
+  the pool.
+
+### Sealing
+
+A sealed pool works like a closed pool that stays open
+(`connpool.Pool.Seal`):
+
+- `Get` fails with the seal's error. Clients already waiting for a
+  connection are woken with it, and no new client is queued.
+- Its idle connections are closed, and a connection returned to it is
+  closed rather than kept.
+- A `Get` that was already past its first check when the pool was sealed
+  checks again once it holds a connection, and closes the connection
+  instead of lending it. So a sealed pool never lends a connection,
+  whatever point a `Get` had reached.
+- A user pool created while the pools are sealed starts sealed.
+
+The seal's error is the sealing drain's: `MTF01` for a not-serving drain,
+which the gateway buffers for the new primary, and `MTF02` for a fence
+drain, which it retries once the fence lifts. Either is safe to retry,
+because a refused request ran nothing. The error reaches the gateway
+unchanged: the pools and the executor wrap it with `%w`, and
+`mterrors.ToGRPC` finds the diagnostic through the wrapping. When two drains
+hold the seal, the pools keep the error of the one that sealed first; the
+gate refuses new work at admission with the right code meanwhile, so the
+seal's error only reaches work admitted before both drains.
+
+The manager's own queries use the admin pool, which is never sealed or
+killed.
+
+### Killing what is still lent
+
+`KillLent` terminates each backend with `pg_terminate_backend(pid,
+timeout)`, which waits up to the timeout (5 seconds) for the backend to exit.
+`pg_terminate_backend` returns false when the backend did not exit in time,
+did not exist, or the caller lacks permission, so on false the backend
+counts as gone only if `pg_stat_activity` no longer lists it. An error, or a
+backend still listed, is an unconfirmed kill. Up to 16 kills run at once.
+
+- **Reserved connections** are found in the reserved pool's active set.
+  Logical-replication tunnels are kept (see above).
+- **Regular connections** are found through the pool's record of the
+  connections it has dialed (`connpool.Pool.OpenConns`). The record is
+  written when a connection is dialed and pruned of closed ones lazily, so
+  lending and returning a connection cost nothing extra. A sealed pool
+  keeps no connection idle, so its open connections are the lent ones.
+- Killed transactions surface `40001`.
+
+### Unmanaged poolers
+
+An unmanaged pooler fronts a database Multigres does not own, so its drains
+kill nothing (the manager passes `killOnDrainTimeout=false` to
+`NewQueryPoolerServer`). Step 3 seals the pools and
+skips the kills; step 4 waits for the work to end on its own. If anything is
+still lent at the bound, the drain fails.
+
+### A drain that fails
+
+A failed drain keeps the pools sealed, because work admitted before it may
+still run or still be on its way to the pool: unsealing would hand such a
+request a connection. The pools stay sealed until the condition the drain
+was for ends, or a later drain succeeds.
+
+- **Not-serving drain:** the transition completes anyway (a pooler that is
+  not serving refuses new work), and the failure is logged and counted
+  (`outcome=failed`), not returned: demotion, resignation, shutdown, pause and
+  the divergence hold all carry on, since none of them acts on it. The pools
+  stay sealed until the pooler serves again.
+- **The migration IMPORT hold** is the one caller that must know: it drops
+  target tables next. After draining the pooler it calls `EnsureDrained`,
+  which returns at once if the drain succeeded, and otherwise runs the drain
+  again, refusing everything from the start. If that still cannot end the
+  work it returns `ErrDrainIncomplete`, and the migration coordinator retries
+  before touching the tables.
+- **Fence drain:** the gate stays draining, refusing all new work, and the
+  next read that finds the fence drains again. See
+  [routing rules](../sharding/routing_rules.md#how-poolers-enforce-fences).
+
+### Several drains at once
+
+A fence drain can run during a not-serving drain. Each drain holds the seal
+through a bool of its own (`holdSeal` / `releaseSeal`), and a count of the
+holds taken unseals the pools when the last one is released. A drain only
+ever releases its own hold: a cancelled drain that finishes late cannot
+unseal pools a newer drain sealed, and a failed fence drain's hold can be
+handed to the next fence drain.
+
+### Cancellation
+
+A fence drain is cancelled by a read that finds no fence, or by the pooler
+losing or regaining the primary role; its callers then read the fences
+again. A not-serving drain is cancelled only if its caller's context ends,
+and the transition still completes. A cancelled drain stops, past any kill
+already under way, and releases its own hold, so the pools unseal only once
+no kill of it can still be running.
+
+### Bounds
+
+| Bound                     | Value                                                                                         |
+| ------------------------- | --------------------------------------------------------------------------------------------- |
+| Not-serving drain timeout | `--connpool-drain-grace-period` (default 3s; zero waits without a bound and never ends early) |
+| Fence drain timeout       | `RefreshFences.drain_timeout` (at most 10 minutes), else the grace period, else 30s           |
+| Each kill                 | 5s for the backend to exit                                                                    |
+| Settle (step 4)           | 10s                                                                                           |
+
+### Known limitation
+
+A Describe outside a transaction borrows a regular connection from the user
+pools, so while they are sealed it fails, and the gateway does not retry
+Describe. The window runs from the drain's timeout until it settles. A
+Describe inside a transaction uses the transaction's reserved connection and
+is unaffected, unless that connection was killed.
 
 ## Callback Plumbing
 
@@ -278,16 +464,16 @@ counters.
 
 The drain grace period is configurable via the
 `--connpool-drain-grace-period` flag (default: 3s). It is the single
-deadline shared by both drain stages: when it expires, remaining reserved
-connections are force-closed and the NOT_SERVING transition completes.
+deadline shared by both drain stages: when it expires, the drain ends the
+work left (above) and the NOT_SERVING transition completes.
 
 ## Metrics
 
-| Metric                         | Meaning                                                          |
-| ------------------------------ | ---------------------------------------------------------------- |
-| `mg.pooler.drain.duration`     | Wall-clock duration of the drain on a not-serving transition     |
-| `mg.pooler.drain.outcome`      | Drain events by outcome (graceful vs. force-close)               |
-| `mg.pooler.drain.force_closed` | Reserved connections force-closed because the grace period ended |
+| Metric                         | Meaning                                                                                                    |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `mg.pooler.drain.duration`     | Wall-clock duration of the drain on a not-serving transition                                               |
+| `mg.pooler.drain.outcome`      | Drain events by outcome: `graceful`, `force_close` (ended the work left), `failed`, or `cancelled` (fence) |
+| `mg.pooler.drain.force_closed` | Lent connections terminated because a drain ran out of time                                                |
 
 ## Testing
 
@@ -305,6 +491,18 @@ connections are force-closed and the NOT_SERVING transition completes.
   (existing reserved / new reservation / single query)
 - **`poolergateway/pooler_gateway_test.go`**: the gateway `isSingleQuery`
   classifier that decides which requests skip proactive failover buffering
+- **`pools/connpool/seal_test.go`**: sealing refuses `Get`, wakes and
+  refuses waiters, closes idle and returned connections, and the dialed
+  record lists the lent ones; unsealing lends again
+- **`pools/regular/drain_test.go`**: parallel kills, and no kill starting
+  once the drain is cancelled
+- **`poolerserver/drain_test.go`**: a timed-out drain that ends its work,
+  an unconfirmed kill, no-kill mode, the drain's error on the seal, the
+  fence drain failing, retrying, being lifted and being cancelled while it
+  ends the work, several drains holding the seal, and `EnsureDrained`
+- **`endtoend/multipooler/fence_gate_test.go`**: a `pg_sleep` single query
+  still running at the fence drain's timeout is killed, and its backend is
+  gone when `RefreshFences` succeeds
 - End-to-end failover survival (continuous traffic across a planned
   failover with zero client-visible errors) is covered by the existing
   `queryserving` buffer tests (e.g. `TestBufferPlannedFailover`).
