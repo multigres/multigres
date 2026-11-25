@@ -90,6 +90,27 @@ func pgDSN(port int, role, db string) string {
 	return fmt.Sprintf("host=127.0.0.1 port=%d user=%s dbname=%s sslmode=disable", port, role, db)
 }
 
+// TestSourceSubscriptionStatus_RealPostgres covers SubscriptionStatus against a
+// real server: the query aggregates with no GROUP BY, so even a subscription
+// name that doesn't exist must come back as a single zero-valued,
+// not-caught-up row rather than an error or a missing row — the EXPORT
+// reverse link's tick-driven check relies on that to avoid special-casing a
+// subscription that hasn't attached yet.
+func TestSourceSubscriptionStatus_RealPostgres(t *testing.T) {
+	port := startTestPostgres(t)
+	ctx := context.Background()
+
+	src, err := newSource(ctx, infoOf(pgDSN(port, "postgres", "postgres")))
+	require.NoError(t, err)
+	t.Cleanup(src.close)
+
+	st, err := src.SubscriptionStatus("no_such_subscription")
+	require.NoError(t, err)
+	require.Equal(t, int64(0), st.TotalRelations)
+	require.Equal(t, int64(0), st.ReadyRelations)
+	require.False(t, st.CaughtUp)
+}
+
 // TestSourceFencing_RealPostgres drives the source's quiesce primitives against
 // a real server, since their effect (who can connect, what survives a
 // terminate) only exists in PostgreSQL itself.
