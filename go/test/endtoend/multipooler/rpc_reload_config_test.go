@@ -97,7 +97,7 @@ func TestManagerReloadConfig_ExpectedSettings_MatchAndMismatch(t *testing.T) {
 	}
 
 	setup := getSharedTestSetup(t)
-	setupPoolerTest(t, setup, WithoutReplication())
+	setupPoolerTest(t, setup)
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 
 	client, err := shardsetup.NewMultipoolerClient(setup.PrimaryMultipooler.GrpcPort)
@@ -163,7 +163,7 @@ func TestManagerReloadConfig_ExpectedSettings_NeedsRestart(t *testing.T) {
 	}
 
 	setup := getSharedTestSetup(t)
-	setupPoolerTest(t, setup, WithoutReplication())
+	setupPoolerTest(t, setup)
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 
 	client, err := shardsetup.NewMultipoolerClient(setup.PrimaryMultipooler.GrpcPort)
