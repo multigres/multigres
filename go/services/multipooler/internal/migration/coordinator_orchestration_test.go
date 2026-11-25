@@ -1506,11 +1506,12 @@ func TestReseedReverseLink_SetsPendingMarkerWhenEmpty(t *testing.T) {
 	require.Empty(t, tc.store.migs[m.ID].ReverseLinkError, "the tick must clear the marker once the copy is confirmed caught up")
 }
 
-// TestReseedReverseLink_PendingMarkerPersistErrorIsLogged covers a failure
+// TestReseedReverseLink_PendingMarkerPersistErrorFailsRPC covers a failure
 // persisting the pending marker itself (distinct from the trailing readiness
-// check's own persist failure): the repair has already committed, so this
-// must be logged rather than reported as the RPC's failure.
-func TestReseedReverseLink_PendingMarkerPersistErrorIsLogged(t *testing.T) {
+// check's own persist failure, which is only logged): with no durably-set
+// marker, no later tick would ever re-check this copy, so this failure must
+// surface rather than be swallowed.
+func TestReseedReverseLink_PendingMarkerPersistErrorFailsRPC(t *testing.T) {
 	tc := newTestCoord(t)
 	m := tc.seed(&Migration{Phase: PhaseExporting})
 	tc.src.subExists = false
@@ -1519,9 +1520,9 @@ func TestReseedReverseLink_PendingMarkerPersistErrorIsLogged(t *testing.T) {
 	tc.store.updateErr = errors.New("store unavailable")
 
 	_, err := tc.c.ReseedReverseLink(context.Background(), Ref{ID: m.ID})
-	require.NoError(t, err, "a failure persisting the pending marker must not mask the repair's success")
+	require.ErrorContains(t, err, "store unavailable")
 
-	require.Contains(t, tc.log, "source.CreateSubscription", "the repair itself must still run")
+	require.Contains(t, tc.log, "source.CreateSubscription", "the repair itself must still run despite the marker not persisting")
 }
 
 // TestReseedReverseLink_RecreatesWhenNothingExists covers the case where no

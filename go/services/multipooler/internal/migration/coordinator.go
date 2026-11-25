@@ -1765,11 +1765,13 @@ func (c *Coordinator) ReseedReverseLink(ctx context.Context, ref Ref) (*Projecti
 	// ran while ReverseLinkError was still empty (e.g. an operator-triggered
 	// repair racing ahead of the reconcile tick that would otherwise have
 	// recorded the link as degraded) would never be re-verified again, so set
-	// one now if it isn't already.
+	// one now if it isn't already. Unlike the trailing readiness check below,
+	// a failure here must fail the RPC: with no durably-persisted marker,
+	// nothing would ever prompt a later tick to check this copy again.
 	if m.ReverseLinkError == "" {
 		m.ReverseLinkError = "reseed copy in progress"
 		if err := c.store.Update(ctx, m); err != nil {
-			c.logger.WarnContext(ctx, "persist reverse link pending marker after reseed", "migration", m.ID, "error", err)
+			return nil, fmt.Errorf("persist reverse link pending marker after reseed: %w", err)
 		}
 	}
 	return c.finalizeReverseLinkStatus(ctx, src, m, sub, true)
