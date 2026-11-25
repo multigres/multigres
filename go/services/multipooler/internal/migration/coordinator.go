@@ -1760,8 +1760,18 @@ func (c *Coordinator) ReseedReverseLink(ctx context.Context, ref Ref) (*Projecti
 	}
 	c.journal(ctx, m, JournalEventReseed, "operator-triggered reseed of the reverse export link")
 	// The subscription object exists now, but its tablesync copy has only just
-	// started — refreshReverseLinkMarker will (correctly) leave the degraded
-	// marker in place until a later tick observes it caught up.
+	// started. refreshReverseLinkMarker only re-checks source status while a
+	// marker is set (see its early return) — without one here, a reseed that
+	// ran while ReverseLinkError was still empty (e.g. an operator-triggered
+	// repair racing ahead of the reconcile tick that would otherwise have
+	// recorded the link as degraded) would never be re-verified again, so set
+	// one now if it isn't already.
+	if m.ReverseLinkError == "" {
+		m.ReverseLinkError = "reseed copy in progress"
+		if err := c.store.Update(ctx, m); err != nil {
+			c.logger.WarnContext(ctx, "persist reverse link pending marker after reseed", "migration", m.ID, "error", err)
+		}
+	}
 	return c.finalizeReverseLinkStatus(ctx, src, m, sub, true)
 }
 

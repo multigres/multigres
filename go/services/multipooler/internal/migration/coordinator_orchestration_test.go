@@ -1477,6 +1477,53 @@ func TestReseedReverseLink_RepairsDegradedLink(t *testing.T) {
 	require.Empty(t, tc.store.migs[m.ID].ReverseLinkError, "the tick must clear the marker once the copy is confirmed caught up")
 }
 
+// TestReseedReverseLink_SetsPendingMarkerWhenEmpty covers a reseed that runs
+// while ReverseLinkError is still empty (e.g. an operator-triggered repair
+// racing ahead of the reconcile tick that would otherwise have recorded the
+// link as degraded): refreshReverseLinkMarker only re-checks source status
+// while a marker is set, so without one here the fresh copy would never be
+// re-verified by any later tick. ReseedReverseLink must set its own pending
+// marker in that case.
+func TestReseedReverseLink_SetsPendingMarkerWhenEmpty(t *testing.T) {
+	tc := newTestCoord(t)
+	m := tc.seed(&Migration{Phase: PhaseExporting})
+	tc.src.subExists = false
+	tc.tgt.slotReady = false
+	tc.src.status = &SubscriptionStatus{TotalRelations: 1, ReadyRelations: 0} // copy still running
+
+	_, err := tc.c.ReseedReverseLink(context.Background(), Ref{ID: m.ID})
+	require.NoError(t, err)
+
+	require.NotEmpty(t, tc.store.migs[m.ID].ReverseLinkError,
+		"a pending marker must be set so a later tick keeps re-checking the fresh copy")
+
+	// A later reconcile tick finds the subscription attached, the slot ready
+	// (the reseed just recreated it), and the source reporting caught up.
+	tc.src.subExists = true
+	tc.tgt.slotReady = true
+	tc.src.status = &SubscriptionStatus{TotalRelations: 1, ReadyRelations: 1}
+	require.NoError(t, tc.c.ensureReverseExportLink(context.Background(), m))
+	require.Empty(t, tc.store.migs[m.ID].ReverseLinkError, "the tick must clear the marker once the copy is confirmed caught up")
+}
+
+// TestReseedReverseLink_PendingMarkerPersistErrorIsLogged covers a failure
+// persisting the pending marker itself (distinct from the trailing readiness
+// check's own persist failure): the repair has already committed, so this
+// must be logged rather than reported as the RPC's failure.
+func TestReseedReverseLink_PendingMarkerPersistErrorIsLogged(t *testing.T) {
+	tc := newTestCoord(t)
+	m := tc.seed(&Migration{Phase: PhaseExporting})
+	tc.src.subExists = false
+	tc.tgt.slotReady = false
+	tc.src.status = &SubscriptionStatus{TotalRelations: 1, ReadyRelations: 0} // copy still running
+	tc.store.updateErr = errors.New("store unavailable")
+
+	_, err := tc.c.ReseedReverseLink(context.Background(), Ref{ID: m.ID})
+	require.NoError(t, err, "a failure persisting the pending marker must not mask the repair's success")
+
+	require.Contains(t, tc.log, "source.CreateSubscription", "the repair itself must still run")
+}
+
 // TestReseedReverseLink_RecreatesWhenNothingExists covers the case where no
 // subscription ever attached — same recreate path, minus the drop step since
 // there is nothing stale to tear down first.
