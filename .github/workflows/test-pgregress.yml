@@ -27,11 +27,17 @@ permissions: {}
 
 jobs:
   test-pgregress:
-    name: Run PostgreSQL compatibility tests
+    # Runs against Multigres and, under the topology switch, against a single
+    # Minigres process; the Multigres entry keeps the original check name.
+    name: ${{ matrix.topology == 'minigres' && 'Run PostgreSQL compatibility tests (Minigres)' || 'Run PostgreSQL compatibility tests' }}
     if: >-
       github.event_name != 'pull_request' ||
       contains(github.event.pull_request.labels.*.name, 'Run Extended Query Serving Tests') ||
       contains(github.event.pull_request.labels.*.name, 'Run all Query Serving Tests')
+    strategy:
+      fail-fast: false
+      matrix:
+        topology: [multigres, minigres]
     runs-on: ubuntu-24.04
     # contents: write is needed to push the live badge endpoints to the
     # gh-pages branch (see "Publish badge endpoints to GitHub Pages"). The push
@@ -42,6 +48,13 @@ jobs:
     environment:
       name: ci
       deployment: false
+    env:
+      # Each topology keeps its own regression baseline and badge endpoints on
+      # gh-pages, so one topology's results are never compared against, or
+      # overwrite, the other's.
+      PAGES_DIR: ${{ matrix.topology == 'minigres' && 'pgregress-minigres' || 'pgregress' }}
+      # Appended to Slack headers so the two topologies' reports are told apart.
+      TOPOLOGY_LABEL: ${{ matrix.topology == 'minigres' && ' (Minigres)' || '' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -115,7 +128,7 @@ jobs:
       # against it, and regressions went unreported. A branch cannot be evicted.
       - name: Fetch baseline results from GitHub Pages
         env:
-          BASELINE_URL: https://raw.githubusercontent.com/${{ github.repository }}/gh-pages/pgregress/results.json
+          BASELINE_URL: https://raw.githubusercontent.com/${{ github.repository }}/gh-pages/${{ env.PAGES_DIR }}/results.json
         run: |
           mkdir -p /tmp/pgregress-baseline
           if curl -fsSL --retry 3 -o /tmp/pgregress-baseline/results.json "$BASELINE_URL"; then
@@ -136,6 +149,7 @@ jobs:
         env:
           RUN_EXTENDED_QUERY_SERVING_TESTS: "1"
           TEST_PRINT_LOGS: "1"
+          MULTIGRES_E2E_TOPOLOGY: ${{ matrix.topology }}
         run: |
           set -o pipefail
           go test -json -v -run TestPostgreSQLRegression ./go/test/endtoend/pgregresstest/... -timeout 180m | tee pgregress-test-results.jsonl | go tool tparse -follow
@@ -190,7 +204,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
-          name: postgres-compatibility-results
+          name: postgres-compatibility-results${{ matrix.topology == 'minigres' && '-minigres' || '' }}
           path: /tmp/multigres_pg_cache/results/**/*
           if-no-files-found: warn
 
@@ -211,21 +225,23 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ${{ steps.results.outputs.badges }}
           publish_branch: gh-pages
-          destination_dir: pgregress
+          destination_dir: ${{ env.PAGES_DIR }}
           keep_files: true
           commit_message: "chore(pgregress): update live badge endpoints"
 
-      # On failure, surface the per-process logs from the shardsetup tempdir
-      # (multipooler.log, pgctld.log, multigateway.log, multiorch.log). The
-      # failing job uploads nothing useful for cluster-bootstrap / reinit
-      # issues without these — go test swallows structured logs and the
-      # CI stdout only shows the outer test error.
+      # On failure, surface the per-process logs from the shardsetup or
+      # minigressetup tempdir (multipooler.log, pgctld.log, multigateway.log,
+      # multiorch.log, minigres.log). The failing job uploads nothing useful for
+      # cluster-bootstrap / reinit issues without these — go test swallows
+      # structured logs and the CI stdout only shows the outer test error.
       - name: Upload cluster logs on failure
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ failure() }}
         with:
-          name: pgregress-cluster-logs
-          path: /tmp/shardsetup_test_*/**/*.log
+          name: pgregress-cluster-logs${{ matrix.topology == 'minigres' && '-minigres' || '' }}
+          path: |
+            /tmp/shardsetup_test_*/**/*.log
+            /tmp/minigres_test_*/**/*.log
           if-no-files-found: warn
           retention-days: 7
 
@@ -248,9 +264,10 @@ jobs:
             --arg count "$count" \
             --arg tests "$test_list" \
             --arg url "$run_url" \
+            --arg topology "$TOPOLOGY_LABEL" \
             '{
               blocks: [
-                {type: "header", text: {type: "plain_text", text: (":rotating_light: " + $count + " pgregress regression(s) detected")}},
+                {type: "header", text: {type: "plain_text", text: (":rotating_light: " + $count + " pgregress regression(s) detected" + $topology)}},
                 {type: "section", text: {type: "mrkdwn", text: ("Tests that were passing but now fail:\n```\n" + $tests + "\n```")}},
                 {type: "section", text: {type: "mrkdwn", text: ("<" + $url + "|View CI run>")}}
               ]
@@ -286,6 +303,7 @@ jobs:
             --slurpfile results "$results_file" \
             --argjson prev_passed "$prev_passed" \
             --arg url "$run_url" \
+            --arg topology "$TOPOLOGY_LABEL" \
             '
             ($results[0] | map({
               name: .name,
@@ -309,7 +327,7 @@ jobs:
 
             # Header block
             [{type: "header", text: {type: "plain_text",
-              text: ("Weekly pgregress report: " + $header_stats)}}] +
+              text: ("Weekly pgregress report" + $topology + ": " + $header_stats)}}] +
 
             # Per-suite section blocks
             ($suites | map(
@@ -342,9 +360,10 @@ jobs:
 
           payload=$(jq -n \
             --arg url "$run_url" \
+            --arg topology "$TOPOLOGY_LABEL" \
             '{
               blocks: [
-                {type: "header", text: {type: "plain_text", text: "pgregress tests failed to produce results"}},
+                {type: "header", text: {type: "plain_text", text: ("pgregress tests failed to produce results" + $topology)}},
                 {type: "section", text: {type: "mrkdwn", text: "The nightly pgregress run did not produce a `results.json`. The test infrastructure likely failed (e.g. cluster bootstrap timeout, build failure)."}},
                 {type: "section", text: {type: "mrkdwn", text: ("<" + $url + "|View CI run>")}}
               ]

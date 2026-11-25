@@ -147,6 +147,40 @@ func TestHealthStreamer_GetState(t *testing.T) {
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, got.ServingStatus)
 }
 
+func TestHealthStreamer_SetSchemaTokenBroadcastsChanges(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	hs := newHealthStreamer(logger, nil, "tg1", "0")
+
+	initial, ch := hs.subscribe()
+	assert.Empty(t, initial.SchemaToken)
+
+	hs.SetSchemaToken("a")
+	select {
+	case got := <-ch:
+		assert.Equal(t, "a", got.SchemaToken)
+		assert.Equal(t, "a", got.ToProto().GetSchemaToken())
+	case <-time.After(time.Second):
+		t.Fatal("expected a broadcast for the new schema token")
+	}
+
+	// Setting the same token again is not a change and broadcasts nothing.
+	hs.SetSchemaToken("a")
+	select {
+	case got := <-ch:
+		t.Fatalf("unexpected broadcast for an unchanged token: %+v", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	hs.SetSchemaToken("")
+	select {
+	case got := <-ch:
+		assert.Empty(t, got.SchemaToken)
+	case <-time.After(time.Second):
+		t.Fatal("expected a broadcast when the token is cleared")
+	}
+	assert.Empty(t, hs.getState().SchemaToken)
+}
+
 func TestHealthProvider_SubscribeWithContextCancellation(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	serviceID := &clustermetadatapb.ID{

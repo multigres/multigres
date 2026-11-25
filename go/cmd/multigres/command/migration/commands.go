@@ -342,3 +342,34 @@ func AddDropMigrationCommand() *cobra.Command {
 	cmd.Flags().Bool("force", false, "skip the drain and tear down from any phase")
 	return cmd
 }
+
+// AddReseedReverseLinkCommand repairs a degraded EXPORT reverse link: an
+// operator-triggered full-copy reseed, for use when GetMigration reports a
+// reverse link error that the automatic detection path cannot repair on its
+// own.
+func AddReseedReverseLinkCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "reseed-reverse-link",
+		Short: "Repair a degraded EXPORT reverse link with a full-copy reseed",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, _ := cmd.Flags().GetString("id")
+			client, err := admin.NewClient(cmd)
+			if err != nil {
+				return err
+			}
+			defer client.Close()
+
+			refID, refName := splitRef(id)
+			req := &migratorpb.ReseedReverseLinkRequest{Ref: toRef(refID, refName)}
+			resp, err := client.ReseedReverseLink(cmd.Context(), req)
+			if err != nil {
+				return fmt.Errorf("failed to reseed reverse link: %w", err)
+			}
+			return printJSON(cmd, resp)
+		},
+	}
+	cmd.Flags().String("admin-server", "", "Address of the multiadmin server (overrides config)")
+	cmd.Flags().String("id", "", "migration id or name")
+	_ = cmd.MarkFlagRequired("id")
+	return cmd
+}

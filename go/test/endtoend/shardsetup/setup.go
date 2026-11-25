@@ -18,10 +18,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -31,7 +29,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"google.golang.org/grpc"
@@ -41,7 +38,6 @@ import (
 
 	"github.com/multigres/multigres/go/cmd/pgctld/testutil"
 	"github.com/multigres/multigres/go/common/constants"
-	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
 	"github.com/multigres/multigres/go/test/utils"
 	"github.com/multigres/multigres/go/tools/executil"
@@ -1661,32 +1657,12 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		// and any other state files.
 		dataDir := inst.Pgctld.PoolerDir
 		testutil.ReleaseOrphanedSharedMemory(t.Logf, dataDir)
-		entries, err := os.ReadDir(dataDir)
-		if err != nil {
-			t.Logf("ReinitializeCluster: warning: failed to read %s: %v", dataDir, err)
-		} else {
-			for _, entry := range entries {
-				entryPath := filepath.Join(dataDir, entry.Name())
-				if err := os.RemoveAll(entryPath); err != nil {
-					t.Logf("ReinitializeCluster: warning: failed to remove %s: %v", entryPath, err)
-				}
-			}
-			t.Logf("ReinitializeCluster: cleared data directory %s", dataDir)
-		}
+		clustersetup.ClearDirContents(t, dataDir)
 	}
 
 	// 3b. Clear the shared backup repository so pgbackrest doesn't
 	// reference stale backups from the previous cluster.
-	backupRepoDir := filepath.Join(s.TempDir, "backup-repo")
-	if entries, err := os.ReadDir(backupRepoDir); err == nil {
-		for _, entry := range entries {
-			entryPath := filepath.Join(backupRepoDir, entry.Name())
-			if err := os.RemoveAll(entryPath); err != nil {
-				t.Logf("ReinitializeCluster: warning: failed to remove %s: %v", entryPath, err)
-			}
-		}
-		t.Logf("ReinitializeCluster: cleared backup repo %s", backupRepoDir)
-	}
+	clustersetup.ClearDirContents(t, filepath.Join(s.TempDir, "backup-repo"))
 
 	// 3c. Clear stale topology state. Without this, a pooler that was elected
 	// PRIMARY in the previous suite reads its stale role from etcd on restart,
@@ -1700,7 +1676,7 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 	// We keep:
 	//   - databases/<db>/Database         (preserves BackupLocation + DurabilityPolicy)
 	//   - cells/<cell>/Cell               (cell config multipoolers need to reconnect)
-	s.wipeTopologyForReinit(t, "postgres", constants.DefaultTableGroup)
+	clustersetup.WipeTopologyForReinit(t, s.EtcdClientAddr, s.CellName, "postgres", constants.DefaultTableGroup)
 
 	t.Logf("ReinitializeCluster: restarting cluster...")
 
@@ -1713,7 +1689,7 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 		// sockets: address already in use"), so it never reaches PostgresReady
 		// and WaitForManagerReady times out with an opaque error. Wait for the
 		// port to actually free first.
-		waitForPortFree(t, inst.Pgctld.PgPort, 60*time.Second)
+		clustersetup.WaitForPortFree(t, inst.Pgctld.PgPort, 60*time.Second)
 
 		if err := inst.Pgctld.Start(ctx, t); err != nil {
 			t.Fatalf("ReinitializeCluster: failed to start pgctld %s: %v", name, err)
@@ -1750,75 +1726,6 @@ func (s *ShardSetup) ReinitializeCluster(t *testing.T) {
 	}
 
 	t.Logf("ReinitializeCluster: cluster reinitialized successfully")
-}
-
-// waitForPortFree blocks until no process is listening on localhost:port, or
-// the timeout elapses. It is used between stopping postgres and restarting it
-// on the same port during ReinitializeCluster, so the new postmaster can bind.
-//
-// A successful net.Listen means the port is free (an active listener on the
-// same port — e.g. a not-yet-exited postmaster — makes Listen fail even with
-// SO_REUSEADDR). If the port never frees we log and return rather than fail
-// here; the subsequent start surfaces a precise bind error.
-func waitForPortFree(t *testing.T, port int, timeout time.Duration) {
-	t.Helper()
-	addr := fmt.Sprintf(":%d", port)
-	deadline := time.Now().Add(timeout)
-	for {
-		ln, err := net.Listen("tcp", addr)
-		if err == nil {
-			_ = ln.Close()
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Logf("ReinitializeCluster: warning: port %d still in use after %s (%v); proceeding anyway", port, timeout, err)
-			return
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-}
-
-// wipeTopologyForReinit removes the etcd keys that would otherwise carry
-// stale shard-election and per-process registration state across a
-// ReinitializeCluster call. See the call site in ReinitializeCluster for
-// the full rationale.
-//
-// It connects to etcd directly (rather than via TopoServer) because the
-// public topoclient API only exposes per-record delete helpers and this
-// needs a recursive prefix delete.
-func (s *ShardSetup) wipeTopologyForReinit(t *testing.T, database, tableGroup string) {
-	t.Helper()
-
-	cli, err := clientv3.New(clientv3.Config{
-		Endpoints:   []string{s.EtcdClientAddr},
-		DialTimeout: 5 * time.Second,
-	})
-	if err != nil {
-		t.Fatalf("ReinitializeCluster: failed to open etcd client for topology wipe: %v", err)
-	}
-	defer func() {
-		if cerr := cli.Close(); cerr != nil {
-			t.Logf("ReinitializeCluster: warning: closing etcd client: %v", cerr)
-		}
-	}()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// topoclient test root is "/multigres". Global topo is under /multigres/global,
-	// and each cell is under /multigres/<cell>/.
-	prefixes := []string{
-		path.Join("/multigres/global", topoclient.DatabasesPath, database, tableGroup) + "/",
-		path.Join("/multigres", s.CellName, topoclient.PoolersPath) + "/",
-		path.Join("/multigres", s.CellName, topoclient.GatewaysPath) + "/",
-		path.Join("/multigres", s.CellName, topoclient.OrchsPath) + "/",
-	}
-	for _, p := range prefixes {
-		if _, err := cli.Delete(ctx, p, clientv3.WithPrefix()); err != nil {
-			t.Fatalf("ReinitializeCluster: failed to wipe topology prefix %s: %v", p, err)
-		}
-	}
-	t.Logf("ReinitializeCluster: wiped stale topology state (shard records + pooler/gateway/orch registrations)")
 }
 
 // SetupTest provides test isolation by validating clean state and automatically
