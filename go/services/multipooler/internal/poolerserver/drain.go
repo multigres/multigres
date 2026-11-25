@@ -143,16 +143,15 @@ func (s *QueryPoolerServer) runDrain(ctx context.Context, d drainSpec) error {
 	start := time.Now()
 	outcome, err := s.drain(ctx, d)
 	logCtx := context.WithoutCancel(ctx)
-	if err == nil {
+	switch outcome {
+	case drainOutcomeFailed:
+		s.logger.WarnContext(logCtx, "drain could not end the work left; the pools stay sealed", "reason", d.reason, "error", err)
+	case drainOutcomeCancelled:
+		s.logger.InfoContext(logCtx, "drain cancelled", "reason", d.reason)
+		s.releaseSeal(d.seal)
+	default:
 		// Drained: a hold an earlier, failed drain left is released too.
 		s.releaseSeal(d.seal)
-	}
-	if outcome == drainOutcomeCancelled {
-		s.releaseSeal(d.seal)
-		s.logger.InfoContext(logCtx, "drain cancelled", "reason", d.reason)
-	}
-	if outcome == drainOutcomeFailed {
-		s.logger.WarnContext(logCtx, "drain could not end the work left; the pools stay sealed", "reason", d.reason, "error", err)
 	}
 	s.drainStats.recordDrain(logCtx, time.Since(start).Seconds(), outcome, d.reason, d.role)
 	return err
@@ -170,18 +169,16 @@ func (s *QueryPoolerServer) drain(ctx context.Context, d drainSpec) (string, err
 	// Stage 1: wait for transactions to finish while single queries flow.
 	if err := s.poolManager.WaitForReservedDrain(stageCtx); err == nil {
 		if !s.toSecondStage(ctx, d.phase) {
-			return drainOutcomeCancelled, context.Canceled
+			return drainOutcomeCancelled, ctx.Err()
 		}
 		// Stage 2: refuse single queries too, and wait out the in-flight ones.
 		if err := s.poolManager.WaitForDrain(stageCtx); err == nil {
 			return drainOutcomeGraceful, nil
 		}
 	}
-	if err := ctx.Err(); err != nil {
-		return drainOutcomeCancelled, err
-	}
+	// Past the timeout, or cancelled: in either stage, refuse everything new.
 	if !s.toSecondStage(ctx, d.phase) {
-		return drainOutcomeCancelled, context.Canceled
+		return drainOutcomeCancelled, ctx.Err()
 	}
 
 	s.logger.WarnContext(ctx, "drain did not complete within its timeout; sealing the pools and ending the work left",

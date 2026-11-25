@@ -246,7 +246,9 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstat
 	}
 
 	// not-serving: begin stage 1 of the graceful drain, or stage 2 when the
-	// pooler is already not serving (a retried drain): it serves nothing new.
+	// pooler is already not serving (DRAINING to DISABLED, or a role change
+	// while not serving): it serves nothing new, and stage 1 would admit
+	// single queries again.
 	// The routing role is NOT updated yet — in-flight requests on reserved
 	// connections (e.g., COMMIT after a demotion) must still see the old role
 	// so that checkTargetLocked allows them to complete.
@@ -256,14 +258,7 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstat
 	}
 	s.mu.Unlock()
 
-	_ = s.runDrain(ctx, drainSpec{
-		reason:  drainReasonFailover,
-		role:    fromRole,
-		timeout: s.gracePeriod,
-		phase:   &s.drainPhase,
-		seal:    &s.notServingSeal,
-		refusal: mterrors.MTF01.New(),
-	})
+	_ = s.runNotServingDrain(ctx, fromRole)
 
 	// Complete the transition. The routing role is set here (after drain) so that
 	// in-flight requests saw the old role throughout the drain phase.
@@ -295,15 +290,19 @@ func (s *QueryPoolerServer) EnsureDrained(ctx context.Context) error {
 		return nil
 	}
 	s.mu.Lock()
-	if s.servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
-		s.mu.Unlock()
+	serving, role := s.servingStatus == clustermetadatapb.PoolerServingStatus_SERVING, s.routingRole
+	s.mu.Unlock()
+	if serving {
 		return nil
 	}
-	role := s.routingRole
-	s.drainPhase = drainRegular
-	s.mu.Unlock()
+	// A pooler that is not serving refuses everything new whatever its drain
+	// phase, so the drain's phase moves nothing here.
+	return s.runNotServingDrain(ctx, role)
+}
 
-	err := s.runDrain(ctx, drainSpec{
+// runNotServingDrain runs the not-serving drain, recorded with role.
+func (s *QueryPoolerServer) runNotServingDrain(ctx context.Context, role servingstate.RoutingRole) error {
+	return s.runDrain(ctx, drainSpec{
 		reason:  drainReasonFailover,
 		role:    role,
 		timeout: s.gracePeriod,
@@ -311,10 +310,6 @@ func (s *QueryPoolerServer) EnsureDrained(ctx context.Context) error {
 		seal:    &s.notServingSeal,
 		refusal: mterrors.MTF01.New(),
 	})
-	s.mu.Lock()
-	s.drainPhase = drainNone
-	s.mu.Unlock()
-	return err
 }
 
 // StartRequest checks whether a request should be admitted, based on its

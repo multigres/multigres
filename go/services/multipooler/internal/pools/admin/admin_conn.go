@@ -383,20 +383,15 @@ func (c *Conn) TerminateBackend(ctx context.Context, processID uint32) (bool, er
 // when the backend did not exit in time, when it does not exist, and when the
 // caller lacks permission; so on false the backend counts as gone only if
 // pg_stat_activity no longer lists it.
+//
+// Both run in one statement: CASE evaluates its branches in order, so the
+// pg_stat_activity check runs only after pg_terminate_backend returned false.
 func (c *Conn) TerminateBackendAndWait(ctx context.Context, processID uint32, timeout time.Duration) (bool, error) {
 	ms := max(timeout.Milliseconds(), 1)
-	sql := fmt.Sprintf("SELECT pg_terminate_backend(%d, %d)", processID, ms)
-	terminated, err := c.execBackendFunc(ctx, sql, "terminate", processID)
-	if err != nil || terminated {
-		return terminated, err
-	}
-	results, err := c.StatelessQuery(ctx, fmt.Sprintf("SELECT NOT EXISTS (SELECT 1 FROM pg_stat_activity WHERE pid = %d)", processID))
-	if err != nil {
-		return false, fmt.Errorf("failed to check whether backend %d exited: %w", processID, err)
-	}
-	gone := len(results) > 0 && len(results[0].StructuredRows()) > 0 && len(results[0].StructuredRows()[0].Values) > 0 &&
-		string(results[0].StructuredRows()[0].Values[0]) == "t"
-	return gone, nil
+	sql := fmt.Sprintf(
+		"SELECT CASE WHEN pg_terminate_backend(%d, %d) THEN true ELSE NOT EXISTS (SELECT 1 FROM pg_stat_activity WHERE pid = %d) END",
+		processID, ms, processID)
+	return c.execBackendFunc(ctx, sql, "terminate", processID)
 }
 
 // CancelBackend cancels the current query on a backend process using pg_cancel_backend().
