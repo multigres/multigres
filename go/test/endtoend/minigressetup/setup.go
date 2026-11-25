@@ -65,6 +65,7 @@ type config struct {
 	tls                    bool
 	extraArgs              []string
 	logLevel               string
+	otelEndpoint           string
 	pgInitdbArgs           string
 	pgInitdbExtraConfFiles []string
 }
@@ -88,6 +89,13 @@ func WithRequireSSL() Option {
 // WithExtraArgs passes extra command-line arguments to the minigres process.
 func WithExtraArgs(args ...string) Option {
 	return func(c *config) { c.extraArgs = append(c.extraArgs, args...) }
+}
+
+// WithOTelExport makes the minigres process export its traces, the gateway's
+// and the pooler's, to the given OTLP HTTP endpoint. Use with
+// shardsetup.NewTestOTLPCollector to capture spans in tests.
+func WithOTelExport(endpoint string) Option {
+	return func(c *config) { c.otelEndpoint = endpoint }
 }
 
 // WithLogLevel sets the minigres log level.
@@ -247,6 +255,9 @@ func (s *Setup) newMinigresInstance(t *testing.T, cfg *config) *clustersetup.Pro
 			"PGCONNECT_TIMEOUT=5",
 			"POSTGRES_PASSWORD="+clustersetup.TestPostgresPassword,
 			constants.PgDataDirEnvVar+"="+filepath.Join(s.Pgctld.PoolerDir, "pg_data")),
+	}
+	if cfg.otelEndpoint != "" {
+		inst.Environment = append(inst.Environment, clustersetup.OTLPTraceEnv(cfg.otelEndpoint)...)
 	}
 	if s.TLSCertPaths != nil {
 		inst.TLSCertFile = s.TLSCertPaths.ServerCertFile
