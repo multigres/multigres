@@ -876,14 +876,16 @@ func execWithContextCancel[T any](c *Conn, ctx context.Context, op func() (T, er
 // postCancelDrainGrace, on the force-closed socket.
 //
 // stop must be called once the operation has finished reading, and before the
-// connection is released: it waits for a cancel that has already started, so
-// that cancel cannot reach a later statement on this connection.
+// connection is released. If the watcher has started, stop waits for it to
+// return, so that neither its cancel nor its force-close can reach the
+// connection once stop has returned. The wait is bounded by the cancel RPC:
+// stop ends the grace period.
 func (c *Conn) WatchContextCancel(ctx context.Context) (stop func()) {
 	finished := make(chan struct{}) // closed by stop
-	requested := make(chan struct{})
+	done := make(chan struct{})     // closed when the watcher returns
 	stopWatch := context.AfterFunc(ctx, func() {
+		defer close(done)
 		c.handleContextCancellation()
-		close(requested)
 		timer := time.NewTimer(postCancelDrainGrace)
 		defer timer.Stop()
 		select {
@@ -897,7 +899,7 @@ func (c *Conn) WatchContextCancel(ctx context.Context) (stop func()) {
 			return // ctx was not cancelled in time; nothing ran
 		}
 		close(finished)
-		<-requested
+		<-done
 	}
 }
 
