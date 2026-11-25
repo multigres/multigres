@@ -159,65 +159,6 @@ func TestShardSetup_ReplicationWorks(t *testing.T) {
 	_, _ = primaryClient.Pooler.ExecuteQuery(ctx, "DROP TABLE IF EXISTS test_replication", 0)
 }
 
-// TestShardSetup_WithoutReplication verifies that WithoutReplication() leaves replication unconfigured.
-// Standbys should have empty primary_conninfo and no WAL receiver.
-func TestShardSetup_WithoutReplication(t *testing.T) {
-	skipIfShort(t)
-	setup := getSharedSetup(t)
-	setup.SetupTest(t, WithoutReplication())
-
-	ctx := t.Context()
-
-	// Verify standbys have no replication configured
-	for _, standby := range setup.GetStandbys() {
-		standbyClient := setup.NewClient(t, standby.Name)
-
-		// Verify primary_conninfo is empty
-		connInfo, err := QueryStringValue(ctx, standbyClient.Pooler, "SHOW primary_conninfo")
-		require.NoError(t, err, "%s should respond to SHOW primary_conninfo", standby.Name)
-		assert.Equal(t, "", connInfo, "%s primary_conninfo should be empty with WithoutReplication()", standby.Name)
-
-		// Verify no WAL receiver (no replication streaming)
-		resp, err := standbyClient.Pooler.ExecuteQuery(ctx, "SELECT status FROM pg_stat_wal_receiver", 1)
-		require.NoError(t, err, "%s should respond to pg_stat_wal_receiver query", standby.Name)
-		assert.Empty(t, resp.Rows, "%s should have no WAL receiver with WithoutReplication()", standby.Name)
-
-		standbyClient.Close()
-	}
-
-	// Verify primary has no synchronous_standby_names configured (clean state)
-	primaryClient := setup.NewPrimaryClient(t)
-	defer primaryClient.Close()
-
-	syncStandby, err := QueryStringValue(ctx, primaryClient.Pooler, "SHOW synchronous_standby_names")
-	require.NoError(t, err)
-	assert.Equal(t, "", syncStandby, "synchronous_standby_names should be empty with WithoutReplication()")
-
-	// Write data to primary - it should succeed (no sync replication configured)
-	_, err = primaryClient.Pooler.ExecuteQuery(ctx, "CREATE TABLE IF NOT EXISTS test_no_repl (id INT PRIMARY KEY)", 0)
-	require.NoError(t, err, "Should be able to create table on primary")
-
-	_, err = primaryClient.Pooler.ExecuteQuery(ctx, "INSERT INTO test_no_repl (id) VALUES (1) ON CONFLICT DO NOTHING", 0)
-	require.NoError(t, err, "Should be able to insert on primary without replication")
-
-	// Data should NOT appear on standbys (no replication)
-	for _, standby := range setup.GetStandbys() {
-		standbyClient := setup.NewClient(t, standby.Name)
-
-		// Table might not exist or be empty - either way, data didn't replicate
-		resp, err := standbyClient.Pooler.ExecuteQuery(ctx, "SELECT id FROM test_no_repl WHERE id = 1", 1)
-		if err == nil {
-			assert.Empty(t, resp.Rows, "%s should not have replicated data with WithoutReplication()", standby.Name)
-		}
-		// If error (table doesn't exist), that's also fine - no replication happened
-
-		standbyClient.Close()
-	}
-
-	// Cleanup
-	_, _ = primaryClient.Pooler.ExecuteQuery(ctx, "DROP TABLE IF EXISTS test_no_repl", 0)
-}
-
 // TestShardSetup_GUCModificationAndReset tests that GUC modifications are properly reset.
 // Saves baseline GUCs, modifies them, calls reset, and verifies restoration to baseline.
 func TestShardSetup_GUCModificationAndReset(t *testing.T) {

@@ -295,6 +295,15 @@ func (a *connectAdapter) DropMigration(ctx context.Context, req *connect.Request
 	return connect.NewResponse(resp), nil
 }
 
+// ReseedReverseLink forwards to the Multigres Migrator service.
+func (a *connectAdapter) ReseedReverseLink(ctx context.Context, req *connect.Request[migratorpb.ReseedReverseLinkRequest]) (*connect.Response[migratorpb.ReseedReverseLinkResponse], error) {
+	resp, err := a.MultiadminServer.ReseedReverseLink(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
 // CreateConnection forwards to the Multigres Migrator service.
 func (a *connectAdapter) CreateConnection(ctx context.Context, req *connect.Request[migratorpb.CreateConnectionRequest]) (*connect.Response[migratorpb.CreateConnectionResponse], error) {
 	resp, err := a.MultiadminServer.CreateConnection(ctx, req.Msg)
@@ -352,6 +361,24 @@ func (a *connectAdapter) SetRoutingRules(ctx context.Context, req *connect.Reque
 // DeleteRoutingRules forwards to the database's catalog primary.
 func (a *connectAdapter) DeleteRoutingRules(ctx context.Context, req *connect.Request[multipoolermanagerdatapb.DeleteRoutingRulesRequest]) (*connect.Response[multipoolermanagerdatapb.DeleteRoutingRulesResponse], error) {
 	resp, err := a.MultiadminServer.DeleteRoutingRules(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// FenceScopes forwards to the database's catalog primary.
+func (a *connectAdapter) FenceScopes(ctx context.Context, req *connect.Request[multipoolermanagerdatapb.FenceScopesRequest]) (*connect.Response[multipoolermanagerdatapb.FenceScopesResponse], error) {
+	resp, err := a.MultiadminServer.FenceScopes(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// UnfenceScopes forwards to the database's catalog primary.
+func (a *connectAdapter) UnfenceScopes(ctx context.Context, req *connect.Request[multipoolermanagerdatapb.UnfenceScopesRequest]) (*connect.Response[multipoolermanagerdatapb.UnfenceScopesResponse], error) {
+	resp, err := a.MultiadminServer.UnfenceScopes(ctx, req.Msg)
 	if err != nil {
 		return nil, err
 	}

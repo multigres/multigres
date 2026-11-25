@@ -55,7 +55,10 @@ func (e *Engine) Expire(ctx context.Context, overrides map[string]string) ([]str
 		"expire",
 	}
 
-	args = commonbackup.ApplyPgBackRestOverrides(args, overrides)
+	args, err = commonbackup.ApplyPgBackRestOverrides(args, overrides)
+	if err != nil {
+		return nil, err
+	}
 
 	cmd := e.pgbackrestCmd(ctx, args...)
 

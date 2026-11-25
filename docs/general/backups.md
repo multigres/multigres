@@ -74,10 +74,14 @@ Multigres generates pgBackRest's config from templates rather than letting
 an operator hand-write it, and splits it into two files with different
 owners and different trust levels:
 
-| Config                     | Owner       | Purpose                                      | Contains secrets?                                       |
-| -------------------------- | ----------- | -------------------------------------------- | ------------------------------------------------------- |
-| `pgbackrest.conf` (client) | multipooler | runs `backup` / `restore` / `info`           | yes: repo credentials, cipher passphrases (mode `0600`) |
-| `pgbackrest-server.conf`   | pgctld      | runs the TLS server other poolers connect to | TLS key material only                                   |
+| Config                     | Owner       | Purpose                                      | Contains secrets?                                             |
+| -------------------------- | ----------- | -------------------------------------------- | ------------------------------------------------------------- |
+| `pgbackrest.conf` (client) | multipooler | runs `backup` / `restore` / `info`           | yes: repo credentials, cipher passphrases (mode `0600`)       |
+| `pgbackrest-server.conf`   | pgctld      | runs the TLS server other poolers connect to | no: only the paths of the TLS cert/key/CA files (mode `0644`) |
+
+Both live in `<pooler-dir>/pgbackrest/` and are rendered from the templates in
+`config/pgbackrest/` by `go/common/backup` (`WriteClientConfig`,
+`WriteServerConfig`).
 
 Both are static per-pooler except for one thing: **`pg2-*` is never written
 into a config file at all.** pgBackRest's `pg2` settings point at a second
@@ -96,7 +100,7 @@ straight:
 
 #### pg1 = "me" or "self"
 
-`pg1-*` (the one line that _is_ in `pgbackrest.conf`) always means "this
+`pg1-*` (the settings that _are_ in `pgbackrest.conf`) always means "this
 pooler's own local Postgres": self-referential, whether that pooler happens
 to be the primary or a replica.
 
@@ -120,6 +124,11 @@ Concretely:
 - Backing up a **replica** (the normal case): `--pg2-host-type=tls`, plus
   host/port/path and cert/key/CA flags pointing at the primary's pgBackRest
   TLS server (see below). Nothing touches Postgres's own replication port.
+  If the replica's multipooler has no pgBackRest TLS cert/key/CA configured,
+  it falls back to a non-TLS mode meant for tests: `--pg2-host`, `--pg2-port`
+  (the primary's Postgres port) and a `--pg2-path` that the caller must supply
+  as an override (`GetPrimaryAsPg2Args` in
+  `go/services/multipooler/internal/manager/rpc_backup.go`).
 
 ### TLS server setup
 
@@ -131,6 +140,14 @@ cert against a CA file, and the client (the requesting replica) does the
 same in reverse: both sides authenticate. Cert/key/CA material is expected
 to already be provisioned (e.g. mounted from a secret store); Multigres
 doesn't generate certificates itself.
+
+The server is opt-in: `pgctld server` writes `pgbackrest-server.conf` and
+starts `pgbackrest server` only when `--pgbackrest-port` and
+`--pgbackrest-cert-dir` are both set (setting only one logs a warning and
+leaves it disabled). The cert directory must contain `ca.crt`,
+`pgbackrest.crt` and `pgbackrest.key`. pgctld restarts the server if it exits
+and reports its health through the `pgbackrest.server.up`,
+`pgbackrest.server.restart_count` and `pgbackrest.server.uptime` metrics.
 
 ## WAL archiving
 

@@ -27,7 +27,7 @@ import (
 // ReplicaNotReplicatingAnalyzer detects when a replica has no replication configured.
 // This happens when primary_conninfo is not set or replication is stopped.
 type ReplicaNotReplicatingAnalyzer struct {
-	factory *RecoveryActionFactory
+	factory ActionFactory
 }
 
 func (a *ReplicaNotReplicatingAnalyzer) Name() types.CheckName {

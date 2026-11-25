@@ -74,6 +74,11 @@ type QueryPoolerServer struct {
 	// See drainPhase constants and StartRequest for the admission rules per stage.
 	drainPhase drainPhase
 
+	// fence is the admission fence gate of a primary pooler (see
+	// fence_gate.go), a condition of its own: a fenced pooler stays SERVING.
+	// Guarded by mu.
+	fence fenceGate
+
 	// gracePeriod is how long OnStateChange waits for in-flight connections to drain
 	// before force-closing reserved connections. Configured via --connpool-drain-grace-period.
 	gracePeriod time.Duration
@@ -158,6 +163,8 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 		stateChanged:   make(chan struct{}),
 		drainStats:     newDrainStats(),
 		replMetrics:    replMetrics,
+
+		fence: fenceGate{changed: make(chan struct{}, 1)},
 	}
 }
 
@@ -203,7 +210,7 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstat
 	fromRole := s.routingRole
 
 	if servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
-		s.routingRole = routingRole
+		s.setRoutingRoleLocked(routingRole)
 		s.servingStatus = servingStatus
 		s.drainPhase = drainNone
 		s.notifyStateChangedLocked()
@@ -250,19 +257,19 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstat
 			// a non-serving state. In-flight single queries (if any) are killed by
 			// the postgres demotion that follows the not-serving transition.
 			killed := s.poolManager.CloseReservedConnections(ctx)
-			s.drainStats.recordForceClosed(ctx, killed, fromRole)
+			s.drainStats.recordForceClosed(ctx, killed, drainReasonFailover, fromRole)
 			if killed > 0 {
 				s.logger.WarnContext(ctx, "force-closed reserved connections after drain timeout",
 					"killed", killed)
 			}
 		}
-		s.drainStats.recordDrain(ctx, time.Since(drainStart).Seconds(), outcome, fromRole)
+		s.drainStats.recordDrain(ctx, time.Since(drainStart).Seconds(), outcome, drainReasonFailover, fromRole)
 	}
 
 	// Complete the transition. The routing role is set here (after drain) so that
 	// in-flight requests saw the old role throughout the drain phase.
 	s.mu.Lock()
-	s.routingRole = routingRole
+	s.setRoutingRoleLocked(routingRole)
 	s.servingStatus = servingStatus
 	s.drainPhase = drainNone
 	s.notifyStateChangedLocked()
@@ -280,8 +287,11 @@ func (s *QueryPoolerServer) setDrainPhase(p drainPhase) {
 }
 
 // StartRequest checks whether a request should be admitted, based on its
-// RequestKind and the current drain phase. Returns nil if allowed, or MTF01
-// (which the gateway buffers + retries on the new primary) if rejected.
+// RequestKind, the current drain phase and, on a primary, the fence gate.
+// Returns nil if allowed, MTF01 (which the gateway buffers + retries on the
+// new primary) if the not-serving drain rejects it, or MTF02 (which the
+// gateway retries once its catalog snapshot lifts the fence) if the fence gate
+// does.
 //
 // Admission matrix:
 //
@@ -300,10 +310,63 @@ func (s *QueryPoolerServer) setDrainPhase(p drainPhase) {
 // The two-stage drain lets single autocommit queries keep flowing while
 // transactions finish (drainReserved), then stops them too so the cutover
 // happens with zero in-flight work (drainRegular).
-func (s *QueryPoolerServer) StartRequest(target *query.Target, kind RequestKind) error {
+//
+// A request the matrix admits is then checked against the fence gate
+// (checkFenceLocked), which applies only while the routing role is PRIMARY:
+//
+//	kind \ gate       | open  | unread | fencing: drainReserved | drainRegular | fenced
+//	------------------+-------+--------+------------------------+--------------+-------
+//	ExistingReserved  | allow | allow  | allow                  | allow        | allow
+//	SingleQuery       | allow | MTF02  | allow                  | MTF02        | MTF02
+//	NewReservation    | allow | MTF02  | MTF02                  | MTF02        | MTF02
+//
+// A drain waits for the work it refuses to have left the pooler, but the pool
+// counts only the connections it has lent, and an admitted request may still
+// be waiting for its connection. So StartRequest counts each request it admits
+// in the pool's drain accounting (AddAdmitted), as the kind of connection it
+// will hold, until the caller calls Done on the returned Admission. It counts
+// it under the lock it admits it under, so a drain that begins after the
+// admission waits for the request, and one that began before it refused it.
+// An existing reserved connection is already counted, and gets the zero
+// Admission.
+func (s *QueryPoolerServer) StartRequest(target *query.Target, kind RequestKind) (Admission, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.checkDrainLocked(target, kind); err != nil {
+		return Admission{}, err
+	}
+	if kind == RequestExistingReserved {
+		return Admission{}, nil
+	}
+	if err := s.checkFenceLocked(kind); err != nil {
+		return Admission{}, err
+	}
+	if s.poolManager == nil {
+		return Admission{}, nil
+	}
+	reservation := kind == RequestNewReservation
+	s.poolManager.AddAdmitted(reservation)
+	return Admission{pm: s.poolManager, reservation: reservation}, nil
+}
 
+// Admission is a request StartRequest admitted. The caller must call Done
+// exactly once: when the request has finished, or as soon as the connection it
+// runs on is counted by the pool for the rest of its life.
+type Admission struct {
+	pm          connpoolmanager.PoolManager
+	reservation bool
+}
+
+// Done ends the admission. The zero Admission does nothing.
+func (a Admission) Done() {
+	if a.pm != nil {
+		a.pm.RemoveAdmitted(a.reservation)
+	}
+}
+
+// checkDrainLocked is StartRequest without the fence gate: the target check
+// and the not-serving drain matrix. Caller must hold s.mu.
+func (s *QueryPoolerServer) checkDrainLocked(target *query.Target, kind RequestKind) error {
 	existingReserved := kind == RequestExistingReserved
 	if err := s.checkTargetLocked(target, existingReserved); err != nil {
 		return err
@@ -327,17 +390,16 @@ func (s *QueryPoolerServer) StartRequest(target *query.Target, kind RequestKind)
 		if s.servingStatus != clustermetadatapb.PoolerServingStatus_SERVING {
 			return mterrors.MTF01.New()
 		}
-		return nil
 	case drainReserved:
 		// Stage 1: keep serving single queries; reject new reservations.
-		if kind == RequestSingleQuery {
-			return nil
+		if kind != RequestSingleQuery {
+			return mterrors.MTF01.New()
 		}
-		return mterrors.MTF01.New()
 	default: // drainRegular
 		// Stage 2: reject everything new (single queries and reservations).
 		return mterrors.MTF01.New()
 	}
+	return nil
 }
 
 // checkTargetLocked validates that the request's target matches this pooler's identity.
@@ -497,6 +559,9 @@ func (s *QueryPoolerServer) PoolManager() connpoolmanager.PoolManager {
 
 // InternalQueryService returns the executor as an InternalQueryService for internal queries.
 // Implements PoolerController interface.
+//
+// It bypasses StartRequest, and with it the drain and the fence gate: the manager's
+// catalog writes must run while the catalog shard is fenced (see fence_gate.go).
 func (s *QueryPoolerServer) InternalQueryService() executor.InternalQueryService {
 	// Explicit nil check required: returning a nil *Executor directly would produce a
 	// non-nil interface value wrapping a nil pointer, causing callers' == nil checks to

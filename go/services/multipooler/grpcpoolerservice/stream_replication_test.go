@@ -160,6 +160,11 @@ type fakeReplPoolManager struct {
 	err  error
 }
 
+// AddAdmitted and RemoveAdmitted are the drain accounting of an admission,
+// which the test does not drain.
+func (*fakeReplPoolManager) AddAdmitted(bool)    {}
+func (*fakeReplPoolManager) RemoveAdmitted(bool) {}
+
 func (f *fakeReplPoolManager) NewLogicalReplicationConn(context.Context, string, []byte, []byte) (*reserved.Conn, error) {
 	return f.conn, f.err
 }

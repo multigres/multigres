@@ -23,7 +23,6 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
-	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
@@ -48,7 +47,6 @@ var _ types.RecoveryAction = (*ReconnectRecruitAbandonedAction)(nil)
 // outgoing rule, so concurrent orchestrators cannot double-advance; a loser sees
 // the rule already advanced and its later SetPrimary is harmless.
 type ReconnectRecruitAbandonedAction struct {
-	config      *config.Config
 	rpcClient   rpcclient.MultipoolerClient
 	poolerStore *store.PoolerCache
 	logger      *slog.Logger
@@ -56,13 +54,11 @@ type ReconnectRecruitAbandonedAction struct {
 
 // NewReconnectRecruitAbandonedAction creates a new reconnect action.
 func NewReconnectRecruitAbandonedAction(
-	cfg *config.Config,
 	rpcClient rpcclient.MultipoolerClient,
 	poolerStore *store.PoolerCache,
 	logger *slog.Logger,
 ) *ReconnectRecruitAbandonedAction {
 	return &ReconnectRecruitAbandonedAction{
-		config:      cfg,
 		rpcClient:   rpcClient,
 		poolerStore: poolerStore,
 		logger:      logger,

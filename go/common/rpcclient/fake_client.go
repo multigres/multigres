@@ -79,6 +79,9 @@ type FakeClient struct {
 	GetRoutingSnapshotResponses         map[topoclient.ComponentID]*multipoolermanagerdatapb.GetRoutingSnapshotResponse
 	SetRoutingRulesResponses            map[topoclient.ComponentID]*multipoolermanagerdatapb.SetRoutingRulesResponse
 	DeleteRoutingRulesResponses         map[topoclient.ComponentID]*multipoolermanagerdatapb.DeleteRoutingRulesResponse
+	FenceScopesResponses                map[topoclient.ComponentID]*multipoolermanagerdatapb.FenceScopesResponse
+	UnfenceScopesResponses              map[topoclient.ComponentID]*multipoolermanagerdatapb.UnfenceScopesResponse
+	RefreshFencesResponses              map[topoclient.ComponentID]*multipoolermanagerdatapb.RefreshFencesResponse
 	ReloadConfigResponses               map[topoclient.ComponentID]*multipoolermanagerdatapb.ReloadConfigResponse
 	ListTableGroupsResponses            map[topoclient.ComponentID]*multipoolermanagerdatapb.ListTableGroupsResponse
 
@@ -128,6 +131,9 @@ func NewFakeClient() *FakeClient {
 		GetRoutingSnapshotResponses:         make(map[topoclient.ComponentID]*multipoolermanagerdatapb.GetRoutingSnapshotResponse),
 		SetRoutingRulesResponses:            make(map[topoclient.ComponentID]*multipoolermanagerdatapb.SetRoutingRulesResponse),
 		DeleteRoutingRulesResponses:         make(map[topoclient.ComponentID]*multipoolermanagerdatapb.DeleteRoutingRulesResponse),
+		FenceScopesResponses:                make(map[topoclient.ComponentID]*multipoolermanagerdatapb.FenceScopesResponse),
+		UnfenceScopesResponses:              make(map[topoclient.ComponentID]*multipoolermanagerdatapb.UnfenceScopesResponse),
+		RefreshFencesResponses:              make(map[topoclient.ComponentID]*multipoolermanagerdatapb.RefreshFencesResponse),
 		ReloadConfigResponses:               make(map[topoclient.ComponentID]*multipoolermanagerdatapb.ReloadConfigResponse),
 		ListTableGroupsResponses:            make(map[topoclient.ComponentID]*multipoolermanagerdatapb.ListTableGroupsResponse),
 		Errors:                              make(map[topoclient.ComponentID]error),
@@ -177,6 +183,24 @@ func (f *FakeClient) checkError(poolerID topoclient.ComponentID) error {
 		return err
 	}
 	return nil
+}
+
+// SetError sets the error every call to a pooler returns; nil clears it.
+func (f *FakeClient) SetError(poolerID topoclient.ComponentID, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err == nil {
+		delete(f.Errors, poolerID)
+		return
+	}
+	f.Errors[poolerID] = err
+}
+
+// SetGetRoutingSnapshotResponse sets the GetRoutingSnapshot response for a pooler.
+func (f *FakeClient) SetGetRoutingSnapshotResponse(poolerID topoclient.ComponentID, resp *multipoolermanagerdatapb.GetRoutingSnapshotResponse) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.GetRoutingSnapshotResponses[poolerID] = resp
 }
 
 // SetStatusResponse sets a Status response for a pooler with no delay.
@@ -598,6 +622,54 @@ func (f *FakeClient) DeleteRoutingRules(ctx context.Context, pooler *clustermeta
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.DeleteRoutingRulesResponse{}, nil
+}
+
+func (f *FakeClient) FenceScopes(ctx context.Context, pooler *clustermetadatapb.Multipooler, req *multipoolermanagerdatapb.FenceScopesRequest) (*multipoolermanagerdatapb.FenceScopesResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("FenceScopes", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.FenceScopesResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.FenceScopesResponse{}, nil
+}
+
+func (f *FakeClient) UnfenceScopes(ctx context.Context, pooler *clustermetadatapb.Multipooler, req *multipoolermanagerdatapb.UnfenceScopesRequest) (*multipoolermanagerdatapb.UnfenceScopesResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("UnfenceScopes", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.UnfenceScopesResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.UnfenceScopesResponse{}, nil
+}
+
+func (f *FakeClient) RefreshFences(ctx context.Context, pooler *clustermetadatapb.Multipooler, req *multipoolermanagerdatapb.RefreshFencesRequest) (*multipoolermanagerdatapb.RefreshFencesResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("RefreshFences", poolerID)
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	if resp, ok := f.RefreshFencesResponses[poolerID]; ok {
+		return resp, nil
+	}
+	return &multipoolermanagerdatapb.RefreshFencesResponse{}, nil
 }
 
 //

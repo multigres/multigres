@@ -16,9 +16,12 @@ package manager
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
+	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/mterrors"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
@@ -28,18 +31,23 @@ import (
 // Sharding Catalog Schema (catalog shard only)
 //
 // The sharding catalog (tablegroups, shards, tables, shard indexes and keys,
-// operations, named connections) lives in the multigres schema on the catalog
-// shard (see constants.IsCatalogShard). ensureCatalogSchema keeps it current on
-// every primary open from three lists:
+// operations, named connections, routing rules, admission fences) lives in the
+// multigres schema on the catalog shard (see constants.IsCatalogShard).
+// ensureCatalogSchema keeps it current on every primary open from three lists:
 //
 //   - catalogMigrations: breaking changes (drop or rename a table or column,
-//     change a type or constraint, backfill data), numbered and applied once,
-//     in order. multigres.catalog_state.format_version counts how many have
-//     been applied.
+//     change a type or constraint, backfill or delete data), numbered and
+//     applied once, in order. A migration's schema changes run before
+//     catalogTables and its data changes after it (see catalogMigration).
+//     multigres.catalog_state.format_version counts how many have been
+//     applied.
 //   - catalogTables: every catalog table, declared idempotently and re-run on
 //     every open. Additive changes (a new table, a new nullable or defaulted
 //     column) are appended here and need no format bump.
 //   - catalogSeed: the initial rows, inserted idempotently on every open.
+//
+// After them, fillConnInfo gives a connection stored before multigres.connections had a conninfo
+// column its conninfo, converted from its dsn.
 // ============================================================================
 
 // catalogSchemaLockKey is the pg_advisory_xact_lock key that serializes
@@ -51,8 +59,20 @@ const catalogSchemaLockKey int64 = 0x6d756c7469677273
 // including the wait for the advisory lock.
 const catalogSchemaTimeout = 10 * time.Second
 
-// catalogMigration upgrades the catalog from format version-1 to version.
-// Its statements run in order inside ensureCatalogSchema's transaction.
+// catalogMigration upgrades the catalog from format version-1 to version, in
+// two phases inside ensureCatalogSchema's transaction:
+//
+//   - statements run before catalogTables, against the catalog as the previous
+//     format left it: a schema change (drop, rename, retype) that catalogTables
+//     must not see the old shape of. On a fresh shard the tables do not exist
+//     yet, so these must be no-ops there (IF EXISTS).
+//   - postStatements run after catalogTables and catalogSeed, so every current
+//     table and the initial rows exist: a data migration (a backfill, or
+//     deleting rows an older binary left) that is plain SQL against the
+//     current tables. On a fresh shard the tables are new, so these must find
+//     nothing to do there.
+//
+// Each phase runs the missing formats in order.
 //
 // change declares what the migration does to the rows a routing snapshot
 // contains, as a writeCatalog writer does: a migration that rewrites or
@@ -60,9 +80,10 @@ const catalogSchemaTimeout = 10 * time.Second
 // so gateways holding a snapshot at the old routing_version refetch. The zero
 // value, catalogNoSnapshotChange, advances nothing.
 type catalogMigration struct {
-	version    int
-	statements []string
-	change     catalogChange
+	version        int
+	statements     []string
+	postStatements []string
+	change         catalogChange
 }
 
 // connectionsTableSQL declares multigres.connections: named connections to a
@@ -83,13 +104,59 @@ const connectionsTableSQL = `CREATE TABLE IF NOT EXISTS multigres.connections (
 	created_at    timestamptz NOT NULL DEFAULT now()
 )`
 
+// connectionsConnInfoColumnSQL adds multigres.connections.conninfo: the connection as JSON
+// (backingconn.Conn), the source of truth that every consumer reads; dsn is its canonical
+// rendering. It holds the password, like dsn, and is protected the same way. It is an ALTER, not
+// part of the CREATE TABLE, so that it also reaches a catalog that has created the table.
+//
+// The column is nullable, so it can be added to a table that has rows. A row created before the
+// column existed has no conninfo until fillConnInfo gives it one, and one that cannot be given one
+// keeps none; every reader treats a NULL as a connection it cannot read. CreateConnection always
+// writes it.
+//
+// The CHECK constraint keeps what is structurally wrong out of the column, whoever writes it: an
+// object whose host and port are arrays of at least one entry, every host a non-empty string,
+// every port a whole number from 1 to 65535, and one port or one for each host. libpq's other
+// rules are checked in Go (backingconn.Conn.Validate). The CASE evaluates the paths only for a
+// value of the shape they expect, which a plain AND does not: strict jsonpath fails a missing key
+// with an error and not with a false, and a NULL where a CHECK needs a false would let the row in.
+// A NULL conninfo is allowed by the first branch, explicitly.
+//
+// ADD COLUMN IF NOT EXISTS skips the whole clause, constraint included, where the column exists.
+const connectionsConnInfoColumnSQL = `ALTER TABLE multigres.connections ADD COLUMN IF NOT EXISTS conninfo jsonb
+	CONSTRAINT connections_conninfo_servers CHECK (
+		conninfo IS NULL OR CASE
+			WHEN coalesce(jsonb_typeof(conninfo) = 'object', false)
+			 AND coalesce(jsonb_typeof(conninfo->'host') = 'array', false)
+			 AND coalesce(jsonb_typeof(conninfo->'port') = 'array', false)
+			THEN jsonb_array_length(conninfo->'host') >= 1
+			 AND jsonb_array_length(conninfo->'port') >= 1
+			 AND NOT jsonb_path_exists(conninfo, 'strict $.host[*] ? (@.type() != "string" || @ == "")')
+			 AND NOT jsonb_path_exists(conninfo, 'strict $.port[*] ? (@.type() != "number" || @ < 1 || @ > 65535 || @ != @.floor())')
+			 AND (jsonb_array_length(conninfo->'port') = 1
+			      OR jsonb_array_length(conninfo->'port') = jsonb_array_length(conninfo->'host'))
+			ELSE false
+		END
+	)`
+
+// selectUnfilledConnectionsSQL lists the connections that have a dsn and no conninfo, and
+// fillConnInfoSQL gives one its conninfo and the canonical rendering of it as its dsn. The write
+// names the row and requires the column to be empty, so it changes nothing that a concurrent setup
+// or CreateConnection has written.
+const (
+	selectUnfilledConnectionsSQL = `SELECT connection_id, name, dsn FROM multigres.connections WHERE conninfo IS NULL ORDER BY connection_id`
+	fillConnInfoSQL              = `UPDATE multigres.connections SET conninfo = $1::jsonb, dsn = $2 WHERE connection_id = $3 AND conninfo IS NULL`
+)
+
 // catalogMigrations lists the breaking catalog changes, in order. Entry i
 // upgrades format i to format i+1. Append new formats; never edit or reorder
 // an existing entry, since deployed catalogs have already applied it.
 //
-// Migrations run before catalogTables, so on a fresh shard they run against
-// tables that do not exist yet and must be no-ops there (IF EXISTS); a fresh
-// shard gets the current shape from catalogTables directly. A migration that
+// A migration's statements run before catalogTables, so on a fresh shard they
+// run against tables that do not exist yet and must be no-ops there (IF
+// EXISTS); a fresh shard gets the current shape from catalogTables directly.
+// Its postStatements run after catalogTables, as plain SQL against the
+// current tables, and must find nothing to do on a fresh shard. A migration that
 // changes the shape of something catalogTables declares must also edit or
 // remove that catalogTables statement in the same change, or the next open
 // recreates the old shape; the golden test in pg_catalog_schema_test.go allows
@@ -105,6 +172,23 @@ var catalogMigrations = []catalogMigration{
 		statements: []string{
 			`DROP TABLE IF EXISTS multigres.shard, multigres.tablegroup_table, multigres.tablegroup`,
 		},
+	},
+	{
+		// Format 2 deletes the admission fences of finished operations. From
+		// format 2 on, the write that finishes an operation deletes its fences
+		// (see admission_fences.go), so every fence row holds its scope; a
+		// fence a finished operation never lifted, left by an older pooler,
+		// would otherwise close its scope for good. The fences are in the
+		// snapshot. It needs admission_fence, which a catalog from before
+		// fences lacks until catalogTables creates it, so it runs after the
+		// tables; on a fresh shard, or one whose catalog predates fences, the
+		// table is new and empty.
+		version: 2,
+		postStatements: []string{
+			`DELETE FROM multigres.admission_fence f USING multigres.operation o
+WHERE f.operation_id = o.operation_id AND o.state IN ('` + opStateDone + `', '` + opStateFailed + `')`,
+		},
+		change: catalogRoutingChange,
 	},
 }
 
@@ -220,6 +304,21 @@ var catalogTables = []string{
 	CHECK ((scope = 'table') = (from_table_id IS NOT NULL)),
 	CHECK ((scope = 'tablegroup') = (to_shard_id IS NOT NULL))
 )`,
+	connectionsConnInfoColumnSQL,
+	// An admission fence closes a scope to application work while its
+	// operation changes routing: a whole tablegroup (shard_id NULL) or one
+	// shard of it. A scope has at most one row, enforced in Go
+	// (admission_fences.go) under the catalog_state row lock, and a row exists
+	// only while its scope is fenced: lifting a fence deletes it. version is
+	// the routing_version the fence was set at.
+	`CREATE TABLE IF NOT EXISTS multigres.admission_fence (
+	fence_id      bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	operation_id  uuid   NOT NULL REFERENCES multigres.operation (operation_id),
+	tablegroup_id bigint NOT NULL REFERENCES multigres.tablegroup (tablegroup_id),
+	shard_id      bigint REFERENCES multigres.shard (shard_id),
+	state         text   NOT NULL CHECK (state IN ('FENCING', 'FENCED')),
+	version       bigint NOT NULL
+)`,
 }
 
 // catalogSeed inserts the catalog's initial rows. Every insert is idempotent
@@ -256,11 +355,12 @@ func latestCatalogFormat() int {
 }
 
 // ensureCatalogSchema brings the catalog shard's catalog up to date in one
-// transaction: it applies the missing catalogMigrations in order, then runs
-// catalogTables and catalogSeed, then records latestCatalogFormat. Steps after
-// the migrations run on every call, including when the format is already
-// current; they are idempotent, and they are how an existing catalog picks up
-// tables added by a later release.
+// transaction: it applies the statements of the missing catalogMigrations in
+// order, then runs catalogTables and catalogSeed, then applies the missing
+// migrations' postStatements in order, then records latestCatalogFormat.
+// catalogTables and catalogSeed run on every call, including when the format
+// is already current; they are idempotent, and they are how an existing
+// catalog picks up tables added by a later release.
 //
 // A catalog at a format newer than this binary knows (written by a newer
 // pooler) is left untouched, including catalogTables and catalogSeed: a newer
@@ -332,6 +432,18 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 			return mterrors.Wrap(err, "failed to seed catalog")
 		}
 	}
+	if current < latest {
+		for _, m := range catalogMigrations[current:] {
+			for _, stmt := range m.postStatements {
+				if _, err := tx.Query(execCtx, stmt); err != nil {
+					return mterrors.Wrap(err, fmt.Sprintf("failed to apply catalog format %d data migration", m.version))
+				}
+			}
+		}
+	}
+	if err := fillConnInfo(execCtx, tx, pm.logger); err != nil {
+		return err
+	}
 
 	// Skip the write when the format is already current, so a routine open
 	// does not rewrite the catalog_state row.
@@ -358,6 +470,51 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 		pm.logger.InfoContext(ctx, "successfully upgraded catalog schema", "format_version", latest)
 	}
 	return nil
+}
+
+// fillConnInfo gives every connection that has no conninfo the conninfo and the dsn
+// CreateConnection stores for its dsn (legacyConnInfo), so that a converted connection is the one
+// that would be created now. It runs on every setup and finds nothing to do once the connections
+// are filled. A dsn that does not parse or does not validate (no password, a socket host) leaves
+// its connection as it is, without a conninfo, which every reader reports as a connection to drop
+// and create again; the log names the connection and never the dsn or anything parsed from it,
+// which holds the password.
+func fillConnInfo(ctx context.Context, tx executor.InternalTx, logger *slog.Logger) error {
+	res, err := tx.Query(ctx, selectUnfilledConnectionsSQL)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to list connections without a conninfo")
+	}
+	for _, row := range res.Rows {
+		var id int64
+		var name, dsn string
+		if err := executor.ScanRow(row, &id, &name, &dsn); err != nil {
+			return mterrors.Wrap(err, "failed to read a connection without a conninfo")
+		}
+		conninfo, rendering, err := legacyConnInfo(dsn)
+		if err != nil {
+			logger.WarnContext(ctx, "connection cannot be converted and is unusable until it is dropped and created again",
+				"connection", name)
+			continue
+		}
+		if _, err := tx.QueryArgs(ctx, fillConnInfoSQL, conninfo, rendering, id); err != nil {
+			return mterrors.Wrap(err, "failed to store the conninfo of a connection")
+		}
+	}
+	return nil
+}
+
+// legacyConnInfo returns what CreateConnection stores for a dsn: the conninfo, as JSON, and the
+// dsn column's canonical rendering of it. The error holds nothing of the dsn.
+func legacyConnInfo(dsn string) (conninfo, rendering string, err error) {
+	conn, err := backingconn.FromDSN(dsn)
+	if err != nil {
+		return "", "", err
+	}
+	encoded, err := json.Marshal(conn)
+	if err != nil {
+		return "", "", err
+	}
+	return string(encoded), conn.DSN(), nil
 }
 
 // readCatalogFormat returns the catalog's current format version and whether

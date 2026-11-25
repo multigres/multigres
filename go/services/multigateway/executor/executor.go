@@ -53,6 +53,13 @@ type Executor struct {
 	exec      engine.IExecute
 	logger    *slog.Logger
 	planCache *plancache.PlanCache
+
+	// routingSnapshots and fenceWaitWindow drive the retry of a statement a
+	// fenced pooler refused (see runFenced and SetFenceRetry).
+	routingSnapshots RoutingSnapshots
+	fenceWaitWindow  time.Duration
+
+	metrics *executorMetrics
 }
 
 // SetSlotBasedReplicationEnabled wires the dynamic getter that gates
@@ -101,11 +108,16 @@ func NewExecutor(exec engine.IExecute, logger *slog.Logger, planCacheMemory int)
 	if err != nil {
 		logger.Warn("failed to initialise some transaction metrics", "error", err)
 	}
+	metrics, err := newExecutorMetrics()
+	if err != nil {
+		logger.Warn("failed to initialise some executor metrics", "error", err)
+	}
 	return &Executor{
 		planner:   planner.NewPlanner(DefaultTableGroup, logger, txnMetrics),
 		exec:      exec,
 		logger:    logger,
 		planCache: plancache.New(planCacheMemory),
+		metrics:   metrics,
 	}
 }
 
@@ -140,36 +152,41 @@ func (e *Executor) StreamExecute(
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
-	planStart := time.Now()
-	plan, bindVars, cacheHit, normalizedSQL, fingerprint, err := e.resolvePlan(ctx, queryStr, astStmt, conn, state)
-	planTime := time.Since(planStart)
-	if err != nil {
-		e.logger.ErrorContext(ctx, "query planning failed",
-			"query", logQueryStr,
-			"error", err)
-		return &handler.ExecuteResult{
+	var result *handler.ExecuteResult
+	err := e.runFenced(ctx, conn, state, callback, func(exec engine.IExecute, callback func(context.Context, *sqltypes.Result) error) error {
+		planStart := time.Now()
+		plan, bindVars, cacheHit, normalizedSQL, fingerprint, err := e.resolvePlan(ctx, queryStr, astStmt, conn, state)
+		planTime := time.Since(planStart)
+		if err != nil {
+			e.logger.ErrorContext(ctx, "query planning failed",
+				"query", logQueryStr,
+				"error", err)
+			result = &handler.ExecuteResult{
+				PlanTime:      planTime,
+				NormalizedSQL: normalizedSQL,
+				Fingerprint:   fingerprint,
+			}
+			return err
+		}
+
+		result = &handler.ExecuteResult{
+			TablesUsed:    plan.TablesUsed,
+			PlanType:      plan.Type,
 			PlanTime:      planTime,
+			CacheHit:      cacheHit,
 			NormalizedSQL: normalizedSQL,
 			Fingerprint:   fingerprint,
-		}, err
-	}
+		}
 
-	result := &handler.ExecuteResult{
-		TablesUsed:    plan.TablesUsed,
-		PlanType:      plan.Type,
-		PlanTime:      planTime,
-		CacheHit:      cacheHit,
-		NormalizedSQL: normalizedSQL,
-		Fingerprint:   fingerprint,
-	}
-
-	err = plan.StreamExecute(ctx, e.exec, conn, state, bindVars, callback)
-	if err != nil {
-		e.logger.ErrorContext(ctx, "query execution failed",
-			"query", logQueryStr,
-			"plan", plan.String(),
-			"error", err)
-	}
+		err = plan.StreamExecute(ctx, exec, conn, state, bindVars, callback)
+		if err != nil {
+			e.logger.ErrorContext(ctx, "query execution failed",
+				"query", logQueryStr,
+				"plan", plan.String(),
+				"error", err)
+		}
+		return err
+	})
 	return result, err
 }
 
@@ -292,6 +309,26 @@ func (e *Executor) PortalStreamExecute(
 		"database", conn.Database(),
 		"connection_id", conn.ConnectionID())
 
+	var result *handler.ExecuteResult
+	err := e.runFenced(ctx, conn, state, callback, func(exec engine.IExecute, callback func(context.Context, *sqltypes.Result) error) error {
+		var err error
+		result, err = e.portalAttempt(ctx, exec, conn, state, portalInfo, maxRows, includeDescribe, callback)
+		return err
+	})
+	return result, err
+}
+
+// portalAttempt plans the portal's statement and runs the plan once on exec.
+func (e *Executor) portalAttempt(
+	ctx context.Context,
+	exec engine.IExecute,
+	conn *server.Conn,
+	state *handler.MultigatewayConnectionState,
+	portalInfo *preparedstatement.PortalInfo,
+	maxRows int32,
+	includeDescribe bool,
+	callback func(ctx context.Context, res *sqltypes.Result) error,
+) (*handler.ExecuteResult, error) {
 	planStart := time.Now()
 	plan, cacheHit, normalizedSQL, fingerprint, err := e.resolvePortalPlan(ctx, portalInfo, conn, state)
 	planTime := time.Since(planStart)
@@ -313,7 +350,7 @@ func (e *Executor) PortalStreamExecute(
 	// portalInfo and run their StreamExecute logic. A plain Route reissuing the
 	// portal is exactly what a raw forward to the multipooler would do, so
 	// non-routable utility statements need no special-casing here.
-	err = plan.PortalStreamExecute(ctx, e.exec, conn, state, portalInfo, maxRows, includeDescribe, callback)
+	err = plan.PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, includeDescribe, callback)
 	if err != nil {
 		e.logger.ErrorContext(ctx, "portal query execution failed",
 			"query", ast.LogSafeQuery(portalInfo.PreparedStatementInfo.Query, portalInfo.PreparedStatementInfo.AstStmt()),
@@ -586,11 +623,17 @@ func (e *Executor) PrepareInTransaction(
 	if isMigrationDDLText(queryStr) {
 		return nil
 	}
-	return e.exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", &query.PreparedStatement{
-		Query:        queryStr,
-		ParamTypes:   paramTypes,
-		ForceReparse: true,
-	}, state, engine.PlanExecInfo{}, false, func(context.Context, *sqltypes.Result) error { return nil })
+	// A parse refused as fenced is retried like an Execute (see runFenced),
+	// under the same rule: only while the session holds no reserved
+	// connection, so the parse is what opens the transaction on a pooler and,
+	// refused at admission, ran nowhere. A parse on a target the transaction
+	// already holds a reserved connection on runs on that connection, which
+	// is always admitted and never refused as fenced.
+	ps := &query.PreparedStatement{Query: queryStr, ParamTypes: paramTypes, ForceReparse: true}
+	return e.runFenced(ctx, conn, state, func(context.Context, *sqltypes.Result) error { return nil },
+		func(exec engine.IExecute, callback func(context.Context, *sqltypes.Result) error) error {
+			return exec.StreamExecute(ctx, conn, DefaultTableGroup, constants.DefaultShard, "", ps, state, engine.PlanExecInfo{}, false, callback)
+		})
 }
 
 // isTableGroupDDLText reports whether queryStr is a single tablegroup DDL
