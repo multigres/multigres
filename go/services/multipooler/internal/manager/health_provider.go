@@ -59,6 +59,7 @@ type healthStreamer struct {
 	// Mutable fields (updated via typed methods)
 	servingStatus clustermetadatapb.PoolerServingStatus
 	routingState  *clustermetadatapb.RoutingState
+	schemaToken   string
 
 	// Client management
 	clients map[chan *poolerserver.HealthState]struct{}
@@ -216,6 +217,19 @@ func (hs *healthStreamer) observeCatalogVersions(rule *clustermetadatapb.RuleNum
 	hs.broadcastLocked()
 }
 
+// SetSchemaToken updates the schema token reported in the health stream and,
+// if it changed, broadcasts it so the gateway sees a schema change without
+// waiting for the next heartbeat. Called by the schema tracker.
+func (hs *healthStreamer) SetSchemaToken(token string) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	if hs.schemaToken == token {
+		return
+	}
+	hs.schemaToken = token
+	hs.broadcastLocked()
+}
+
 // buildStateLocked builds the current health state. Caller must hold hs.mu.
 func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
 	state := &poolerserver.HealthState{
@@ -224,6 +238,7 @@ func (hs *healthStreamer) buildStateLocked() *poolerserver.HealthState {
 		RoutingState:                hs.routingState,
 		RecommendedStalenessTimeout: hs.recommendedStalenessTimeout,
 		ReplicationLagNs:            hs.replicationLagNs.Load(),
+		SchemaToken:                 hs.schemaToken,
 	}
 	// Only the routing primary speaks for the catalog, and only for versions
 	// read under its current rule: a demoted pooler stops reporting them in

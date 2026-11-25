@@ -46,6 +46,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 	"github.com/multigres/multigres/go/services/multipooler/internal/replicationstats"
+	"github.com/multigres/multigres/go/services/multipooler/internal/schematracker"
 	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -91,6 +92,7 @@ type MultipoolerManager struct {
 	heartbeatSchemaErrorsSeen atomic.Int64
 	pubsubListener            *pubsub.Listener
 	replStats                 *replicationstats.Tracker
+	schemaTracker             *schematracker.Tracker
 	pgctldClient              pgctldpb.PgCtldClient
 
 	// connPoolMgr manages all connection pools (admin, regular, reserved)
@@ -892,6 +894,19 @@ func (pm *MultipoolerManager) startReplicationStats(ctx context.Context) error {
 	return pm.stateManager.RegisterAndSync(ctx, pm.replStats)
 }
 
+// startSchemaTracker starts computing the schema token and syncs it to the
+// current serving state. The token is computed only while this pooler is the
+// writable leader, since only the primary accepts DDL, and is published on the
+// health stream so the gateway can tell when to reload its catalog cache.
+func (pm *MultipoolerManager) startSchemaTracker(ctx context.Context) error {
+	pm.schemaTracker = schematracker.NewTracker(pm.qsc.InternalQueryService(), pm.logger, pm.config.SchemaTokenInterval, func(token string) {
+		if pm.healthStreamer != nil {
+			pm.healthStreamer.SetSchemaToken(token)
+		}
+	})
+	return pm.stateManager.RegisterAndSync(ctx, pm.schemaTracker)
+}
+
 // startPubSubListener creates the shared LISTEN/NOTIFY listener and registers
 // it with the state manager. The listener runs only when PRIMARY+SERVING.
 func (pm *MultipoolerManager) startPubSubListener(ctx context.Context) error {
@@ -1022,6 +1037,12 @@ func (pm *MultipoolerManager) openConnectionsLocked() {
 			pm.logger.Error("failed to start replication stats poller", "error", err)
 		}
 	}
+
+	if pm.schemaTracker == nil {
+		if err := pm.startSchemaTracker(context.TODO()); err != nil {
+			pm.logger.Error("failed to start schema tracker", "error", err)
+		}
+	}
 }
 
 // closeConnectionsLocked closes the connection pool manager and query service controller
@@ -1055,6 +1076,12 @@ func (pm *MultipoolerManager) closeConnectionsLocked(forReopen bool) {
 		pm.stateManager.Unregister(pm.replStats)
 		pm.replStats.Close()
 		pm.replStats = nil
+	}
+
+	if pm.schemaTracker != nil {
+		pm.stateManager.Unregister(pm.schemaTracker)
+		pm.schemaTracker.Close()
+		pm.schemaTracker = nil
 	}
 
 	// Close connection pool manager
