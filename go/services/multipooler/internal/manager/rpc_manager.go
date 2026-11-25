@@ -139,17 +139,8 @@ func (pm *MultipoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 			"replication manually stopped via StopReplication; call StartReplication first")
 	}
 
-	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
-	pgMode, err := pm.postgresMode(ctx)
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "failed to check if instance is in recovery", "error", err)
-		return mterrors.Wrap(err, "failed to check recovery status")
-	}
-
-	if pgMode.OutOfRecovery() {
-		pm.logger.ErrorContext(ctx, "setPrimaryConnInfo called on non-standby instance", "service_id", pm.serviceID.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
+	if err := pm.checkReplicaGuardrails(ctx); err != nil {
+		return err
 	}
 
 	// Optionally stop replication before making changes
@@ -179,12 +170,12 @@ func (pm *MultipoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	connInfo := buildPrimaryConnInfo(expected)
 
 	// Set primary_conninfo using ALTER SYSTEM
-	if err = pm.setPrimaryConnInfo(ctx, connInfo); err != nil {
+	if err := pm.setPrimaryConnInfo(ctx, connInfo); err != nil {
 		return err
 	}
 
 	// Reload PostgreSQL configuration to apply changes
-	if err = pm.reloadPostgresConfig(ctx); err != nil {
+	if err := pm.reloadPostgresConfig(ctx); err != nil {
 		return err
 	}
 
@@ -999,7 +990,7 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 	if wantRewind {
 		// pg_rewind rewinds to the last shared checkpoint, not the last common
 		// WAL position, so this pooler must not be trusted for quorum again
-		// until it catches back up — see ConsensusPromises.SetRecruitBlockedUntil.
+		// until it catches back up — see ConsensusPromises.EnsureRecruitBlockedUntilAtLeast.
 		// Measure the position now, before Pause() below closes the connection
 		// pool this needs, and while postgres is still up: pgctldStopWithEscalation
 		// further down leaves nothing left to query.
@@ -1038,14 +1029,8 @@ func (pm *MultipoolerManager) restartAsStandbyLocked(
 		if err != nil {
 			return false, mterrors.Wrap(err, "failed to read position before rewind")
 		}
-		floor := &clustermetadatapb.LsnPosition{
-			Position: &clustermetadatapb.RuleNumberPosition{
-				Decision: status.GetCurrentPosition().GetPosition().GetDecision().GetRuleNumber(),
-				Proposal: status.GetCurrentPosition().GetPosition().GetProposal().GetRuleNumber(),
-			},
-			Lsn: status.GetCurrentPosition().GetLsn(),
-		}
-		if err := pm.consensusMgr.Promises().SetRecruitBlockedUntil(ctx, floor); err != nil {
+		floor := commonconsensus.LsnPositionOf(status.GetCurrentPosition())
+		if err := pm.consensusMgr.Promises().EnsureRecruitBlockedUntilAtLeast(ctx, floor); err != nil {
 			return false, mterrors.Wrap(err, "failed to record recruit position floor")
 		}
 	}

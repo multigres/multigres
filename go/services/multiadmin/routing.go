@@ -26,7 +26,7 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 )
 
-// The routing RPCs are thin forwarders to the primary of the database's
+// The routing and fence RPCs are thin forwarders to the primary of the database's
 // default tablegroup, which holds the database's catalog and validates every
 // request itself. multiadmin holds no routing state.
 
@@ -110,4 +110,22 @@ func (s *MultiadminServer) DeleteRoutingRules(ctx context.Context, req *multipoo
 		return nil, err
 	}
 	return s.rpcClient.DeleteRoutingRules(ctx, pooler, req)
+}
+
+// FenceScopes forwards to the database's catalog primary.
+func (s *MultiadminServer) FenceScopes(ctx context.Context, req *multipoolermanagerdatapb.FenceScopesRequest) (*multipoolermanagerdatapb.FenceScopesResponse, error) {
+	pooler, err := s.catalogPrimary(ctx, req.GetDatabase())
+	if err != nil {
+		return nil, err
+	}
+	return s.rpcClient.FenceScopes(ctx, pooler, req)
+}
+
+// UnfenceScopes forwards to the database's catalog primary.
+func (s *MultiadminServer) UnfenceScopes(ctx context.Context, req *multipoolermanagerdatapb.UnfenceScopesRequest) (*multipoolermanagerdatapb.UnfenceScopesResponse, error) {
+	pooler, err := s.catalogPrimary(ctx, req.GetDatabase())
+	if err != nil {
+		return nil, err
+	}
+	return s.rpcClient.UnfenceScopes(ctx, pooler, req)
 }

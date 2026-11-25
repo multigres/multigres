@@ -995,6 +995,119 @@ func TestPgCtldServiceStopRestoreCommand(t *testing.T) {
 		assert.False(t, resp.Killed)
 	})
 
+	for name, content := range map[string]string{"empty": "", "garbage": "not-a-pid"} {
+		t.Run(name+" pidfile is treated as stale", func(t *testing.T) {
+			baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_restore_bad_pidfile")
+			defer cleanup()
+			t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
+			require.NoError(t, os.WriteFile(pgctld.RestoreCommandPIDFile(baseDir), []byte(content), 0o644))
+
+			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+			require.NoError(t, err)
+
+			resp, err := service.StopRestoreCommand(context.Background(), &pb.StopRestoreCommandRequest{})
+			require.NoError(t, err)
+			assert.False(t, resp.Found)
+			assert.False(t, resp.Killed)
+		})
+	}
+
+	// Only a dead writer leaves an unparseable pidfile, and its lock is gone.
+	// A locked one is held by something alive that StopRestoreCommand cannot
+	// identify, so it must not report that nothing is running.
+	t.Run("locked unparseable pidfile is an error", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_restore_locked_bad_pidfile")
+		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
+		pidfile := pgctld.RestoreCommandPIDFile(baseDir)
+		require.NoError(t, os.WriteFile(pidfile, []byte("not-a-pid"), 0o644))
+		holder, err := os.Open(pidfile)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = holder.Close() })
+		require.NoError(t, syscall.Flock(int(holder.Fd()), syscall.LOCK_EX))
+
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		require.NoError(t, err)
+
+		_, err = service.StopRestoreCommand(context.Background(), &pb.StopRestoreCommandRequest{})
+		require.ErrorContains(t, err, "does not contain a PID")
+	})
+
+	t.Run("unreadable pidfile is an error", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_restore_unreadable")
+		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
+		// A directory opens but cannot be read.
+		require.NoError(t, os.Mkdir(pgctld.RestoreCommandPIDFile(baseDir), 0o755))
+
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		require.NoError(t, err)
+
+		_, err = service.StopRestoreCommand(context.Background(), &pb.StopRestoreCommandRequest{})
+		require.ErrorContains(t, err, "failed to read restore_command pidfile")
+	})
+
+	t.Run("unopenable pidfile is an error", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_restore_unopenable")
+		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
+		// A regular file where the pooler directory should be gives ENOTDIR, which
+		// is not "pidfile absent".
+		poolerFile := filepath.Join(baseDir, "not-a-dir")
+		require.NoError(t, os.WriteFile(poolerFile, nil, 0o644))
+
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		require.NoError(t, err)
+		service.pgConfig.PoolerDir = poolerFile
+
+		_, err = service.StopRestoreCommand(context.Background(), &pb.StopRestoreCommandRequest{})
+		require.ErrorContains(t, err, "failed to open restore_command pidfile")
+	})
+
+	t.Run("locked pidfile naming a dead process", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_restore_locked_dead")
+		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
+		cmd := exec.Command("true")
+		require.NoError(t, cmd.Run())
+
+		lock, err := publishPidfile(pgctld.RestoreCommandPIDFile(baseDir), cmd.Process.Pid)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = lock.Close() })
+
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		require.NoError(t, err)
+
+		resp, err := service.StopRestoreCommand(context.Background(), &pb.StopRestoreCommandRequest{})
+		require.NoError(t, err)
+		assert.False(t, resp.Found)
+		assert.Contains(t, resp.Message, "is not running")
+	})
+
+	t.Run("live process named by an unlocked pidfile is left alone", func(t *testing.T) {
+		baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_restore_reused_pid")
+		defer cleanup()
+		t.Setenv(constants.PgDataDirEnvVar, filepath.Join(baseDir, "pg_data"))
+
+		// The wrapper that wrote this pidfile died without removing it and its
+		// PID now belongs to an unrelated process. No lock is held, so the PID
+		// must not be signalled.
+		cmd := exec.Command("sleep", "30")
+		require.NoError(t, cmd.Start())
+		t.Cleanup(func() { _, _ = executil.KillProcess(context.Background(), cmd.Process) })
+		go func() { _ = cmd.Wait() }()
+		require.NoError(t, os.WriteFile(pgctld.RestoreCommandPIDFile(baseDir), []byte(strconv.Itoa(cmd.Process.Pid)), 0o644))
+
+		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
+		require.NoError(t, err)
+
+		resp, err := service.StopRestoreCommand(context.Background(), &pb.StopRestoreCommandRequest{})
+		require.NoError(t, err)
+		assert.False(t, resp.Found)
+		assert.False(t, resp.Killed)
+		assert.NoError(t, cmd.Process.Signal(syscall.Signal(0)), "unrelated process must still be running")
+	})
+
 	t.Run("live process gets terminated", func(t *testing.T) {
 		baseDir, cleanup := testutil.TempDir(t, "pgctld_stop_restore_live")
 		defer cleanup()
@@ -1011,7 +1124,10 @@ func TestPgCtldServiceStopRestoreCommand(t *testing.T) {
 		// loop below would never see it as gone.
 		go func() { _ = cmd.Wait() }()
 
-		require.NoError(t, os.WriteFile(pgctld.RestoreCommandPIDFile(baseDir), []byte(strconv.Itoa(cmd.Process.Pid)), 0o644))
+		// Publish the way a live wrapper does, so the pidfile stays locked.
+		lock, err := publishPidfile(pgctld.RestoreCommandPIDFile(baseDir), cmd.Process.Pid)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = lock.Close() })
 
 		service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, baseDir, "localhost", 0, "")
 		require.NoError(t, err)

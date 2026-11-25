@@ -25,6 +25,7 @@ import (
 	"github.com/multigres/multigres/go/common/consensus"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
+	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
 // ConsensusPromises manages the in-memory and on-disk consensus state for this node.
@@ -41,8 +42,11 @@ type ConsensusPromises struct {
 	// must reach before Recruit() may succeed — set before an operation
 	// (restore-from-backup, pg_rewind) that can silently break WAL
 	// continuity. Persisted alongside revocation; see promise_storage.go. See
-	// ConsensusManager.recruitPositionFloorIfOutstanding for enforcement; no
-	// explicit clearing here.
+	// ConsensusManager.recruitPositionFloorIfOutstanding for enforcement. Only
+	// ever raised, never cleared: it stops mattering once the pooler reaches it.
+	// So a floor set too high stays too high. A pooler may forget it on learning it
+	// was removed from the cohort at a higher decided rule, but that isn't
+	// implemented.
 	recruitBlockedUntil *clustermetadatapb.LsnPosition
 }
 
@@ -87,15 +91,30 @@ func (cs *ConsensusPromises) GetRecruitBlockedUntil() *clustermetadatapb.LsnPosi
 	return cloneRecruitBlockedUntil(cs.recruitBlockedUntil)
 }
 
-// SetRecruitBlockedUntil records the minimum position this pooler must reach
-// before Recruit() may succeed. Requires the action lock (ctx must be an
-// action-lock context).
-func (cs *ConsensusPromises) SetRecruitBlockedUntil(ctx context.Context, pos *clustermetadatapb.LsnPosition) error {
+// EnsureRecruitBlockedUntilAtLeast raises the minimum position this pooler must
+// reach before Recruit() may succeed to at least pos. A pos at or below the
+// current floor changes nothing: a rewind measured below an outstanding floor
+// must keep the higher one. A pos that can't be ordered is rejected before
+// anything is written. Requires the action lock (ctx must be an action-lock
+// context).
+func (cs *ConsensusPromises) EnsureRecruitBlockedUntilAtLeast(ctx context.Context, pos *clustermetadatapb.LsnPosition) error {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
 	}
+	if _, err := pgutil.ParseLSN(pos.GetLsn()); err != nil {
+		return fmt.Errorf("invalid recruit position floor: %w", err)
+	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
+	if cs.recruitBlockedUntil != nil {
+		cmp, err := consensus.CompareLsnPositions(cs.recruitBlockedUntil, pos)
+		if err != nil {
+			return fmt.Errorf("failed to compare recruit position floors: %w", err)
+		}
+		if cmp >= 0 {
+			return nil
+		}
+	}
 	if err := cs.persistLocked(nil, pos); err != nil {
 		return fmt.Errorf("failed to save recruit position floor: %w", err)
 	}

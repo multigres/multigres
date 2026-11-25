@@ -337,6 +337,45 @@ func (c *Client) DeleteRoutingRules(ctx context.Context, pooler *clustermetadata
 	return conn.managerClient.DeleteRoutingRules(ctx, request)
 }
 
+// FenceScopes raises an operation's admission fences on a list of scopes on the catalog primary pooler.
+func (c *Client) FenceScopes(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.FenceScopesRequest) (*multipoolermanagerdatapb.FenceScopesResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.FenceScopes(ctx, request)
+}
+
+// UnfenceScopes lifts an operation's admission fences on a list of scopes on the catalog primary pooler.
+func (c *Client) UnfenceScopes(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.UnfenceScopesRequest) (*multipoolermanagerdatapb.UnfenceScopesResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.UnfenceScopes(ctx, request)
+}
+
+// RefreshFences makes a pooler read and apply the admission fences on its scope.
+func (c *Client) RefreshFences(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.RefreshFencesRequest) (*multipoolermanagerdatapb.RefreshFencesResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.RefreshFences(ctx, request)
+}
+
 //
 // Manager Service Methods - PostgreSQL Configuration Reload
 //

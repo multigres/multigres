@@ -485,13 +485,6 @@ func TestRecruit(t *testing.T) {
 		}
 	})
 
-	seedFloor := func(t *testing.T, pm *MultipoolerManager, floor *clustermetadatapb.LsnPosition) {
-		t.Helper()
-		lockCtx, err := pm.actionLock.Acquire(t.Context(), "test-seed-floor")
-		require.NoError(t, err)
-		defer pm.actionLock.Release(lockCtx)
-		require.NoError(t, pm.consensusMgr.Promises().SetRecruitBlockedUntil(lockCtx, floor))
-	}
 	// rulePositionWithLSN builds a minimal PoolerPosition like makeRulePosition,
 	// but with a caller-chosen LSN instead of makeRulePosition's fixed one, for
 	// tests that need to control the LSN relative to a seeded floor.
@@ -508,7 +501,7 @@ func TestRecruit(t *testing.T) {
 		consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
 		_, err := pm.consensusMgr.Promises().Load()
 		require.NoError(t, err)
-		seedFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
+		seedRecruitFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
 
 		req := &consensusdatapb.RecruitRequest{
 			TermRevocation: &clustermetadatapb.TermRevocation{
@@ -532,7 +525,7 @@ func TestRecruit(t *testing.T) {
 		consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
 		_, err := pm.consensusMgr.Promises().Load()
 		require.NoError(t, err)
-		seedFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
+		seedRecruitFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
 
 		req := &consensusdatapb.RecruitRequest{
 			TermRevocation: &clustermetadatapb.TermRevocation{
@@ -555,7 +548,7 @@ func TestRecruit(t *testing.T) {
 		consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
 		_, err := pm.consensusMgr.Promises().Load()
 		require.NoError(t, err)
-		seedFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
+		seedRecruitFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
 
 		req := &consensusdatapb.RecruitRequest{
 			TermRevocation: &clustermetadatapb.TermRevocation{
@@ -586,7 +579,7 @@ func TestRecruit(t *testing.T) {
 		consensustest.SeedTerm(t, tmpDir, &clustermetadatapb.TermRevocation{RevokedBelowTerm: 3})
 		_, err := pm.consensusMgr.Promises().Load()
 		require.NoError(t, err)
-		seedFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
+		seedRecruitFloor(t, pm, &clustermetadatapb.LsnPosition{Lsn: "0/2000"})
 
 		req := &consensusdatapb.RecruitRequest{
 			TermRevocation: &clustermetadatapb.TermRevocation{
@@ -1796,5 +1789,61 @@ func TestWaitForReplayComplete(t *testing.T) {
 		_, err := pm.waitForReplayComplete(t.Context())
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not in recovery")
+	})
+}
+
+// A promoted standby must grant the probe read access to the heartbeat table
+// itself. Its open skipped the grant while it was in recovery, and nothing else
+// runs the grant until the next open.
+func TestPromoteGrantsHeartbeatToProbe(t *testing.T) {
+	selfID := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "test-pooler"}
+	coordinatorA := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "coordinator-a"}
+	otherPooler := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIPOOLER, Cell: "zone1", Name: "other-pooler"}
+
+	recruitedTerm := &clustermetadatapb.TermRevocation{
+		RevokedBelowTerm:       7,
+		AcceptedCoordinatorId:  coordinatorA,
+		CoordinatorInitiatedAt: recruitTS,
+		OutgoingRule:           &clustermetadatapb.RuleNumber{CoordinatorTerm: 0, LeaderSubterm: 1},
+	}
+	req := &consensusdatapb.PromoteRequest{
+		Proposal: &consensusdatapb.CoordinatorProposal{
+			TermRevocation: recruitedTerm,
+			ProposalLeader: &clustermetadatapb.PoolerAddress{Id: selfID, Host: "pg-primary.internal", PostgresPort: 5432},
+			ProposedTransition: &clustermetadatapb.RulePosition{Proposal: &clustermetadatapb.ShardRule{
+				RuleNumber:    &clustermetadatapb.RuleNumber{CoordinatorTerm: 7},
+				CohortMembers: []*clustermetadatapb.ID{selfID, otherPooler},
+				CoordinatorId: coordinatorA,
+				CreationTime:  ruleCreatedTS,
+			}},
+		},
+	}
+
+	runPromote := func(t *testing.T, grantErr error) (*mock.QueryService, error) {
+		m := mock.NewQueryService()
+		expectLeaderPromoteMocks(m)
+		if grantErr != nil {
+			m.AddQueryPatternOnceWithError(probeGrantPattern, grantErr)
+		} else {
+			m.AddQueryPatternOnce(probeGrantPattern, mock.MakeQueryResult(nil, nil))
+		}
+		pm, tmpDir := setupManagerWithMockDB(t, m, &fakeRuleStore{pos: makeRulePosition(0)})
+		consensustest.SeedTerm(t, tmpDir, recruitedTerm)
+		_, err := pm.consensusMgr.Promises().Load()
+		require.NoError(t, err)
+		_, err = pm.Promote(t.Context(), req)
+		return m, err
+	}
+
+	t.Run("grants on promotion", func(t *testing.T) {
+		m, err := runPromote(t, nil)
+		require.NoError(t, err)
+		assert.NoError(t, m.ExpectationsWereMet(), "promotion should grant the probe read access")
+	})
+
+	t.Run("failed grant does not fail promotion", func(t *testing.T) {
+		m, err := runPromote(t, errors.New("grant failed"))
+		require.NoError(t, err, "the probe is optional, so a failed grant must not fail the promotion")
+		assert.NoError(t, m.ExpectationsWereMet(), "promotion should attempt the grant")
 	})
 }

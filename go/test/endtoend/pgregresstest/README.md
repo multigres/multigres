@@ -11,7 +11,8 @@ The test performs the following steps:
 2. **Build with make**: Compiles PostgreSQL using traditional ./configure and make
 3. **Build isolation tools** (if enabled): Builds `isolationtester` and `pg_isolation_regress`
 4. **Configure PATH**: Prepends the built PostgreSQL bin directory to PATH
-5. **Spin up multigres cluster**: Creates a 2-node cluster with multigateway using the built PostgreSQL
+5. **Spin up multigres cluster**: Creates a 2-node cluster with multigateway using the built PostgreSQL, or a
+   single Minigres process when `MULTIGRES_E2E_TOPOLOGY=minigres`
 6. **Run regression tests** (if enabled): Executes PostgreSQL regression tests through multigateway
 7. **Run isolation tests** (if enabled): Executes multi-connection concurrency tests through multigateway
 8. **Report results**: Generates a unified compatibility report; any failed, timed-out, or unexecuted test fails the Go test
@@ -76,6 +77,9 @@ RUN_PGISOLATION=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 
 # Without any of these, the test is skipped
 go test -v ./go/test/endtoend/pgregresstest/...
+
+# Any of the above against a single Minigres process instead of a Multigres shard
+MULTIGRES_E2E_TOPOLOGY=minigres RUN_PGREGRESS=1 go test -v -timeout 60m ./go/test/endtoend/pgregresstest/...
 ```
 
 The core suite always uses a freshly initialized `postgres` database with

@@ -38,7 +38,7 @@ var defaultAnalyzers []Analyzer
 
 // DefaultAnalyzers returns the current set of analyzers to run.
 // The factory is injected into each analyzer for creating recovery actions.
-func DefaultAnalyzers(factory *RecoveryActionFactory) []Analyzer {
+func DefaultAnalyzers(factory ActionFactory) []Analyzer {
 	if defaultAnalyzers == nil {
 		return []Analyzer{
 			&ShardNeedsInitializationAnalyzer{factory: factory},

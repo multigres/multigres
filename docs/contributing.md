@@ -24,16 +24,19 @@ where possible. Most code editors automatically recommend such modernizations.
 
 We have a few pre-commit hooks that perform some basic checks at commit time.
 Run `make tools` to install them (it symlinks `misc/git/pre-commit` and
-`misc/git/commit-msg` into `.git/hooks/`). When a pull request is created, we
-have a more elaborate set of linters that ensure that the code is up to
+`misc/git/commit-msg` into `.git/hooks/`). The pre-commit hook runs every
+executable script in `misc/hooks/` (goimports, gofumpt, golangci-lint, the
+license check, prettier, protolint, and shfmt). When a pull request is created,
+we have a more elaborate set of linters that ensure that the code is up to
 standards.
 
 ## Sign Your Commits
 
 All commits must be signed off under the
 [Developer Certificate of Origin](https://developercertificate.org/). Use
-`git commit -s` (or configure `git config commit.gpgsign` and add a
-`Signed-off-by:` trailer) — unsigned commits will be rejected by CI.
+`git commit -s` to add the `Signed-off-by:` trailer. The `commit-msg` hook
+installed by `make tools` also appends the trailer when it is missing —
+unsigned commits will be rejected by CI.
 
 ## Testing
 
@@ -48,4 +51,8 @@ We also require integration tests that demonstrate how the feature works.
 ## Pull Requests
 
 We follow [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/)
-standards for pull requests.
+standards for pull requests. CI validates the pull request title against this
+format.
+
+See the [GitHub workflow](./workflow.md) for how to prepare and send a pull
+request.

@@ -15,9 +15,12 @@
 package manager
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,6 +29,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 
@@ -44,8 +48,8 @@ func exactPattern(stmt string) string {
 	return "^" + regexp.QuoteMeta(stmt) + "$"
 }
 
-// addCatalogEnsureTail registers catalogTables, catalogSeed and the
-// format_version write, which ensureCatalogSchema runs on every call that is
+// addCatalogEnsureTail registers catalogTables, catalogSeed, the read of the connections without a
+// conninfo and the format_version write, which ensureCatalogSchema runs on every call that is
 // not at a newer format.
 func addCatalogEnsureTail(m *mock.QueryService) {
 	for _, stmt := range catalogTables {
@@ -54,6 +58,7 @@ func addCatalogEnsureTail(m *mock.QueryService) {
 	for _, stmt := range catalogSeed {
 		m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
 	}
+	m.AddQueryPatternOnce(exactPattern(selectUnfilledConnectionsSQL), mock.MakeQueryResult(nil, nil))
 	m.AddQueryPatternOnce(catalogFormatWritePattern, mock.MakeQueryResult(nil, nil))
 }
 
@@ -65,7 +70,7 @@ func addFreshCatalogEnsure(m *mock.QueryService) {
 	m.AddQueryPatternOnce("pg_advisory_xact_lock", mock.MakeQueryResult(nil, nil))
 	m.AddQueryPatternOnce(catalogStatePresentPattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{false}}))
 	for _, mig := range catalogMigrations {
-		for _, stmt := range mig.statements {
+		for _, stmt := range slices.Concat(mig.statements, mig.postStatements) {
 			m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
 		}
 	}
@@ -103,11 +108,17 @@ func recordCatalogEnsure(t *testing.T, exists bool, format int) []string {
 }
 
 // catalogEnsureTail is the statement sequence ensureCatalogSchema ends with
-// whenever it is not at a newer format.
-func catalogEnsureTail() []string {
+// whenever it is not at a newer format, from catalogTables on, for a catalog
+// upgraded from format from: the postStatements of the formats it applies
+// come after catalogTables and catalogSeed.
+func catalogEnsureTail(from int) []string {
 	var tail []string
 	tail = append(tail, catalogTables...)
 	tail = append(tail, catalogSeed...)
+	for _, mig := range catalogMigrations[from:] {
+		tail = append(tail, mig.postStatements...)
+	}
+	tail = append(tail, selectUnfilledConnectionsSQL)
 	return append(tail, "UPDATE multigres.catalog_state SET format_version = $1 WHERE format_version IS DISTINCT FROM $1", "COMMIT")
 }
 
@@ -115,7 +126,7 @@ func TestCatalogMigrations_OrderedAndContiguous(t *testing.T) {
 	require.NotEmpty(t, catalogMigrations)
 	for i, m := range catalogMigrations {
 		assert.Equal(t, i+1, m.version, "catalogMigrations[%d] must upgrade to format %d", i, i+1)
-		assert.NotEmpty(t, m.statements, "format %d migration has no statements", m.version)
+		assert.NotEmpty(t, slices.Concat(m.statements, m.postStatements), "format %d migration has no statements", m.version)
 	}
 	assert.Equal(t, len(catalogMigrations), latestCatalogFormat())
 }
@@ -127,8 +138,57 @@ func TestEnsureCatalogSchema_FreshAppliesMigrationsThenTablesAndSeed(t *testing.
 	for _, mig := range catalogMigrations {
 		want = append(want, mig.statements...)
 	}
-	want = append(want, catalogEnsureTail()...)
+	want = append(want, catalogEnsureTail(0)...)
 	assert.Equal(t, want, queries)
+}
+
+// A migration's postStatements run after catalogTables and catalogSeed, in
+// format order, and only for the formats the catalog is missing.
+func TestEnsureCatalogSchema_PostStatementsRunAfterTablesAndSeed(t *testing.T) {
+	saved := catalogMigrations
+	catalogMigrations = append(slices.Clone(saved),
+		catalogMigration{version: len(saved) + 1, statements: []string{"SELECT 'pre a'"}, postStatements: []string{"SELECT 'post a'"}},
+		catalogMigration{version: len(saved) + 2, postStatements: []string{"SELECT 'post b'"}},
+	)
+	t.Cleanup(func() { catalogMigrations = saved })
+
+	queries := recordCatalogEnsure(t, true, len(saved))
+	pre, postA, postB := slices.Index(queries, "SELECT 'pre a'"), slices.Index(queries, "SELECT 'post a'"), slices.Index(queries, "SELECT 'post b'")
+	lastTable := slices.Index(queries, catalogTables[len(catalogTables)-1])
+	lastSeed := slices.Index(queries, catalogSeed[len(catalogSeed)-1])
+	require.GreaterOrEqual(t, pre, 0)
+	assert.Less(t, pre, slices.Index(queries, catalogTables[0]), "statements run before catalogTables")
+	assert.Greater(t, postA, lastTable, "postStatements run after catalogTables")
+	assert.Greater(t, postA, lastSeed, "and after catalogSeed")
+	assert.Greater(t, postB, postA, "in format order")
+	assert.Less(t, postB, slices.Index(queries, "COMMIT"), "in the same transaction")
+	for _, mig := range saved {
+		for _, stmt := range mig.postStatements {
+			assert.NotContains(t, queries, stmt, "an applied format's postStatements do not run again")
+		}
+	}
+
+	// At the latest format no migration runs, in either phase.
+	queries = recordCatalogEnsure(t, true, latestCatalogFormat())
+	assert.NotContains(t, queries, "SELECT 'post a'")
+	assert.NotContains(t, queries, "SELECT 'post b'")
+}
+
+// Format 2 deletes the fences finished operations left, as plain SQL after
+// catalogTables has created admission_fence.
+func TestCatalogFormat2_DeletesFencesOfFinishedOperations(t *testing.T) {
+	m := catalogMigrations[1]
+	require.Equal(t, 2, m.version)
+	assert.Empty(t, m.statements, "nothing runs before the tables")
+	require.Len(t, m.postStatements, 1)
+	stmt := m.postStatements[0]
+	assert.True(t, strings.HasPrefix(stmt, "DELETE FROM multigres.admission_fence"), stmt)
+	assert.Contains(t, stmt, "'"+opStateDone+"', '"+opStateFailed+"'")
+	assert.NotContains(t, stmt, "DO $$", "plain SQL")
+	assert.Equal(t, catalogRoutingChange, m.change, "fences are in the snapshot")
+
+	queries := recordCatalogEnsure(t, true, 1)
+	assert.Greater(t, slices.Index(queries, stmt), slices.Index(queries, catalogTables[len(catalogTables)-1]))
 }
 
 func TestEnsureCatalogSchema_AtLatestRunsTablesAndSeed(t *testing.T) {
@@ -141,7 +201,7 @@ func TestEnsureCatalogSchema_AtLatestRunsTablesAndSeed(t *testing.T) {
 		"SELECT to_regclass('multigres.catalog_state') IS NOT NULL",
 		"SELECT format_version FROM multigres.catalog_state FOR UPDATE",
 	}
-	want = append(want, catalogEnsureTail()...)
+	want = append(want, catalogEnsureTail(latestCatalogFormat())...)
 	assert.Equal(t, want, queries)
 	assert.Empty(t, queriesContaining(queries, "SET routing_version"), "a routine open advances nothing")
 }
@@ -251,6 +311,19 @@ func TestConnectionsTable_Shape(t *testing.T) {
 		assert.Contains(t, connectionsTableSQL, want)
 	}
 	assert.NotContains(t, connectionsTableSQL, "GRANT", "the table has no PUBLIC grant")
+}
+
+// The conninfo column is added after its table, nullable so that it can be added to a table that has
+// rows, and the statement that creates the table is not edited. The constraint allows a NULL
+// explicitly.
+func TestConnectionsConnInfoColumn(t *testing.T) {
+	tableAt, columnAt := slices.Index(catalogTables, connectionsTableSQL), slices.Index(catalogTables, connectionsConnInfoColumnSQL)
+	require.GreaterOrEqual(t, tableAt, 0)
+	assert.Greater(t, columnAt, tableAt, "the column is added after its table")
+	assert.Regexp(t, `^ALTER TABLE multigres\.connections ADD COLUMN IF NOT EXISTS conninfo jsonb\s+CONSTRAINT connections_conninfo_servers CHECK \(\s+conninfo IS NULL OR CASE\b`, connectionsConnInfoColumnSQL)
+	assert.NotContains(t, connectionsConnInfoColumnSQL, "NOT NULL")
+	assert.NotContains(t, connectionsConnInfoColumnSQL, "DEFAULT")
+	assert.NotContains(t, connectionsTableSQL, "conninfo", "the original statement is not edited")
 }
 
 func TestCatalogTables_IdempotentInDependencyOrder(t *testing.T) {
@@ -456,6 +529,41 @@ func TestEnsureCatalogSchema_Errors(t *testing.T) {
 			errorContains: "failed to seed catalog",
 		},
 		{
+			name: "a data migration fails",
+			setupMock: func(m *mock.QueryService) {
+				addExistingCatalogState(m, 1)
+				for _, stmt := range slices.Concat(catalogTables, catalogSeed) {
+					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+				}
+				m.AddQueryPatternOnceWithError(exactPattern(catalogMigrations[1].postStatements[0]), errors.New("permission denied"))
+			},
+			errorContains: "failed to apply catalog format 2 data migration",
+		},
+		{
+			name: "the connections without a conninfo cannot be listed",
+			setupMock: func(m *mock.QueryService) {
+				addExistingCatalogState(m, latestCatalogFormat())
+				for _, stmt := range slices.Concat(catalogTables, catalogSeed) {
+					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+				}
+				m.AddQueryPatternOnceWithError(exactPattern(selectUnfilledConnectionsSQL), errors.New("permission denied"))
+			},
+			errorContains: "failed to list connections without a conninfo",
+		},
+		{
+			name: "a conninfo cannot be stored",
+			setupMock: func(m *mock.QueryService) {
+				addExistingCatalogState(m, latestCatalogFormat())
+				for _, stmt := range slices.Concat(catalogTables, catalogSeed) {
+					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+				}
+				m.AddQueryPatternOnce(exactPattern(selectUnfilledConnectionsSQL), mock.MakeQueryResult(
+					[]string{"connection_id", "name", "dsn"}, [][]any{{int64(1), "legacy", legacyDSN}}))
+				m.AddQueryPatternOnceWithError(exactPattern(fillConnInfoSQL), errors.New("permission denied"))
+			},
+			errorContains: "failed to store the conninfo of a connection",
+		},
+		{
 			name: "format write fails",
 			setupMock: func(m *mock.QueryService) {
 				addExistingCatalogState(m, latestCatalogFormat())
@@ -465,6 +573,7 @@ func TestEnsureCatalogSchema_Errors(t *testing.T) {
 				for _, stmt := range catalogSeed {
 					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
 				}
+				m.AddQueryPatternOnce(exactPattern(selectUnfilledConnectionsSQL), mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnceWithError(catalogFormatWritePattern, errors.New("permission denied"))
 			},
 			errorContains: "failed to record catalog format version",
@@ -484,4 +593,76 @@ func TestEnsureCatalogSchema_Errors(t *testing.T) {
 			assert.NoError(t, m.ExpectationsWereMet())
 		})
 	}
+}
+
+// legacyDSN is what a connection created before the conninfo column holds: a dsn, and a password.
+const legacyDSN = "host=db.example.com port=5433 dbname=app user=alice password='s3 cret' sslmode=require"
+
+// fillConnInfoRun runs ensureCatalogSchema on a catalog that has the given connections without a
+// conninfo, and returns the log it wrote and the connections it stored a conninfo for.
+func fillConnInfoRun(t *testing.T, rows [][]any) (log string, stored int) {
+	t.Helper()
+	pm, m := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+	var buf bytes.Buffer
+	pm.logger = slog.New(slog.NewTextHandler(&buf, nil))
+
+	addExistingCatalogState(m, latestCatalogFormat())
+	for _, stmt := range slices.Concat(catalogTables, catalogSeed) {
+		m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+	}
+	m.AddQueryPatternOnce(exactPattern(selectUnfilledConnectionsSQL),
+		mock.MakeQueryResult([]string{"connection_id", "name", "dsn"}, rows))
+	m.AddQueryPatternWithCallback(exactPattern(fillConnInfoSQL), mock.MakeQueryResult(nil, nil), func(string) { stored++ })
+	m.AddQueryPatternOnce(catalogFormatWritePattern, mock.MakeQueryResult(nil, nil))
+
+	require.NoError(t, pm.ensureCatalogSchema(context.Background()))
+	require.NoError(t, m.ExpectationsWereMet())
+	return buf.String(), stored
+}
+
+// A connection with a dsn and no conninfo is given one when the catalog is set up; one whose dsn
+// cannot be a connection (no password, a socket host) is left as it is, named in the log, and the
+// log holds nothing of any dsn.
+func TestEnsureCatalogSchema_FillsTheConnInfoOfALegacyConnection(t *testing.T) {
+	log, stored := fillConnInfoRun(t, [][]any{
+		{int64(1), "legacy", legacyDSN},
+		{int64(2), "no-password", "host=secret-host.example.com dbname=app user=alice sslmode=require"},
+		{int64(3), "socket", "host=/var/run/secret-socket dbname=app user=alice password=hunter2"},
+		{int64(4), "not-a-dsn", "this is not hunter3"},
+	})
+	assert.Equal(t, 1, stored, "only the connection that can be converted is written")
+	for _, name := range []string{"no-password", "socket", "not-a-dsn"} {
+		assert.Contains(t, log, "connection="+name)
+	}
+	assert.NotContains(t, log, "legacy", "a connection that was converted is not reported")
+	for _, secret := range []string{"s3 cret", "cret", "secret-host", "db.example.com", "secret-socket", "hunter", "alice", "sslmode"} {
+		assert.NotContains(t, log, secret, "the log holds nothing of a dsn")
+	}
+}
+
+// Setup that finds nothing to convert writes nothing and says nothing.
+func TestEnsureCatalogSchema_FillsNothingWhenEveryConnectionHasAConnInfo(t *testing.T) {
+	log, stored := fillConnInfoRun(t, nil)
+	assert.Zero(t, stored)
+	assert.Empty(t, log)
+}
+
+// The stored conninfo and dsn are what CreateConnection stores for the same dsn, so that a
+// converted connection is indistinguishable from one created now.
+func TestLegacyConnInfoIsWhatCreateConnectionStores(t *testing.T) {
+	conn, err := backingconn.FromDSN(legacyDSN)
+	require.NoError(t, err)
+	want, err := json.Marshal(conn)
+	require.NoError(t, err)
+
+	got, rendering, err := legacyConnInfo(legacyDSN)
+	require.NoError(t, err)
+	assert.JSONEq(t, string(want), got)
+	assert.JSONEq(t, `{"host":["db.example.com"],"port":[5433],"dbname":"app","user":"alice","password":"s3 cret","sslmode":"require"}`, got)
+	assert.Equal(t, conn.DSN(), rendering)
+	assert.Equal(t, `dbname='app' host='db.example.com' password='s3 cret' port='5433' sslmode='require' user='alice'`, rendering)
+
+	_, _, err = legacyConnInfo("host=h dbname=app user=alice")
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "alice")
 }

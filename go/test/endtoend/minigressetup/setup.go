@@ -62,9 +62,11 @@ var baselineGucNames = []string{
 }
 
 type config struct {
-	tls       bool
-	extraArgs []string
-	logLevel  string
+	tls                    bool
+	extraArgs              []string
+	logLevel               string
+	pgInitdbArgs           string
+	pgInitdbExtraConfFiles []string
 }
 
 // Option configures a Minigres setup.
@@ -91,6 +93,19 @@ func WithExtraArgs(args ...string) Option {
 // WithLogLevel sets the minigres log level.
 func WithLogLevel(level string) Option {
 	return func(c *config) { c.logLevel = level }
+}
+
+// WithPgInitdbArgs forwards args verbatim to pgctld via --pg-initdb-args (for
+// example "--no-locale --encoding=UTF8" for the PostgreSQL regression suite).
+func WithPgInitdbArgs(args string) Option {
+	return func(c *config) { c.pgInitdbArgs = args }
+}
+
+// WithPgInitdbExtraConfFiles appends postgresql.conf snippets that pgctld
+// live-includes at the end of the generated postgresql.conf, so they override
+// the template defaults.
+func WithPgInitdbExtraConfFiles(paths ...string) Option {
+	return func(c *config) { c.pgInitdbExtraConfFiles = append(c.pgInitdbExtraConfFiles, paths...) }
 }
 
 // Setup is a running Minigres topology.
@@ -174,6 +189,8 @@ func New(t *testing.T, opts ...Option) *Setup {
 	// up and restores locally.
 	s.Pgctld = clustersetup.CreatePgctldInstance(t, serviceID, tempDir,
 		utils.GetFreePort(t), utils.GetFreePort(t), utils.GetFreePort(t), 0, "", backupLocation)
+	s.Pgctld.PgInitdbArgs = cfg.pgInitdbArgs
+	s.Pgctld.PgInitdbExtraConfFiles = append(s.Pgctld.PgInitdbExtraConfFiles, cfg.pgInitdbExtraConfFiles...)
 	s.Minigres = s.newMinigresInstance(t, cfg)
 
 	if err := s.Pgctld.Start(runningCtx, t); err != nil {
@@ -354,16 +371,15 @@ func (s *Setup) PoolerLogFile(t *testing.T) string {
 // SetupTest checks the clean state before a test and restores it afterwards.
 // Clean state: minigres and pgctld are running, PostgreSQL is out of recovery,
 // the pooler is PRIMARY and SERVING, and the baseline settings match. Minigres
-// has no replication, so WithoutReplication and WithPausedReplication fail the
-// test.
+// has no replication, so WithPausedReplication fails the test.
 func (s *Setup) SetupTest(t *testing.T, opts ...clustersetup.SetupTestOption) {
 	t.Helper()
 	cfg := &clustersetup.SetupTestConfig{}
 	for _, opt := range opts {
 		opt(cfg)
 	}
-	if cfg.NoReplication || cfg.PauseReplication {
-		t.Fatalf("SetupTest: replication options are not supported on Minigres (no replication)")
+	if cfg.PauseReplication {
+		t.Fatalf("SetupTest: WithPausedReplication is not supported on Minigres (no replication)")
 	}
 
 	s.checkProcesses(t)
@@ -458,6 +474,67 @@ func (s *Setup) validateCleanState() error {
 		}
 	}
 	return nil
+}
+
+// AddMultipoolerExtraArgs adds command-line arguments to the minigres process,
+// which serves the multipooler, skipping any already present. They take effect
+// at the next ReinitializeCluster. The name matches the Multigres harness, so
+// suites that change pooler flags between phases run on either topology.
+func (s *Setup) AddMultipoolerExtraArgs(args ...string) {
+	for _, arg := range args {
+		if !slices.Contains(s.Minigres.ExtraArgs, arg) {
+			s.Minigres.ExtraArgs = append(s.Minigres.ExtraArgs, arg)
+		}
+	}
+}
+
+// RemoveMultipoolerExtraArgs removes command-line arguments from the minigres
+// process. They take effect at the next ReinitializeCluster.
+func (s *Setup) RemoveMultipoolerExtraArgs(args ...string) {
+	s.Minigres.ExtraArgs = slices.DeleteFunc(s.Minigres.ExtraArgs, func(existing string) bool {
+		return slices.Contains(args, existing)
+	})
+}
+
+// AddPgInitdbExtraConfFiles appends postgresql.conf snippets for pgctld. They
+// take effect at the next ReinitializeCluster, which runs initdb again.
+func (s *Setup) AddPgInitdbExtraConfFiles(paths ...string) {
+	s.Pgctld.PgInitdbExtraConfFiles = append(s.Pgctld.PgInitdbExtraConfFiles, paths...)
+}
+
+// ReinitializeCluster tears the topology down and starts it again on a fresh
+// PostgreSQL data directory, picking up any arguments or postgresql.conf
+// snippets added since the last start. Use it between independent suites that
+// may leave PostgreSQL in a degraded state. etcd keeps running; only the shard
+// and registration records are wiped.
+func (s *Setup) ReinitializeCluster(t *testing.T) {
+	t.Helper()
+	const gracePeriod = 5 * time.Second
+
+	t.Logf("ReinitializeCluster: tearing down minigres...")
+	s.Minigres.TerminateGracefully(t.Logf, gracePeriod)
+	// Stop PostgreSQL before pgctld, or the postmaster outlives pgctld and holds
+	// the port. Immediate mode skips the checkpoint: the data is wiped next.
+	s.Pgctld.StopPostgresImmediate(t)
+	s.Pgctld.TerminateGracefully(t.Logf, gracePeriod)
+
+	testutil.ReleaseOrphanedSharedMemory(t.Logf, s.Pgctld.PoolerDir)
+	clustersetup.ClearDirContents(t, s.Pgctld.PoolerDir)
+	clustersetup.ClearDirContents(t, filepath.Join(s.TempDir, "backup-repo"))
+	clustersetup.WipeTopologyForReinit(t, s.EtcdClientAddr, s.CellName, database, constants.DefaultTableGroup)
+
+	t.Logf("ReinitializeCluster: restarting minigres...")
+	clustersetup.WaitForPortFree(t, s.Pgctld.PgPort, 60*time.Second)
+	if err := s.Pgctld.Start(s.runningCtx, t); err != nil {
+		t.Fatalf("ReinitializeCluster: failed to start pgctld: %v", err)
+	}
+	if err := s.Minigres.Start(s.runningCtx, t); err != nil {
+		t.Fatalf("ReinitializeCluster: failed to start minigres: %v", err)
+	}
+	s.waitForPrimary(t)
+	s.saveBaselineGucs(t)
+	s.WaitForQueryServing(t)
+	t.Logf("ReinitializeCluster: minigres reinitialized")
 }
 
 // DumpServiceLogs prints where the service logs are kept.

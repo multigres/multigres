@@ -134,7 +134,7 @@ func TestTargetFailoverDuringCopy(t *testing.T) {
 
 	// Kill the target primary mid-copy; multiorch promotes a standby that carries
 	// the partial subscription state via physical replication.
-	setup.KillPostgres(t, oldPrimaryName)
+	crashTargetPrimary(t, setup, oldPrimaryName)
 	newPrimaryName := shardsetup.WaitForNewPrimary(t, setup, oldPrimaryName, 60*time.Second)
 	require.NotEmpty(t, newPrimaryName, "multiorch must elect a new primary")
 	t.Logf("new primary: %s", newPrimaryName)

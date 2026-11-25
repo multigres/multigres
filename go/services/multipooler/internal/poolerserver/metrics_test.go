@@ -122,6 +122,7 @@ func hasAttrs(set attribute.Set, attrs map[string]string) bool {
 
 func primaryDrainAttrs(outcome string) map[string]string {
 	return map[string]string{
+		"reason":       drainReasonFailover,
 		"routing_role": "primary",
 		"outcome":      outcome,
 	}
@@ -129,22 +130,23 @@ func primaryDrainAttrs(outcome string) map[string]string {
 
 func primaryDrainMetricAttrs() map[string]string {
 	return map[string]string{
+		"reason":       drainReasonFailover,
 		"routing_role": "primary",
 	}
 }
 
 func TestDrainAttributesRoutingRoleLabel(t *testing.T) {
 	require.Equal(t,
-		[]attribute.KeyValue{attribute.String("routing_role", "replica")},
-		drainAttributes(servingstate.RoutingRoleReplica),
+		[]attribute.KeyValue{attribute.String("reason", drainReasonFailover), attribute.String("routing_role", "replica")},
+		drainAttributes(drainReasonFailover, servingstate.RoutingRoleReplica),
 	)
 	require.Equal(t,
-		[]attribute.KeyValue{attribute.String("routing_role", "primary")},
-		drainAttributes(servingstate.RoutingRolePrimary),
+		[]attribute.KeyValue{attribute.String("reason", drainReasonFailover), attribute.String("routing_role", "primary")},
+		drainAttributes(drainReasonFailover, servingstate.RoutingRolePrimary),
 	)
 	require.Equal(t,
-		[]attribute.KeyValue{attribute.String("routing_role", "unknown")},
-		drainAttributes(servingstate.RoutingRoleUnknown),
+		[]attribute.KeyValue{attribute.String("reason", drainReasonFailover), attribute.String("routing_role", "unknown")},
+		drainAttributes(drainReasonFailover, servingstate.RoutingRoleUnknown),
 	)
 }
 
@@ -268,7 +270,7 @@ func TestDrainMetricBucketDistribution(t *testing.T) {
 	}
 	var wantSum float64
 	for _, s := range samples {
-		pooler.drainStats.recordDrain(ctx, s, drainOutcomeGraceful, servingstate.RoutingRolePrimary)
+		pooler.drainStats.recordDrain(ctx, s, drainOutcomeGraceful, drainReasonFailover, servingstate.RoutingRolePrimary)
 		wantSum += s
 	}
 
@@ -293,7 +295,7 @@ func TestDrainMetricBoundaryInclusivity(t *testing.T) {
 	ctx := t.Context()
 
 	for _, s := range []float64{0.1, 0.5, 1, 2} {
-		pooler.drainStats.recordDrain(ctx, s, drainOutcomeGraceful, servingstate.RoutingRolePrimary)
+		pooler.drainStats.recordDrain(ctx, s, drainOutcomeGraceful, drainReasonFailover, servingstate.RoutingRolePrimary)
 	}
 
 	hist := readHistogramFloat64(t, reader, "mg.pooler.drain.duration")

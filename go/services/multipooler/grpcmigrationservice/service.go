@@ -89,6 +89,7 @@ func (s *migrationService) CreateMigration(ctx context.Context, req *migratorpb.
 		CopyData:         !req.GetOptions().GetSkipCopyData(),
 		SkipSchemaCopy:   req.GetOptions().GetSkipSchemaCopy(),
 		SequenceMargin:   req.GetMigration().GetSequenceMargin(),
+		QuiesceRoles:     req.QuiesceRoles,
 		CallerRole:       req.GetCallerRole(),
 	})
 	if err != nil {
@@ -196,6 +197,18 @@ func (s *migrationService) DropMigration(ctx context.Context, req *migratorpb.Dr
 	return &migratorpb.DropMigrationResponse{Migration: migToProto(proj), Status: statusToProto(proj)}, nil
 }
 
+func (s *migrationService) ReseedReverseLink(ctx context.Context, req *migratorpb.ReseedReverseLinkRequest) (*migratorpb.ReseedReverseLinkResponse, error) {
+	coord, err := s.manager.MigrationCoordinatorIfPrimary(ctx)
+	if err != nil {
+		return nil, toGRPC(err)
+	}
+	proj, err := coord.ReseedReverseLink(ctx, toRef(req.GetRef().GetId(), req.GetRef().GetName()))
+	if err != nil {
+		return nil, toGRPC(err)
+	}
+	return &migratorpb.ReseedReverseLinkResponse{Migration: migToProto(proj), Status: statusToProto(proj)}, nil
+}
+
 func (s *migrationService) SetMigrationDirection(ctx context.Context, req *migratorpb.SetMigrationDirectionRequest) (*migratorpb.SetMigrationDirectionResponse, error) {
 	coord, err := s.manager.MigrationCoordinatorIfPrimary(ctx)
 	if err != nil {
@@ -273,22 +286,20 @@ func (s *migrationService) DropConnection(ctx context.Context, req *migratorpb.D
 }
 
 func connToProto(c *migration.Connection) *migratorpb.Connection {
+	// Rendering is empty for a connection that cannot be read: nothing derived from its stored
+	// form is shown, and the empty dsn is how a listing says so.
 	return &migratorpb.Connection{
 		Id:        c.ID,
 		Name:      c.Name,
-		Dsn:       c.DSN,
+		Dsn:       c.Rendering(),
 		OwnerRole: c.OwnerRole,
 		CreatedAt: timestamppb.New(c.CreatedAt),
 	}
 }
 
 // errNoConnectionsTableMsg is what a caller sees when a connection query finds
-// no multigres.connections. It is true on both kinds of shard: connections live
-// on the catalog shard only, and there the table is created when the pooler
-// opens, so on the catalog shard the error means that has not completed yet.
-const errNoConnectionsTableMsg = "multigres.connections is not available on this shard: " +
-	"connections live on the catalog shard (tablegroup default, shard 0-inf), " +
-	"and on the catalog shard the table is created when the pooler opens"
+// no multigres.connections.
+const errNoConnectionsTableMsg = migration.NoConnectionsTableMessage
 
 // toGRPC maps coordinator errors to gRPC status errors.
 func toGRPC(err error) error {
@@ -298,10 +309,17 @@ func toGRPC(err error) error {
 	if errors.Is(err, migration.ErrConnectionNotFound) {
 		return status.Error(codes.NotFound, err.Error())
 	}
+	if errors.Is(err, migration.ErrInvalidConnection) {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
 	if errors.Is(err, migration.ErrConnectionInUse) {
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}
 	if errors.Is(err, migration.ErrNotReady) {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
+	if errors.Is(err, migration.ErrConnectionUnreadable) {
+		// Cannot be read; asking again does not help.
 		return status.Error(codes.FailedPrecondition, err.Error())
 	}
 	if errors.Is(err, migration.ErrNoConnectionsTable) {

@@ -731,20 +731,14 @@ func (c *Config) NewManager(logger *slog.Logger) *Manager {
 	return mgr
 }
 
-// SetBackingCredentials installs the credentials and TLS settings of an
-// unmanaged pooler's external backend. It is a startup-only hook: the password
-// stays in the existing in-memory cache and never becomes a flag or config
-// value. An empty root cert or negotiation keeps the configured default. An empty mode is
-// "require": the connection carries the external password, so it must not be one a
-// network attacker can downgrade to plaintext, as the "prefer" default of the managed
-// connections can be. A connection that wants plaintext says so with sslmode=disable.
+// SetBackingCredentials installs the credentials and TLS settings of an unmanaged pooler's
+// external backend. It is a startup-only hook: the password stays in the in-memory cache and
+// never becomes a flag or config value. The mode is the connection's own (backingconn.Complete
+// has filled it in); an empty root cert or negotiation keeps the configured default.
 func (c *Config) SetBackingCredentials(user, password, sslMode, sslRootCert, sslNegotiation string) {
 	c.pgUser.Set(user)
 	c.pgPasswordCached = password
 	c.pgPasswordSource = pwSourceBacking
-	if sslMode == "" {
-		sslMode = string(client.SSLModeRequire)
-	}
 	c.pgSSLMode.Set(sslMode)
 	if sslRootCert != "" {
 		c.pgSSLRootCert.Set(sslRootCert)

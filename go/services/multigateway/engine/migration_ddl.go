@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/common/pgprotocol/server"
@@ -853,6 +854,13 @@ func (m *MigrationDDL) showConnections(ctx context.Context, s *ast.ShowConnectio
 		if s.Name != "" && e.GetName() != s.Name {
 			continue
 		}
+		if e.GetDsn() == "" {
+			// A connection that cannot be read is listed with an empty dsn. Its name is all there is
+			// to show, and the other columns are NULL: every connection that can be read has a
+			// value in each of them.
+			result.Rows = append(result.Rows, sqltypes.MakeRow([][]byte{[]byte(e.GetName()), nil, nil, nil, nil, nil}))
+			continue
+		}
 		kv := pgutil.ParseConnInfo(e.GetDsn())
 		result.Rows = append(result.Rows, sqltypes.MakeRow([][]byte{
 			[]byte(e.GetName()),
@@ -928,15 +936,11 @@ func defElemValue(d *ast.DefElem) string {
 	return d.Arg.SqlString()
 }
 
-// connectionDSN turns a CONNECTION OPTIONS (...) list into a libpq conninfo
-// string. It requires a host and fills defaults for the keys most likely to be
-// omitted, rather than leaning on libpq's own defaults, since those resolve in
-// the target backend's context, where an omitted host means a local socket and
-// an omitted user/dbname means the backend's OS user. The applied defaults are
-// port=5432, dbname=postgres, and sslmode=require, since a migration source is
-// reachable over the network and should be encrypted by default; an operator
-// who needs plaintext must say so explicitly. Explicitly-supplied options win;
-// a host must always be given.
+// connectionDSN turns a CONNECTION OPTIONS (...) list into a libpq conninfo string exactly as
+// written: option names lowercased, values quoted. It applies no default and requires nothing: the
+// migrator does both, once, for every connection it is given (backingconn.FromDSN). The one thing
+// it says is which option is wrong when the name is not a libpq parameter at all, since the
+// migrator, which checks a string, cannot name a parameter without repeating text of one.
 func connectionDSN(list *ast.NodeList) (string, error) {
 	kv := make(map[string]string)
 	if list != nil {
@@ -948,23 +952,17 @@ func connectionDSN(list *ast.NodeList) (string, error) {
 			// Lowercase the stored key too, not just the lookup: option names are
 			// case-insensitive SQL identifiers, and SHOW CONNECTIONS reads fixed lowercase
 			// keys, so a mixed-case key stored here would be invisible to it.
-			kv[strings.ToLower(d.Defname)] = defElemValue(d)
-		}
-	}
-	// A missing key and an explicitly empty value both leave host unusable: an
-	// empty host is indistinguishable from an omitted one to libpq, which falls
-	// back to the local Unix socket — the exact ambiguity requiring host exists
-	// to prevent. A plain map lookup rejects both in one check.
-	if kv["host"] == "" {
-		return "", errors.New("CONNECTION requires a host option")
-	}
-	for _, def := range []struct{ key, val string }{
-		{"port", "5432"},
-		{"dbname", "postgres"},
-		{"sslmode", "require"},
-	} {
-		if _, ok := kv[def.key]; !ok {
-			kv[def.key] = def.val
+			name := strings.ToLower(d.Defname)
+			if !backingconn.IsParam(name) {
+				return "", fmt.Errorf("CONNECTION option %q is not a libpq connection parameter", d.Defname)
+			}
+			// As CREATE SERVER ... OPTIONS does: an option given twice is an error, not a
+			// last-one-wins.
+			if _, dup := kv[name]; dup {
+				return "", mterrors.NewPgError("ERROR", mterrors.PgSSDuplicateObject,
+					fmt.Sprintf("option %q provided more than once", d.Defname), "")
+			}
+			kv[name] = defElemValue(d)
 		}
 	}
 	return pgutil.ConnInfoString(kv), nil
@@ -1153,11 +1151,69 @@ func applyMigrationOptions(req *migratorpb.CreateMigrationRequest, list *ast.Nod
 				return fmt.Errorf("sequence_margin must be an integer: %q", val)
 			}
 			req.Migration.SequenceMargin = n
+		case "quiesce_roles":
+			roles, err := parseRoleList(val)
+			if err != nil {
+				return err
+			}
+			req.QuiesceRoles = roles
 		default:
 			return fmt.Errorf("unknown migration option %q", d.Defname)
 		}
 	}
 	return nil
+}
+
+// parseRoleList splits a comma-separated quiesce_roles option value into role
+// names, in order and without repeats. An unquoted name is taken as written,
+// trimmed, and case-sensitive. A name wrapped in double quotes may contain
+// commas and surrounding spaces, and "" inside it stands for one quote, as in a
+// SQL identifier. Blank entries are dropped.
+func parseRoleList(v string) ([]string, error) {
+	const space = " \t\r\n"
+	var roles []string
+	seen := make(map[string]bool)
+	for v != "" {
+		v = strings.TrimLeft(v, space)
+		var name string
+		if strings.HasPrefix(v, `"`) {
+			var b strings.Builder
+			i := 1
+			for {
+				if i >= len(v) {
+					return nil, errors.New("quiesce_roles has an unterminated quoted role name")
+				}
+				if v[i] == '"' {
+					if i+1 < len(v) && v[i+1] == '"' {
+						b.WriteByte('"')
+						i += 2
+						continue
+					}
+					break
+				}
+				b.WriteByte(v[i])
+				i++
+			}
+			name = b.String()
+			v = strings.TrimLeft(v[i+1:], space)
+			if v != "" && v[0] != ',' {
+				return nil, fmt.Errorf("quiesce_roles has unexpected text after the quoted role name %q", name)
+			}
+		} else {
+			end := strings.IndexByte(v, ',')
+			if end < 0 {
+				end = len(v)
+			}
+			name = strings.TrimSpace(v[:end])
+			v = v[end:]
+		}
+		v = strings.TrimPrefix(v, ",")
+		if name != "" && !seen[name] {
+			seen[name] = true
+			roles = append(roles, name)
+		}
+	}
+	return roles, nil
 }
 
 // parseBoolOption parses a WITH-option's string value as a boolean, using

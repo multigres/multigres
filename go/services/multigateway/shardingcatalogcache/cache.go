@@ -62,26 +62,8 @@ type Source interface {
 // the cached snapshot's position, nil when there is none.
 type FetchFunc func(ctx context.Context, database string, since *Position) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error)
 
-// Position orders snapshots: the consensus rule the serving primary held,
-// then the routing_version.
-type Position struct {
-	Rule           *clustermetadatapb.RuleNumber
-	RoutingVersion int64
-}
-
-// Compare returns -1, 0 or 1 as p is before, equal to or after other.
-func (p Position) Compare(other Position) int {
-	if c := commonconsensus.CompareRuleNumbers(p.Rule, other.Rule); c != 0 {
-		return c
-	}
-	switch {
-	case p.RoutingVersion < other.RoutingVersion:
-		return -1
-	case p.RoutingVersion > other.RoutingVersion:
-		return 1
-	}
-	return 0
-}
+// Position orders snapshots (see shardingcatalog.Position).
+type Position = shardingcatalog.Position
 
 // fetchTimeout bounds one fetch.
 const fetchTimeout = 30 * time.Second
@@ -115,6 +97,11 @@ type database struct {
 	// fetch runs, exactly one more fetch follows, and it starts after all of
 	// them.
 	wake chan struct{}
+
+	// installsMu guards installs, which is closed and replaced on every
+	// install to wake WaitForUnfenced's waiters.
+	installsMu sync.Mutex
+	installs   chan struct{}
 }
 
 // New returns a cache that fetches with fetch and polls every pollInterval
@@ -199,11 +186,67 @@ func (c *Cache) database(name string) *database {
 	if ok {
 		return db
 	}
-	db = &database{name: name, wake: make(chan struct{}, 1)}
+	db = &database{name: name, wake: make(chan struct{}, 1), installs: make(chan struct{})}
 	c.databases[name] = db
 	db.trigger()
 	go c.run(db)
 	return db
+}
+
+// WaitForUnfenced returns once the database's installed snapshot has no
+// admission fence on shard of tableGroup, or with ctx's error when ctx ends
+// first. A tablegroup or shard the snapshot does not know counts as unfenced.
+//
+// It always triggers a fetch, rather than wait for the next health update or
+// poll, because the caller was just refused as fenced: either the cached
+// snapshot does not show the fence yet, or it already shows the fence lifted
+// and the pooler that refused has not caught up. It does not wait for that
+// fetch: whenever the installed snapshot shows the target unfenced, it returns
+// at once, in both cases, and the caller retries with backoff (see
+// executor.runFenced). In the first case those retries go to the fenced
+// pooler, and are refused, until the fetch installs a snapshot that shows the
+// fence, after which the wait holds them. A database the cache has not seen
+// is treated as ObserveCatalogShard treats one: its fetch loop starts, and the
+// wait lasts until its first snapshot that does not fence the target is
+// installed. Any number of callers may wait on one database.
+func (c *Cache) WaitForUnfenced(ctx context.Context, name, tableGroup, shard string) error {
+	db := c.database(name)
+	db.trigger()
+	for {
+		// Take the channel before reading the snapshot: an install between
+		// the two closes the channel, so it is never missed.
+		installs := db.installsChannel()
+		if cur := db.current.Load(); cur != nil && !fenced(cur.snapshot, tableGroup, shard) {
+			return nil
+		}
+		select {
+		case <-installs:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// fenced reports whether snap has an admission fence on shard of tableGroup,
+// whether on the shard or on the whole tablegroup, as the pooler decides it
+// (shardingcatalog.TableGroup.Fenced).
+func fenced(snap *shardingcatalog.Snapshot, tableGroup, shard string) bool {
+	g, ok := snap.TableGroupByName(tableGroup)
+	return ok && g.Fenced(shard)
+}
+
+func (db *database) installsChannel() chan struct{} {
+	db.installsMu.Lock()
+	defer db.installsMu.Unlock()
+	return db.installs
+}
+
+// notifyInstalled wakes every WaitForUnfenced waiter after an install.
+func (db *database) notifyInstalled() {
+	db.installsMu.Lock()
+	defer db.installsMu.Unlock()
+	close(db.installs)
+	db.installs = make(chan struct{})
 }
 
 func (db *database) trigger() {
@@ -285,6 +328,7 @@ func (c *Cache) refresh(db *database) {
 	}
 	// The loop is the only writer, so nothing raced this install.
 	db.current.Store(&installed{position: pos, snapshot: snap})
+	db.notifyInstalled()
 	c.metrics.installed(ctx, db.name, snap.RoutingVersion())
 	c.logger.InfoContext(ctx, "installed sharding catalog snapshot",
 		append([]any{

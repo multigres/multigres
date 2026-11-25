@@ -75,7 +75,7 @@ const defaultReplicationHeartbeatStalenessThreshold = 30 * time.Second
 // with backstops for when a pooler is wrong, rather than second-guessing postgres
 // state here.
 type LeaderNeedsReplacementAnalyzer struct {
-	factory *RecoveryActionFactory
+	factory ActionFactory
 }
 
 func (a *LeaderNeedsReplacementAnalyzer) Name() types.CheckName {
@@ -275,13 +275,9 @@ func (a *LeaderNeedsReplacementAnalyzer) Analyze(sa *snapshot.Shard) ([]types.Pr
 	}
 
 	// Suppress failover briefly while the leader is mid-promotion (see
-	// inPromotionGrace).
+	// inPromotionGrace), reporting the write outage as an alert-only problem.
 	if inPromotionGrace(sa) {
-		a.factory.Logger().Info("primary promotion in progress within grace, suppressing failover",
-			"shard_key", sa.ShardRef.String(),
-			"promoting_primary", topoclient.ComponentIDString(intendedLeaderID),
-			"rule_age", sa.Now.Sub(intendedRule.GetCreationTime().AsTime()))
-		return nil, nil
+		return a.promotionInProgressProblem(sa, intendedLeaderID, intendedRule.GetCreationTime().AsTime()), nil
 	}
 
 	// Judge the leader: healthy, must-replace (with a cause), or inconclusive.
@@ -414,6 +410,24 @@ func (a *LeaderNeedsReplacementAnalyzer) atRiskProblem(sa *snapshot.Shard, leade
 	}}
 }
 
+// promotionInProgressProblem reports that the shard accepts no writes until the
+// leader's promotion finishes, while failover is held off for it. It is ScopePooler
+// for the same reason as atRiskProblem.
+func (a *LeaderNeedsReplacementAnalyzer) promotionInProgressProblem(sa *snapshot.Shard, leaderID *clustermetadatapb.ID, ruleCreatedAt time.Time) []types.Problem {
+	return []types.Problem{{
+		Code:      types.ProblemLeaderPromotionInProgress,
+		CheckName: a.Name(),
+		PoolerID:  leaderID,
+		ShardRef:  sa.ShardRef,
+		Description: fmt.Sprintf("Leader %s is promoting and the shard accepts no writes until it finishes; failover suppressed (rule age %s)",
+			topoclient.ComponentIDString(leaderID), sa.Now.Sub(ruleCreatedAt).Round(time.Second)),
+		Priority:       types.PriorityNormal,
+		Scope:          types.ScopePooler,
+		DetectedAt:     sa.Now,
+		RecoveryAction: a.factory.NewAlertOnlyAction(),
+	}}
+}
+
 // leaderReplacementCause returns one of three verdicts: healthy (cause=="",
 // inconclusive==false), replace (cause!=""), or inconclusive (cause=="",
 // inconclusive==true — can neither confirm healthy nor conclusively convict; the
@@ -472,7 +486,7 @@ func (a *LeaderNeedsReplacementAnalyzer) leaderReplacementCause(
 		// must not block failover forever. (Interim guard, replaced by the LSN
 		// progress signal when LeaderQuorumWritesStalled lands.)
 		if intendedLeaderPostgresRunning(sa) {
-			threshold := a.factory.Config().GetLeaderPostgresResponseThreshold()
+			threshold := sa.AvailabilityPolicy.LeaderPostgresResponseThreshold
 			lastReady := intendedLeaderLastPostgresReadyTime(sa)
 			if !lastReady.IsZero() && sa.Now.Sub(lastReady) <= threshold {
 				return "", "", false

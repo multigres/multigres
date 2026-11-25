@@ -24,7 +24,6 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
-	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
@@ -52,26 +51,20 @@ var _ types.RecoveryAction = (*ReconcileCohortAction)(nil)
 // candidates among many eligible poolers. Today the action adds every
 // eligible non-cohort pooler unconditionally.
 type ReconcileCohortAction struct {
-	config      *config.Config
 	rpcClient   rpcclient.MultipoolerClient
 	poolerStore *store.PoolerCache
-	topoStore   topoclient.Store
 	logger      *slog.Logger
 }
 
 // NewReconcileCohortAction creates a new cohort reconciliation action.
 func NewReconcileCohortAction(
-	cfg *config.Config,
 	rpcClient rpcclient.MultipoolerClient,
 	poolerStore *store.PoolerCache,
-	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *ReconcileCohortAction {
 	return &ReconcileCohortAction{
-		config:      cfg,
 		rpcClient:   rpcClient,
 		poolerStore: poolerStore,
-		topoStore:   topoStore,
 		logger:      logger,
 	}
 }

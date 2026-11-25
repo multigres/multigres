@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/keyrange"
 	"github.com/multigres/multigres/go/common/queryservice"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multipooler/grpcmanagerservice"
@@ -39,6 +40,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
 	"github.com/multigres/multigres/go/services/multipooler/internal/grpcconsensusservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager"
+	"github.com/multigres/multigres/go/services/multipooler/internal/schematracker"
 	"github.com/multigres/multigres/go/services/multipooler/localpoolerservice"
 	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
@@ -90,6 +92,10 @@ func validateUnrecoverableMinAttempts(n int) error {
 	return nil
 }
 
+// managerClientConnections bounds the cached connections of the manager-RPC
+// client: a pooler only ever calls its database's catalog primary.
+const managerClientConnections = 4
+
 // Multipooler represents the main multipooler instance with all configuration and state
 type Multipooler struct {
 	// backingConnection names the connection an unmanaged pooler fronts. Setting
@@ -121,6 +127,7 @@ type Multipooler struct {
 	migrationTargetAdvertiseHost   viperutil.Value[string]
 	migrationTargetAdvertisePort   viperutil.Value[int]
 	replicationStatsPollIntervalMs viperutil.Value[int]
+	schemaTokenInterval            viperutil.Value[time.Duration]
 	// pgBackRest TLS certificate paths for client authentication to primary's pgBackRest server
 	pgBackRestCertFile               viperutil.Value[string]
 	pgBackRestKeyFile                viperutil.Value[string]
@@ -163,6 +170,11 @@ type Multipooler struct {
 	telemetry *telemetry.Telemetry
 	// connPoolConfig holds connection pool configuration (manager created inside MultipoolerManager)
 	connPoolConfig *connpoolmanager.Config
+	// managerClientConfig configures the client this pooler reads its
+	// admission fences from the catalog primary with (TLS, etc.). Nil for a
+	// static leader, which has nothing to fence: its settings are not even
+	// created, so they cannot clash with a gateway's in the same process.
+	managerClientConfig *rpcclient.ConnConfig
 	// connections is where an unmanaged pooler gets its backing connection from.
 	connections connectionSource
 
@@ -291,6 +303,11 @@ func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, res
 			FlagName: "replication-stats-poll-interval-milliseconds",
 			Dynamic:  false,
 		}),
+		schemaTokenInterval: viperutil.Configure(reg, "schema-token-interval", viperutil.Options[time.Duration]{
+			Default:  schematracker.DefaultInterval,
+			FlagName: "schema-token-interval",
+			Dynamic:  false,
+		}),
 		pgBackRestCertFile: viperutil.Configure(reg, "pgbackrest-cert-file", viperutil.Options[string]{
 			Default:  "/certs/pgbackrest.crt",
 			FlagName: "pgbackrest-cert-file",
@@ -359,6 +376,9 @@ func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, res
 	mp.sequencedShutdown = resources.SequencedShutdown
 	mp.statusPath = statusPath
 	mp.staticLeader = staticLeader
+	if !staticLeader {
+		mp.managerClientConfig = rpcclient.NewConnConfig(reg)
+	}
 	mp.senv.InitServiceMap("grpc", "pooler")
 	mp.senv.InitServiceMap("grpc", "poolermanager")
 	mp.senv.InitServiceMap("grpc", "consensus")
@@ -392,6 +412,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("migration-target-advertise-host", mp.migrationTargetAdvertiseHost.Default(), "gateway address advertised to an external source in the Migrator EXPORT-direction reverse subscription (must be a multigateway reachable from the source, not this pooler's cluster-internal hostname); required for EXPORT")
 	flags.Int("migration-target-advertise-port", mp.migrationTargetAdvertisePort.Default(), "Postgres-facing port paired with --migration-target-advertise-host; 0 selects the gateway's default Postgres protocol port")
 	flags.Int("replication-stats-poll-interval-milliseconds", mp.replicationStatsPollIntervalMs.Default(), "interval in milliseconds between logical-replication connection metrics polls")
+	flags.Duration("schema-token-interval", mp.schemaTokenInterval.Default(), "how often the primary recomputes the schema token it reports on the health stream, which tells the gateway the schema changed")
 	flags.String("pgbackrest-cert-file", mp.pgBackRestCertFile.Default(), "TLS client certificate for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-key-file", mp.pgBackRestKeyFile.Default(), "TLS client key for connecting to primary's pgBackRest server")
 	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "TLS CA certificate for validating primary's pgBackRest server")
@@ -420,6 +441,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.migrationTargetAdvertiseHost,
 		mp.migrationTargetAdvertisePort,
 		mp.replicationStatsPollIntervalMs,
+		mp.schemaTokenInterval,
 		mp.pgBackRestCertFile,
 		mp.pgBackRestKeyFile,
 		mp.pgBackRestCAFile,
@@ -433,6 +455,9 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	mp.flagSet = flags
 
 	mp.connPoolConfig.RegisterFlags(flags)
+	if mp.managerClientConfig != nil {
+		mp.managerClientConfig.RegisterFlags(flags)
+	}
 }
 
 // resolvePgBackRestCipherKeys loads the backup cipher key file if one is
@@ -583,7 +608,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		// The endpoint of an unmanaged pooler is set here and nowhere else: the record
 		// publishes its port, the TLS validation below checks its host, and the manager
 		// dials, probes and serves from it, so they can never disagree.
-		externalBackend = &manager.ExternalBackend{Host: backing.Host, Port: backing.Port, Database: backing.Database}
+		externalBackend = &manager.ExternalBackend{Host: backing.Host(), Port: backing.Port(), Database: backing.Database}
 		if err := checkBackingDatabase(mp.backingConnection.Get(), externalBackend, mp.database.Get()); err != nil {
 			return err
 		}
@@ -649,6 +674,17 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	// An unmanaged pooler never takes part in consensus.
 	consensusEnabled := mp.consensusEnabled() && !unmanaged
 
+	// The client the pooler reads its admission fences from the catalog
+	// primary with. A static leader has nothing to fence and gets none.
+	var managerClient rpcclient.MultipoolerClient
+	if mp.managerClientConfig != nil {
+		transportCreds, err := mp.managerClientConfig.TransportCredentials(logger)
+		if err != nil {
+			return fmt.Errorf("failed to configure multipooler TLS: %w", err)
+		}
+		managerClient = rpcclient.NewMultipoolerClient(managerClientConnections, transportCreds)
+	}
+
 	logger.InfoContext(startCtx, "initializing MultipoolerManager")
 	poolerManager, err := manager.NewMultipoolerManager(logger, multipooler, &manager.Config{
 		SocketFilePath:                 socketFilePath,
@@ -658,6 +694,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		MigrationTargetAdvertiseHost:   mp.migrationTargetAdvertiseHost.Get(),
 		MigrationTargetAdvertisePort:   mp.migrationTargetAdvertisePort.Get(),
 		ReplicationStatsPollIntervalMs: mp.replicationStatsPollIntervalMs.Get(),
+		SchemaTokenInterval:            mp.schemaTokenInterval.Get(),
 		PgctldAddr:                     mp.pgctldAddr.Get(),
 		ConsensusEnabled:               consensusEnabled,
 		ConnPoolConfig:                 mp.connPoolConfig,
@@ -675,6 +712,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		StaticLeader: mp.staticLeader,
 
 		ExternalBackend: externalBackend,
+		ManagerClient:   managerClient,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)
@@ -685,6 +723,9 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	// Launch the background backup-health poller (service-level concern, kept
 	// out of manager.Start so RPC unit tests don't run background DB queries).
 	poolerManager.StartBackupHealth()
+	// Launch the tablegroup completion loop on the catalog shard, a
+	// service-level concern for the same reason.
+	poolerManager.StartTableGroupOperations()
 	grpcmanagerservice.RegisterPoolerManagerServices(mp.senv, mp.grpcServer)
 	// An unmanaged pooler registers no consensus RPCs: consensusEnabled is false for it, and
 	// the service answers Unimplemented.

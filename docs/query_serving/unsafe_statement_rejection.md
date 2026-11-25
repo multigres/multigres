@@ -140,16 +140,45 @@ the top level an accepted `set_config` / `SET` is mirrored into the
 gateway's session tracker. Inside a body it may run conditionally (in an
 `IF`/`LOOP`/exception handler) or not at all, so the gateway cannot
 faithfully reproduce it — the conservative choice is to reject any
-`set_config`, `SET`, `RESET`, `DISCARD`, or `LISTEN`/`UNLISTEN` anywhere
-in a body, matching how a top-level `set_config` in a disallowed
-position is already rejected.
+tracked `set_config`, `SET`, `RESET`, `DISCARD`, or `LISTEN`/`UNLISTEN`
+anywhere in a body (`analyzeBodyFragment`, `rejectBodySessionStateStmt`),
+matching how a top-level `set_config` in a disallowed position is already
+rejected. The exception is a transaction-scoped `SET` — `SET LOCAL` and
+`SET TRANSACTION` — which reverts at transaction end and so cannot outlive
+the transaction on a pooled backend; a `SET LOCAL` of a restricted GUC is
+still rejected by the restricted-GUC guard. Tablegroup DDL inside a body is
+also rejected.
 
 **Dynamic `EXECUTE`** (and the dynamic `RETURN QUERY EXECUTE`,
-`FOR … IN EXECUTE`, `OPEN … FOR EXECUTE` forms): if the executed string
-is a string literal it is parsed and analyzed exactly as if written
-inline; if it is built at runtime (concatenation, `format()`, a
-variable) it cannot be proven safe and is **rejected** — the same way a
-non-literal `set_config` argument is rejected at the top level.
+`FOR … IN EXECUTE`, `OPEN … FOR EXECUTE` forms) is accepted only when the
+statement's structure can be proven constant (`analyzeDynamicExecute`):
+
+- A **string literal** is parsed and analyzed exactly as if written inline.
+- A statement assembled with PostgreSQL's **injection-safe primitives** —
+  `format()` with only `%I` / `%L` conversions, or a `||` chain of string
+  literals and `quote_ident()` / `quote_literal()` calls — has a structure
+  fixed by its constant text. The gateway rebuilds that skeleton
+  (`safeExecuteSkeleton`), analyzes it as a static statement, and analyzes
+  each interpolated value expression for blocklisted calls.
+- A top-level `format()` whose `%s` arguments are **constrained constants**
+  (a string literal, a `CASE` whose results are all string literals, or a
+  variable proven to hold only such values) is expanded into the finite set
+  of statements it can produce, and each is analyzed
+  (`analyzeConstrainedFormatExecute`).
+- A **bare variable** (`EXECUTE v`) is accepted when every value assigned to
+  `v` in the body is itself one of the safe shapes above (`varResolver`).
+
+Anything else (a raw `||` operand, an unconstrained `%s`, a parameter, a
+query result) can inject arbitrary statement text, cannot be proven safe, and
+is **rejected** — the same way a non-literal `set_config` argument is
+rejected at the top level.
+
+Known limitation: `format`, `quote_ident` and `quote_literal` are matched by
+unqualified name. A user who shadows them (a function earlier in
+`search_path`, or an exact-signature `format(text, text)` overload) can
+return arbitrary text that the skeleton analysis then accepts. Closing this
+needs catalog and `search_path` resolution the plan-time analyzer does not
+have; it is accepted for now.
 
 **Fail closed.** A body that does not parse, or that uses an unsupported
 construct, is rejected rather than passed through. All of this is disabled for
@@ -254,19 +283,32 @@ only when it sits directly as a top-level SELECT target-list entry
 the same way:
 
 ```text
-Sequence[silent ApplySessionState per call, Route(original SQL)]
+Sequence[silent ApplySessionState per call, Route]
 ```
 
 The silent primitives update the tracker without emitting anything to
-the client; the Route sends the unmodified query to PG, which executes
-set_config normally and streams the result back (set_config column plus
-any sibling target-list entries and table rows). This costs one PG
-round-trip even for bare `SELECT set_config(...)`, which is a deliberate
-simplicity choice over a fast-path that would bypass PG.
+the client; the Route sends the query to PG, which executes set_config and
+streams the result back (set_config column plus any sibling target-list
+entries and table rows). This costs one PG round-trip even for bare
+`SELECT set_config(...)`, which is a deliberate simplicity choice over a
+fast-path that would bypass PG.
 
-**Literal and bound arguments.** Each of the three slots (`name`,
-`value`, `is_local`) may be a literal constant **or** a bound parameter
-(`$1`), e.g. `SELECT set_config('search_path', $1, false)`. When any
+The routed query is not always the client's text verbatim. A session-level
+call on an unpinned session is routed with `is_local` rewritten to `true` so
+nothing persists on the pooled backend (the plan carries both shapes under a
+`SessionStateBranch`), and a call naming a gateway-managed variable is
+rewritten out of the query entirely. See
+[`session_settings.md`](./session_settings.md) and
+[`gateway_managed_variables.md`](./gateway_managed_variables.md). The narrow
+dynamic shape pg_dump uses (a target list made entirely of `set_config` calls
+whose name is `pg_settings.name`) plans as a single `ResolveTrackSetConfig`
+primitive instead.
+
+**Literal and bound arguments.** The `name` and `value` slots may be a
+literal constant **or** a bound parameter (`$1`), e.g.
+`SELECT set_config('search_path', $1, false)`. `is_local` must be a boolean
+literal, except for a literal-named gateway-managed variable, where it may
+also be bound. When any
 slot is bound, the tracking primitive is built via
 `NewApplySessionStateFromBind`, which records the `ParamRef`s and defers
 per-slot resolution to execute time — `executeSetWithBinds` decodes the
@@ -276,13 +318,18 @@ updating `SessionSettings`. All-literal calls use the simpler
 args outright; bound parameters are now supported because PostgREST and
 ORMs routinely parameterize the value.)
 
-`set_config(..., true)` — transaction-scoped — is accepted in any
-position but never tracked: it doesn't outlive the transaction, so
-there's nothing for the pool to carry forward. (A _bound_ `is_local`
-can't be short-circuited at plan time; the track-or-not decision is
-deferred to `executeSetWithBinds`.)
+`set_config(..., true)` — transaction-scoped — on an ordinary variable is
+not tracked: it doesn't outlive the transaction, so there's nothing for the
+pool to carry forward. With a literal name that is neither restricted nor
+gateway-managed, it is also accepted outside the top-level target list
+(`allowTransactionLocalSetConfig`), which PostgREST relies on. A
+gateway-managed variable with `is_local = true` is tracked as a
+transaction-local override. A bound name or bound `search_path` value is
+resolved and vetted at execute time, before the Route runs
+(`resolveSetConfig`). (A _bound_ `is_local` can't be short-circuited at
+plan time; the track-or-not decision is deferred to `executeSetWithBinds`.)
 
-Anything else is rejected: `set_config` in a WHERE clause, nested inside
+Any other session-level call is rejected: `set_config` in a WHERE clause, nested inside
 another function's arguments, inside a CTE, in a DEFAULT expression, in
 INSERT/UPDATE — evaluation semantics in those positions (conditional,
 per-row, or hidden in a subquery) can't be faithfully represented by a
@@ -295,11 +342,12 @@ reserved temp-table route, which would drop the tracked set_config and
 leave the gateway's tracker stale relative to the backend.
 
 **Where it runs.** Inside the planner, in a single walk that runs as
-part of `planUnsupportedConstructs()` — the orchestrator that pairs the
-statement-level check (`planUnsupportedStmt`, covering Tier 2) with
-this expression-level walk (`inspectExpressionFuncCalls`). Both the
-simple-protocol `Plan()` and
-the extended-protocol `PlanPortal()` call `planUnsupportedConstructs()`,
+part of `analyzeStatement()` — the pre-dispatch pass that pairs the
+statement-level checks (`rejectUnsupportedStatement`, covering Tier 2,
+plus `checkRestrictedGUCChange` and `analyzeProceduralBody`) with
+this expression-level walk (`analyzeFunctionCalls`). `Planner.Plan()`
+serves both the simple protocol and the extended protocol
+and calls `analyzeStatement()` first,
 so neither path can skip a check. Running in the planner means the plan
 cache short-circuits the walk: a cached plan is by construction safe.
 The normalizer is configured to preserve literals inside
@@ -314,17 +362,18 @@ happening earlier in the pipeline for caching.
   which parses the body and routes each fragment back through this same
   walk. Our SQL parser does not see the opaque body text; the PL/pgSQL /
   SQL parse does.
-- Dynamic SQL (`EXECUTE 'SELECT '||var`) built from a non-literal — the
-  body analysis rejects it (it cannot be proven safe); a plain string
-  literal is parsed and analyzed.
+- Dynamic SQL (`EXECUTE 'SELECT '||var`) whose structure cannot be proven
+  constant — the body analysis rejects it; a string literal or an
+  injection-safe construction is parsed and analyzed (see Tier 1).
 
 ### Restricted GUC value guard
 
 Separate from the tiers above (which block whole statement types or whole
 functions), a narrow guard rejects any attempt to **assign a value** to a
 cluster-managed GUC, regardless of the statement carrying it. The set is a
-single map (`restrictedGUCs` in `restricted_guc.go`, mirroring `funcBlocklist`):
-add a GUC name + reason there and every path below enforces it.
+single map (`restrictedGUCs` in `go/common/pgsettings/restricted.go`, mirroring
+`funcBlocklist`): add a GUC name + reason there and every path below enforces
+it.
 
 Currently the list has one entry, **`synchronous_commit`**. Replication
 durability is managed centrally: the multipooler rule store / `SyncStandbyManager`
@@ -339,35 +388,39 @@ we take the choice away. See
 The paths below use `synchronous_commit` as the example; the same rules apply to
 any GUC added to `restrictedGUCs`.
 
-| Path                                          | Action                                   |
-| --------------------------------------------- | ---------------------------------------- |
-| `SET synchronous_commit = x`                  | Reject                                   |
-| `SET LOCAL synchronous_commit = x`            | Reject                                   |
-| `SET synchronous_commit FROM CURRENT`         | Reject                                   |
-| `ALTER DATABASE d SET synchronous_commit = x` | Reject                                   |
-| `ALTER ROLE r SET synchronous_commit = x`     | Reject                                   |
-| `set_config('synchronous_commit', x, _)`      | Reject (both `is_local` variants)        |
-| `ALTER SYSTEM SET synchronous_commit = x`     | Already rejected (Tier 2)                |
-| `RESET synchronous_commit`                    | **Allowed** — restores the managed value |
-| `SET synchronous_commit TO DEFAULT`           | **Allowed** — restores the managed value |
-| `RESET ALL`                                   | **Allowed** — restores the managed value |
+| Path                                                       | Action                                   |
+| ---------------------------------------------------------- | ---------------------------------------- |
+| `SET synchronous_commit = x`                               | Reject                                   |
+| `SET LOCAL synchronous_commit = x`                         | Reject                                   |
+| `SET synchronous_commit FROM CURRENT`                      | Reject                                   |
+| `ALTER DATABASE d SET synchronous_commit = x`              | Reject                                   |
+| `ALTER ROLE r SET synchronous_commit = x`                  | Reject                                   |
+| `CREATE` / `ALTER FUNCTION ... SET synchronous_commit = x` | Reject                                   |
+| Startup parameter or `options=-c synchronous_commit=x`     | Reject (connection refused)              |
+| `set_config('synchronous_commit', x, _)`                   | Reject (both `is_local` variants)        |
+| `ALTER SYSTEM SET synchronous_commit = x`                  | Already rejected (Tier 2)                |
+| `RESET synchronous_commit`                                 | **Allowed** — restores the managed value |
+| `SET synchronous_commit TO DEFAULT`                        | **Allowed** — restores the managed value |
+| `RESET ALL`                                                | **Allowed** — restores the managed value |
 
 Reverts are allowed because they can only restore the cluster-managed value.
 The rejection is a `feature_not_supported` (`0A000`) error pointing users at
 `RESET`.
 
 **Where it runs.** In `checkRestrictedGUCChange`, called from
-`planUnsupportedConstructs` alongside the Tier 2 and expression-level checks, so
+`analyzeStatement` alongside the Tier 2 and expression-level checks, so
 it covers both query protocols and is short-circuited by the plan cache. The
 `set_config(...)` form is enforced inside the same expression walker that tracks
 set_config. So that the planner can inspect the variable name even for
 transaction-scoped `set_config(..., true)`, the normalizer keeps that name
-literal (only the value is parameterized for plan-cache stability).
+literal (only the value is parameterized for plan-cache stability). A
+`set_config` whose name is a bound parameter is checked at execute time, when
+`resolveSetConfig` (`engine/apply_session_state.go`) resolves the name before
+the routed query is sent. The startup path is checked in
+`pgprotocol/server/startup.go` (`pgsettings.RestrictedGUCStartupError`).
 
-**Known gap** (consistent with the rest of this layer): a `set_config` call (or
-a `SET`) whose variable _name_ is itself non-literal is not matched against the
-restricted-GUC list. Assignments inside PL/pgSQL bodies are now caught by Tier 1
-body analysis, and a dynamic `EXECUTE` with a non-literal argument is rejected
+Assignments inside PL/pgSQL bodies are caught by Tier 1 body analysis, and a
+dynamic `EXECUTE` whose statement text cannot be proven constant is rejected
 there.
 
 ## Per-connection unsafe mode (`multigres.unsafe_connection`)
@@ -430,7 +483,7 @@ connect time and via `SET`) but new clients should use
 
 ## Other Allowed Statements With Known Risk
 
-Beyond Tier 1 (allowed pending body analysis), a few more statements
+Beyond Tier 1 (allowed subject to body analysis), a few more statements
 execute opaque server-side code or mutate connection-start defaults and cannot
 be usefully blocked wholesale.
 
@@ -483,8 +536,8 @@ There is no faithful emulation available: event trigger functions return the `ev
 
 Both the statement-level filter (Tier 2) and the
 expression-level walker run before dispatch, bundled behind
-`planUnsupportedConstructs()`. Both `Planner.Plan()` (simple protocol)
-and `Planner.PlanPortal()` (extended protocol) call that orchestrator,
+`analyzeStatement()`. `Planner.Plan()` serves both the simple protocol and
+the extended protocol and calls it first,
 so neither query path can bypass a check. Running in the planner (rather
 than in the executor) means a plan cache hit short-circuits both checks:
 a cached plan is by construction safe.
@@ -503,23 +556,27 @@ Executor normalizes literals (A_Const -> $N) for plan cache
   (skips inside set_config() calls so the planner still sees its literals)
   |
   v
-Planner.Plan() / Planner.PlanPortal()
+Planner.Plan()
   |
-  +-- planUnsupportedConstructs(stmt)    <-- orchestrates both checks
+  +-- analyzeStatement(stmt)             <-- orchestrates the checks
   |     |
-  |     +-- planUnsupportedStmt(stmt)         <-- Tier 2 rejection check
+  |     +-- rejectUnsupportedStatement(stmt)  <-- Tier 2 rejection check
   |     |     +-- blocked? --> return feature_not_supported error
   |     |
-  |     +-- inspectExpressionFuncCalls(stmt)  <-- expression-level filter
+  |     +-- checkRestrictedGUCChange(stmt)    <-- restricted-GUC guard
+  |     +-- analyzeProceduralBody(stmt)       <-- Tier 1 body analysis
+  |     |
+  |     +-- analyzeFunctionCalls(stmt)        <-- expression-level filter
   |           +-- blocklisted func?       --> return feature_not_supported
   |           +-- rogue set_config?       --> return feature_not_supported
-  |           +-- tracked set_configs found --> returned to dispatch (Plan only)
+  |           +-- tracked set_configs found --> returned to dispatch
   |
   v
 Statement-specific planning (switch on NodeTag)
   |
   +-- SelectStmt with tracked set_configs?
   |     +-- any shape   --> Sequence[silent ApplySessionState..., Route]
+  |     |                   (pinned/unpinned shapes under SessionStateBranch)
   |     +-- none        --> Route
   |
   v
@@ -535,12 +592,13 @@ the default routing path and executes normally.
 
 | File                                                       | Purpose                                                                                                                                                                                                      |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `go/services/multigateway/planner/unsafe_stmt.go`          | `planUnsupportedStmt()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements                                                                                                         |
+| `go/services/multigateway/planner/unsafe_stmt.go`          | `rejectUnsupportedStatement()` — switch on `NodeTag`, returns `feature_not_supported` for Tier 2 statements                                                                                                  |
 | `go/services/multigateway/planner/unsafe_funccall.go`      | `analyzeStatement()` (pre-dispatch analysis pass) + `analyzeFunctionCalls()` — single walk that rejects blocklist and collects accepted (literal or bound) set_config calls                                  |
 | `go/services/multigateway/planner/unsafe_plpgsql.go`       | `analyzeProceduralBody()` — extracts a DO / CREATE FUNCTION body, parses it (PL/pgSQL or SQL), and runs the expression-level filter over every embedded fragment; dynamic-EXECUTE and opaque-language policy |
-| `go/services/multigateway/planner/restricted_guc.go`       | `restrictedGUCs` map + `checkRestrictedGUCChange()` — rejects value assignments to cluster-managed GUCs across SET / ALTER ROLE / ALTER DATABASE                                                             |
+| `go/services/multigateway/planner/restricted_guc.go`       | `checkRestrictedGUCChange()` — rejects value assignments to cluster-managed GUCs across SET / ALTER ROLE / ALTER DATABASE / function `SET` clauses                                                           |
+| `go/common/pgsettings/restricted.go`                       | `restrictedGUCs` map and the shared rejection messages (statement, bound-name, and startup paths)                                                                                                            |
 | `go/services/multigateway/planner/select_stmt.go`          | `planSelectStmt()` — dispatches SELECT based on set_config metadata; picks silent vs from-bind ApplySessionState                                                                                             |
-| `go/services/multigateway/planner/planner.go`              | Calls `planUnsupportedConstructs()` at the top of both `Plan()` and `PlanPortal()` before dispatch                                                                                                           |
+| `go/services/multigateway/planner/planner.go`              | Calls `analyzeStatement()` at the top of `Plan()` (both protocols) before dispatch                                                                                                                           |
 | `go/common/parser/ast/normalizer.go`                       | Skips normalization inside `set_config(...)` so the planner still sees literal args under plan caching                                                                                                       |
 | `go/services/multigateway/engine/apply_session_state.go`   | `NewApplySessionStateSilent()` (literal) and `NewApplySessionStateFromBind()` (`executeSetWithBinds` defers slot resolution to portal Bind values)                                                           |
 | `go/services/multigateway/engine/sequence.go`              | Sequence primitive used for mixed `SELECT set_config(...), * FROM t` — tracking step + route                                                                                                                 |
@@ -566,16 +624,20 @@ The SQLSTATE `0A000` (`feature_not_supported`) was chosen because:
 
 ### Transaction behavior
 
-A rejection does **not** abort the surrounding transaction. The gateway
-raises the error itself — before the statement ever reaches a backend — so
-the backend's transaction is untouched: it stays in whatever state it was
-in, and the client can keep issuing statements or `COMMIT`. This is the
-opposite of an ordinary backend error, which PostgreSQL raises on the
-backend and which poisons the transaction (`25P02`, `current transaction is
-aborted, commands ignored until end of transaction block`) until a
-`ROLLBACK`.
+By default a rejection **aborts** the surrounding explicit transaction, like
+any other error: the session moves to the failed state and later statements
+get `25P02` (`current transaction is aborted, commands ignored until end of
+transaction block`) until a `ROLLBACK`. The statement never reached a
+backend, but clients expect PostgreSQL's contract that any error inside a
+transaction block ends it.
 
-Concretely, in
+The `--keep-transaction-on-gateway-rejection` flag (off by default; intended
+for pg_regress and compatibility test suites) changes this: the gateway
+raised the error itself, before the statement reached a backend, so the
+backend's transaction is untouched and the session is left in-block. The
+client can keep issuing statements or `COMMIT`.
+
+Concretely, with the flag enabled, in
 
 ```sql
 BEGIN;
@@ -585,31 +647,29 @@ COMMIT;                            -- succeeds
 ```
 
 the `INSERT` runs and the `COMMIT` commits; the client sees only the single
-`0A000` error for the `LOAD`. Were the rejection allowed to poison the
-transaction, every following statement would instead fail with "current
-transaction is aborted" — a cascade that buries the one real signal.
+`0A000` error for the `LOAD`. Without the flag, the `INSERT` fails with
+`25P02` and the `COMMIT` rolls back.
 
 This is implemented by tagging every refusal as a `*GatewayRejection`
-(`NewFeatureNotSupported` returns one; see `mterrors/pgdiagnostic.go`) and
-skipping the `in_block → failed` transaction-status transition whenever
-`mterrors.IsGatewayRejection(err)` holds — the guard on each
-`SetTxnStatus(TxnStatusFailed)` call in `handler.go` and
-`transaction_helpers.go`. It applies to every rejection layer below (Tier 1,
+(`NewFeatureNotSupported` returns one; see `mterrors/pgdiagnostic.go`).
+`MultigatewayHandler.abortsTransactionOnError` skips the
+`in_block → failed` transaction-status transition only when the flag is on
+and `mterrors.IsGatewayRejection(err)` holds. It applies to every rejection layer (Tier 1,
 Tier 2, the restricted-GUC guard, and the dangerous-function filter), since
 all of them raise `feature_not_supported` through the same constructor.
 
 ### Protocol Coverage
 
-Both query protocols are covered, and both call the same
-`planUnsupportedConstructs()` orchestrator (statement-level check +
-expression walk) so the statement-level and expression-level rejections
-apply identically:
+Both query protocols are covered, and both go through the same
+`analyzeStatement()` pass (statement-level checks + expression walk) so the
+statement-level and expression-level rejections apply identically:
 
-- **Simple query protocol** (`Query` message / `'Q'`): `Plan()` calls
-  `planUnsupportedConstructs()` before the main dispatch switch.
-- **Extended query protocol** (`Parse`/`Bind`/`Execute`): `PlanPortal()`
-  calls `planUnsupportedConstructs()` before checking whether the
-  statement needs local handling.
+- **Simple query protocol** (`Query` message / `'Q'`): the executor's
+  `StreamExecute` plans through `Planner.Plan()`.
+- **Extended query protocol** (`Parse`/`Bind`/`Execute`): the executor's
+  `PortalStreamExecute` plans through the same `Planner.Plan()`.
+
+In both cases `analyzeStatement()` runs before the main dispatch switch.
 
 ## Future Work
 
@@ -618,8 +678,8 @@ The PL/pgSQL body-analysis layer that closed Tier 1 has landed (see
 remaining hardening is around dynamic SQL the body analysis
 deliberately rejects rather than emulates:
 
-- A dynamic `EXECUTE 'SET '||var` (a non-literal argument) is **rejected
-  today**. A future connection-reset backstop (`DISCARD ALL` on client
+- A dynamic `EXECUTE 'SET '||var` (a runtime-built statement whose structure
+  cannot be proven constant) is **rejected today**. A future connection-reset backstop (`DISCARD ALL` on client
   handoff) could let such statements through safely instead of rejecting
   them, for deployments that want the looser behavior without
   `multigres.unsafe_connection`.
