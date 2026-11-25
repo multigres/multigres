@@ -129,10 +129,22 @@ type PoolManager interface {
 	// drain can wait for transactions while still serving single queries.
 	WaitForReservedDrain(ctx context.Context) error
 
-	// CloseReservedConnections kills all active reserved connections across all user pools.
-	// Used after drain grace period expires to prevent reserved connections from being
-	// used in a non-serving state.
-	CloseReservedConnections(ctx context.Context) int
+	// SealPools seals every user pool, and every one created until
+	// UnsealPools: a sealed pool lends nothing, refuses requests (and wakes
+	// the waiting ones) with err, closes its idle connections, and closes a
+	// connection returned to it. A drain that runs out of time seals the
+	// pools (see poolerserver drain.go).
+	SealPools(err error)
+
+	// UnsealPools lets the user pools lend connections again.
+	UnsealPools()
+
+	// KillLent terminates the backends of the connections the user pools
+	// still lend, reserved and regular, except logical-replication tunnels,
+	// and waits up to timeout for each to exit. It returns how many it
+	// terminated, and an error if any backend may still be running or ctx
+	// ended first. The admin pool is not touched.
+	KillLent(ctx context.Context, timeout time.Duration) (int, error)
 
 	// --- Stats ---
 

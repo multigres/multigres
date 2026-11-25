@@ -70,17 +70,19 @@ import (
 // was applied. And a read begun after the promotion can still reach a deposed
 // catalog primary.
 //
-// Closing the gate of a primary drains it like a not-serving transition, in
-// two stages under one timeout, with a phase of its own (fenceGate.drainPhase),
-// so the fence drain and the not-serving drain never move each other's phase:
-// first new reservations are refused while single queries continue and the
-// open transactions finish; then single queries are refused too and the
-// in-flight ones are waited out. Each stage also waits for the requests that
-// were admitted before it began and do not hold a connection yet (see
-// StartRequest). At the timeout the remaining reserved connections are
-// force-closed, and their transactions get 40001. While the drain runs the
-// gate is draining; it is closed only once the drain has ended, so a closed
-// gate is a drained one.
+// Closing the gate of a primary drains it the way every drain runs (see
+// drain.go), with a phase of its own (fenceGate.drainPhase), so the fence
+// drain and the not-serving drain never move each other's phase: first new
+// reservations are refused while single queries continue and the open
+// transactions finish; then single queries are refused too and the in-flight
+// ones are waited out. At the timeout the pools are sealed, the backends still
+// lent are terminated (their transactions get 40001) and each kill is
+// confirmed, and the drain waits until nothing admitted before it is left.
+// While the drain runs the gate is draining; it is closed only once the drain
+// has ended the fence's work, so a closed gate is a drained one. A drain that
+// could not (a kill not confirmed, or work still left at its bound) leaves the
+// gate draining with no drain running: it refuses all new work, the pools stay
+// sealed, and the next read that finds the fence drains again.
 //
 // Transitions, each under s.mu:
 //
@@ -89,6 +91,8 @@ import (
 //	unread or open  | a read finds a fence, on a primary     | draining (the reader runs the drain)
 //	unread or open  | a read finds a fence, on a replica     | closed (no drain)
 //	draining        | its drain ends, in the same epoch      | closed
+//	draining        | its drain fails                        | draining, with no drain running
+//	draining        | a read finds a fence, no drain running | draining (the reader drains again)
 //	draining        | a read finds no fence                  | open (the drain is cancelled)
 //	closed          | a read finds no fence                  | open
 //	unread          | a read finds no fence                  | open
@@ -98,8 +102,9 @@ import (
 // Exactly one caller runs a drain: the one whose read moved the gate to
 // draining. A read that finds a fence while the gate is draining joins that
 // drain: it waits, bounded by its own context, for the drain to end. A
-// cancelled drain force-closes nothing, and its caller and every joiner get
-// ABORTED and read the fences again.
+// cancelled drain stops and releases its seal hold, and its caller and every
+// joiner get ABORTED and read the fences again. A failed drain's caller and
+// joiners get its ErrDrainIncomplete (UNAVAILABLE).
 
 // Bounds of the fence drain. A drain is bounded by the caller's drain timeout,
 // else by the pooler's drain grace period, else by defaultFenceDrainTimeout, so
@@ -142,7 +147,12 @@ type fenceGate struct {
 	// never move each other's phase.
 	drainPhase drainPhase
 	// drain is the running fence drain while the gate is draining, else nil.
+	// A gate whose drain failed stays draining with no drain running.
 	drain *fenceDrain
+	// failedSeal is the seal hold a failed drain kept: the pools stay sealed
+	// until the next drain takes it over, or the fence is lifted or the
+	// pooler's role changes (see endFenceDrainLocked).
+	failedSeal *bool
 	// epoch advances on every reset to unread, which is when the pooler
 	// becomes primary. A read takes it before it reads the catalog, and
 	// ApplyFence refuses the read (ABORTED) when it has changed: the read
@@ -163,8 +173,14 @@ type fenceGate struct {
 type fenceDrain struct {
 	// cancel stops the drain without a force-close.
 	cancel context.CancelFunc
-	// ended is closed when the drain ends: it finished, or it was cancelled.
+	// ended is closed when the drain ends: it finished, failed or was
+	// cancelled.
 	ended chan struct{}
+	// seal is the drain's hold on the pool seal (see drain.go).
+	seal *bool
+	// err is the drain's error when it failed (ErrDrainIncomplete), set
+	// under s.mu before ended is closed.
+	err error
 }
 
 // admits reports whether the gate, on a primary, admits a new request of kind.
@@ -282,12 +298,30 @@ func (s *QueryPoolerServer) setRoutingRoleLocked(role servingstate.RoutingRole) 
 	wasPrimary := s.routingRole == servingstate.RoutingRolePrimary
 	switch {
 	case role == servingstate.RoutingRolePrimary && !wasPrimary && s.fence.state != fenceGateOff:
+		s.releaseFailedSealLocked()
 		s.fence.reset()
 	case role != servingstate.RoutingRolePrimary && wasPrimary && s.fence.state == fenceGateDraining:
-		s.fence.endDrain()
+		s.endFenceDrainLocked()
 		s.fence.state = fenceGateClosed
 	}
 	s.routingRole = role
+}
+
+// endFenceDrainLocked cancels the running fence drain, which then releases
+// its own seal hold, and releases the hold a failed drain kept. Caller must
+// hold s.mu.
+func (s *QueryPoolerServer) endFenceDrainLocked() {
+	s.releaseFailedSealLocked()
+	s.fence.endDrain()
+}
+
+// releaseFailedSealLocked releases the seal hold a failed fence drain kept,
+// if any. Caller must hold s.mu (sealMu is taken under it).
+func (s *QueryPoolerServer) releaseFailedSealLocked() {
+	if h := s.fence.failedSeal; h != nil {
+		s.fence.failedSeal = nil
+		s.releaseSeal(h)
+	}
 }
 
 // FenceEpoch returns the gate's epoch. A fence read takes it before it reads
@@ -339,12 +373,15 @@ type FenceRead struct {
 // fence to an open one, changes nothing.
 //
 // Closing the gate of a primary runs the fence drain before returning, bounded
-// by drainTimeout (see the bounds above). The drain is not bound to ctx: a
-// caller that gives up must not leave reserved connections open on a pooler
-// that refuses new work. A read that finds the gate draining waits for that
-// drain to end, bounded by ctx. When the drain ApplyFence ran or waited for is
-// cancelled, ApplyFence fails with ABORTED. ApplyFence returns nil once the
-// gate is open, or closed and drained.
+// by drainTimeout (see the bounds above), the way every drain runs (drain.go).
+// The drain is not bound to ctx: a caller that gives up must not leave
+// reserved connections open on a pooler that refuses new work. A read that
+// finds a drain running waits for it to end, bounded by ctx. When the drain
+// ApplyFence ran or waited for is cancelled, ApplyFence fails with ABORTED;
+// when it failed, with its ErrDrainIncomplete (UNAVAILABLE), and the gate
+// stays draining: it refuses all new work, and the next read that finds the
+// fence drains again. ApplyFence returns nil once the gate is open, or closed
+// and drained.
 func (s *QueryPoolerServer) ApplyFence(ctx context.Context, read FenceRead, drainTimeout time.Duration) error {
 	s.mu.Lock()
 	g := &s.fence
@@ -366,7 +403,7 @@ func (s *QueryPoolerServer) ApplyFence(ctx context.Context, read FenceRead, drai
 	g.floor = read.Position
 	from := g.state
 	if !read.Fenced {
-		g.endDrain()
+		s.endFenceDrainLocked()
 		g.state = fenceGateOpen
 		s.mu.Unlock()
 		if from != fenceGateOpen {
@@ -379,9 +416,11 @@ func (s *QueryPoolerServer) ApplyFence(ctx context.Context, read FenceRead, drai
 		s.mu.Unlock()
 		return nil
 	case fenceGateDraining:
-		ended := g.drain.ended
-		s.mu.Unlock()
-		return s.awaitFenceDrain(ctx, read.Epoch, ended)
+		if d := g.drain; d != nil {
+			s.mu.Unlock()
+			return s.awaitFenceDrain(ctx, read.Epoch, d)
+		}
+		// The last drain failed: drain again.
 	}
 	g.notify()
 	role := s.routingRole
@@ -393,14 +432,29 @@ func (s *QueryPoolerServer) ApplyFence(ctx context.Context, read FenceRead, drai
 	}
 	drainCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancel()
-	d := &fenceDrain{cancel: cancel, ended: make(chan struct{})}
-	g.state = fenceGateDraining
+	d := &fenceDrain{cancel: cancel, ended: make(chan struct{}), seal: new(bool)}
 	g.drainPhase = drainReserved
+	if g.failedSeal != nil {
+		// The last drain failed and kept the pools sealed: this one takes
+		// over its hold, released once this drain ends the fence's work,
+		// and refuses everything from the start, as the failed one did.
+		d.seal = g.failedSeal
+		g.failedSeal = nil
+		g.drainPhase = drainRegular
+	}
+	g.state = fenceGateDraining
 	g.drain = d
 	s.mu.Unlock()
 	s.logger.InfoContext(ctx, "fence gate closing; draining", "from", from.String())
 
-	s.runFenceDrain(drainCtx, d, s.fenceDrainTimeout(drainTimeout), role)
+	drainErr := s.runDrain(drainCtx, drainSpec{
+		reason:  drainReasonFence,
+		role:    role,
+		timeout: s.fenceDrainTimeout(drainTimeout),
+		phase:   &g.drainPhase,
+		seal:    d.seal,
+		refusal: mterrors.MTF02.New(),
+	})
 
 	s.mu.Lock()
 	if g.drain != d {
@@ -408,6 +462,17 @@ func (s *QueryPoolerServer) ApplyFence(ctx context.Context, read FenceRead, drai
 		return errFenceDrainCancelled()
 	}
 	g.drain = nil
+	if drainErr != nil {
+		// The drain could not end the fence's work: stay draining, refusing
+		// all new work, with the pools sealed, until a later read drains
+		// again or the fence is lifted.
+		d.err = drainErr
+		g.failedSeal = d.seal
+		g.drainPhase = drainRegular
+		close(d.ended)
+		s.mu.Unlock()
+		return drainErr
+	}
 	g.drainPhase = drainNone
 	g.state = fenceGateClosed
 	close(d.ended)
@@ -422,12 +487,12 @@ func errFenceDrainCancelled() error {
 	return mterrors.New(mtrpcpb.Code_ABORTED, "the fence drain was cancelled: the pooler's role changed or its fence was lifted; read the fences again")
 }
 
-// awaitFenceDrain waits, bounded by ctx, for the running fence drain to end
-// (ended is closed), then reports whether the gate is closed in the same
-// epoch: nil if so, ABORTED if the drain was cancelled.
-func (s *QueryPoolerServer) awaitFenceDrain(ctx context.Context, epoch uint64, ended <-chan struct{}) error {
+// awaitFenceDrain waits, bounded by ctx, for the running fence drain d to
+// end, then reports how it ended: nil if the gate is closed in the same epoch,
+// d's error if it failed, ABORTED if it was cancelled.
+func (s *QueryPoolerServer) awaitFenceDrain(ctx context.Context, epoch uint64, d *fenceDrain) error {
 	select {
-	case <-ended:
+	case <-d.ended:
 	case <-ctx.Done():
 		code := mtrpcpb.Code_CANCELED
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -437,6 +502,9 @@ func (s *QueryPoolerServer) awaitFenceDrain(ctx context.Context, epoch uint64, e
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if d.err != nil {
+		return d.err
+	}
 	if s.fence.epoch == epoch && s.fence.state == fenceGateClosed {
 		return nil
 	}
@@ -454,58 +522,4 @@ func (s *QueryPoolerServer) fenceDrainTimeout(requested time.Duration) time.Dura
 	default:
 		return defaultFenceDrainTimeout
 	}
-}
-
-// runFenceDrain runs the two stages of drain d under timeout, then
-// force-closes the reserved connections left at the timeout. ctx is cancelled
-// when the drain is (see fenceGate.endDrain): the drain then stops at once and
-// force-closes nothing. A cancellation that comes once the force-close has
-// begun does not stop it. It records the drain as the not-serving drain does,
-// with reason fence.
-func (s *QueryPoolerServer) runFenceDrain(ctx context.Context, d *fenceDrain, timeout time.Duration, role servingstate.RoutingRole) {
-	if s.poolManager == nil {
-		return
-	}
-	start := time.Now()
-	drainCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	outcome := drainOutcomeGraceful
-	// Stage 1: wait for transactions to finish while single queries flow.
-	if err := s.poolManager.WaitForReservedDrain(drainCtx); err != nil {
-		outcome = drainOutcomeForceClose
-	} else if s.setFenceDrainPhase(d, drainRegular) {
-		// Stage 2: refuse single queries too, and wait out the in-flight ones.
-		if err := s.poolManager.WaitForDrain(drainCtx); err != nil {
-			outcome = drainOutcomeForceClose
-		}
-	}
-	// Neither the force-close nor the records stop for a cancellation.
-	cancelled := ctx.Err() != nil
-	ctx = context.WithoutCancel(ctx)
-	if cancelled {
-		s.logger.InfoContext(ctx, "fence drain cancelled")
-		s.drainStats.recordDrain(ctx, time.Since(start).Seconds(), drainOutcomeCancelled, drainReasonFence, role)
-		return
-	}
-	if outcome == drainOutcomeForceClose {
-		s.logger.WarnContext(ctx, "fence drain did not complete within its timeout, force-closing reserved connections", "timeout", timeout)
-		killed := s.poolManager.CloseReservedConnections(ctx)
-		s.drainStats.recordForceClosed(ctx, killed, drainReasonFence, role)
-		if killed > 0 {
-			s.logger.WarnContext(ctx, "force-closed reserved connections after fence drain timeout", "killed", killed)
-		}
-	}
-	s.drainStats.recordDrain(ctx, time.Since(start).Seconds(), outcome, drainReasonFence, role)
-}
-
-// setFenceDrainPhase moves drain d to phase, and reports whether d is still
-// the running drain (it was not cancelled).
-func (s *QueryPoolerServer) setFenceDrainPhase(d *fenceDrain, p drainPhase) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.fence.drain != d {
-		return false
-	}
-	s.fence.drainPhase = p
-	return true
 }

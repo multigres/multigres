@@ -268,24 +268,26 @@ func TestFenceGate_TwoStageDrain(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("the fence drain did not complete")
 	}
-	assert.Zero(t, mock.closeReservedCallCount(), "a drain that completes closes nothing")
+	assert.Zero(t, mock.killCallCount(), "a drain that completes closes nothing")
 	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)))
 	assert.True(t, s.IsServing())
 }
 
-// At the drain timeout the remaining reserved connections are force-closed
-// and the fence completes.
+// At the drain timeout the pools are sealed, the connections still lent are
+// killed, and once nothing is left the pools are unsealed and the fence
+// completes.
 func TestFenceGate_DrainTimeoutForceCloses(t *testing.T) {
 	mock := newDrainMockPoolManager()
+	mock.onKill = endLent
 	s := newFencedTestPooler(t, mock, servingstate.RoutingRolePrimary)
 	applyFence(t, s, false)
-	mock.reservedAdd(1) // a transaction that never ends
-	defer mock.reservedAdd(-1)
+	mock.reservedAdd(1) // a transaction that outlives the timeout
 
 	start := time.Now()
 	require.NoError(t, s.ApplyFence(t.Context(), FenceRead{Epoch: s.FenceEpoch(), Fenced: true}, 100*time.Millisecond))
 	assert.GreaterOrEqual(t, time.Since(start), 80*time.Millisecond)
-	assert.Equal(t, 1, mock.closeReservedCallCount())
+	assert.Equal(t, 1, mock.killCallCount())
+	assert.False(t, mock.isSealed(), "a drain that ended its work unseals the pools")
 	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)))
 }
 
@@ -293,17 +295,17 @@ func TestFenceGate_DrainTimeoutForceCloses(t *testing.T) {
 // timeout with a force-close, never leaving the gate half drained.
 func TestFenceGate_DrainOutlivesTheCaller(t *testing.T) {
 	mock := newDrainMockPoolManager()
+	mock.onKill = endLent
 	s := newFencedTestPooler(t, mock, servingstate.RoutingRolePrimary)
 	applyFence(t, s, false)
 	mock.reservedAdd(1)
-	defer mock.reservedAdd(-1)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	start := time.Now()
 	require.NoError(t, s.ApplyFence(ctx, FenceRead{Epoch: s.FenceEpoch(), Fenced: true}, 100*time.Millisecond))
 	assert.GreaterOrEqual(t, time.Since(start), 80*time.Millisecond, "the drain waited for its timeout")
-	assert.Equal(t, 1, mock.closeReservedCallCount())
+	assert.Equal(t, 1, mock.killCallCount())
 }
 
 // The fence drain and the not-serving drain keep their own phases: neither
@@ -351,7 +353,7 @@ func TestFenceGate_DrainsDoNotInterfere(t *testing.T) {
 	// Serving again, the pooler is still fenced.
 	require.NoError(t, s.OnStateChange(t.Context(), servingState(servingstate.RoutingRolePrimary)))
 	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)))
-	assert.Zero(t, mock.closeReservedCallCount())
+	assert.Zero(t, mock.killCallCount())
 }
 
 // A replica the read finds fenced records it without draining.
@@ -363,7 +365,7 @@ func TestFenceGate_ReplicaDoesNotDrain(t *testing.T) {
 	start := time.Now()
 	require.NoError(t, s.ApplyFence(t.Context(), FenceRead{Epoch: s.FenceEpoch(), Fenced: true}, 5*time.Second))
 	assert.Less(t, time.Since(start), time.Second, "no drain on a replica")
-	assert.Zero(t, mock.closeReservedCallCount())
+	assert.Zero(t, mock.killCallCount())
 }
 
 // A fence drain records the drain metrics with reason fence, so dashboards
@@ -374,9 +376,9 @@ func TestFenceGate_DrainMetricsReason(t *testing.T) {
 	s := newFencedTestPooler(t, mock, servingstate.RoutingRolePrimary)
 	applyFence(t, s, false)
 	mock.reservedAdd(1)
-	mock.closeReservedCount = 1
+	mock.killedCount = 1
+	mock.onKill = endLent
 	require.NoError(t, s.ApplyFence(t.Context(), FenceRead{Epoch: s.FenceEpoch(), Fenced: true}, 50*time.Millisecond))
-	mock.reservedAdd(-1)
 
 	fence := map[string]string{"reason": drainReasonFence, "routing_role": "primary"}
 	outcome := map[string]string{"reason": drainReasonFence, "routing_role": "primary", "outcome": drainOutcomeForceClose}
@@ -494,7 +496,7 @@ func TestFenceGate_JoinsTheRunningDrain(t *testing.T) {
 	s.mu.Lock()
 	assert.Equal(t, fenceGateClosed, s.fence.state)
 	s.mu.Unlock()
-	assert.Zero(t, mock.closeReservedCallCount(), "the joiner's shorter timeout does not apply")
+	assert.Zero(t, mock.killCallCount(), "the joiner's shorter timeout does not apply")
 }
 
 // An unfence while the gate drains opens it at once and cancels the drain,
@@ -510,7 +512,7 @@ func TestFenceGate_UnfenceCancelsTheDrain(t *testing.T) {
 	require.NoError(t, admit(s.StartRequest(nil, RequestNewReservation)), "the gate opened")
 	err := requireReturns(t, running, "the cancelled drain")
 	assert.Equal(t, mtrpcpb.Code_ABORTED, mterrors.Code(err), "%v", err)
-	assert.Zero(t, mock.closeReservedCallCount(), "a cancelled drain force-closes nothing")
+	assert.Zero(t, mock.killCallCount(), "a cancelled drain force-closes nothing")
 	outcome := map[string]string{"reason": drainReasonFence, "routing_role": "primary", "outcome": drainOutcomeCancelled}
 	assert.Equal(t, int64(1), readCounterByAttrs(t, reader, "mg.pooler.drain.outcome", outcome))
 }
@@ -535,7 +537,7 @@ func TestFenceGate_RoleChangeCancelsTheDrain(t *testing.T) {
 	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)), "unread")
 	applyFence(t, s, false)
 	require.NoError(t, admit(s.StartRequest(nil, RequestSingleQuery)))
-	assert.Zero(t, mock.closeReservedCallCount())
+	assert.Zero(t, mock.killCallCount())
 }
 
 // A fence drain always has a bound: the caller's timeout, else the grace

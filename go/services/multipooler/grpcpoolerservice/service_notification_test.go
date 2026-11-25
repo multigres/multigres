@@ -70,7 +70,7 @@ func (s *stopBeforeSubscribeStream) Recv() (*multipoolerpb.NotificationStreamReq
 // time of the stream, not the one (here: none) present at registration.
 func TestNotificationStream_UsesListenerSetAfterRegistration(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
-	p := poolerserver.NewQueryPoolerServer(logger, nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", nil, 0, false)
+	p := poolerserver.NewQueryPoolerServer(logger, nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", nil, 0, false, true)
 	srv := &poolerService{pooler: p}
 
 	l := pubsub.NewListener(nil, logger, nil)
@@ -87,7 +87,7 @@ func TestNotificationStream_UsesListenerSetAfterRegistration(t *testing.T) {
 // leader instead of holding a stream that acks subscribes it cannot serve.
 func TestNotificationStream_ListenerNotRunning(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
-	p := poolerserver.NewQueryPoolerServer(logger, nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", nil, 0, false)
+	p := poolerserver.NewQueryPoolerServer(logger, nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", nil, 0, false, true)
 	srv := &poolerService{pooler: p}
 	p.SetPubSubListener(pubsub.NewListener(nil, logger, nil))
 
@@ -102,7 +102,7 @@ func TestNotificationStream_ListenerNotRunning(t *testing.T) {
 // comes. Refusing the stream makes the gateway reconnect instead.
 func TestNotificationStream_ListenerStopsBeforeFirstSubscribe(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
-	p := poolerserver.NewQueryPoolerServer(logger, nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", nil, 0, false)
+	p := poolerserver.NewQueryPoolerServer(logger, nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", nil, 0, false, true)
 	srv := &poolerService{pooler: p}
 
 	l := pubsub.NewListener(nil, logger, nil)
@@ -119,7 +119,7 @@ func TestNotificationStream_ListenerStopsBeforeFirstSubscribe(t *testing.T) {
 // must fail rather than block forever with no listener to read from.
 func TestNotificationStream_NoPubSubListener(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
-	p := poolerserver.NewQueryPoolerServer(logger, nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", nil, 0, false)
+	p := poolerserver.NewQueryPoolerServer(logger, nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", nil, 0, false, true)
 	srv := &poolerService{pooler: p}
 
 	err := srv.NotificationStream(&eofNotificationStream{ctx: t.Context()})

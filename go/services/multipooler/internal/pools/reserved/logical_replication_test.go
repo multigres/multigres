@@ -379,9 +379,12 @@ func TestServingDrainPreservesLogicalReplicationTunnel(t *testing.T) {
 	assert.Equal(t, int64(1), reserveCalls.Load(),
 		"OnReserve must fire for the normal reserved conn but not the logical-replication tunnel")
 
-	// The serving-drain force-close kills the normal conn and preserves the tunnel.
-	killed := pool.KillAllForDrain(context.Background())
+	// The serving-drain force-close kills the normal conn and preserves the
+	// tunnel. With no admin pool here the kill cannot be confirmed, so it
+	// fails, but the connection is still taken from the pool and ended.
+	killed, err := pool.KillAllForDrain(context.Background(), time.Second)
 	assert.Equal(t, 1, killed, "only the normal reserved conn should be force-closed")
+	assert.ErrorContains(t, err, "admin pool not configured")
 
 	stats := pool.Stats()
 	assert.Equal(t, 1, stats.Active, "the logical-replication tunnel must survive the drain")

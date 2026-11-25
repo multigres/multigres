@@ -79,6 +79,21 @@ type QueryPoolerServer struct {
 	// Guarded by mu.
 	fence fenceGate
 
+	// sealMu guards sealHolds and each drain's seal-hold bool (see
+	// holdSeal in drain.go). Never held while taking mu.
+	sealMu sync.Mutex
+	// sealHolds is the number of seal holds taken; the pools are sealed while
+	// it is positive.
+	sealHolds int
+	// notServingSeal is the not-serving drain's hold on the pool seal. A
+	// not-serving drain that failed keeps it until the pooler serves again.
+	notServingSeal bool
+
+	// killOnDrainTimeout is whether a drain that runs out of time terminates
+	// the backends still lent. It is false for an unmanaged pooler, whose
+	// database Multigres does not own (see NewQueryPoolerServer).
+	killOnDrainTimeout bool
+
 	// gracePeriod is how long OnStateChange waits for in-flight connections to drain
 	// before force-closing reserved connections. Configured via --connpool-drain-grace-period.
 	gracePeriod time.Duration
@@ -139,7 +154,12 @@ const (
 // The health provider is used by StreamPoolerHealth to provide health updates to clients.
 // gracePeriod controls how long OnStateChange waits for in-flight connections to drain
 // during not-serving transitions before force-closing reserved connections.
-func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, tableGroup, shard string, healthProvider HealthProvider, gracePeriod time.Duration, backendVpidTrackingEnabled bool) *QueryPoolerServer {
+//
+// killOnDrainTimeout is whether a drain that runs out of time terminates the
+// backends still lent (see drain.go). It is false for an unmanaged pooler,
+// whose database Multigres does not own: its drains kill nothing, and fail
+// instead when work admitted before them is still running at their bound.
+func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolManager, poolerID *clustermetadatapb.ID, tableGroup, shard string, healthProvider HealthProvider, gracePeriod time.Duration, backendVpidTrackingEnabled, killOnDrainTimeout bool) *QueryPoolerServer {
 	var exec *executor.Executor
 	if poolManager != nil {
 		exec = executor.NewExecutor(logger, poolManager, poolerID, backendVpidTrackingEnabled)
@@ -164,7 +184,8 @@ func NewQueryPoolerServer(logger *slog.Logger, poolManager connpoolmanager.PoolM
 		drainStats:     newDrainStats(),
 		replMetrics:    replMetrics,
 
-		fence: fenceGate{changed: make(chan struct{}, 1)},
+		fence:              fenceGate{changed: make(chan struct{}, 1)},
+		killOnDrainTimeout: killOnDrainTimeout,
 	}
 }
 
@@ -190,11 +211,13 @@ func (s *QueryPoolerServer) ReplicationMetrics() *replication.Metrics {
 //     and the subsequent postgres demotion kills nothing.
 //  3. Set servingStatus to the not-serving target.
 //
-// If the shared deadline expires in either stage, all reserved connections are
-// force-closed (their transactions surface 40001) and the transition completes;
-// any still-running single queries are killed by the postgres demotion that
-// follows. On timeout, errors are acceptable — that is what the grace period
-// bounds.
+// The drain is the one every drain runs (see drain.go), bounded by the grace
+// period (none when it is zero). If it runs out of time, the pools are sealed
+// and the work left is ended. The transition completes whatever the drain's
+// outcome: a pooler that is not serving refuses new work anyway. A drain that
+// could not end the work left is logged and counted, not returned, and keeps
+// the pools sealed until the pooler serves again. A caller that needs the
+// pooler drained before it goes on (the IMPORT hold) asks EnsureDrained.
 func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstate.State) error {
 	routingRole := state.Routing.Role
 	servingStatus := state.ServingStatus
@@ -215,56 +238,32 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstat
 		s.drainPhase = drainNone
 		s.notifyStateChangedLocked()
 		s.mu.Unlock()
+		// A not-serving drain that failed kept the pools sealed until now.
+		if s.poolManager != nil {
+			s.releaseSeal(&s.notServingSeal)
+		}
 		return nil
 	}
 
-	// not-serving: begin stage 1 of the graceful drain.
+	// not-serving: begin stage 1 of the graceful drain, or stage 2 when the
+	// pooler is already not serving (a retried drain): it serves nothing new.
 	// The routing role is NOT updated yet — in-flight requests on reserved
 	// connections (e.g., COMMIT after a demotion) must still see the old role
 	// so that checkTargetLocked allows them to complete.
 	s.drainPhase = drainReserved
+	if s.servingStatus != clustermetadatapb.PoolerServingStatus_SERVING {
+		s.drainPhase = drainRegular
+	}
 	s.mu.Unlock()
 
-	// Both stages share one deadline bounded by gracePeriod. If gracePeriod == 0
-	// the wait is unbounded (each stage still terminates because it rejects the
-	// new work that would otherwise keep its pool non-empty).
-	if s.poolManager != nil {
-		drainStart := time.Now()
-		drainCtx := ctx
-		if s.gracePeriod > 0 {
-			var cancel context.CancelFunc
-			drainCtx, cancel = context.WithTimeout(ctx, s.gracePeriod)
-			defer cancel()
-		}
-
-		outcome := drainOutcomeGraceful
-		// Stage 1: wait for transactions to finish while single queries flow.
-		if err := s.poolManager.WaitForReservedDrain(drainCtx); err != nil {
-			outcome = drainOutcomeForceClose
-		} else {
-			// Stage 2: stop serving single queries, then wait for the in-flight
-			// ones to complete.
-			s.setDrainPhase(drainRegular)
-			if err := s.poolManager.WaitForDrain(drainCtx); err != nil {
-				outcome = drainOutcomeForceClose
-			}
-		}
-
-		if outcome == drainOutcomeForceClose {
-			s.logger.WarnContext(ctx, "graceful drain did not complete within grace period, force-closing reserved connections",
-				"grace_period", s.gracePeriod)
-			// Force-close all reserved connections so no transaction survives into
-			// a non-serving state. In-flight single queries (if any) are killed by
-			// the postgres demotion that follows the not-serving transition.
-			killed := s.poolManager.CloseReservedConnections(ctx)
-			s.drainStats.recordForceClosed(ctx, killed, drainReasonFailover, fromRole)
-			if killed > 0 {
-				s.logger.WarnContext(ctx, "force-closed reserved connections after drain timeout",
-					"killed", killed)
-			}
-		}
-		s.drainStats.recordDrain(ctx, time.Since(drainStart).Seconds(), outcome, drainReasonFailover, fromRole)
-	}
+	_ = s.runDrain(ctx, drainSpec{
+		reason:  drainReasonFailover,
+		role:    fromRole,
+		timeout: s.gracePeriod,
+		phase:   &s.drainPhase,
+		seal:    &s.notServingSeal,
+		refusal: mterrors.MTF01.New(),
+	})
 
 	// Complete the transition. The routing role is set here (after drain) so that
 	// in-flight requests saw the old role throughout the drain phase.
@@ -274,16 +273,48 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstat
 	s.drainPhase = drainNone
 	s.notifyStateChangedLocked()
 	s.mu.Unlock()
-
 	return nil
 }
 
-// setDrainPhase updates the drain phase under the mutex. Used to advance from
-// stage 1 (drainReserved) to stage 2 (drainRegular) mid-drain.
-func (s *QueryPoolerServer) setDrainPhase(p drainPhase) {
+// EnsureDrained returns nil once the pooler, not serving, is drained: nothing
+// admitted before its not-serving drain still runs or can start. If that drain
+// could not end the work left (it kept the pools sealed), EnsureDrained runs
+// it again, refusing everything from the start, and returns ErrDrainIncomplete
+// if it still cannot. A pooler that is serving, or whose drain succeeded,
+// returns nil at once. The IMPORT hold calls it after draining the pooler,
+// before it touches target tables. Serialized with OnStateChange by the
+// manager's action lock.
+func (s *QueryPoolerServer) EnsureDrained(ctx context.Context) error {
+	if s.poolManager == nil {
+		return nil
+	}
+	s.sealMu.Lock()
+	failed := s.notServingSeal
+	s.sealMu.Unlock()
+	if !failed {
+		return nil
+	}
 	s.mu.Lock()
-	s.drainPhase = p
+	if s.servingStatus == clustermetadatapb.PoolerServingStatus_SERVING {
+		s.mu.Unlock()
+		return nil
+	}
+	role := s.routingRole
+	s.drainPhase = drainRegular
 	s.mu.Unlock()
+
+	err := s.runDrain(ctx, drainSpec{
+		reason:  drainReasonFailover,
+		role:    role,
+		timeout: s.gracePeriod,
+		phase:   &s.drainPhase,
+		seal:    &s.notServingSeal,
+		refusal: mterrors.MTF01.New(),
+	})
+	s.mu.Lock()
+	s.drainPhase = drainNone
+	s.mu.Unlock()
+	return err
 }
 
 // StartRequest checks whether a request should be admitted, based on its

@@ -37,7 +37,7 @@ func TestNewQueryPoolerServer_NilPoolManager(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	// Creating with nil pool manager should work but executor will be nil
-	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false)
+	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false, true)
 
 	assert.NotNil(t, pooler)
 	assert.Equal(t, logger, pooler.logger)
@@ -50,7 +50,7 @@ func TestNewQueryPoolerServer_NilPoolManager(t *testing.T) {
 
 func TestQueryPoolerServer_ReplicationMetrics(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false)
+	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false, true)
 
 	// The shared replication instruments are built at construction and exposed
 	// for the StreamReplication handler to derive per-stream recorders.
@@ -59,7 +59,7 @@ func TestQueryPoolerServer_ReplicationMetrics(t *testing.T) {
 
 func TestIsHealthy_NotInitialized(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false)
+	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false, true)
 
 	// IsHealthy should fail since the pool manager is not initialized
 	err := pooler.IsHealthy()
@@ -76,7 +76,7 @@ func TestNewQueryPoolerServer_WithPoolManager(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	mockMgr := &mockPoolManager{}
-	pooler := NewQueryPoolerServer(logger, mockMgr, nil, "", "", nil, 0, false)
+	pooler := NewQueryPoolerServer(logger, mockMgr, nil, "", "", nil, 0, false, true)
 
 	require.NotNil(t, pooler)
 	assert.Equal(t, logger, pooler.logger)
@@ -95,6 +95,8 @@ func newStartRequestTestServer() *QueryPoolerServer {
 		gracePeriod:   3 * time.Second,
 		stateChanged:  make(chan struct{}),
 		drainStats:    newDrainStats(),
+
+		killOnDrainTimeout: true,
 	}
 }
 
@@ -283,8 +285,17 @@ type drainMockPoolManager struct {
 	zeroCh         chan struct{}
 	reservedZeroCh chan struct{}
 
-	closeReservedCount int
-	closeReservedCalls int
+	// killedCount is what KillLent reports as killed, killErr what it
+	// returns, and onKill, when set, what a kill does to the counts.
+	killedCount int
+	killErr     error
+	onKill      func(m *drainMockPoolManager)
+	killCalls   int
+
+	sealCalls   int
+	unsealCalls int
+	sealed      bool
+	sealErr     error // the error the pools were last sealed with
 }
 
 func newDrainMockPoolManager() *drainMockPoolManager {
@@ -354,17 +365,52 @@ func (m *drainMockPoolManager) WaitForReservedDrain(ctx context.Context) error {
 	}
 }
 
-func (m *drainMockPoolManager) CloseReservedConnections(ctx context.Context) int {
+func (m *drainMockPoolManager) KillLent(ctx context.Context, timeout time.Duration) (int, error) {
 	m.mu.Lock()
-	m.closeReservedCalls++
+	m.killCalls++
+	onKill := m.onKill
 	m.mu.Unlock()
-	return m.closeReservedCount
+	if onKill != nil {
+		onKill(m)
+	}
+	return m.killedCount, m.killErr
 }
 
-func (m *drainMockPoolManager) closeReservedCallCount() int {
+func (m *drainMockPoolManager) SealPools(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.closeReservedCalls
+	m.sealCalls++
+	m.sealed = true
+	m.sealErr = err
+}
+
+func (m *drainMockPoolManager) UnsealPools() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.unsealCalls++
+	m.sealed = false
+}
+
+func (m *drainMockPoolManager) killCallCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.killCalls
+}
+
+func (m *drainMockPoolManager) isSealed() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sealed
+}
+
+// endLent is an onKill that ends everything lent: the kill worked, and the
+// borrowers returned their connections.
+func endLent(m *drainMockPoolManager) {
+	m.mu.Lock()
+	reserved, regular := m.reservedCount, m.regularCount
+	m.mu.Unlock()
+	m.reservedAdd(-reserved)
+	m.regularAdd(-regular)
 }
 
 func newTestPoolerWithDrain(mock *drainMockPoolManager) *QueryPoolerServer {
@@ -376,6 +422,8 @@ func newTestPoolerWithDrain(mock *drainMockPoolManager) *QueryPoolerServer {
 		gracePeriod:   3 * time.Second,
 		stateChanged:  make(chan struct{}),
 		drainStats:    newDrainStats(),
+
+		killOnDrainTimeout: true,
 	}
 }
 
@@ -451,6 +499,7 @@ func TestOnStateChange_GracePeriodExpiresInStage1(t *testing.T) {
 
 	// A transaction that never commits — stage 1 (WaitForReservedDrain) blocks.
 	mock.reservedAdd(1)
+	mock.onKill = endLent
 
 	start := time.Now()
 	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED}))
@@ -458,10 +507,8 @@ func TestOnStateChange_GracePeriodExpiresInStage1(t *testing.T) {
 
 	assert.GreaterOrEqual(t, elapsed, 80*time.Millisecond, "should block ~grace period waiting on the held transaction")
 	assert.Less(t, elapsed, 2*time.Second, "should not block much past the grace period")
-	assert.Positive(t, mock.closeReservedCallCount(), "reserved connections should be force-closed on grace expiry")
+	assert.Positive(t, mock.killCallCount(), "the connections still lent are killed on grace expiry")
 	assert.False(t, pooler.IsServing(), "transition completes despite the held transaction")
-
-	mock.reservedAdd(-1) // clean up
 }
 
 // TestOnStateChange_WaitsForInflightRequests verifies that OnStateChange blocks
