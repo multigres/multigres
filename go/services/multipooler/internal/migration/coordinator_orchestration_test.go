@@ -1515,6 +1515,69 @@ func TestReseedReverseLink_AlreadyHealthyIsNoOp(t *testing.T) {
 	require.Empty(t, tc.store.migs[m.ID].ReverseLinkError, "a stale marker must still be cleared")
 }
 
+// TestReseedReverseLink_AlreadyHealthy_StatusCheckError covers the no-op
+// path's error return: a failure reading the source's copy status must
+// surface instead of being swallowed, same as every other source call in
+// this method.
+func TestReseedReverseLink_AlreadyHealthy_StatusCheckError(t *testing.T) {
+	tc := newTestCoord(t)
+	m := tc.seed(&Migration{Phase: PhaseExporting})
+	tc.src.subExists = true
+	tc.tgt.slotReady = true
+	tc.src.statusErr = errors.New("connection reset")
+
+	_, err := tc.c.ReseedReverseLink(context.Background(), Ref{ID: m.ID})
+	require.ErrorContains(t, err, "connection reset")
+}
+
+// TestReseedReverseLink_RepairSucceeds_StatusCheckErrorAfter covers the same
+// error return after a real repair: the reseed itself (drop, recreate slot,
+// resubscribe) must still have happened even though the final copy-status
+// check that follows it failed.
+func TestReseedReverseLink_RepairSucceeds_StatusCheckErrorAfter(t *testing.T) {
+	tc := newTestCoord(t)
+	m := tc.seed(&Migration{Phase: PhaseExporting})
+	tc.src.subExists = false
+	tc.tgt.slotReady = false
+	tc.src.statusErr = errors.New("connection reset")
+
+	_, err := tc.c.ReseedReverseLink(context.Background(), Ref{ID: m.ID})
+	require.ErrorContains(t, err, "connection reset")
+
+	require.Contains(t, tc.log, "target.CreateLogicalSlot", "the repair itself must still run")
+	require.Contains(t, tc.log, "source.CreateSubscription", "the repair itself must still run")
+}
+
+// TestEnsureReverseExportLink_CopyStatusError covers ensureReverseExportLink
+// propagating a source copy-status read failure once the subscription and
+// slot are both attached.
+func TestEnsureReverseExportLink_CopyStatusError(t *testing.T) {
+	tc := newTestCoord(t)
+	m := tc.seed(&Migration{Phase: PhaseExporting})
+	tc.src.subExists = true
+	tc.tgt.slotReady = true
+	tc.src.statusErr = errors.New("connection reset")
+
+	err := tc.c.ensureReverseExportLink(context.Background(), m)
+	require.ErrorContains(t, err, "connection reset")
+}
+
+// TestRefreshReverseLinkMarker_PersistError covers the marker-clear persist
+// failure: the source confirming the copy caught up is not enough if the
+// coordinator can't durably record it, so the error must surface rather than
+// the caller believing the marker was cleared.
+func TestRefreshReverseLinkMarker_PersistError(t *testing.T) {
+	tc := newTestCoord(t)
+	m := tc.seed(&Migration{Phase: PhaseExporting, ReverseLinkError: "stale"})
+	tc.src.subExists = true
+	tc.tgt.slotReady = true
+	tc.src.status = &SubscriptionStatus{TotalRelations: 1, ReadyRelations: 1}
+	tc.store.updateErr = errors.New("store unavailable")
+
+	err := tc.c.ensureReverseExportLink(context.Background(), m)
+	require.ErrorContains(t, err, "store unavailable")
+}
+
 // TestReseedReverseLink_RejectsNonExportingPhase covers the guard: this is a
 // narrow repair for the EXPORT reverse link specifically, not a general-purpose
 // action, so it must refuse to run against a migration in any other phase.
