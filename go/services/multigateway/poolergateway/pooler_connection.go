@@ -155,6 +155,13 @@ type poolerConnection struct {
 	// goroutine and the stream processing.
 	healthTimedOut atomic.Bool
 
+	// detectStaleness is whether a health stream that stays silent for the
+	// staleness timeout is treated as dead. It is false for a pooler in this
+	// process: the timeout looks for a network partition or a dead pooler
+	// process, neither of which an in-process subscription can have, so a
+	// timeout would only drop a healthy primary until the stream reopens.
+	detectStaleness bool
+
 	// onHealthUpdate is called when health state changes.
 	// Used by loadBalancer to update its routing decisions.
 	onHealthUpdate func(*poolerConnection)
@@ -212,13 +219,14 @@ func newPoolerConnection(
 	// Shard identity is available via poolerInfo; the gateway derives role from
 	// consensus observations, not the topology Type label.
 	pc := &poolerConnection{
-		conn:           conn,
-		pooler:         service,
-		logger:         logger,
-		ctx:            ctx,
-		cancel:         cancel,
-		checkConnDone:  make(chan struct{}),
-		onHealthUpdate: onHealthUpdate,
+		conn:            conn,
+		pooler:          service,
+		logger:          logger,
+		ctx:             ctx,
+		cancel:          cancel,
+		checkConnDone:   make(chan struct{}),
+		detectStaleness: local == nil,
+		onHealthUpdate:  onHealthUpdate,
 		health: &poolerHealth{
 			PoolerID:      pooler.Id,
 			ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED,
@@ -385,14 +393,18 @@ func (pc *poolerConnection) streamHealth(
 	pc.logger.DebugContext(streamCtx, "health stream opened", "pooler_id", poolerID)
 
 	// Set up staleness timer. If no message is received within the timeout,
-	// the timer cancels the stream context to unblock stream.Recv().
+	// the timer cancels the stream context to unblock stream.Recv(). There is
+	// none for a pooler in this process (see detectStaleness).
 	stalenessTimeout := constants.DefaultHealthCheckTimeout
-	stalenessTimer := time.AfterFunc(stalenessTimeout, func() {
-		pc.healthTimedOut.Store(true)
-		pc.logger.WarnContext(streamCtx, "health stream timed out", "pooler_id", poolerID)
-		streamCancel()
-	})
-	defer stalenessTimer.Stop()
+	var stalenessTimer *time.Timer
+	if pc.detectStaleness {
+		stalenessTimer = time.AfterFunc(stalenessTimeout, func() {
+			pc.healthTimedOut.Store(true)
+			pc.logger.WarnContext(streamCtx, "health stream timed out", "pooler_id", poolerID)
+			streamCancel()
+		})
+		defer stalenessTimer.Stop()
+	}
 
 	// Process responses from the stream.
 	for {
@@ -428,7 +440,9 @@ func (pc *poolerConnection) streamHealth(
 				stalenessTimeout = newTimeout
 			}
 		}
-		stalenessTimer.Reset(stalenessTimeout)
+		if stalenessTimer != nil {
+			stalenessTimer.Reset(stalenessTimeout)
+		}
 
 		// Process the health response.
 		pc.processHealthResponse(response)
