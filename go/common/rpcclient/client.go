@@ -239,6 +239,11 @@ type MultipoolerClient interface {
 	// on the catalog primary pooler.
 	UnfenceScopes(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.UnfenceScopesRequest) (*multipoolermanagerdatapb.UnfenceScopesResponse, error)
 
+	// RefreshFences makes a pooler read the admission fences from its
+	// database's catalog primary and apply the ones on its scope, draining it
+	// when it has just become fenced. Served by every pooler.
+	RefreshFences(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.RefreshFencesRequest) (*multipoolermanagerdatapb.RefreshFencesResponse, error)
+
 	//
 	// Manager Service Methods - Tablegroup operations (catalog primary only)
 	//

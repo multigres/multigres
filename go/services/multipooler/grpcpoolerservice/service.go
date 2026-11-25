@@ -344,10 +344,13 @@ func (s *poolerService) CopyBidiExecute(stream multipoolerpb.MultipoolerService_
 	//
 	// Admitted here, before CopyReady, rather than by the pooler's query
 	// service: a CopyReady error is answered with an ERROR phase carrying the
-	// reserved state, which an admission failure must not take.
-	if err := s.pooler.StartRequest(req.Target, poolerserver.AdmissionKind(req.Options.GetReservedConnectionId(), true)); err != nil {
+	// reserved state, which an admission failure must not take. The admission
+	// ends when the COPY does.
+	adm, err := s.pooler.StartRequest(req.Target, poolerserver.AdmissionKind(req.Options.GetReservedConnectionId(), true))
+	if err != nil {
 		return mterrors.ToGRPC(err)
 	}
+	defer adm.Done()
 
 	// Get the executor from the pooler
 	exec, err := s.pooler.Executor()

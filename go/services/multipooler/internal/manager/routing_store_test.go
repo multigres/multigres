@@ -109,9 +109,9 @@ func routingCatalogResults(rules ...[]any) map[string]*sqltypes.Result {
 		countDefaultTablesSQL: mock.MakeQueryResult([]string{"count"}, [][]any{{0}}),
 		selectOperationSQL:    mock.MakeQueryResult([]string{"kind", "state"}, [][]any{{importOperationKind, "preparing"}}),
 		selectFencesSQL: fenceResult(
-			[]any{100, importOp, 1, nil, fenceStateFenced, 5, "preparing"},
-			[]any{101, importOp, 2, nil, fenceStateFenced, 5, "preparing"},
-			[]any{102, importOp, 3, nil, fenceStateFenced, 5, "preparing"},
+			[]any{100, importOp, 1, nil, fenceStateFenced, 5},
+			[]any{101, importOp, 2, nil, fenceStateFenced, 5},
+			[]any{102, importOp, 3, nil, fenceStateFenced, 5},
 		),
 	}
 }
@@ -119,7 +119,7 @@ func routingCatalogResults(rules ...[]any) map[string]*sqltypes.Result {
 // fenceResult is selectFencesSQL's result with the given rows.
 func fenceResult(rows ...[]any) *sqltypes.Result {
 	return mock.MakeQueryResult([]string{
-		"fence_id", "operation_id", "tablegroup_id", "shard_id", "state", "version", "operation_state",
+		"fence_id", "operation_id", "tablegroup_id", "shard_id", "state", "version",
 	}, rows)
 }
 

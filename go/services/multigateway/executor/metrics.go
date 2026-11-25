@@ -56,7 +56,7 @@ func newExecutorMetrics() (*executorMetrics, error) {
 
 	fenceWait, err := meter.Float64Histogram(
 		"mg.executor.fence.wait.duration",
-		metric.WithDescription("Time a statement refused by a fenced pooler spent waiting for a newer routing snapshot and running again, by outcome"),
+		metric.WithDescription("Time a statement refused by a fenced pooler spent waiting for routing that lifts the fence and running again, by outcome"),
 		metric.WithUnit("s"),
 		metric.WithExplicitBucketBoundaries(0.001, 0.01, 0.05, 0.1, 0.5, 1, 2.5, 5, 10, 30),
 	)

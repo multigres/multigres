@@ -84,7 +84,7 @@ ScatterConn (scatter_conn.go)
   │
   ▼
 Multipooler Executor (executor.go)
-  │  - ReserveStreamExecute: creates reserved conn, optionally BEGIN
+  │  - StreamExecute + ReservationOptions: creates reserved conn, optionally BEGIN
   │  - ConcludeTransaction: COMMIT/ROLLBACK, manages reason bitmask
   │  - ReleaseReservedConnection: forceful cleanup on disconnect
   │
@@ -281,7 +281,8 @@ When `BEGIN` is received (explicit or synthetic), the
 TransactionPrimitive sets `conn.TxnStatus = TxnStatusInBlock` and
 returns a synthetic `BEGIN` result to the client without contacting
 any backend. The actual `BEGIN` is sent atomically with the first
-real query via `ReserveStreamExecute`.
+real query: the gateway calls `StreamExecute` with `ReservationOptions`
+carrying `ReasonTransaction` and the `begin_query` to replay.
 
 This means:
 
@@ -303,19 +304,23 @@ state.GetMatchingShardState(target) has ReservedConnectionId != 0
 → Execute on existing reserved connection via qs.StreamExecute()
 ```
 
-### Case 2: In Transaction but No Reserved Connection
+### Case 2: Needs a Reservation but No Reserved Connection
 
 ```text
 conn.IsInTransaction() == true
-→ Call gateway.ReserveStreamExecute() with transaction reason
-→ Multipooler creates reserved conn, executes BEGIN + query
-→ Store reserved connection info in state
+  (or the statement needs a pin of its own: temp table, session advisory
+   lock, WITH HOLD cursor, setseed, logical replication slot, or an unsafe
+   connection)
+→ Call gateway.StreamExecute() with ReservationOptions{reasons, begin_query}
+→ Multipooler creates reserved conn, executes BEGIN (if ReasonTransaction) + query
+→ Store the returned ReservedState in state
 ```
 
-### Case 3: Not in Transaction
+### Case 3: No Reservation Needed
 
 ```text
 → Use regular pooled connection via gateway.StreamExecute()
+  (nil ReservationOptions)
 ```
 
 ## Reserved Connection Management
@@ -335,6 +340,11 @@ Connections can be reserved for multiple concurrent reasons. The
 | `ReasonLogicalReplication`  | `32`  | Logical-replication session (owned slot or active stream)     |
 | `ReasonSessionAdvisoryLock` | `64`  | One or more session-level advisory locks held                 |
 | `ReasonSetSeed`             | `128` | `setseed()` called; backend's PRNG is seeded for this session |
+| `ReasonUnsafeConnection`    | `256` | Session opted into `multigres.unsafe_connection`              |
+
+`ReasonSetSeed` and `ReasonUnsafeConnection` are **sticky**
+(`protoutil.StickyReasons`): no PostgreSQL command undoes them, so they hold
+the backend until the session's real teardown.
 
 When a reason is removed (e.g., transaction committed), the
 connection is only released back to the pool if **all** reasons are
@@ -373,26 +383,35 @@ when the reserved connection is released.
 
 ## RPCs
 
-### ReserveStreamExecute
+### StreamExecute with ReservationOptions
 
-Creates a reserved connection on the multipooler, optionally
-executes `BEGIN`, and executes the query — all atomically.
+There is no separate reserve RPC. `StreamExecute` (and
+`PortalStreamExecute`, `CopyReady`, `CopyOutReady`) take an optional
+`query.ReservationOptions`. With non-zero `reasons` and no
+`options.reserved_connection_id`, the multipooler creates a reserved
+connection, optionally executes `BEGIN`, and executes the query — all
+atomically. With an existing reserved connection, the reasons are added to it.
 
 ```text
 Multigateway → Multipooler:
-  ReserveStreamExecuteRequest {
-    query, target, options, reservation_options { reasons }
+  StreamExecuteRequest {
+    query, target, options,
+    reservation_options { reasons, begin_query, pin_portal_names, ... }
   }
 
 Multipooler → Multigateway:
-  ReserveStreamExecuteResponse {
-    result, reserved_connection_id, pooler_id
+  StreamExecuteResponse {
+    result, reserved_state { reserved_connection_id, pooler_id, reservation_reasons }
   }
 ```
 
 If `reasons` includes `ReasonTransaction`, the multipooler executes
-`BEGIN` before the query. If the query fails after `BEGIN`, the
-multipooler automatically rolls back and releases the connection.
+`begin_query` before the query. If the query then fails with a PostgreSQL
+error, the transaction stays open in failed state and the reservation is
+**kept** (statement-local reasons such as temp table or portal pins are
+unwound), so the client's eventual `ROLLBACK` reaches the same backend. Only a
+dead connection is rolled back and released, and the response then carries no
+reserved state.
 
 ### ConcludeTransaction
 
@@ -403,28 +422,37 @@ connection may remain reserved if other reasons exist.
 Multigateway → Multipooler:
   ConcludeTransactionRequest {
     target, options { reserved_connection_id },
-    conclusion (COMMIT|ROLLBACK)
+    conclusion (COMMIT|ROLLBACK),
+    release_portal_names, release_all_portals,
+    chain,                      // COMMIT/ROLLBACK AND CHAIN
+    rollback_session_settings   // pre-BEGIN settings snapshot
   }
 
 Multipooler → Multigateway:
   ConcludeTransactionResponse {
-    result, remaining_reasons
+    result, reserved_state
   }
 ```
 
-`remaining_reasons = 0` means the connection was fully released.
-Non-zero means the connection is still reserved for other reasons
-(e.g., temp tables).
+`reserved_state.reserved_connection_id = 0` means the connection was fully
+released. Non-zero means the connection is still reserved for the reasons in
+`reserved_state.reservation_reasons` (e.g., temp tables).
 
 ### ReleaseReservedConnection
 
-Forceful cleanup used during client disconnect. Performs a 4-step
-cleanup:
+Forceful cleanup used during client disconnect (and by `DISCARD ALL`).
+Cleanup steps:
 
 1. If transaction active: `ROLLBACK`
 2. If COPY active: send `CopyFail` and read response
-3. Release all portals
-4. Release connection (back to pool if clean, close if errors)
+3. If temp tables exist: `DISCARD TEMP`
+4. If session advisory locks are held: `SELECT pg_advisory_unlock_all()`
+5. Release all portals
+6. Release connection (back to pool if clean, close if any step failed)
+
+With `keep_sticky_reservations` (passed only by `DISCARD ALL`), a connection
+that still holds a sticky reason after cleanup stays reserved and its state is
+returned; client-disconnect cleanup always releases fully.
 
 ## Aborted Transaction Handling
 
@@ -439,9 +467,11 @@ transitions to `TxnStatusFailed`. In this state:
   `ROLLBACK TO sp1; SELECT 1;`). A successful `ROLLBACK TO
 SAVEPOINT` transitions the connection back to `TxnStatusInBlock`
   so subsequent statements can execute normally.
-- **HandleExecute** (extended query protocol): Rejects all Execute
-  messages. In the extended protocol, `ROLLBACK` is typically sent
-  via simple query
+- **HandleExecute** (extended query protocol): Rejects Execute
+  unless the portal's statement is one of the same recovery
+  statements (`ast.IsAllowedInAbortedTransaction`). An empty-query
+  portal is answered with `EmptyQueryResponse` regardless of
+  transaction state, as in PostgreSQL
 
 The error returned carries SQLSTATE `25P02`
 (`in_failed_sql_transaction`), matching PostgreSQL behavior.
@@ -480,7 +510,8 @@ connection context is cancelled):
 
 1. If reserved connections exist, calls `executor.ReleaseAll()`
    which invokes `ReleaseReservedConnection` on each multipooler —
-   rolling back transactions, aborting COPYs, releasing portals
+   rolling back transactions, aborting COPYs, discarding temp tables,
+   releasing advisory locks and portals
 2. Cleans up prepared statement state via `psc.RemoveConnection()`
 
 ## Files
@@ -500,10 +531,10 @@ connection context is cancelled):
 
 ### Multipooler
 
-| File                           | Role                                                  |
-| ------------------------------ | ----------------------------------------------------- |
-| `executor/executor.go`         | Reserved-connection execution, transaction conclusion |
-| `grpcpoolerservice/service.go` | gRPC server handlers                                  |
+| File                            | Role                                                  |
+| ------------------------------- | ----------------------------------------------------- |
+| `internal/executor/executor.go` | Reserved-connection execution, transaction conclusion |
+| `grpcpoolerservice/service.go`  | gRPC server handlers                                  |
 
 ### Shared
 

@@ -270,6 +270,13 @@ type MultipoolerManager struct {
 	// the default primary serves. Nil outside tests.
 	connectionDir connectionDirectory
 
+	// fenceGateEnabled is set unless the pooler has nothing to fence (a
+	// static leader: Minigres). It arms the query server's fence gate and
+	// enables the fence reader (fence_refresh.go). Immutable.
+	fenceGateEnabled bool
+	// fenceReadsOnce starts the background fence reader once.
+	fenceReadsOnce sync.Once
+
 	// migrationImportHold is the migration serving gate, stored as a
 	// migrationHoldState: held when an active migration on this shard is in
 	// the IMPORT direction, so this pooler must not serve client queries
@@ -440,6 +447,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 		connPoolMgr:              connPoolMgr,
 		readyChan:                make(chan struct{}),
 		pgMonitor:                monitorRunner,
+		fenceGateEnabled:         !config.StaticLeader,
 		healthStreamer:           newHealthStreamer(logger, multipooler.Id, multipooler.GetShardRef().GetTableGroup(), multipooler.GetShardRef().GetShard()),
 		// We create a dummy context because some unit tests need them.
 		// These will be overwritten when Open gets called.
@@ -469,6 +477,11 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 		pm.qsc = ov.qsc
 	} else {
 		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multipooler.Id, multipooler.GetShardRef().GetTableGroup(), multipooler.GetShardRef().GetShard(), pm, drainGracePeriod, config.BackendVpidTrackingEnabled)
+	}
+	// Armed before anything is served, so a primary admits no application
+	// work until it has read its fences (see fence_refresh.go).
+	if pm.fenceGateEnabled {
+		pm.qsc.EnableFenceGate()
 	}
 
 	// ConsensusManager owns its own wiring (durable promise store + rule store +
@@ -653,10 +666,10 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 		// upgrades the sharding catalog to this binary's catalog format.
 		//
 		// The function createSidecarSchema only ever runs once, at genuine shard
-		// bootstrap, and promoteStandbyToPrimary's equivalent call only fires on an
-		// actual pg_promote() transition. Without this, a plain process restart of
-		// an already-primary pooler would never re-ensure them, even after
-		// upgrading to a pooler version that knows about them.
+		// bootstrap, and promoteStandbyToPrimary only re-ensures backend_vpid and
+		// the probe grant. Without this, a plain process restart of an
+		// already-primary pooler would never re-ensure them, even after upgrading
+		// to a pooler version that knows about them.
 		if mode, err := pm.postgresMode(ctx); err == nil && mode.OutOfRecovery() {
 			if err := pm.ensureSidecarSchemas(ctx); err != nil {
 				pm.logger.WarnContext(ctx, "failed to ensure sidecar schemas on open", "error", err)
@@ -1145,23 +1158,37 @@ func (pm *MultipoolerManager) checkReady() error {
 	}
 }
 
+// roleMismatchError identifies a valid role observation that does not permit
+// the requested operation. It is distinct from a failed role probe, even if
+// that failure happens to carry the same RPC code.
+type roleMismatchError struct {
+	message string
+}
+
+func (e *roleMismatchError) Error() string { return e.message }
+
+func (e *roleMismatchError) ErrorCode() mtrpcpb.Code { return mtrpcpb.Code_FAILED_PRECONDITION }
+
+func isRoleMismatch(err error) bool {
+	var mismatch *roleMismatchError
+	return errors.As(err, &mismatch)
+}
+
 // checkReplicaGuardrails verifies that PostgreSQL is in recovery mode (a standby),
 // the authoritative precondition for replication-related operations. The physical
 // recovery state — not the topology PoolerType label — is what governs whether a
 // standby replication op is valid, so a demoted-but-not-yet-relabeled pooler
 // (still labeled PRIMARY, already in recovery) is correctly treated as a standby.
+// It only validates; callers decide whether a rejection warrants a log.
 func (pm *MultipoolerManager) checkReplicaGuardrails(ctx context.Context) error {
 	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
 	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "failed to check if instance is in recovery", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
 	}
 
 	if pgMode.OutOfRecovery() {
-		pm.logger.ErrorContext(ctx, "replication operation called on non-standby instance", "service_id", pm.serviceID.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
+		return &roleMismatchError{message: fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String())}
 	}
 
 	return nil
@@ -1169,17 +1196,15 @@ func (pm *MultipoolerManager) checkReplicaGuardrails(ctx context.Context) error 
 
 // checkPrimaryGuardrails verifies that PostgreSQL is not in recovery mode.
 // This is the canonical guardrail for primary-only operations.
+// It only validates; callers decide whether a rejection warrants a log.
 func (pm *MultipoolerManager) checkPrimaryGuardrails(ctx context.Context) error {
 	pgMode, err := pm.postgresMode(ctx)
 	if err != nil {
-		pm.logger.ErrorContext(ctx, "failed to check if instance is in recovery", "error", err)
 		return mterrors.Wrap(err, "failed to check recovery status")
 	}
 
 	if !pgMode.OutOfRecovery() {
-		pm.logger.ErrorContext(ctx, "primary operation called on standby instance", "service_id", pm.serviceID.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("operation not allowed: the PostgreSQL instance is in standby mode (service_id: %s)", pm.serviceID.String()))
+		return &roleMismatchError{message: fmt.Sprintf("operation not allowed: the PostgreSQL instance is in standby mode (service_id: %s)", pm.serviceID.String())}
 	}
 
 	return nil
@@ -1648,6 +1673,10 @@ func (pm *MultipoolerManager) checkPromotionState(ctx context.Context) (*promoti
 // position, not just the term) so a later re-promotion can't inherit a stale
 // mark.
 func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state *promotionState, promotedPosition *clustermetadatapb.RulePosition) error {
+	// Ahead of the early return too: a retry after a promotion that failed past
+	// pg_promote must still start the new tenure with nothing remembered.
+	pm.forgetMigrationState()
+
 	// Return early if already promoted
 	if state.pgMode.OutOfRecovery() {
 		pm.logger.InfoContext(ctx, "Postgres already promoted, skipping") //nolint:sloglint // message intentionally starts with an operation name or proper noun
@@ -1766,6 +1795,12 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// and lock-wait probes require the relation to remain present.
 	if err := pm.createBackendVpidTable(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "failed to recreate backend_vpid table after promotion", "error", err)
+	}
+
+	// This node opened in recovery and skipped the grant, so a switchover
+	// would otherwise leave the probe locked out until the next open.
+	if err := pm.grantHeartbeatToProbe(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "failed to grant heartbeat read access to the probe role after promotion", "error", err)
 	}
 
 	return nil
@@ -2054,6 +2089,9 @@ func (pm *MultipoolerManager) startPostgresMonitorPollerLocked() {
 // surfaced to operators. Idempotent: only the first call takes effect.
 func (pm *MultipoolerManager) StartTopoRegistration(alarm func(string)) {
 	pm.record.Register(pm.shutdownCtx, alarm)
+	// The fence reader waits for the registration to land before it reads
+	// the catalog (see runFenceReads).
+	pm.startFenceReads()
 }
 
 // StopTopoRegistration transitions the pooler to its shutdown topology

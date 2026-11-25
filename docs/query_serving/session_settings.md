@@ -80,9 +80,13 @@ or holding a reserved connection (temp tables, cursors, advisory locks):
 - **Gateway-managed variables never reach a backend**, whatever the shape. A
   literal-named call is rewritten out of the routed query; the dynamic shape
   applies gateway-managed names with `is_local := true` so nothing persists
-  (`set_config` returns the value either way); and a parameter-bound name
-  resolving to a gateway-managed variable is rejected before the statement is
-  sent, because the planner's rewrite cannot see through a bind. A literal
+  (`set_config` returns the value either way). A parameter-bound name is
+  resolved at execute time, before the statement is sent, because the
+  planner's rewrite cannot see through a bind: if it resolves to a
+  gateway-managed variable with `is_local := false` the statement is rejected;
+  with a literal `is_local := true` the call runs transaction-locally (so it
+  reverts) and the value is also recorded as a gateway transaction-local
+  override. A literal
   gateway-managed `set_config` inside a SQL `PREPARE` body is rejected at
   PREPARE time — the body executes on the backend verbatim, so no rewrite can
   apply. A bound `is_local` on a non-gateway-managed call is likewise

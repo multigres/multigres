@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -226,10 +227,16 @@ func selectRow(id int64, name, createdAt string) *sqltypes.Row {
 		sqltypes.Value("true"),                    // copy_data
 		sqltypes.Value("false"),                   // skip_schema_copy
 		sqltypes.Value("IMPORT"),                  // direction
+		sqltypes.Value("[]"),                      // quiesce_roles
+		sqltypes.Value("true"),                    // public_had_connect
+		sqltypes.Value("false"),                   // quiesce_applied
+		sqltypes.Value("{}"),                      // quiesce_role_conn_limits
+		sqltypes.Value("{}"),                      // quiesce_roles_had_connect
 		sqltypes.Value(""),                        // last_error
 		sqltypes.Value(""),                        // reverse_link_error
 		sqltypes.Value(createdAt),                 // created_at
 		nil,                                       // streaming_since (NULL)
+		sqltypes.Value(""),                        // owner_role
 		sqltypes.Value(`["public.orders"]`),       // tables
 	}}
 }
@@ -270,6 +277,43 @@ func TestStoreGetByRefAndList(t *testing.T) {
 	require.Equal(t, int64(2), all[1].ID)
 }
 
+// TestStoreForgetReloadsOnNextRead covers a node whose cache was loaded in an
+// earlier role: after Forget, the next read must come from the database, and
+// Forget must return even while a load holds the store's lock.
+func TestStoreForgetReloadsOnNextRead(t *testing.T) {
+	qs := &fakeQS{selectResult: &sqltypes.Result{}}
+	s := NewStore(qs)
+	ctx := context.Background()
+
+	_, err := s.Get(ctx, 1)
+	require.ErrorIs(t, err, ErrNotFound)
+
+	// Another primary created the migration; the cache does not know.
+	qs.selectResult = &sqltypes.Result{Rows: []*sqltypes.Row{selectRow(1, "nightly", "2026-01-01T00:00:00Z")}}
+	_, err = s.Get(ctx, 1)
+	require.ErrorIs(t, err, ErrNotFound, "a warm cache answers without reading the table")
+
+	s.mu.Lock() // a load in flight
+	forgot := make(chan struct{})
+	go func() {
+		s.Forget()
+		close(forgot)
+	}()
+	select {
+	case <-forgot:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Forget blocked behind the store lock")
+	}
+	s.mu.Unlock()
+
+	m, err := s.Get(ctx, 1)
+	require.NoError(t, err)
+	require.Equal(t, "nightly", m.Name)
+	all, err := s.List(ctx)
+	require.NoError(t, err)
+	require.Len(t, all, 1)
+}
+
 func TestScanMigration(t *testing.T) {
 	m, err := scanMigration(selectRow(9, "daily", "2026-03-04T05:06:07Z"))
 	require.NoError(t, err)
@@ -283,6 +327,98 @@ func TestScanMigration(t *testing.T) {
 
 	_, err = scanMigration(&sqltypes.Row{Values: []sqltypes.Value{sqltypes.Value("only-one")}})
 	require.Error(t, err, "too few columns must error")
+}
+
+// TestScanMigration_QuiesceRoleConnLimits covers the round-trip this guards
+// against: a non-empty quiesce_role_conn_limits column (an operator-set custom
+// CONNECTION LIMIT recorded before the ACTIVATE cutover zeroed it) must survive
+// scanning, not just the degenerate "{}" case every other fixture row uses.
+func TestScanMigration_QuiesceRoleConnLimits(t *testing.T) {
+	row := selectRow(9, "daily", "2026-03-04T05:06:07Z")
+	row.Values[14] = sqltypes.Value(`{"app":5,"reporting":-1}`) // quiesce_role_conn_limits
+	m, err := scanMigration(row)
+	require.NoError(t, err)
+	require.Equal(t, map[string]int32{"app": 5, "reporting": -1}, m.QuiesceRoleConnLimits)
+}
+
+// TestScanMigration_QuiesceRolesHadConnect covers the round-trip this guards
+// against: a non-empty quiesce_roles_had_connect column (recording which
+// quiesce roles genuinely held a personal CONNECT grant before the ACTIVATE
+// cutover revoked it) must survive scanning, not just the degenerate "{}" case
+// every other fixture row uses.
+func TestScanMigration_QuiesceRolesHadConnect(t *testing.T) {
+	row := selectRow(9, "daily", "2026-03-04T05:06:07Z")
+	row.Values[15] = sqltypes.Value(`{"app":true,"reporting":false}`) // quiesce_roles_had_connect
+	m, err := scanMigration(row)
+	require.NoError(t, err)
+	require.Equal(t, map[string]bool{"app": true, "reporting": false}, m.QuiesceRolesHadConnect)
+}
+
+// TestScanMigration_RejectsMalformedQuiesceColumns covers the unmarshal error
+// path of each quiesce JSON column: a corrupt value must surface as an error
+// naming the column instead of silently dropping the restore state.
+func TestScanMigration_RejectsMalformedQuiesceColumns(t *testing.T) {
+	for _, tc := range []struct {
+		column string
+		idx    int
+	}{
+		{"quiesce_roles", 11},
+		{"quiesce_role_conn_limits", 14},
+		{"quiesce_roles_had_connect", 15},
+	} {
+		t.Run(tc.column, func(t *testing.T) {
+			row := selectRow(9, "daily", "2026-03-04T05:06:07Z")
+			row.Values[tc.idx] = sqltypes.Value(`not json`)
+			_, err := scanMigration(row)
+			require.ErrorContains(t, err, "unmarshal "+tc.column)
+		})
+	}
+}
+
+// TestCacheStore_NoopWhenCacheNotLoaded: write-through caching must not
+// populate a cache that was never loaded, or a later Get would see a partial one.
+func TestCacheStore_NoopWhenCacheNotLoaded(t *testing.T) {
+	s := NewStore(&fakeQS{})
+	s.cacheStore(&Migration{ID: 3})
+	require.Nil(t, s.cache)
+}
+
+// TestCacheStore_CopiesTheQuiesceState: the cache holds an independent copy, so
+// a caller that keeps changing its Migration, including the quiesce maps and
+// role list, cannot alter what a later Get returns.
+func TestCacheStore_CopiesTheQuiesceState(t *testing.T) {
+	s := NewStore(&fakeQS{})
+	s.cache = map[int64]*Migration{}
+	m := &Migration{
+		ID: 3, QuiesceRoles: []string{"app"},
+		QuiesceRoleConnLimits:  map[string]int32{"app": 5},
+		QuiesceRolesHadConnect: map[string]bool{"app": true},
+	}
+
+	s.cacheStore(m)
+	m.QuiesceRoles[0] = "other"
+	m.QuiesceRoleConnLimits["app"] = 0
+	m.QuiesceRolesHadConnect["app"] = false
+
+	got := s.cache[3]
+	require.Equal(t, []string{"app"}, got.QuiesceRoles)
+	require.Equal(t, map[string]int32{"app": 5}, got.QuiesceRoleConnLimits)
+	require.Equal(t, map[string]bool{"app": true}, got.QuiesceRolesHadConnect)
+}
+
+// TestMarshalQuiesceColumn covers both branches for each column type: the
+// empty-input case (the "[]"/"{}" column default) and the non-empty encoding,
+// which Insert/Update/scanMigration's round-trip tests otherwise exercise
+// through the empty case only.
+func TestMarshalQuiesceColumn(t *testing.T) {
+	require.Equal(t, "[]", marshalQuiesceColumn([]string(nil), "[]"))
+	require.JSONEq(t, `["app","reporting"]`, marshalQuiesceColumn([]string{"app", "reporting"}, "[]"))
+
+	require.Equal(t, "{}", marshalQuiesceColumn(map[string]int32(nil), "{}"))
+	require.JSONEq(t, `{"app":0,"reporting":-1}`, marshalQuiesceColumn(map[string]int32{"app": 0, "reporting": -1}, "{}"))
+
+	require.Equal(t, "{}", marshalQuiesceColumn(map[string]bool(nil), "{}"))
+	require.JSONEq(t, `{"app":true,"reporting":false}`, marshalQuiesceColumn(map[string]bool{"app": true, "reporting": false}, "{}"))
 }
 
 func TestStorePersistsDirection(t *testing.T) {

@@ -31,6 +31,7 @@ import (
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/keyrange"
 	"github.com/multigres/multigres/go/common/queryservice"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	"github.com/multigres/multigres/go/services/multipooler/grpcmanagerservice"
@@ -90,6 +91,10 @@ func validateUnrecoverableMinAttempts(n int) error {
 	}
 	return nil
 }
+
+// managerClientConnections bounds the cached connections of the manager-RPC
+// client: a pooler only ever calls its database's catalog primary.
+const managerClientConnections = 4
 
 // Multipooler represents the main multipooler instance with all configuration and state
 type Multipooler struct {
@@ -165,6 +170,11 @@ type Multipooler struct {
 	telemetry *telemetry.Telemetry
 	// connPoolConfig holds connection pool configuration (manager created inside MultipoolerManager)
 	connPoolConfig *connpoolmanager.Config
+	// managerClientConfig configures the client this pooler reads its
+	// admission fences from the catalog primary with (TLS, etc.). Nil for a
+	// static leader, which has nothing to fence: its settings are not even
+	// created, so they cannot clash with a gateway's in the same process.
+	managerClientConfig *rpcclient.ConnConfig
 	// connections is where an unmanaged pooler gets its backing connection from.
 	connections connectionSource
 
@@ -366,6 +376,9 @@ func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, res
 	mp.sequencedShutdown = resources.SequencedShutdown
 	mp.statusPath = statusPath
 	mp.staticLeader = staticLeader
+	if !staticLeader {
+		mp.managerClientConfig = rpcclient.NewConnConfig(reg)
+	}
 	mp.senv.InitServiceMap("grpc", "pooler")
 	mp.senv.InitServiceMap("grpc", "poolermanager")
 	mp.senv.InitServiceMap("grpc", "consensus")
@@ -442,6 +455,9 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	mp.flagSet = flags
 
 	mp.connPoolConfig.RegisterFlags(flags)
+	if mp.managerClientConfig != nil {
+		mp.managerClientConfig.RegisterFlags(flags)
+	}
 }
 
 // resolvePgBackRestCipherKeys loads the backup cipher key file if one is
@@ -658,6 +674,17 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 	// An unmanaged pooler never takes part in consensus.
 	consensusEnabled := mp.consensusEnabled() && !unmanaged
 
+	// The client the pooler reads its admission fences from the catalog
+	// primary with. A static leader has nothing to fence and gets none.
+	var managerClient rpcclient.MultipoolerClient
+	if mp.managerClientConfig != nil {
+		transportCreds, err := mp.managerClientConfig.TransportCredentials(logger)
+		if err != nil {
+			return fmt.Errorf("failed to configure multipooler TLS: %w", err)
+		}
+		managerClient = rpcclient.NewMultipoolerClient(managerClientConnections, transportCreds)
+	}
+
 	logger.InfoContext(startCtx, "initializing MultipoolerManager")
 	poolerManager, err := manager.NewMultipoolerManager(logger, multipooler, &manager.Config{
 		SocketFilePath:                 socketFilePath,
@@ -685,6 +712,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		StaticLeader: mp.staticLeader,
 
 		ExternalBackend: externalBackend,
+		ManagerClient:   managerClient,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create multipooler: %w", err)

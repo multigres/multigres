@@ -87,7 +87,7 @@ const transactionReadOnlyOptionName = "transaction_read_only"
 
 // classifyError determines whether an error is eligible for failover buffering.
 // MTF02 (a fenced target) never is: no new leader ends a fence, so the
-// scatterconn waits for newer routing and retries it instead, in every mode.
+// executor waits for routing that lifts it and retries instead, in every mode.
 // Only PRIMARY traffic is buffered, and only for:
 //   - no writable primary in the gateway's current routing view
 //   - MTF01: multipooler signals planned failover (SERVING_RDONLY)

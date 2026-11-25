@@ -114,8 +114,8 @@ func TestDeferredSETOnReservedConn(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 5*time.Minute)
-	directPgPort := setup.GetPrimary(t).Pgctld.PgPort
-	gatewayPgPort := setup.MultigatewayPgPort
+	directPgPort := setup.PostgresPort(t)
+	gatewayPgPort := setup.ClientPort()
 	createLeakNoticeFn(t, directPgPort)
 	m := pgx.QueryExecModeSimpleProtocol
 
@@ -152,8 +152,8 @@ func TestGUCDivergenceRepro(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 5*time.Minute)
-	directPgPort := setup.GetPrimary(t).Pgctld.PgPort
-	gatewayPgPort := setup.MultigatewayPgPort
+	directPgPort := setup.PostgresPort(t)
+	gatewayPgPort := setup.ClientPort()
 	createLeakNoticeFn(t, directPgPort)
 
 	poison := []string{
@@ -188,8 +188,8 @@ func TestGUCSavepointDivergenceRepro(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 5*time.Minute)
-	directPgPort := setup.GetPrimary(t).Pgctld.PgPort
-	gatewayPgPort := setup.MultigatewayPgPort
+	directPgPort := setup.PostgresPort(t)
+	gatewayPgPort := setup.ClientPort()
 	createLeakNoticeFn(t, directPgPort)
 
 	poison := []string{

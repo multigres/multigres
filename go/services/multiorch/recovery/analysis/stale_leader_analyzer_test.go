@@ -26,7 +26,6 @@ import (
 	multiorchdatapb "github.com/multigres/multigres/go/pb/multiorchdata"
 	"github.com/multigres/multigres/go/services/multiorch/internal/snapshot"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
-	"github.com/multigres/multigres/go/services/multiorch/store"
 )
 
 // selfLeaderRider builds a rider naming id as leader at the given coordinator
@@ -58,7 +57,7 @@ func primaryRuleStatus(id *clustermetadatapb.ID, term int64) *clustermetadatapb.
 }
 
 func TestStaleLeaderAnalyzer_Analyze(t *testing.T) {
-	factory := &RecoveryActionFactory{poolerStore: store.NewTestCache(t)}
+	factory := newTestActionFactory()
 	now := time.Now()
 	availabilityPolicy := DefaultAvailabilityPolicy()
 

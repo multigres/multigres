@@ -363,6 +363,19 @@ func (c *Client) UnfenceScopes(ctx context.Context, pooler *clustermetadatapb.Mu
 	return conn.managerClient.UnfenceScopes(ctx, request)
 }
 
+// RefreshFences makes a pooler read and apply the admission fences on its scope.
+func (c *Client) RefreshFences(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.RefreshFencesRequest) (*multipoolermanagerdatapb.RefreshFencesResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.RefreshFences(ctx, request)
+}
+
 //
 // Manager Service Methods - PostgreSQL Configuration Reload
 //

@@ -67,15 +67,27 @@ func (re *Engine) performRecoveryCycle(ctx context.Context) {
 		}
 	}
 
-	// Update detected problems metric
-	re.updateDetectedProblems(problems)
+	span.SetAttributes(attribute.Int("problems.count", len(problems)))
+
+	// Record what appeared and cleared this cycle. This must run once per cycle,
+	// after all analyzers, with the full detected set.
+	re.observeProblems(ctx, problems, time.Now())
+
+	// Refresh the retry-backoff tracker against everything detected this cycle
+	// and each shard's current rule: state for resolved problems, and for shards
+	// whose rule changed (a new leader), is dropped so the next attempt starts
+	// from the base delay. Must run once per cycle, after all analyzers.
+	epochs := make(map[string]string, len(snaps))
+	for _, snap := range snaps {
+		epochs[string(commontypes.FormatShardRef(snap.ShardRef))] = snap.HighestIntendedRule().String()
+	}
+	re.recoveryRetryBackoffTracker.Reconcile(problems, epochs)
 
 	if len(problems) == 0 {
 		return // no problems detected
 	}
 
-	span.SetAttributes(attribute.Int("problems.count", len(problems)))
-	re.logger.InfoContext(ctx, "problems detected", "count", len(problems))
+	re.logger.DebugContext(ctx, "problems detected", "count", len(problems))
 
 	// Group problems by shard
 	problemsByShard := re.groupProblemsByShard(problems)
@@ -132,6 +144,8 @@ func (re *Engine) processShardProblems(ctx context.Context, shardRef *clustermet
 	for _, problem := range filteredProblems {
 		// Skip follower recoveries if leader is unhealthy and action requires healthy leader
 		if problem.RecoveryAction.RequiresHealthyLeader() && hasLeaderProblem {
+			// TODO: once planning is separate from assessment, planning should report
+			// which actions are waiting and why, without logging every cycle.
 			re.logger.InfoContext(ctx, "skipping recovery - requires healthy leader but leader is unhealthy",
 				"problem_code", problem.Code,
 				"pooler_id", topoclient.ComponentIDString(problem.PoolerID),
@@ -407,8 +421,10 @@ func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 			"error", err,
 		)
 		re.metrics.recoveryActionDuration.Record(ctx, durationMs, actionName, string(problem.Code), RecoveryActionStatusFailure, problem.ShardRef.Database, problem.ShardRef.Shard)
+		re.recoveryRetryBackoffTracker.RecordFailure(ctx, problem)
 		return
 	}
+	re.recoveryRetryBackoffTracker.RecordSuccess(problem)
 
 	span.SetAttributes(attribute.String("result", "success"))
 	re.logger.InfoContext(ctx, "recovery action successful",
@@ -494,7 +510,7 @@ func (re *Engine) recheckProblem(ctx context.Context, problem types.Problem) (*t
 func (re *Engine) snapshotOptions(ctx context.Context) store.SnapshotOptions {
 	return store.SnapshotOptions{
 		Now:                       time.Now(),
-		AvailabilityPolicy:        analysis.DefaultAvailabilityPolicy(),
+		AvailabilityPolicy:        re.actionFactory.AvailabilityPolicy(),
 		BootstrapDurabilityPolicy: re.bootstrapPolicyLookup(ctx),
 	}
 }
@@ -526,7 +542,8 @@ func (re *Engine) bootstrapPolicyLookup(ctx context.Context) func(string) *clust
 // collective recruitment backoff (independent orchs defer to a deterministic
 // slot derived from the shard's observed TermRevocation, escalating while
 // recruits churn against the same baseline; no observed revocation means act
-// immediately). Every other action acts immediately.
+// immediately). Every other action acts immediately unless it opts in to the
+// per-problem failure backoff via RecoveryMetadata.RetryBackoff.
 //
 // TODO: this failover-vs-everything-else split is a stopgap; each recovery
 // action should own its "may I act now?" gate so this selection dissolves.
@@ -545,7 +562,7 @@ func (re *Engine) readyToExecute(problem types.Problem) (readyAt time.Time, read
 	if problem.Code.IsFailoverProblem() {
 		return re.nextFailoverAttempt(problem.ShardRef)
 	}
-	return time.Time{}, true
+	return re.recoveryRetryBackoffTracker.ShouldExecute(problem)
 }
 
 // nextFailoverAttempt returns this orchestrator's earliest permitted failover

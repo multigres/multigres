@@ -31,32 +31,40 @@ import (
 )
 
 // A pooler whose target an operation has fenced refuses new application work
-// with MTF02 before running any of it. The change that lifts a fence (a
-// routing switch, a revert, an unfence) always advances routing_version, and
-// the statement's plan, not only its targets, may be stale: table rules apply
-// when a statement is planned. So the executor does not wait for a new leader,
-// which a fenced shard never gets: it waits until the catalog snapshot is
-// newer than the one the refused attempt planned against and no longer fences
-// the target that refused it, plans the statement again, and runs it again.
-// As in Vitess, a statement in a transaction is not retried: the client gets
-// the MTF02, which tells it to retry.
+// with MTF02 before running any of it. The statement's plan, not only its
+// targets, may be stale when a fence lifts (a routing switch, a revert, an
+// unfence): table rules apply when a statement is planned. So the executor
+// does not wait for a new leader, which a fenced shard never gets: it waits
+// until the catalog snapshot no longer fences the target that refused it,
+// plans the statement again, and runs it again. A statement in a transaction
+// is retried only while nothing of the transaction has reached a pooler;
+// otherwise the client gets the MTF02, which tells it to retry.
 
 // RoutingSnapshots is the routing snapshots a fenced statement waits on: the
 // gateway's sharding catalog cache.
 type RoutingSnapshots interface {
-	// RoutingVersion returns the routing_version of the database's current
-	// snapshot, 0 when there is none.
-	RoutingVersion(database string) int64
-	// WaitForUnfenced returns once the database's snapshot has a
-	// routing_version greater than after and no admission fence on shard of
-	// tableGroup, or with ctx's error when ctx ends first.
-	WaitForUnfenced(ctx context.Context, database, tableGroup, shard string, after int64) error
+	// WaitForUnfenced fetches the database's snapshot and returns once the
+	// installed one has no admission fence on shard of tableGroup, or with
+	// ctx's error when ctx ends first.
+	WaitForUnfenced(ctx context.Context, database, tableGroup, shard string) error
 }
+
+// Backoff between the runs of a fenced statement. The first retry runs as
+// soon as the snapshot shows the fence lifted; a pooler refusing again has not
+// caught up with that snapshot (it has not read its fences since it started,
+// or has not been refreshed since the unfence), and each later retry waits
+// twice as long, up to the cap, so a pooler that is behind is not spun on. The
+// fence window bounds the total.
+var (
+	fenceRetryBaseDelay = 10 * time.Millisecond
+	fenceRetryMaxDelay  = 250 * time.Millisecond
+)
 
 // SetFenceRetry sets the routing snapshots a fenced statement waits on, and
 // window, which bounds the total wait of one statement. A window that is not
-// positive means a fenced statement is retried only when a snapshot that lifts
-// its fence is already installed. Must be called before connections are accepted. Without
+// positive means a fenced statement is retried once, and only when the
+// installed snapshot already shows its fence lifted. Must be called before
+// connections are accepted. Without
 // it statements run once: a gateway with a single pooler (minigres) has
 // nothing an operation could fence.
 func (e *Executor) SetFenceRetry(snapshots RoutingSnapshots, window time.Duration) {
@@ -69,30 +77,35 @@ const (
 	fenceOutcomeServed        = "served"         // a retry reached a pooler that took it
 	fenceOutcomeTimeout       = "timeout"        // the fence did not lift within the window
 	fenceOutcomeCanceled      = "canceled"       // the statement's context ended
-	fenceOutcomeInTransaction = "in_transaction" // not retried: the session is in a transaction
+	fenceOutcomeInTransaction = "in_transaction" // not retried: its transaction already reached a pooler, or it is pipelined
 	fenceOutcomeStreamed      = "streamed"       // not retried: output already reached the client
 	fenceOutcomeRan           = "ran"            // not retried: an earlier step already ran on a pooler
 )
 
 // runFenced runs attempt, which plans the statement and runs the plan on the
 // IExecute and with the callback it is given, and runs it again when a pooler
-// refused it as fenced and the statement can safely run again: the session is
-// not in a transaction, explicit or implicit (a multi-statement query, or an
-// extended-protocol pipeline before its Sync), no earlier step of the plan ran
-// on a pooler, and nothing has reached the client. The last two matter for a
+// refused it as fenced and the statement can safely run again: nothing of the
+// session's transaction, if it is in one (explicit, or the implicit one of a
+// multi-statement query), has reached a pooler, it is not in an
+// extended-protocol pipeline before its Sync, no earlier step of the plan ran
+// on a pooler, and nothing has reached the client. A transaction holds no
+// reserved connection until its first statement reaches a pooler (BEGIN is
+// deferred), so one refused as fenced before then is retried like a statement
+// outside a transaction: a new primary that has not read its fences yet does
+// not fail the transactions a failover's buffer releases to it. The last two matter for a
 // plan with several steps: an earlier step may have run the user's query
 // without forwarding its rows (resolve_set_config's resolve), or sent output
 // the gateway produced itself, before a later step was refused.
 //
-// Each retry waits for a snapshot newer than the one the refused attempt
-// planned against, read before it planned, in which the target that refused
-// it is no longer fenced. A cutover writes several routing versions (raise
-// the fence, change the rule, lift the fence), so waiting for any newer one
-// would spend retries on snapshots that still fence the target. The waits
-// share one fence window, which is the only bound; each retry needs a newer
-// snapshot, so the statement cannot spin. When the window runs out the last
-// MTF02 is returned, which tells the client to retry. Without routing
-// snapshots (see SetFenceRetry) the statement runs once.
+// Each retry waits until the snapshot no longer fences the target that
+// refused the last attempt, then runs, the first one at once and each later
+// one after a growing backoff (fenceRetryBaseDelay, doubling up to
+// fenceRetryMaxDelay). A snapshot that still fences the target is not worth a
+// retry; one that does not can still meet a pooler that has not caught up
+// with it, which the backoff waits out. The waits share one fence window,
+// which is the only bound. When the window runs out the last MTF02 is
+// returned, which tells the client to retry. Without routing snapshots (see
+// SetFenceRetry) the statement runs once.
 func (e *Executor) runFenced(
 	ctx context.Context,
 	conn *server.Conn,
@@ -105,7 +118,6 @@ func (e *Executor) runFenced(
 		return attempt(e.exec, callback)
 	}
 	database := conn.Database()
-	version := snapshots.RoutingVersion(database)
 	guard := &attemptGuard{IExecute: e.exec, callback: callback}
 	tracked := guard.forward
 	err := attempt(guard, tracked)
@@ -122,9 +134,20 @@ func (e *Executor) runFenced(
 	}()
 	waitCtx, cancel := context.WithTimeout(ctx, e.fenceWaitWindow)
 	defer cancel()
+	// waitEnded reports how a wait that ended early ends the statement.
+	waitEnded := func(werr error) error {
+		if ctx.Err() != nil {
+			outcome = fenceOutcomeCanceled
+			return mterrors.FromContext(ctx, werr)
+		}
+		outcome = fenceOutcomeTimeout
+		return err
+	}
+	var delay time.Duration
 	for {
 		switch {
-		case conn.IsInTransaction() || (state != nil && state.Pipelining()):
+		case (state != nil && state.Pipelining()) ||
+			(conn.IsInTransaction() && (state == nil || state.HasReservedConnection())):
 			outcome = fenceOutcomeInTransaction
 			return err
 		case guard.ran:
@@ -135,17 +158,20 @@ func (e *Executor) runFenced(
 			return err
 		}
 		e.logger.DebugContext(ctx, "statement was fenced; waiting for the fence to lift",
-			"database", database, "tablegroup", guard.fencedTableGroup, "shard", guard.fencedShard,
-			"planned_routing_version", version)
-		if werr := snapshots.WaitForUnfenced(waitCtx, database, guard.fencedTableGroup, guard.fencedShard, version); werr != nil {
-			if ctx.Err() != nil {
-				outcome = fenceOutcomeCanceled
-				return mterrors.FromContext(ctx, werr)
-			}
-			outcome = fenceOutcomeTimeout
-			return err
+			"database", database, "tablegroup", guard.fencedTableGroup, "shard", guard.fencedShard)
+		if werr := snapshots.WaitForUnfenced(waitCtx, database, guard.fencedTableGroup, guard.fencedShard); werr != nil {
+			return waitEnded(werr)
 		}
-		version = snapshots.RoutingVersion(database)
+		if delay > 0 {
+			t := time.NewTimer(delay)
+			select {
+			case <-t.C:
+			case <-waitCtx.Done():
+				t.Stop()
+				return waitEnded(waitCtx.Err())
+			}
+		}
+		delay = min(max(2*delay, fenceRetryBaseDelay), fenceRetryMaxDelay)
 		if err = attempt(guard, tracked); err == nil || !mterrors.IsErrorCode(err, mterrors.MTF02.ID) {
 			outcome = fenceOutcomeServed
 			return err

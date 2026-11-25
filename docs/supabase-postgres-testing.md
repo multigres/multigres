@@ -22,7 +22,7 @@ cd ~/repos/multigres/multigres
 # (look for tags matching 17.*-multigres)
 docker build \
   -f Dockerfile.integration-test \
-  --build-arg SUPABASE_IMAGE=supabase/postgres:17.6.1.130-multigres \
+  --build-arg SUPABASE_IMAGE=supabase/postgres:17.6.1.142-multigres \
   -t supabase-postgres-test:local \
   .
 
@@ -50,7 +50,7 @@ The image supports both `linux/amd64` and `linux/arm64`.
 ```bash
 docker build \
   -f Dockerfile.integration-test \
-  --build-arg SUPABASE_IMAGE=supabase/postgres:17.6.1.130-multigres \
+  --build-arg SUPABASE_IMAGE=supabase/postgres:17.6.1.142-multigres \
   -t supabase-postgres-test:local \
   .
 ```
@@ -128,8 +128,8 @@ This runs the following sequence:
    `nix-postgres-artifacts.s3.amazonaws.com`. Expect 10–20 minutes on a
    cold build; subsequent runs reuse Docker layer cache.
 2. `make docker-supabase-postgres-test` — extends the locally built base image
-   with Go 1.25.10, etcd, and the test entrypoint script. Takes ~3 minutes on
-   first run; cached thereafter.
+   with Go 1.25.10, etcd, pgbackrest, gotestsum, and the test entrypoint
+   script. Takes ~3 minutes on first run; cached thereafter.
 3. `docker run` — runs the full integration suite inside the container.
 
 ### Makefile targets reference
@@ -154,8 +154,8 @@ no command, this script is executed inside the container:
 
 1. `make build` — compiles multigres binaries from the volume-mounted source
 2. Starts `portpoolserver` on a Unix socket
-3. Runs `gotestsum` over `./go/test/endtoend/...`, skipping
-   `TestPostgreSQLRegression`
+3. Runs `gotestsum` over `./go/test/endtoend/...` with a 30-minute timeout,
+   skipping `TestPostgreSQLRegression`
 4. Writes result files to the working directory (`/multigres`, which is the
    volume mount)
 
@@ -177,6 +177,14 @@ The `pgctld` binary used by tests is the **multigres-compiled** one from
 `./bin/pgctld` (built via `make build`), not the one baked into the supabase
 image. This is intentional: we test multigres's pgctld against supabase
 Postgres, not supabase's own pgctld.
+
+## CI
+
+`.github/workflows/test-integration-supabase.yml` runs this suite nightly
+(02:00 UTC) and on manual dispatch. It checks out `supabase/postgres`, builds
+the base image from source with `build-supabase-postgres.sh`, builds the test
+runner image, and runs `run-integration-tests-supabase.sh` — the "from source"
+path above, not the published Docker Hub image.
 
 ## Running a subset of tests
 

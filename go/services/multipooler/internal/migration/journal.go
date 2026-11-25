@@ -60,6 +60,10 @@ const (
 	// the transition into degraded, not on every reconcile tick that re-detects
 	// it. Detail carries the reason.
 	JournalEventReverseLinkDegraded JournalEvent = "REVERSE_LINK_DEGRADED"
+	// JournalEventQuiesceRestoreFailed: restoring the CONNECT privileges the
+	// ACTIVATE hard quiesce revoked failed, so PUBLIC or a quiesce role may still
+	// be fenced and need a manual GRANT. Detail carries the error.
+	JournalEventQuiesceRestoreFailed JournalEvent = "QUIESCE_RESTORE_FAILED"
 )
 
 // JournalEntry is one append-only record in the migration journal. Seq and

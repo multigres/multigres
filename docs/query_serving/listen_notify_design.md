@@ -65,7 +65,7 @@ Multigateway Handler (handler.go)
                       │  - ROLLBACK: discards pending subscriptions
                       │
                       ▼
-                    SubscriptionSync → NotificationManager (GRPCNotificationManager)
+                    SubscriptionSync → NotificationManager (poolergateway.NotificationManager)
                       │  - One ordered gRPC stream per client session
                       │  - Dynamic subscribe/unsubscribe updates
                       │  - Automatic reconnect on stream failure
@@ -75,7 +75,7 @@ Multigateway Handler (handler.go)
                       │  - NotificationStream RPC
                       │
                       ▼
-                    PubSubListener (listener.go)
+                    PubSubListener (pubsub/listener.go)
                       │  - Single dedicated PG connection
                       │  - Channel refcounting
                       │  - Fan-out to all gRPC subscribers
@@ -99,8 +99,8 @@ PubSubListener (multipooler)
 gRPC NotificationStream (multipooler → gateway)
   │  streams PgNotification proto
   ▼
-GRPCNotificationManager (gateway)
-  │  fans out to local client NotifCh channels
+NotificationManager (gateway)
+  │  delivers to the client session's NotifCh
   ▼
 forwardNotifications goroutine
   │  reads NotifCh → writes to AsyncNotifCh
@@ -155,7 +155,8 @@ Per-connection state tracked in `MultigatewayConnectionState`:
 
 ## PubSubListener
 
-The `PubSubListener` in the multipooler manages a single dedicated
+The `PubSubListener` in the multipooler (`pubsub.Listener`,
+`go/services/multipooler/internal/pubsub/listener.go`) manages a single dedicated
 PostgreSQL connection for all `LISTEN`/`NOTIFY` operations. The
 connection is obtained from the pool manager as a reserved connection
 (with `ReasonListen`), so the pool accurately tracks all backend
@@ -163,7 +164,7 @@ connections.
 
 - **Pool-managed connection**: The listener acquires a reserved
   connection via `PoolManager.NewReservedConn()` (same pattern as
-  COPY). The connection is acquired lazily on first subscribe and
+  COPY), as the pooler's configured PostgreSQL admin user. The connection is acquired lazily on first subscribe and
   released when no channels remain subscribed.
 - **Serialized event loop**: All subscribe/unsubscribe requests are
   serialized through a buffered channel, avoiding the need for locks
@@ -187,8 +188,11 @@ connections.
 
 ## Gateway-Side Subscription Management
 
-`GRPCNotificationManager` manages one ordered gRPC stream per client
-session from the gateway to the multipooler:
+`poolergateway.NotificationManager` (`notification_adapter.go`, the
+implementation of `handler.NotificationManager`) manages one ordered
+notification stream per client session from the gateway to the leader
+multipooler — over gRPC, or by direct calls to an in-process pooler
+(minigres):
 
 - First LISTEN for a client session opens a `NotificationStream` to
   the multipooler.
@@ -203,7 +207,7 @@ session from the gateway to the multipooler:
 When a client disconnects:
 
 1. `handler.ConnectionClosed()` calls `notifMgr.UnsubscribeAll()`
-2. GRPCNotificationManager cancels the client's notification stream
+2. NotificationManager cancels the client's notification stream
 3. Multipooler-side gRPC handler unsubscribes from PubSubListener
 4. PubSubListener refcount drops; if zero, `UNLISTEN` sent to PG
 5. Async pusher goroutine stopped, channels cleared
@@ -268,7 +272,7 @@ When a client disconnects:
 ## Future Optimizations
 
 - **Single gRPC stream per gateway-pooler pair.**
-  `GRPCNotificationManager` currently opens one `NotificationStream`
+  `NotificationManager` currently opens one `NotificationStream`
   per listening client session. If many client sessions listen at once,
   this still creates many streams (each with its own goroutine). HTTP/2
   multiplexes them over one TCP connection, but a future gateway-pooler

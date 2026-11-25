@@ -22,6 +22,7 @@ import (
 	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/connpoolmanager"
@@ -107,6 +108,13 @@ type Config struct {
 	// --backing-connection, and the one place the endpoint of an unmanaged pooler is kept:
 	// what the pooler dials, probes and validates TLS against.
 	ExternalBackend *ExternalBackend
+
+	// ManagerClient calls other poolers' manager services: the catalog
+	// primary's GetRoutingSnapshot, from which a pooler reads its admission
+	// fences (see fence_refresh.go). Nil for a static leader (Minigres), which
+	// has nothing to fence; a pooler without one cannot read fences from
+	// another pooler and fails closed.
+	ManagerClient rpcclient.MultipoolerClient
 }
 
 // ExternalBackend is the endpoint of an externally owned PostgreSQL.
