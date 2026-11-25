@@ -241,9 +241,7 @@ func TestPrimaryPosition(t *testing.T) {
 			// Start and wait for ready
 			senv := servenv.NewServEnv(viperutil.NewRegistry())
 			go manager.Start(senv)
-			require.Eventually(t, func() bool {
-				return manager.GetState() == ManagerStateReady
-			}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+			requireManagerReady(t, manager)
 
 			// Call PrimaryPosition
 			_, err = manager.PrimaryPosition(ctx)
@@ -316,9 +314,7 @@ func TestActionLock_MutationMethodsTimeout(t *testing.T) {
 	// Start and wait for ready
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go manager.Start(senv)
-	require.Eventually(t, func() bool {
-		return manager.GetState() == ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+	requireManagerReady(t, manager)
 
 	// Helper function to hold the lock for a duration
 	holdLock := func(duration time.Duration) context.CancelFunc {
@@ -486,9 +482,7 @@ func TestReplicationStatus(t *testing.T) {
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
 
-		require.Eventually(t, func() bool {
-			return pm.GetState() == ManagerStateReady
-		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+		requireManagerReady(t, pm)
 
 		// PoolerType is now derived from the live routing role, which the postgres
 		// monitor converges once postgres is probed (running, out of recovery) and the
@@ -578,9 +572,7 @@ func TestReplicationStatus(t *testing.T) {
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
 
-		require.Eventually(t, func() bool {
-			return pm.GetState() == ManagerStateReady
-		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+		requireManagerReady(t, pm)
 
 		require.Eventually(t, func() bool {
 			_, _ = pm.monitorPostgresIteration(ctx)
@@ -669,9 +661,7 @@ func TestReplicationStatus(t *testing.T) {
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
 
-		require.Eventually(t, func() bool {
-			return pm.GetState() == ManagerStateReady
-		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+		requireManagerReady(t, pm)
 
 		// Call ReplicationStatus
 		status, err := pm.Status(ctx)
@@ -753,9 +743,7 @@ func TestReplicationStatus(t *testing.T) {
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
 
-		require.Eventually(t, func() bool {
-			return pm.GetState() == ManagerStateReady
-		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+		requireManagerReady(t, pm)
 
 		// Call Status - now returns status with mismatch observable
 		status, err := pm.Status(ctx)
@@ -910,9 +898,7 @@ func TestReplicationStatus(t *testing.T) {
 		senv := servenv.NewServEnv(viperutil.NewRegistry())
 		go pm.Start(senv)
 
-		require.Eventually(t, func() bool {
-			return pm.GetState() == ManagerStateReady
-		}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+		requireManagerReady(t, pm)
 
 		// Call Status - now returns status with mismatch observable
 		status, err := pm.Status(ctx)
@@ -1008,9 +994,7 @@ func TestUpdateConsensusRule_HistoryFailurePreventsGUCUpdate(t *testing.T) {
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go manager.Start(senv)
-	require.Eventually(t, func() bool {
-		return manager.GetState() == ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond)
+	requireManagerReady(t, manager)
 
 	// Mock the replication-GUC read (called to get current config)
 	// Returns current config with 2 standbys
@@ -1118,9 +1102,7 @@ func TestUpdateConsensusRule_RejectsWhenSelfRevoked(t *testing.T) {
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	go manager.Start(senv)
-	require.Eventually(t, func() bool {
-		return manager.GetState() == ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond)
+	requireManagerReady(t, manager)
 
 	newStandby := &clustermetadatapb.ID{Cell: "zone1", Name: "replica-2"}
 	_, err = manager.UpdateConsensusRule(

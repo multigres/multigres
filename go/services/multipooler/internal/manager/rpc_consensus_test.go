@@ -58,6 +58,16 @@ var recruitTS = timestamppb.New(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
 // path reads one field but stores the other, the assertion catches it.
 var ruleCreatedTS = timestamppb.New(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
 
+// Reaching Ready includes fsynced config writes, which can take seconds on a loaded CI runner.
+const managerReadyTimeout = 30 * time.Second
+
+func requireManagerReady(t *testing.T, pm *MultipoolerManager) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		return pm.GetState() == ManagerStateReady
+	}, managerReadyTimeout, 10*time.Millisecond, "manager should reach Ready state")
+}
+
 func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, rules consensus.RuleStorer) (*MultipoolerManager, string) {
 	ctx := t.Context()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -121,9 +131,7 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	pm.Start(senv)
 
-	require.Eventually(t, func() bool {
-		return pm.GetState() == ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+	requireManagerReady(t, pm)
 
 	// Create the pg_data directory to simulate initialized data directory
 	pgDataDir := tmpDir + "/pg_data"
