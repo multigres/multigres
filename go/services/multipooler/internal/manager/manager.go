@@ -46,6 +46,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 	"github.com/multigres/multigres/go/services/multipooler/internal/replicationstats"
+	"github.com/multigres/multigres/go/services/multipooler/internal/schematracker"
 	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -85,6 +86,7 @@ type MultipoolerManager struct {
 	replTracker     *heartbeat.ReplTracker
 	pubsubListener  *pubsub.Listener
 	replStats       *replicationstats.Tracker
+	schemaTracker   *schematracker.Tracker
 	pgctldClient    pgctldpb.PgCtldClient
 
 	// connPoolMgr manages all connection pools (admin, regular, reserved)
@@ -668,10 +670,10 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 		// upgrades the sharding catalog to this binary's catalog format.
 		//
 		// The function createSidecarSchema only ever runs once, at genuine shard
-		// bootstrap, and promoteStandbyToPrimary's equivalent call only fires on an
-		// actual pg_promote() transition. Without this, a plain process restart of
-		// an already-primary pooler would never re-ensure them, even after
-		// upgrading to a pooler version that knows about them.
+		// bootstrap, and promoteStandbyToPrimary only re-ensures backend_vpid and
+		// the probe grant. Without this, a plain process restart of an
+		// already-primary pooler would never re-ensure them, even after upgrading
+		// to a pooler version that knows about them.
 		if mode, err := pm.postgresMode(ctx); err == nil && mode.OutOfRecovery() {
 			if err := pm.ensureSidecarSchemas(ctx); err != nil {
 				pm.logger.WarnContext(ctx, "failed to ensure sidecar schemas on open", "error", err)
@@ -884,6 +886,19 @@ func (pm *MultipoolerManager) startReplicationStats(ctx context.Context) error {
 	return pm.stateManager.RegisterAndSync(ctx, pm.replStats)
 }
 
+// startSchemaTracker starts computing the schema token and syncs it to the
+// current serving state. The token is computed only while this pooler is the
+// writable leader, since only the primary accepts DDL, and is published on the
+// health stream so the gateway can tell when to reload its catalog cache.
+func (pm *MultipoolerManager) startSchemaTracker(ctx context.Context) error {
+	pm.schemaTracker = schematracker.NewTracker(pm.qsc.InternalQueryService(), pm.logger, pm.config.SchemaTokenInterval, func(token string) {
+		if pm.healthStreamer != nil {
+			pm.healthStreamer.SetSchemaToken(token)
+		}
+	})
+	return pm.stateManager.RegisterAndSync(ctx, pm.schemaTracker)
+}
+
 // startPubSubListener creates the shared LISTEN/NOTIFY listener and registers
 // it with the state manager. The listener runs only when PRIMARY+SERVING.
 func (pm *MultipoolerManager) startPubSubListener(ctx context.Context) error {
@@ -1014,6 +1029,12 @@ func (pm *MultipoolerManager) openConnectionsLocked() {
 			pm.logger.Error("failed to start replication stats poller", "error", err)
 		}
 	}
+
+	if pm.schemaTracker == nil {
+		if err := pm.startSchemaTracker(context.TODO()); err != nil {
+			pm.logger.Error("failed to start schema tracker", "error", err)
+		}
+	}
 }
 
 // closeConnectionsLocked closes the connection pool manager and query service controller
@@ -1047,6 +1068,12 @@ func (pm *MultipoolerManager) closeConnectionsLocked(forReopen bool) {
 		pm.stateManager.Unregister(pm.replStats)
 		pm.replStats.Close()
 		pm.replStats = nil
+	}
+
+	if pm.schemaTracker != nil {
+		pm.stateManager.Unregister(pm.schemaTracker)
+		pm.schemaTracker.Close()
+		pm.schemaTracker = nil
 	}
 
 	// Close connection pool manager
@@ -1772,6 +1799,12 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// and lock-wait probes require the relation to remain present.
 	if err := pm.createBackendVpidTable(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "failed to recreate backend_vpid table after promotion", "error", err)
+	}
+
+	// This node opened in recovery and skipped the grant, so a switchover
+	// would otherwise leave the probe locked out until the next open.
+	if err := pm.grantHeartbeatToProbe(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "failed to grant heartbeat read access to the probe role after promotion", "error", err)
 	}
 
 	return nil

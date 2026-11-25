@@ -70,8 +70,8 @@ func TestStatementTimeoutErrorParity(t *testing.T) {
 	setup := getSharedSetup(t)
 	setup.SetupTest(t)
 	ctx := utils.WithTimeout(t, 2*time.Minute)
-	directPgPort := setup.GetPrimary(t).Pgctld.PgPort
-	gatewayPgPort := setup.MultigatewayPgPort
+	directPgPort := setup.PostgresPort(t)
+	gatewayPgPort := setup.ClientPort()
 
 	// Values exercised on both engines. Mixes valid settings with out-of-range
 	// ones (plain ms and unit-suffixed). Avoids the exact half-millisecond

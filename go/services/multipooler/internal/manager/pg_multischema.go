@@ -113,8 +113,9 @@ func (pm *MultipoolerManager) isCatalogShard() bool {
 // unlike createSidecarSchema's other steps, this one is expected to run
 // repeatedly against an already-initialized schema.
 //
-// Currently this is the shared multigres.shard_ref type and backend_vpid on
-// every shard, plus, on the catalog shard, the versioned sharding catalog
+// Currently this is the shared multigres.shard_ref type, backend_vpid and the
+// probe role's read grant on the heartbeat table on every shard, plus, on the
+// catalog shard, the versioned sharding catalog
 // (ensureCatalogSchema, which is idempotent via its format version rather than
 // IF NOT EXISTS) and the migrator's schema that depends on it
 // (ensureCatalogMigrationSchema); add future late-added sidecar tables here as
@@ -130,6 +131,12 @@ func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context) error {
 	// backend_vpid maps live backend pids to gateway virtual pids.
 	if err := pm.createBackendVpidTable(ctx); err != nil {
 		return err
+	}
+
+	// The probe role can be created after bootstrap, so grant on every open.
+	// The probe is optional, so a failure must not stop the steps below.
+	if err := pm.grantHeartbeatToProbe(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "failed to grant heartbeat read access to the probe role", "error", err)
 	}
 
 	if pm.isCatalogShard() {
@@ -197,6 +204,17 @@ func (pm *MultipoolerManager) createHeartbeatTable(ctx context.Context) error {
 	defer cancel()
 	if err := pm.adminExec(execCtx, heartbeat.CreateTableSQL); err != nil {
 		return mterrors.Wrap(err, "failed to create heartbeat table")
+	}
+	return nil
+}
+
+// grantHeartbeatToProbe lets the probe role read the heartbeat table, if the
+// role exists. Idempotent.
+func (pm *MultipoolerManager) grantHeartbeatToProbe(ctx context.Context) error {
+	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	if err := pm.adminExec(execCtx, heartbeat.GrantProbeReadSQL); err != nil {
+		return mterrors.Wrap(err, "failed to grant heartbeat read access to the probe role")
 	}
 	return nil
 }
