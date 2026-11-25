@@ -1516,12 +1516,12 @@ func TestReseedReverseLink_AlreadyHealthyIsNoOp(t *testing.T) {
 }
 
 // TestReseedReverseLink_AlreadyHealthy_StatusCheckError covers the no-op
-// path's error return: a failure reading the source's copy status must
-// surface instead of being swallowed, same as every other source call in
-// this method.
+// path's error return: with a degraded marker actually set, a failure reading
+// the source's copy status must surface instead of being swallowed, same as
+// every other source call in this method.
 func TestReseedReverseLink_AlreadyHealthy_StatusCheckError(t *testing.T) {
 	tc := newTestCoord(t)
-	m := tc.seed(&Migration{Phase: PhaseExporting})
+	m := tc.seed(&Migration{Phase: PhaseExporting, ReverseLinkError: "stale"})
 	tc.src.subExists = true
 	tc.tgt.slotReady = true
 	tc.src.statusErr = errors.New("connection reset")
@@ -1530,19 +1530,20 @@ func TestReseedReverseLink_AlreadyHealthy_StatusCheckError(t *testing.T) {
 	require.ErrorContains(t, err, "connection reset")
 }
 
-// TestReseedReverseLink_RepairSucceeds_StatusCheckErrorAfter covers the same
-// error return after a real repair: the reseed itself (drop, recreate slot,
-// resubscribe) must still have happened even though the final copy-status
-// check that follows it failed.
+// TestReseedReverseLink_RepairSucceeds_StatusCheckErrorAfter covers the
+// trailing copy-status check after a real repair: because the destructive
+// repair (drop, recreate slot, resubscribe) has already committed and been
+// journaled, a failure in that trailing check must not be reported as the
+// RPC's failure — it is only logged, and a later reconcile tick re-checks it.
 func TestReseedReverseLink_RepairSucceeds_StatusCheckErrorAfter(t *testing.T) {
 	tc := newTestCoord(t)
-	m := tc.seed(&Migration{Phase: PhaseExporting})
+	m := tc.seed(&Migration{Phase: PhaseExporting, ReverseLinkError: "stale"})
 	tc.src.subExists = false
 	tc.tgt.slotReady = false
 	tc.src.statusErr = errors.New("connection reset")
 
 	_, err := tc.c.ReseedReverseLink(context.Background(), Ref{ID: m.ID})
-	require.ErrorContains(t, err, "connection reset")
+	require.NoError(t, err, "a trailing status-check failure must not mask the repair's success")
 
 	require.Contains(t, tc.log, "target.CreateLogicalSlot", "the repair itself must still run")
 	require.Contains(t, tc.log, "source.CreateSubscription", "the repair itself must still run")
@@ -1550,10 +1551,10 @@ func TestReseedReverseLink_RepairSucceeds_StatusCheckErrorAfter(t *testing.T) {
 
 // TestEnsureReverseExportLink_CopyStatusError covers ensureReverseExportLink
 // propagating a source copy-status read failure once the subscription and
-// slot are both attached.
+// slot are both attached and a degraded marker is actually set.
 func TestEnsureReverseExportLink_CopyStatusError(t *testing.T) {
 	tc := newTestCoord(t)
-	m := tc.seed(&Migration{Phase: PhaseExporting})
+	m := tc.seed(&Migration{Phase: PhaseExporting, ReverseLinkError: "stale"})
 	tc.src.subExists = true
 	tc.tgt.slotReady = true
 	tc.src.statusErr = errors.New("connection reset")

@@ -1076,7 +1076,7 @@ func (s *source) SubscriptionStatus(name string) (*SubscriptionStatus, error) {
 		&st.TotalRelations, &st.ReadyRelations, &st.ReceivedLSN, &st.LatestEndLSN); err != nil {
 		return nil, fmt.Errorf("read source subscription status: %w", err)
 	}
-	st.CaughtUp = st.TotalRelations > 0 && st.ReadyRelations == st.TotalRelations
+	st.CaughtUp = st.deriveCaughtUp()
 	return st, nil
 }
 

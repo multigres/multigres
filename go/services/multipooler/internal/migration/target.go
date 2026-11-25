@@ -562,6 +562,13 @@ type SubscriptionStatus struct {
 	LagSeconds float64
 }
 
+// deriveCaughtUp computes CaughtUp from TotalRelations/ReadyRelations, shared
+// by the source- and target-side SubscriptionStatus readers so the readiness
+// definition can't silently diverge between them.
+func (st *SubscriptionStatus) deriveCaughtUp() bool {
+	return st.TotalRelations > 0 && st.ReadyRelations == st.TotalRelations
+}
+
 const subscriptionStatusSQL = `SELECT count(r.*),
 		        count(r.*) FILTER (WHERE r.srsubstate = 'r'),
 		        coalesce(max(ss.received_lsn)::text, ''),
@@ -590,7 +597,7 @@ func (t *target) SubscriptionStatus(ctx context.Context, name string) (*Subscrip
 	if err := executor.ScanSingleRow(res, &st.TotalRelations, &st.ReadyRelations, &st.ReceivedLSN, &st.LatestEndLSN); err != nil {
 		return nil, fmt.Errorf("scan subscription status: %w", err)
 	}
-	st.CaughtUp = st.TotalRelations > 0 && st.ReadyRelations == st.TotalRelations
+	st.CaughtUp = st.deriveCaughtUp()
 	return st, nil
 }
 

@@ -1722,11 +1722,7 @@ func (c *Coordinator) ReseedReverseLink(ctx context.Context, ref Ref) (*Projecti
 	}
 
 	if subExists && slotReady {
-		if err := c.refreshReverseLinkMarker(ctx, src, m, sub); err != nil {
-			return nil, err
-		}
-		status, _ := c.liveStatus(ctx, m)
-		return c.project(ctx, m, status), nil
+		return c.finalizeReverseLinkStatus(ctx, src, m, sub, false)
 	}
 
 	if subExists {
@@ -1766,8 +1762,24 @@ func (c *Coordinator) ReseedReverseLink(ctx context.Context, ref Ref) (*Projecti
 	// The subscription object exists now, but its tablesync copy has only just
 	// started — refreshReverseLinkMarker will (correctly) leave the degraded
 	// marker in place until a later tick observes it caught up.
+	return c.finalizeReverseLinkStatus(ctx, src, m, sub, true)
+}
+
+// finalizeReverseLinkStatus re-checks source copy readiness via
+// refreshReverseLinkMarker and builds the resulting projection.
+// repairJustCompleted must be true when the destructive repair sequence
+// (drop/recreate slot/resubscribe) has already committed and been journaled
+// before this call: the repair's own success doesn't depend on this trailing
+// check, so a transient failure here is only logged rather than reported as
+// the RPC's failure — a later reconcile tick will re-check it. With
+// repairJustCompleted false (the already-healthy no-op path), nothing has
+// been committed yet, so the error is returned normally.
+func (c *Coordinator) finalizeReverseLinkStatus(ctx context.Context, src migrationSource, m *Migration, sub string, repairJustCompleted bool) (*Projection, error) {
 	if err := c.refreshReverseLinkMarker(ctx, src, m, sub); err != nil {
-		return nil, err
+		if !repairJustCompleted {
+			return nil, err
+		}
+		c.logger.WarnContext(ctx, "refresh reverse link marker after reseed", "migration", m.ID, "error", err)
 	}
 	status, _ := c.liveStatus(ctx, m)
 	return c.project(ctx, m, status), nil
@@ -1779,17 +1791,17 @@ func (c *Coordinator) ReseedReverseLink(ctx context.Context, ref Ref) (*Projecti
 // slotReady are both already confirmed true — the subscription attaching and
 // its slot being usable say nothing about whether the (possibly still
 // running) initial copy that follows CREATE SUBSCRIPTION has actually
-// finished. No-op (beyond the read) while the copy is still in progress: the
-// marker, if any, is left for a later call to re-check.
+// finished. No-op while the copy is still in progress: the marker, if any, is
+// left for a later call to re-check.
 func (c *Coordinator) refreshReverseLinkMarker(ctx context.Context, src migrationSource, m *Migration, sub string) error {
+	if m.ReverseLinkError == "" {
+		return nil
+	}
 	status, err := src.SubscriptionStatus(sub)
 	if err != nil {
 		return err
 	}
 	if !status.CaughtUp {
-		return nil
-	}
-	if m.ReverseLinkError == "" {
 		return nil
 	}
 	m.ReverseLinkError = ""
