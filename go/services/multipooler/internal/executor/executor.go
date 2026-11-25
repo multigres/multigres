@@ -1958,7 +1958,7 @@ func (e *Executor) CopyOutReady(
 		}
 		// When tracking is enabled, the vpid mapping row was written at reservation
 		// time; no re-tracking needed (and the conn may be mid-transaction).
-		format, columnFormats, notices, err = reservedConn.Conn().InitiateCopyToStdout(ctx, copyQuery)
+		format, columnFormats, notices, err = initiateCopyToStdout(ctx, reservedConn.Conn(), copyQuery)
 		if err != nil {
 			// Same dual failure handling as CopyReady (FROM STDIN): a PG
 			// ErrorResponse leaves the conn at RFQ and reusable if other
@@ -1988,7 +1988,7 @@ func (e *Executor) CopyOutReady(
 				}
 			}
 			var initErr error
-			format, columnFormats, notices, initErr = conn.InitiateCopyToStdout(ctx, copyQuery)
+			format, columnFormats, notices, initErr = initiateCopyToStdout(ctx, conn, copyQuery)
 			// Surface PG errors un-wrapped — see CopyOutReady comment above.
 			return initErr
 		}
@@ -2015,6 +2015,17 @@ func (e *Executor) CopyOutReady(
 		"num_columns", len(columnFormats))
 
 	return format, columnFormats, notices, e.buildReservedState(reservedConn), nil
+}
+
+// initiateCopyToStdout sends a COPY ... TO STDOUT and reads PostgreSQL's
+// CopyOutResponse, cancelling the statement if ctx is cancelled first.
+// PostgreSQL may hold the CopyOutResponse until the first 8 KB of data are
+// ready or the query has finished, so without the watcher a cancelled client
+// would wait for the whole query.
+func initiateCopyToStdout(ctx context.Context, conn *regular.Conn, copyQuery string) (int16, []int16, []*mterrors.PgDiagnostic, error) {
+	stop := conn.WatchContextCancel(ctx)
+	defer stop()
+	return conn.InitiateCopyToStdout(ctx, copyQuery)
 }
 
 // CopyOutStream pumps the COPY ... TO STDOUT response stream back to the
@@ -2069,40 +2080,21 @@ func (e *Executor) CopyOutStream(
 		reservedConn.Release(reserved.ReleaseError, nil)
 	}
 
-	// Pump CopyData / NoticeResponse to the gateway until CopyDone.
-	for {
-		if err := ctx.Err(); err != nil {
-			abortCopyOut("stream canceled: " + err.Error())
-			return nil, nil, err
-		}
+	// Cancel the statement if ctx is cancelled while a read is blocked: PG may
+	// go a long time between messages (a slow query behind the COPY), and the
+	// reads do not watch ctx themselves. Stopped before the conn is released,
+	// so a cancel cannot reach the conn's next statement.
+	stopWatch := conn.WatchContextCancel(ctx)
+	commandTag, rowsAffected, notices, abortReason, err := pumpCopyOut(ctx, conn, onMessage)
+	stopWatch()
 
-		msg, err := conn.ReadCopyOutMessage(ctx)
-		if err != nil {
-			// PG ErrorResponse path: the helper already drained RFQ.
-			// Mirror CopyFinalize's release semantics.
-			if !mterrors.IsConnectionDead(err) {
-				if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
-					reservedConn.Release(reserved.ReleasePortalComplete, e.sessionSettingsFromOptions(options))
-					return nil, nil, err
-				}
-				return nil, e.buildReservedState(reservedConn), err
-			}
-			reservedConn.Release(reserved.ReleaseError, nil)
-			return nil, nil, err
-		}
-
-		if msg.Done {
-			break
-		}
-
-		if cbErr := onMessage(msg); cbErr != nil {
-			abortCopyOut("callback failed: " + cbErr.Error())
-			return nil, nil, cbErr
-		}
+	if abortReason != "" {
+		abortCopyOut(abortReason)
+		return nil, nil, err
 	}
-
-	commandTag, rowsAffected, notices, err := conn.FinishCopyToStdout(ctx)
 	if err != nil {
+		// PG ErrorResponse path (including a cancelled statement): the helper
+		// already drained RFQ. Mirror CopyFinalize's release semantics.
 		if !mterrors.IsConnectionDead(err) {
 			if reservedConn.RemoveReservationReason(protoutil.ReasonCopy) {
 				reservedConn.Release(reserved.ReleasePortalComplete, e.sessionSettingsFromOptions(options))
@@ -2125,6 +2117,32 @@ func (e *Executor) CopyOutStream(
 		return result, nil, nil
 	}
 	return result, e.buildReservedState(reservedConn), nil
+}
+
+// pumpCopyOut reads a COPY ... TO STDOUT stream, passing each CopyData and
+// NoticeResponse to onMessage, until CopyDone, then reads the trailing
+// CommandComplete + ReadyForQuery. A non-empty abortReason means the stream
+// was abandoned mid-copy (ctx cancelled or onMessage failed) with PG still in
+// copy-out mode, so the conn must be destroyed; otherwise err, if set, came
+// from reading the backend.
+func pumpCopyOut(ctx context.Context, conn *regular.Conn, onMessage func(client.CopyOutMessage) error) (commandTag string, rowsAffected uint64, notices []*mterrors.PgDiagnostic, abortReason string, err error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return "", 0, nil, "stream canceled: " + err.Error(), err
+		}
+		msg, err := conn.ReadCopyOutMessage(ctx)
+		if err != nil {
+			return "", 0, nil, "", err
+		}
+		if msg.Done {
+			break
+		}
+		if cbErr := onMessage(msg); cbErr != nil {
+			return "", 0, nil, "callback failed: " + cbErr.Error(), cbErr
+		}
+	}
+	commandTag, rowsAffected, notices, err = conn.FinishCopyToStdout(ctx)
+	return commandTag, rowsAffected, notices, "", err
 }
 
 // getUserFromOptions extracts the user from ExecuteOptions.
