@@ -472,6 +472,13 @@ type fakeSource struct {
 	// unlocked (e.g. simulating the connection's ownership changing mid-wait).
 	onReplicationLag func()
 
+	// status, when nil, defaults to caught up: most tests exercising the EXPORT
+	// reverse link care only about subscription/slot existence, not the
+	// source-side copy-readiness gate (see TestReseedReverseLink_* and
+	// TestEnsureReverseExportLink_* for the tests that set this explicitly).
+	status    *SubscriptionStatus
+	statusErr error
+
 	subExists    bool
 	subExistsErr error
 	pubExists    bool
@@ -629,6 +636,18 @@ func (s *fakeSource) ReplicationLag(string) (uint64, float64, bool, error) {
 		s.onReplicationLag()
 	}
 	return s.lag, s.lagSeconds, s.lagPresent, s.lagErr
+}
+
+func (s *fakeSource) SubscriptionStatus(string) (*SubscriptionStatus, error) {
+	if s.statusErr != nil {
+		return nil, s.statusErr
+	}
+	if s.status == nil {
+		return &SubscriptionStatus{TotalRelations: 1, ReadyRelations: 1, CaughtUp: true}, nil
+	}
+	st := s.status
+	st.CaughtUp = st.TotalRelations > 0 && st.ReadyRelations == st.TotalRelations
+	return st, nil
 }
 
 func (s *fakeSource) SubscriptionExists(string) (bool, error) {

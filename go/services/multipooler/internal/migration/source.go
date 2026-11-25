@@ -1065,6 +1065,21 @@ func (s *source) ReplicationLag(slot string) (lagBytes uint64, lagSeconds float6
 	return uint64(b), secs, true, nil
 }
 
+// SubscriptionStatus reads a subscription's copy/stream progress on the
+// source, mirroring target.SubscriptionStatus — the EXPORT reverse link has no
+// separate phase of its own to drive off CaughtUp, but ensureReverseExportLink
+// and ReseedReverseLink both need it to tell "subscription attached" apart from
+// "subscription attached AND its initial tablesync copy has actually finished".
+func (s *source) SubscriptionStatus(name string) (*SubscriptionStatus, error) {
+	st := &SubscriptionStatus{}
+	if err := s.conn.QueryRow(s.ctx, subscriptionStatusSQL, name).Scan(
+		&st.TotalRelations, &st.ReadyRelations, &st.ReceivedLSN, &st.LatestEndLSN); err != nil {
+		return nil, fmt.Errorf("read source subscription status: %w", err)
+	}
+	st.CaughtUp = st.TotalRelations > 0 && st.ReadyRelations == st.TotalRelations
+	return st, nil
+}
+
 // SubscriptionExists reports whether a subscription with the given name exists on
 // the source. Used to make the direction switch idempotent on resume.
 func (s *source) SubscriptionExists(name string) (bool, error) {

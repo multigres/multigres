@@ -1443,11 +1443,18 @@ func TestEnsureReverseExportLink_UnquiescesBeforeAttaching(t *testing.T) {
 // stale subscription must be dropped, the slot recreated fresh, and the
 // subscription resubscribed with a full copy (copy_data=true), since there is
 // no safe way to resume into a slot that lost its position in the failover.
+//
+// It also covers the fix for the premature-clear bug: CREATE SUBSCRIPTION
+// succeeding says nothing about whether the asynchronous tablesync copy that
+// follows it has actually finished, so the degraded marker must stay set
+// until a later reconcile tick (ensureReverseExportLink) observes the source
+// report every relation ready.
 func TestReseedReverseLink_RepairsDegradedLink(t *testing.T) {
 	tc := newTestCoord(t)
 	m := tc.seed(&Migration{Phase: PhaseExporting, ReverseLinkError: "reverse export subscription exists but its slot is missing or unusable"})
 	tc.src.subExists = true
 	tc.tgt.slotReady = false
+	tc.src.status = &SubscriptionStatus{TotalRelations: 1, ReadyRelations: 0} // copy still running
 
 	_, err := tc.c.ReseedReverseLink(context.Background(), Ref{ID: m.ID})
 	require.NoError(t, err)
@@ -1457,9 +1464,17 @@ func TestReseedReverseLink_RepairsDegradedLink(t *testing.T) {
 	require.Contains(t, tc.log, "target.CreateLogicalSlot", "the slot must be recreated fresh")
 	require.Contains(t, tc.log, "source.CreateSubscription", "the subscription must be recreated")
 
-	require.Empty(t, tc.store.migs[m.ID].ReverseLinkError, "a successful reseed must clear the degraded marker")
+	require.NotEmpty(t, tc.store.migs[m.ID].ReverseLinkError,
+		"the marker must stay set until a tick confirms the copy actually finished")
 	events := tc.store.journalEvents(m.ID)
 	require.Contains(t, events, JournalEventReseed, "the repair must be recorded for audit visibility")
+
+	// A later reconcile tick finds the slot now ready (the reseed just
+	// recreated it) and the source reporting the copy caught up.
+	tc.tgt.slotReady = true
+	tc.src.status = &SubscriptionStatus{TotalRelations: 1, ReadyRelations: 1}
+	require.NoError(t, tc.c.ensureReverseExportLink(context.Background(), m))
+	require.Empty(t, tc.store.migs[m.ID].ReverseLinkError, "the tick must clear the marker once the copy is confirmed caught up")
 }
 
 // TestReseedReverseLink_RecreatesWhenNothingExists covers the case where no

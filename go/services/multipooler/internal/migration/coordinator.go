@@ -1581,7 +1581,11 @@ func (c *Coordinator) retryReverseExportLink(ctx context.Context, m *Migration) 
 // present, and detects (but does not repair) a degraded link if the slot it
 // depends on has become unusable. Idempotent, so both applySwitch and
 // reconcileLocked (crash recovery, when a migration is found already EXPORTING
-// but the link is missing or degraded) call it.
+// but the link is missing or degraded) call it. When the subscription and slot
+// are both attached, it also re-checks the source-side tablesync copy via
+// refreshReverseLinkMarker before considering the link caught up — the
+// subscription attaching says nothing about whether its (possibly still
+// running, e.g. after a ReseedReverseLink repair) initial copy has finished.
 //
 // The target-side slot is not catalog/WAL state like pg_subscription — a
 // freshly-created failover slot is PostgreSQL-internally RS_TEMPORARY until it
@@ -1623,7 +1627,7 @@ func (c *Coordinator) ensureReverseExportLink(ctx context.Context, m *Migration)
 	}
 
 	if subExists && slotReady {
-		return nil // healthy
+		return c.refreshReverseLinkMarker(ctx, src, m, sub)
 	}
 
 	if !slotReady {
@@ -1669,9 +1673,18 @@ func (c *Coordinator) markReverseLinkDegraded(ctx context.Context, m *Migration,
 // — there is no safe way to resume from a dropped slot, so a fresh full copy
 // is the only correctness-preserving recovery.
 //
+// A successful CREATE SUBSCRIPTION call here says nothing about the full copy
+// that follows it — that copy runs asynchronously, and can still fail (e.g. a
+// unique-constraint violation against leftover source data) well after this
+// method returns. So it does not clear the degraded marker itself; it leaves
+// that to refreshReverseLinkMarker, the same tick-driven check
+// ensureReverseExportLink runs on every reconcile tick, which clears the
+// marker only once the source confirms every relation has finished its
+// initial copy.
+//
 // Idempotent: if the link is already healthy by the time this runs (someone
 // else already fixed it, or the detection was transient), it is a no-op
-// beyond clearing a stale degraded marker.
+// beyond re-checking (and possibly clearing) the degraded marker.
 //
 // Currently has no caller: the gRPC/CLI/multiadmin exposure of this RPC has
 // been pulled out of the migrator stack pending a design decision (see PR
@@ -1709,7 +1722,11 @@ func (c *Coordinator) ReseedReverseLink(ctx context.Context, ref Ref) (*Projecti
 	}
 
 	if subExists && slotReady {
-		return c.clearReverseLinkDegraded(ctx, m)
+		if err := c.refreshReverseLinkMarker(ctx, src, m, sub); err != nil {
+			return nil, err
+		}
+		status, _ := c.liveStatus(ctx, m)
+		return c.project(ctx, m, status), nil
 	}
 
 	if subExists {
@@ -1746,21 +1763,40 @@ func (c *Coordinator) ReseedReverseLink(ctx context.Context, ref Ref) (*Projecti
 		return nil, err
 	}
 	c.journal(ctx, m, JournalEventReseed, "operator-triggered reseed of the reverse export link")
-	return c.clearReverseLinkDegraded(ctx, m)
-}
-
-// clearReverseLinkDegraded resets the persisted degraded marker once the
-// reverse link is confirmed healthy, and returns a fresh projection. No-op
-// (beyond the projection) if the marker was already clear.
-func (c *Coordinator) clearReverseLinkDegraded(ctx context.Context, m *Migration) (*Projection, error) {
-	if m.ReverseLinkError != "" {
-		m.ReverseLinkError = ""
-		if err := c.store.Update(ctx, m); err != nil {
-			return nil, fmt.Errorf("clear reverse link degraded state: %w", err)
-		}
+	// The subscription object exists now, but its tablesync copy has only just
+	// started — refreshReverseLinkMarker will (correctly) leave the degraded
+	// marker in place until a later tick observes it caught up.
+	if err := c.refreshReverseLinkMarker(ctx, src, m, sub); err != nil {
+		return nil, err
 	}
 	status, _ := c.liveStatus(ctx, m)
 	return c.project(ctx, m, status), nil
+}
+
+// refreshReverseLinkMarker re-checks the source-side tablesync copy progress
+// for the reverse (EXPORT) subscription and clears the persisted degraded
+// marker once every relation reports ready. Call only once subExists and
+// slotReady are both already confirmed true — the subscription attaching and
+// its slot being usable say nothing about whether the (possibly still
+// running) initial copy that follows CREATE SUBSCRIPTION has actually
+// finished. No-op (beyond the read) while the copy is still in progress: the
+// marker, if any, is left for a later call to re-check.
+func (c *Coordinator) refreshReverseLinkMarker(ctx context.Context, src migrationSource, m *Migration, sub string) error {
+	status, err := src.SubscriptionStatus(sub)
+	if err != nil {
+		return err
+	}
+	if !status.CaughtUp {
+		return nil
+	}
+	if m.ReverseLinkError == "" {
+		return nil
+	}
+	m.ReverseLinkError = ""
+	if err := c.store.Update(ctx, m); err != nil {
+		return fmt.Errorf("clear reverse link degraded state: %w", err)
+	}
+	return nil
 }
 
 // unquiesceForReverseSubscription lifts the cluster-wide read-only barrier
