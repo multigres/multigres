@@ -17,6 +17,7 @@ package etcdtopo
 import (
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -71,16 +72,24 @@ func TestWrapperConn_CloseBeforeForwardRecoveries(t *testing.T) {
 		}()
 	}
 
+	// a failed dial skips the recovery goroutine, so only dialed iterations
+	// exercise the race. Some dials time out while the busy loops above hold the CPUs.
+	var dialed atomic.Int64
 	var wg sync.WaitGroup
 	for range 16 {
 		wg.Go(func() {
 			for range 50 {
 				conn := topoclient.NewWrapperConn(func() (topoclient.Conn, error) {
-					return NewServerWithOpts([]string{addr}, "/test", "", "", "")
+					s, err := NewServerWithOpts([]string{addr}, "/test", "", "", "")
+					if err == nil {
+						dialed.Add(1)
+					}
+					return s, err
 				}, nil)
 				_ = conn.Close()
 			}
 		})
 	}
 	wg.Wait()
+	require.Greater(t, dialed.Load(), int64(400), "too few etcd dials succeeded to exercise the race")
 }
