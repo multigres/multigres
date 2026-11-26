@@ -324,6 +324,23 @@ func TestGetRoutingSnapshot_ReadError(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to read tablegroups")
 }
 
+// A catalog missing a table this binary reads, such as one an older binary
+// bootstrapped, fails with UNAVAILABLE, never NOT_FOUND: a pooler reading its
+// fences would take NOT_FOUND as no fences, and the missing table may be the
+// one that holds them.
+func TestGetRoutingSnapshot_MissingTableIsUnavailable(t *testing.T) {
+	env := newCatalogTestEnv(t)
+	env.expectPrimary()
+	env.expectSnapshotRead(9, 2)
+	env.qs.AddQueryPatternWithError("FROM multigres.tablegroup ORDER BY",
+		mterrors.NewPgError("ERROR", mterrors.PgSSUndefinedTable, `relation "multigres.routing_rule" does not exist`, ""))
+
+	_, err := env.pm.GetRoutingSnapshot(t.Context(), sinceVersion(1))
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
+	assert.Contains(t, err.Error(), "behind this binary's catalog schema")
+}
+
 // A pooler off the catalog shard is refused for good (FAILED_PRECONDITION);
 // one on the catalog shard that is not its elected primary is refused with
 // UNAVAILABLE, for the caller to rediscover the primary and ask again.
