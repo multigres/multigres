@@ -87,7 +87,7 @@ func NewStore(qs executor.InternalQueryService) *Store {
 // ensured.
 func (s *Store) EnsureSchema(ctx context.Context) error {
 	if _, err := shardref.Ensure(ctx, s.qs); err != nil {
-		return fmt.Errorf("ensure migration schema: %w", err)
+		return schemaPrerequisite(fmt.Errorf("ensure migration schema: %w", err))
 	}
 	sqlList := []string{
 		CreateMigrationSQL, CreateMigrationTablesSQL, CreateMigrationJournalSQL,
@@ -95,16 +95,16 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 	}
 	for _, sql := range sqlList {
 		if _, err := s.qs.QueryAdmin(ctx, sql); err != nil {
-			return fmt.Errorf("ensure migration schema: %w", err)
+			return schemaPrerequisite(fmt.Errorf("ensure migration schema: %w", err))
 		}
 	}
 	res, err := s.qs.QueryAdmin(ctx, connectionsPresentSQL)
 	if err != nil {
-		return fmt.Errorf("ensure migration schema: probe connections table: %w", err)
+		return schemaPrerequisite(fmt.Errorf("ensure migration schema: probe connections table: %w", err))
 	}
 	var haveConnections bool
 	if err := executor.ScanSingleRow(res, &haveConnections); err != nil {
-		return fmt.Errorf("ensure migration schema: probe connections table: %w", err)
+		return schemaPrerequisite(fmt.Errorf("ensure migration schema: probe connections table: %w", err))
 	}
 	if !haveConnections {
 		return ErrNoConnectionsTable
@@ -459,6 +459,23 @@ func (s *Store) List(ctx context.Context) ([]*Migration, error) {
 // ErrConnectionNotFound is returned by connection lookups when no connection
 // with the given ref matches.
 var ErrConnectionNotFound = errors.New("connection not found")
+
+// ErrSchemaPrerequisite marks an EnsureSchema failure in a step the migration
+// tables themselves depend on. The stat_migration view and its grant are not
+// prerequisites: without them the migrations can still be reconciled.
+var ErrSchemaPrerequisite = errors.New("migration schema prerequisite failed")
+
+// schemaPrerequisiteError tags err as an ErrSchemaPrerequisite failure without
+// changing its text.
+type schemaPrerequisiteError struct{ err error }
+
+func (e *schemaPrerequisiteError) Error() string { return e.err.Error() }
+
+func (e *schemaPrerequisiteError) Unwrap() error { return e.err }
+
+func (e *schemaPrerequisiteError) Is(target error) bool { return target == ErrSchemaPrerequisite }
+
+func schemaPrerequisite(err error) error { return &schemaPrerequisiteError{err: err} }
 
 // ErrNoConnectionsTable is returned when multigres.connections does not exist:
 // by EnsureSchema, after the migration tables are created and before the

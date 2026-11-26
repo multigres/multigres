@@ -22,6 +22,7 @@ import (
 
 	"github.com/multigres/multigres/go/common/constants"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
 )
 
 const connectionsProbePattern = `to_regclass\('multigres\.connections'\)`
@@ -44,7 +45,12 @@ func TestEnsureMigrationSchema_MissingConnectionsTable(t *testing.T) {
 			addShardRefEnsure(m, nil)
 			m.AddQueryPattern(".*", mock.MakeQueryResult(nil, nil))
 
-			pm.ensureMigrationSchema(context.Background(), pm.migrationCoordinator())
+			err := pm.ensureMigrationSchema(context.Background(), pm.migrationCoordinator())
+			if tc.wantEnsured {
+				assert.NoError(t, err)
+			} else {
+				assert.ErrorIs(t, err, migration.ErrNoConnectionsTable)
+			}
 
 			pm.mu.Lock()
 			defer pm.mu.Unlock()
@@ -58,7 +64,7 @@ func TestEnsureMigrationSchema_MissingConnectionsTable(t *testing.T) {
 		addShardRefEnsure(m, nil)
 		m.AddQueryPattern(".*", mock.MakeQueryResult(nil, nil))
 
-		pm.ensureMigrationSchema(context.Background(), pm.migrationCoordinator())
+		assert.NoError(t, pm.ensureMigrationSchema(context.Background(), pm.migrationCoordinator()))
 
 		pm.mu.Lock()
 		defer pm.mu.Unlock()

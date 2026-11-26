@@ -2005,23 +2005,33 @@ func (c *Coordinator) teardown(ctx context.Context, m *Migration, dir Direction)
 	logErr("drop target reverse slot", c.target.DropLogicalSlot(ctx, m.SubscriptionName()))
 }
 
+// ReconcileResult is the outcome of one reconcile attempt on one migration.
+// Phase is the phase before the attempt, since reconciling can change it.
+type ReconcileResult struct {
+	Phase Phase
+	Err   error
+}
+
 // Reconcile refreshes every in-flight migration: it advances COPYING to
 // STREAMING once the initial copy is caught up. It is the body run on the
-// become-primary trigger and the periodic timer.
-func (c *Coordinator) Reconcile(ctx context.Context) error {
+// become-primary trigger and the periodic timer. It returns the outcome of
+// each migration's attempt, successful ones included, and a separate error
+// when the migrations could not be listed. It does not log: the caller decides
+// what to report.
+func (c *Coordinator) Reconcile(ctx context.Context) (map[int64]ReconcileResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	ms, err := c.store.List(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	results := make(map[int64]ReconcileResult, len(ms))
 	for _, m := range ms {
-		if err := c.reconcileLocked(ctx, m); err != nil {
-			c.logger.WarnContext(ctx, "reconcile migration failed", "migration", m.ID, "error", err)
-		}
+		phase := m.Phase
+		results[m.ID] = ReconcileResult{Phase: phase, Err: c.reconcileLocked(ctx, m)}
 	}
-	return nil
+	return results, nil
 }
 
 // reconcileLocked advances a single migration. Caller holds c.mu. It moves
@@ -2058,7 +2068,7 @@ func (c *Coordinator) reconcileLocked(ctx context.Context, m *Migration) error {
 		// the link) re-establishes it here. Idempotent — a no-op once the link
 		// exists. A degraded link (slot lost) is detected here on every tick, not
 		// repaired: ensureReverseExportLink records it and returns an error, which
-		// Reconcile just logs and moves on from — the actual repair is
+		// Reconcile reports and moves on from — the actual repair is
 		// Coordinator.ReseedReverseLink, an explicit operator action.
 		return c.ensureReverseExportLink(ctx, m)
 	case PhaseCompleting:
