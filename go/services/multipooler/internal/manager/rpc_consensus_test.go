@@ -109,14 +109,9 @@ func setupManagerWithMockDB(t *testing.T, mockQueryService *mock.QueryService, r
 	require.NoError(t, err)
 	t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
 
-	// Start -> Open probes postgresMode to decide whether to ensure
-	// backend_vpid exists (see MultipoolerManager.openLocked). Absorb that
-	// probe here, ahead of whatever pg_is_in_recovery patterns the caller
-	// already queued for its own test logic, so it doesn't eat into them.
-	// Reporting "in recovery" also means the probe never attempts the
-	// backend_vpid DDL, which callers don't expect to see either.
-	mockQueryService.PrependQueryPatternOnce("SELECT pg_is_in_recovery",
-		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"t"}}))
+	// Every transition to serving primary ensures the sidecar schemas first;
+	// report them in place, so it only reads.
+	addSidecarsInPlace(mockQueryService)
 
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	pm.Start(senv)
@@ -640,8 +635,6 @@ func expectLeaderPromoteMocksWithUnlogged(m *mock.QueryService, unloggedTables [
 		rows[i] = []any{tbl}
 	}
 	m.AddQueryPatternOnce("relpersistence = 'u'", mock.MakeQueryResult([]string{"format"}, rows))
-	// Ensure the unlogged backend_vpid sidecar table exists while the sweep runs.
-	m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 }
 
 func TestPromote(t *testing.T) {

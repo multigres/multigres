@@ -103,7 +103,7 @@ func recordCatalogEnsure(t *testing.T, exists bool, format int) []string {
 		mock.MakeQueryResult([]string{"routing_version", "plan_epoch"}, [][]any{{int64(1), int64(0)}}), record)
 	m.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), record)
 
-	require.NoError(t, pm.ensureCatalogSchema(context.Background()))
+	require.NoError(t, pm.ensureCatalogSchema(context.Background(), nil))
 	return queries
 }
 
@@ -285,7 +285,7 @@ func TestEnsureCatalogSchema_NewerFormatLeftAlone(t *testing.T) {
 
 	// Any query beyond the lock and the format read (migrations, catalogTables,
 	// catalogSeed, the format write) has no pattern and would fail.
-	require.NoError(t, pm.ensureCatalogSchema(context.Background()))
+	require.NoError(t, pm.ensureCatalogSchema(context.Background(), nil))
 	assert.NoError(t, m.ExpectationsWereMet())
 }
 
@@ -586,7 +586,7 @@ func TestEnsureCatalogSchema_Errors(t *testing.T) {
 			committed := false
 			m.AddQueryPatternWithCallback("^COMMIT$", mock.MakeQueryResult(nil, nil), func(string) { committed = true })
 
-			err := pm.ensureCatalogSchema(context.Background())
+			err := pm.ensureCatalogSchema(context.Background(), nil)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.errorContains)
 			assert.False(t, committed, "a failed ensure must not commit")
@@ -615,7 +615,7 @@ func fillConnInfoRun(t *testing.T, rows [][]any) (log string, stored int) {
 	m.AddQueryPatternWithCallback(exactPattern(fillConnInfoSQL), mock.MakeQueryResult(nil, nil), func(string) { stored++ })
 	m.AddQueryPatternOnce(catalogFormatWritePattern, mock.MakeQueryResult(nil, nil))
 
-	require.NoError(t, pm.ensureCatalogSchema(context.Background()))
+	require.NoError(t, pm.ensureCatalogSchema(context.Background(), nil))
 	require.NoError(t, m.ExpectationsWereMet())
 	return buf.String(), stored
 }

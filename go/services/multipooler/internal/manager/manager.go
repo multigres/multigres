@@ -524,6 +524,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 		consensusStatus = pm.consensusMgr.CachedConsensusStatus
 	}
 	pm.stateManager = NewStateManager(logger, pm.record, consensusStatus, pm.qsc, pm.healthStreamer)
+	pm.stateManager.SetBeforeServingPrimary(pm.beforeServingPrimary)
 	if stateAwareConnPoolMgr, ok := connPoolMgr.(StateAware); ok {
 		if err := registerAndSyncStateAware(ctx, pm.stateManager, stateAwareConnPoolMgr); err != nil {
 			cancel()
@@ -656,26 +657,12 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	pm.openConnectionsLocked()
 	pm.logger.InfoContext(pm.ctx, "MultipoolerManager opened database connection") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 
-	// The sidecar tables and the postgres monitor belong to a managed postgres: the monitor
-	// repairs, restarts and rewinds it, and the sidecar schemas are ours to keep in it. An
-	// external endpoint is neither repaired nor given sidecar tables by us.
+	// The postgres monitor belongs to a managed postgres: it repairs, restarts and rewinds
+	// it. An external endpoint is not repaired by us. The sidecar schemas are not ensured
+	// here: the StateManager ensures them before this pooler serves as the primary (see
+	// beforeServingPrimary), which the transition below or the monitor's next drift fix
+	// reaches once postgres is known to be out of recovery.
 	if !pm.IsUnmanaged() {
-		// Ensure sidecar tables that a shard bootstrapped by an older pooler
-		// version may be missing (see ensureSidecarSchemas) exist on every
-		// open/resume, not just on promotion. On the catalog shard this also
-		// upgrades the sharding catalog to this binary's catalog format.
-		//
-		// The function createSidecarSchema only ever runs once, at genuine shard
-		// bootstrap, and promoteStandbyToPrimary only re-ensures backend_vpid and
-		// the probe grant. Without this, a plain process restart of an
-		// already-primary pooler would never re-ensure them, even after upgrading
-		// to a pooler version that knows about them.
-		if mode, err := pm.postgresMode(ctx); err == nil && mode.OutOfRecovery() {
-			if err := pm.ensureSidecarSchemas(ctx); err != nil {
-				pm.logger.WarnContext(ctx, "failed to ensure sidecar schemas on open", "error", err)
-			}
-		}
-
 		pm.startPostgresMonitorPollerLocked()
 	}
 
@@ -1790,18 +1777,9 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		pm.dropUnloggedTablesAfterPromotion(sweepCtx)
 	}()
 
-	// Ensure the unlogged backend_vpid sidecar table exists before the pooler is
-	// marked serving. The asynchronous sweep preserves it because VPID tracking
-	// and lock-wait probes require the relation to remain present.
-	if err := pm.createBackendVpidTable(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "failed to recreate backend_vpid table after promotion", "error", err)
-	}
-
-	// This node opened in recovery and skipped the grant, so a switchover
-	// would otherwise leave the probe locked out until the next open.
-	if err := pm.grantHeartbeatToProbe(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "failed to grant heartbeat read access to the probe role after promotion", "error", err)
-	}
+	// The sidecar schemas, including the unlogged backend_vpid table and the
+	// probe's grant, are ensured by the transition to serving primary that
+	// follows (see beforeServingPrimary), not here.
 
 	return nil
 }
@@ -1846,7 +1824,10 @@ func (pm *MultipoolerManager) dropUnloggedTablesAfterPromotion(ctx context.Conte
 			continue
 		}
 		// PostgreSQL already resets this unlogged table on promotion; keep it for
-		// VPID tracking and isolation lock-wait probes.
+		// VPID tracking and isolation lock-wait probes. The sweep can list the
+		// tables before the serving transition has created it (see
+		// beforeServingPrimary); then it is not listed, and there is nothing
+		// to keep.
 		if name == "multigres.backend_vpid" {
 			continue
 		}

@@ -17,18 +17,32 @@ package manager
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/common/sqltypes"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
+	"github.com/multigres/multigres/go/services/multipooler/internal/heartbeat"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
+	testutils "github.com/multigres/multigres/go/test/utils"
 )
 
 // switchableConsensus is a StateManager consensus injector whose committed
@@ -261,4 +275,411 @@ func TestBeforeServingPrimary_HoldReleaseRetries(t *testing.T) {
 	require.NoError(t, ssm.fixDrift(ctx, pgmode.Primary, false, false))
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, r.ServingStatus())
 	assert.Equal(t, 3, h.calls())
+}
+
+// addCatalogUpgradeFromFormat1 registers a catalog shard whose catalog is at
+// format 1 with nothing else in place, so the hook's ensure runs everything,
+// including a migration that advances routing_version (and so publishes under
+// the rule). Every other statement succeeds and is recorded.
+func addCatalogUpgradeFromFormat1(m *mock.QueryService, record func(string)) {
+	addShardRefEnsure(m, record)
+	m.AddQueryPatternWithCallback(catalogDefinitionReadPattern,
+		mock.MakeQueryResult([]string{"format_version", "definition_hash"}, [][]any{{1, nil}}), record)
+	m.AddQueryPatternWithCallback(catalogStatePresentPattern,
+		mock.MakeQueryResult([]string{"exists"}, [][]any{{true}}), record)
+	m.AddQueryPatternWithCallback("^SELECT format_version FROM multigres.catalog_state FOR UPDATE$",
+		mock.MakeQueryResult([]string{"format_version"}, [][]any{{1}}), record)
+	m.AddQueryPatternWithCallback("SET routing_version",
+		mock.MakeQueryResult([]string{"routing_version", "plan_epoch"}, [][]any{{int64(5), int64(0)}}), record)
+	m.AddQueryPatternWithCallback(connectionsProbePattern,
+		mock.MakeQueryResult([]string{"exists"}, [][]any{{true}}), record)
+	m.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), record)
+}
+
+// TestBeforeServingPrimary_EnsureDoesNotReenterStateManager runs the real
+// hook inside a real StateManager's Mutate, which holds its lock, through a
+// full catalog upgrade. An ensure that read the StateManager (as reading the
+// routing rule from it once did) would deadlock; the timeout turns that into
+// a failure.
+func TestBeforeServingPrimary_EnsureDoesNotReenterStateManager(t *testing.T) {
+	pm, m := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+	var mu sync.Mutex
+	var queries []string
+	addCatalogUpgradeFromFormat1(m, func(q string) {
+		mu.Lock()
+		queries = append(queries, q)
+		mu.Unlock()
+	})
+
+	comp := &testComponent{}
+	pm.stateManager = NewStateManager(newTestLogger(),
+		newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING),
+		selfLeaderConsensusStatus, comp)
+	var gotRule *clustermetadatapb.RuleNumber
+	pm.stateManager.SetBeforeServingPrimary(func(ctx context.Context, target servingstate.State) error {
+		gotRule = target.Routing.Rule
+		return pm.beforeServingPrimary(ctx, target)
+	})
+
+	ctx := newActionLockedCtx(t)
+	done := make(chan error, 1)
+	go func() {
+		done <- pm.stateManager.Mutate(ctx, mutateTo(pgmode.Primary, clustermetadatapb.PoolerServingStatus_SERVING))
+	}()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("Mutate did not return: the ensure re-entered the StateManager")
+	}
+
+	assert.Equal(t, int64(1), gotRule.GetCoordinatorTerm())
+	assert.Equal(t, servingstate.RoutingRolePrimary, comp.lastRole)
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Contains(t, queries, catalogMigrations[1].postStatements[0], "the full ensure ran")
+	assert.Equal(t, recordCatalogDefinitionSQL, queries[len(queries)-1], "the hash is recorded last")
+}
+
+// TestBeforeServingPrimary_UnmanagedSkips checks that an unmanaged pooler,
+// whose postgres is external, runs no sidecar ensure.
+func TestBeforeServingPrimary_UnmanagedSkips(t *testing.T) {
+	pm, m := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+	pm.record = newRecordFromProto(&clustermetadatapb.Multipooler{
+		Id:             testPoolerID,
+		LeadershipMode: clustermetadatapb.LeadershipMode_LEADERSHIP_MODE_UNMANAGED,
+		ShardRef: &clustermetadatapb.ShardRef{
+			TableGroup: constants.DefaultTableGroup,
+			Shard:      constants.DefaultShard,
+		},
+	})
+	var ran bool
+	m.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), func(string) { ran = true })
+
+	require.NoError(t, pm.beforeServingPrimary(t.Context(), servingstate.State{
+		Routing:       servingstate.RoutingState{Role: servingstate.RoutingRolePrimary},
+		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
+	}))
+	assert.False(t, ran, "an unmanaged pooler must not touch the external postgres")
+}
+
+// TestEnsureSidecarSchemas_FastPath checks which catalog states skip the full
+// ensure. A mock without a pattern for a query fails it, so where only the
+// reads are registered, a passing ensure proves it wrote nothing.
+func TestEnsureSidecarSchemas_FastPath(t *testing.T) {
+	definition := func(format int, hash any) *sqltypes.Result {
+		return mock.MakeQueryResult([]string{"format_version", "definition_hash"}, [][]any{{format, hash}})
+	}
+
+	t.Run("matching format and hash only reads", func(t *testing.T) {
+		pm, m := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+		addSidecarsInPlace(m)
+		require.NoError(t, pm.ensureSidecarSchemas(t.Context(), nil))
+	})
+
+	t.Run("newer format is left untouched", func(t *testing.T) {
+		pm, m := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+		m.AddQueryPatternOnce(catalogDefinitionReadPattern, definition(latestCatalogFormat()+1, "a newer binary's hash"))
+		addSidecarsInPlace(m)
+		require.NoError(t, pm.ensureSidecarSchemas(t.Context(), nil))
+		assert.NoError(t, m.ExpectationsWereMet())
+	})
+
+	for _, tt := range []struct {
+		name string
+		read func(m *mock.QueryService)
+	}{
+		{name: "different hash", read: func(m *mock.QueryService) {
+			m.AddQueryPatternOnce(catalogDefinitionReadPattern, definition(latestCatalogFormat(), "another binary's hash"))
+		}},
+		{name: "no hash yet", read: func(m *mock.QueryService) {
+			m.AddQueryPatternOnce(catalogDefinitionReadPattern, definition(latestCatalogFormat(), nil))
+		}},
+		{name: "older format", read: func(m *mock.QueryService) {
+			m.AddQueryPatternOnce(catalogDefinitionReadPattern, definition(latestCatalogFormat()-1, catalogDefinitionHash))
+		}},
+		{name: "no catalog_state", read: addCatalogDefinitionMissing},
+	} {
+		t.Run(tt.name+" runs the full ensure", func(t *testing.T) {
+			pm, m := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+			tt.read(m)
+			var queries []string
+			addSidecarsInPlace(m)
+			m.AddQueryPatternWithCallback(catalogStatePresentPattern,
+				mock.MakeQueryResult([]string{"exists"}, [][]any{{true}}), nil)
+			m.AddQueryPatternWithCallback("^SELECT format_version FROM multigres.catalog_state FOR UPDATE$",
+				mock.MakeQueryResult([]string{"format_version"}, [][]any{{latestCatalogFormat()}}), nil)
+			m.AddQueryPatternWithCallback(connectionsProbePattern,
+				mock.MakeQueryResult([]string{"exists"}, [][]any{{true}}), nil)
+			m.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), func(q string) { queries = append(queries, q) })
+
+			require.NoError(t, pm.ensureSidecarSchemas(t.Context(), nil))
+			require.NoError(t, m.ExpectationsWereMet())
+			assert.Contains(t, queries, "SELECT pg_advisory_xact_lock($1)")
+			assert.Contains(t, queries, catalogTables[0], "catalogTables ran")
+			assert.Equal(t, recordCatalogDefinitionSQL, queries[len(queries)-1], "the hash is recorded last")
+		})
+	}
+
+	t.Run("a failed full ensure records no hash", func(t *testing.T) {
+		pm, m := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+		addCatalogDefinitionMissing(m)
+		addSidecarsInPlace(m)
+		m.AddQueryPatternOnceWithError("pg_advisory_xact_lock", errors.New("lock timeout"))
+		var wrote bool
+		m.AddQueryPatternWithCallback(catalogDefinitionWritePattern, mock.MakeQueryResult(nil, nil), func(string) { wrote = true })
+
+		require.Error(t, pm.ensureSidecarSchemas(t.Context(), nil))
+		assert.False(t, wrote)
+	})
+}
+
+// TestCatalogDefinitionHash_CoversTheEnsure checks that the hash changes with
+// each list it covers, so a binary that applies something new never mistakes
+// a catalog for current.
+func TestCatalogDefinitionHash_CoversTheEnsure(t *testing.T) {
+	assert.Regexp(t, regexp.MustCompile(`^[0-9a-f]{64}$`), catalogDefinitionHash)
+	for _, list := range []*[]string{&catalogTables, &catalogSeed} {
+		saved := *list
+		*list = append(slices.Clone(saved), "SELECT 1")
+		changed := computeCatalogDefinitionHash()
+		*list = saved
+		assert.NotEqual(t, catalogDefinitionHash, changed)
+	}
+	assert.Equal(t, catalogDefinitionHash, computeCatalogDefinitionHash())
+}
+
+// ----------------------------------------------------------------------------
+// Real postgres: the up-to-date ensure assigns no transaction id
+// ----------------------------------------------------------------------------
+
+// startTestPostgres initdbs and starts a postgres reachable only over a unix
+// socket, stopped at cleanup, and returns a connection factory.
+func startTestPostgres(t *testing.T) func() *client.Conn {
+	t.Helper()
+	if !testutils.HasPostgreSQLBinaries() {
+		t.Skip("PostgreSQL binaries not found")
+	}
+	// /tmp keeps the socket path under the macOS limit.
+	dir, err := os.MkdirTemp("/tmp", "sidecar_ensure_test-*")
+	require.NoError(t, err)
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	data, sockets := filepath.Join(dir, "data"), filepath.Join(dir, "sockets")
+	require.NoError(t, os.MkdirAll(sockets, 0o700))
+	env := append(os.Environ(), "LC_ALL=C")
+
+	initdb := exec.Command("initdb", "-D", data, "-U", "postgres", "--no-instructions", "-A", "trust")
+	initdb.Env = env
+	out, err := initdb.CombinedOutput()
+	require.NoError(t, err, "initdb: %s", out)
+
+	start := exec.Command("pg_ctl", "start", "-D", data, "-l", filepath.Join(dir, "postgres.log"), "-w", "-t", "30",
+		"-o", "-c listen_addresses= -c unix_socket_directories="+sockets)
+	start.Env = env
+	out, err = start.CombinedOutput()
+	require.NoError(t, err, "pg_ctl start: %s", out)
+	t.Cleanup(func() {
+		stop := exec.Command("pg_ctl", "stop", "-D", data, "-m", "fast")
+		stop.Env = env
+		_ = stop.Run()
+	})
+
+	return func() *client.Conn {
+		conn, err := client.Connect(t.Context(), t.Context(), &client.Config{
+			SocketFile: filepath.Join(sockets, ".s.PGSQL.5432"),
+			User:       "postgres",
+			Database:   "postgres",
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { conn.Close() })
+		return conn
+	}
+}
+
+// sessionQueryService runs every query of the InternalQueryService on one
+// connection. With observed set, the test has opened a transaction on it, and
+// a transaction the code under test begins is a savepoint inside it, so
+// everything the code does happens in the test's transaction, where
+// pg_current_xact_id_if_assigned shows whether any of it assigned a
+// transaction id.
+type sessionQueryService struct {
+	conn     *client.Conn
+	observed bool
+	next     int
+}
+
+var _ executor.InternalQueryService = (*sessionQueryService)(nil)
+
+func firstResult(results []*sqltypes.Result, err error) (*sqltypes.Result, error) {
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return &sqltypes.Result{}, nil
+	}
+	return results[0], nil
+}
+
+func (s *sessionQueryService) Query(ctx context.Context, q string) (*sqltypes.Result, error) {
+	return firstResult(s.conn.Query(ctx, q))
+}
+
+func (s *sessionQueryService) QueryArgs(ctx context.Context, q string, args ...any) (*sqltypes.Result, error) {
+	return firstResult(s.conn.QueryArgs(ctx, q, args...))
+}
+
+func (s *sessionQueryService) QueryMultiStatement(ctx context.Context, q string) error {
+	_, err := s.conn.Query(ctx, q)
+	return err
+}
+
+func (s *sessionQueryService) QueryAdmin(ctx context.Context, q string) (*sqltypes.Result, error) {
+	return s.Query(ctx, q)
+}
+
+func (s *sessionQueryService) QueryAdminArgs(ctx context.Context, q string, args ...any) (*sqltypes.Result, error) {
+	return s.QueryArgs(ctx, q, args...)
+}
+
+func (s *sessionQueryService) QueryAdminMultiStatement(ctx context.Context, q string) error {
+	return s.QueryMultiStatement(ctx, q)
+}
+
+func (s *sessionQueryService) QueryAdminNoQueryText(ctx context.Context, q string) (*sqltypes.Result, error) {
+	return s.Query(ctx, q)
+}
+
+func (s *sessionQueryService) Begin(ctx context.Context) (executor.InternalTx, error) {
+	tx := &sessionTx{conn: s.conn, begin: "BEGIN", commit: "COMMIT", rollback: "ROLLBACK"}
+	if s.observed {
+		s.next++
+		name := fmt.Sprintf("s%d", s.next)
+		tx.begin = "SAVEPOINT " + name
+		tx.commit = "RELEASE SAVEPOINT " + name
+		tx.rollback = "ROLLBACK TO SAVEPOINT " + name + "; RELEASE SAVEPOINT " + name
+	}
+	if _, err := s.conn.Query(ctx, tx.begin); err != nil {
+		return nil, err
+	}
+	return tx, nil
+}
+
+func (s *sessionQueryService) BeginAdmin(ctx context.Context) (executor.InternalTx, error) {
+	return s.Begin(ctx)
+}
+
+type sessionTx struct {
+	conn                    *client.Conn
+	begin, commit, rollback string
+	finished                bool
+}
+
+func (tx *sessionTx) Query(ctx context.Context, q string) (*sqltypes.Result, error) {
+	return firstResult(tx.conn.QueryArgs(ctx, q))
+}
+
+func (tx *sessionTx) QueryArgs(ctx context.Context, q string, args ...any) (*sqltypes.Result, error) {
+	return firstResult(tx.conn.QueryArgs(ctx, q, args...))
+}
+
+func (tx *sessionTx) Commit(ctx context.Context) error {
+	tx.finished = true
+	_, err := tx.conn.Query(ctx, tx.commit)
+	return err
+}
+
+func (tx *sessionTx) Rollback(ctx context.Context) error {
+	if tx.finished {
+		return nil
+	}
+	tx.finished = true
+	_, err := tx.conn.Query(ctx, tx.rollback)
+	return err
+}
+
+// sessionController hands the manager a sessionQueryService.
+type sessionController struct {
+	mockPoolerController
+	qs executor.InternalQueryService
+}
+
+func (c *sessionController) InternalQueryService() executor.InternalQueryService { return c.qs }
+
+// TestEnsureSidecarSchemas_UpToDateAssignsNoTransactionID proves, against a
+// real postgres, that the ensure a transition to serving primary runs writes
+// nothing on a shard that is already up to date: run inside the test's own
+// transaction, it leaves pg_current_xact_id_if_assigned() NULL. A transaction
+// id is what any write (a row, a row lock, catalog DDL, a GRANT that changes
+// nothing) assigns, and what makes a commit wait for a synchronous standby, so
+// this checks the whole ensure at once rather than statement by statement. The
+// same measurement after clearing the recorded hash shows an id, so it is not
+// vacuous.
+func TestEnsureSidecarSchemas_UpToDateAssignsNoTransactionID(t *testing.T) {
+	connect := startTestPostgres(t)
+	ctx := t.Context()
+
+	// Bootstrap what createSidecarSchema creates before the ensure, plus the
+	// probe role, so every step of the ensure has something to check.
+	setup := &sessionQueryService{conn: connect()}
+	for _, stmt := range []string{
+		"CREATE SCHEMA multigres",
+		"GRANT USAGE ON SCHEMA multigres TO PUBLIC",
+		heartbeat.CreateTableSQL,
+		"CREATE ROLE " + heartbeat.ProbeRole,
+	} {
+		_, err := setup.Query(ctx, stmt)
+		require.NoError(t, err, stmt)
+	}
+
+	for _, tt := range []struct {
+		name       string
+		tableGroup string
+	}{
+		{name: "catalog shard", tableGroup: constants.DefaultTableGroup},
+		{name: "other shard", tableGroup: "commerce"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			pm, _ := newTestManagerWithMock(t, tt.tableGroup, constants.DefaultShard)
+
+			// The first ensure creates everything, for real.
+			pm.qsc = &sessionController{qs: setup}
+			require.NoError(t, pm.ensureSidecarSchemas(ctx, nil))
+
+			observe := func() (assigned bool) {
+				t.Helper()
+				conn := connect()
+				_, err := conn.Query(ctx, "BEGIN")
+				require.NoError(t, err)
+				pm.qsc = &sessionController{qs: &sessionQueryService{conn: conn, observed: true}}
+				require.NoError(t, pm.ensureSidecarSchemas(ctx, nil))
+				res, err := conn.Query(ctx, "SELECT pg_current_xact_id_if_assigned() IS NOT NULL")
+				require.NoError(t, err)
+				_, err = conn.Query(ctx, "ROLLBACK")
+				require.NoError(t, err)
+				require.Len(t, res, 1)
+				require.Len(t, res[0].Rows, 1)
+				return string(res[0].Rows[0].Values[0]) == "t"
+			}
+
+			for range 3 {
+				assert.False(t, observe(), "an up-to-date ensure must not assign a transaction id")
+			}
+
+			// Control: the same measurement sees the write of a full ensure.
+			// Off the catalog shard, an out-of-place backend_vpid is the write.
+			if tt.tableGroup == constants.DefaultTableGroup {
+				_, err := setup.Query(ctx, "UPDATE multigres.catalog_state SET definition_hash = NULL")
+				require.NoError(t, err)
+			} else {
+				_, err := setup.Query(ctx, "ALTER TABLE multigres.backend_vpid RESET (autovacuum_vacuum_threshold)")
+				require.NoError(t, err)
+			}
+			assert.True(t, observe(), "the control ensure must assign a transaction id")
+			// It ran in a rolled-back transaction, so the shard is still out of
+			// date until a real ensure repairs it.
+			pm.qsc = &sessionController{qs: setup}
+			require.NoError(t, pm.ensureSidecarSchemas(ctx, nil))
+			assert.False(t, observe())
+		})
+	}
 }
