@@ -65,7 +65,7 @@ func TestWrapperConn_CloseBeforeForwardRecoveries(t *testing.T) {
 				select {
 				case <-stop:
 					return
-				default:
+				default: //nolint:staticcheck // SA5004: spins on purpose to keep the scheduler busy
 				}
 			}
 		}()
