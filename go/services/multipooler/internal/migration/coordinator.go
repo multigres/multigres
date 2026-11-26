@@ -1280,6 +1280,33 @@ func (c *Coordinator) checkExportPreconditions(ctx context.Context, m *Migration
 	return nil
 }
 
+// checkReverseLinkCaughtUp fails fast, before persisting a switch back to
+// IMPORT, if the EXPORT reverse link's initial tablesync copy has not
+// finished. drainCurrent's barrier (dir == DirectionExport) only waits for
+// the reverse subscription's main slot to confirm past a captured LSN — that
+// slot position can advance independently of separate per-relation tablesync
+// workers still running their initial copy, so a confirmed slot does not by
+// itself mean the copy is done. Persisting the switch anyway would tear down
+// the reverse link and hand writes back to a source with an incomplete copy.
+// This only gates the operator-triggered switch itself; the reconcile ticker's
+// own reverse-link check (refreshReverseLinkMarker) keeps polling independently
+// of this and is unaffected by it.
+func (c *Coordinator) checkReverseLinkCaughtUp(ctx context.Context, m *Migration) error {
+	src, err := c.openSource(ctx, m)
+	if err != nil {
+		return err
+	}
+	defer src.close()
+	status, err := src.SubscriptionStatus(m.SubscriptionName())
+	if err != nil {
+		return err
+	}
+	if !status.CaughtUp {
+		return fmt.Errorf("%w: reverse export link's initial copy has not finished for migration %d", ErrNotReady, m.ID)
+	}
+	return nil
+}
+
 // SetMigrationDirection sets the migration's active direction declaratively.
 // For a migration that has not yet started (still short of COPYING),
 // target=IMPORT runs the initial setup pipeline (validate, schema copy,
@@ -1415,6 +1442,11 @@ func (c *Coordinator) SetMigrationDirection(ctx context.Context, ref Ref, target
 	}
 	if !isStreaming(m.Phase) {
 		return nil, fmt.Errorf("migration %d must be caught up (IMPORTING/EXPORTING) to switch direction; current phase %s", m.ID, m.Phase)
+	}
+	if target == DirectionImport {
+		if err := c.checkReverseLinkCaughtUp(ctx, m); err != nil {
+			return nil, err
+		}
 	}
 
 	// Commit the switch intent to the row before touching either database. A crash
@@ -1634,14 +1666,21 @@ func (c *Coordinator) ensureReverseExportLink(ctx context.Context, m *Migration)
 		return c.markReverseLinkDegraded(ctx, m, subExists)
 	}
 
-	// Slot is ready but the subscription doesn't exist yet: the original path —
-	// a still-valid slot the subscription hasn't attached to (crash before
-	// attach, or first attach after switch). The barrier already made the two
-	// sides identical at the slot's LSN, so no copy is needed.
+	// Slot is ready but the subscription doesn't exist yet. Normally (crash
+	// before attach, or first attach after switch) this is the original path:
+	// the barrier already made the two sides identical at the slot's LSN, so
+	// no copy is needed. But a non-empty ReverseLinkError means the link was
+	// previously degraded or a ReseedReverseLink repair is in progress — in
+	// either case the only way a slot becomes ready again is a repair having
+	// just recreated it at a fresh position, not the original switch barrier's,
+	// so resubscribing with copy_data=false here would silently skip the full
+	// copy that position requires. Honor that intent with copy_data=true
+	// instead; refreshReverseLinkMarker still only clears the marker once a
+	// later tick confirms the copy has actually caught up.
 	if err := unquiesceForReverseSubscription(src); err != nil {
 		return err
 	}
-	return src.CreateSubscription(sub, conninfo, pub, false, sub)
+	return src.CreateSubscription(sub, conninfo, pub, m.ReverseLinkError != "", sub)
 }
 
 // markReverseLinkDegraded records that the EXPORT reverse link is unusable and
@@ -1725,6 +1764,21 @@ func (c *Coordinator) ReseedReverseLink(ctx context.Context, ref Ref) (*Projecti
 		return c.finalizeReverseLinkStatus(ctx, src, m, sub, false)
 	}
 
+	// Persist a reseed-in-progress marker before mutating anything below: the
+	// repair recreates the slot at a fresh position, so from this point on a
+	// ready slot with no attached subscription no longer means the original
+	// switch barrier's alignment — ensureReverseExportLink checks this marker
+	// to resubscribe with copy_data=true (a fresh copy) instead of wrongly
+	// assuming the barrier-preserved case, whether this RPC completes, crashes
+	// partway through, or a caller retries after a failure below. Nothing has
+	// mutated yet at this point, so a failure here is safely retryable.
+	if m.ReverseLinkError == "" {
+		m.ReverseLinkError = "reseed in progress"
+		if err := c.store.Update(ctx, m); err != nil {
+			return nil, fmt.Errorf("persist reverse link reseed marker: %w", err)
+		}
+	}
+
 	if subExists {
 		// The subscription's apply worker depends on a slot that is now gone,
 		// still temporary, or invalidated. Drop it so the reseed below starts
@@ -1759,21 +1813,6 @@ func (c *Coordinator) ReseedReverseLink(ctx context.Context, ref Ref) (*Projecti
 		return nil, err
 	}
 	c.journal(ctx, m, JournalEventReseed, "operator-triggered reseed of the reverse export link")
-	// The subscription object exists now, but its tablesync copy has only just
-	// started. refreshReverseLinkMarker only re-checks source status while a
-	// marker is set (see its early return) — without one here, a reseed that
-	// ran while ReverseLinkError was still empty (e.g. an operator-triggered
-	// repair racing ahead of the reconcile tick that would otherwise have
-	// recorded the link as degraded) would never be re-verified again, so set
-	// one now if it isn't already. Unlike the trailing readiness check below,
-	// a failure here must fail the RPC: with no durably-persisted marker,
-	// nothing would ever prompt a later tick to check this copy again.
-	if m.ReverseLinkError == "" {
-		m.ReverseLinkError = "reseed copy in progress"
-		if err := c.store.Update(ctx, m); err != nil {
-			return nil, fmt.Errorf("persist reverse link pending marker after reseed: %w", err)
-		}
-	}
 	return c.finalizeReverseLinkStatus(ctx, src, m, sub, true)
 }
 

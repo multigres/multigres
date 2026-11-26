@@ -454,14 +454,18 @@ type fakeSource struct {
 	dumpSchema string
 	dumpErr    error
 
-	createPubErr    error
-	dropPubErr      error
-	createSubErr    error
-	dropSubErr      error
-	setROErr        error
-	setSessionROErr error
-	currentLSNErr   error
-	currentLSN      string
+	createPubErr error
+	dropPubErr   error
+	createSubErr error
+	// createSubCopyData captures the copyData argument of the last
+	// CreateSubscription call, so tests can assert the coordinator chose the
+	// correct full-copy-vs-resume behavior.
+	createSubCopyData bool
+	dropSubErr        error
+	setROErr          error
+	setSessionROErr   error
+	currentLSNErr     error
+	currentLSN        string
 
 	lag        uint64
 	lagSeconds float64
@@ -561,8 +565,9 @@ func (s *fakeSource) DropPublication(string) error {
 	return s.dropPubErr
 }
 
-func (s *fakeSource) CreateSubscription(string, string, string, bool, string) error {
+func (s *fakeSource) CreateSubscription(_, _, _ string, copyData bool, _ string) error {
 	s.record("CreateSubscription")
+	s.createSubCopyData = copyData
 	return s.createSubErr
 }
 
