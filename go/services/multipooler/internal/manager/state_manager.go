@@ -101,11 +101,6 @@ type StateManager struct {
 	// every transition that makes this pooler a serving primary (see
 	// SetBeforeServingPrimary). Guarded by mu.
 	beforeServingPrimary func(ctx context.Context, target servingstate.State) error
-
-	// beforeServingPrimaryErr is the message of the last beforeServingPrimary
-	// failure logged, empty once the hook succeeds, so a failure the monitor
-	// retries on every tick is logged once per distinct error. Guarded by mu.
-	beforeServingPrimaryErr string
 }
 
 // isServingPrimary reports whether s is the writable primary, serving.
@@ -232,15 +227,7 @@ func (ssm *StateManager) runBeforeServingPrimaryLocked(ctx context.Context, targ
 		return nil
 	}
 	if err := ssm.beforeServingPrimary(ctx, target); err != nil {
-		if msg := err.Error(); msg != ssm.beforeServingPrimaryErr {
-			ssm.beforeServingPrimaryErr = msg
-			ssm.logger.ErrorContext(ctx, "not serving as primary: preparing to serve failed; the monitor retries it", "error", err)
-		}
 		return mterrors.Wrap(err, "not serving as primary")
-	}
-	if ssm.beforeServingPrimaryErr != "" {
-		ssm.beforeServingPrimaryErr = ""
-		ssm.logger.InfoContext(ctx, "preparing to serve as primary succeeded after failing")
 	}
 	return nil
 }

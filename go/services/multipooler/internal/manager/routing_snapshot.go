@@ -575,12 +575,3 @@ func (pm *MultipoolerManager) publishCatalogWrite(rule *clustermetadatapb.RuleNu
 		pm.healthStreamer.observeCatalogVersions(rule, v)
 	}
 }
-
-// routingRule returns the consensus rule this pooler currently routes under,
-// nil when it has no state manager.
-func (pm *MultipoolerManager) routingRule() *clustermetadatapb.RuleNumber {
-	if pm.stateManager == nil {
-		return nil
-	}
-	return pm.stateManager.RoutingState().GetRule()
-}

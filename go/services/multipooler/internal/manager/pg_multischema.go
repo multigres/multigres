@@ -77,8 +77,12 @@ func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *c
 	// above it trying to depend on backend_vpid (or a future sidecar
 	// table added here) would fail since ensureSidecarSchemas hasn't run
 	// yet - rather than a convention someone has to remember.
+	//
+	// It passes no rule: the rule only labels a catalog version publish, and
+	// bootstrap publishes none, since it creates catalog_state at the latest
+	// format.
 	createFuncs = append(createFuncs, func(ctx context.Context) error {
-		return pm.ensureSidecarSchemas(ctx, pm.routingRule())
+		return pm.ensureSidecarSchemas(ctx, nil)
 	})
 
 	for _, createFunc := range createFuncs {

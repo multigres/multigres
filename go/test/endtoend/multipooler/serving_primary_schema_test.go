@@ -232,7 +232,7 @@ func TestServingPrimarySchema_FailClosedThenRecover(t *testing.T) {
 	require.Eventually(t, func() bool {
 		for _, inst := range setup.Multipoolers {
 			data, err := os.ReadFile(inst.Multipooler.LogFile)
-			if err == nil && strings.Contains(string(data), "not serving as primary: preparing to serve failed") {
+			if err == nil && strings.Contains(string(data), "not serving as primary") {
 				return true
 			}
 		}

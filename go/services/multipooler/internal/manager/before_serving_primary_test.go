@@ -18,13 +18,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -168,41 +166,14 @@ func TestBeforeServingPrimary_RunsOnlyOnTransitionToServingPrimary(t *testing.T)
 	}
 }
 
-// countingHandler counts the records logged at each level whose message
-// contains a substring.
-type countingHandler struct {
-	mu     sync.Mutex
-	counts map[slog.Level]int
-	substr string
-}
-
-func (h *countingHandler) Enabled(context.Context, slog.Level) bool { return true }
-func (h *countingHandler) Handle(_ context.Context, r slog.Record) error {
-	if strings.Contains(r.Message, h.substr) {
-		h.mu.Lock()
-		h.counts[r.Level]++
-		h.mu.Unlock()
-	}
-	return nil
-}
-func (h *countingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
-func (h *countingHandler) WithGroup(string) slog.Handler      { return h }
-
-func (h *countingHandler) count(level slog.Level) int {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.counts[level]
-}
-
 // TestBeforeServingPrimary_FailureBlocksUntilFixDriftSucceeds checks that a
 // failing hook changes nothing, that the monitor's drift check still sees the
 // drift so it retries, and that a later fixDrift completes the transition once
 // the hook succeeds.
 func TestBeforeServingPrimary_FailureBlocksUntilFixDriftSucceeds(t *testing.T) {
-	logs := &countingHandler{counts: map[slog.Level]int{}, substr: "not serving as primary"}
 	comp := &testComponent{}
 	r := newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING)
-	ssm := NewStateManager(slog.New(logs), r, selfLeaderConsensusStatus, comp)
+	ssm := NewStateManager(newTestLogger(), r, selfLeaderConsensusStatus, comp)
 	h := &hookRecorder{}
 	ssm.SetBeforeServingPrimary(h.hook)
 	ctx := newActionLockedCtx(t)
@@ -227,16 +198,12 @@ func TestBeforeServingPrimary_FailureBlocksUntilFixDriftSucceeds(t *testing.T) {
 	// The monitor still sees the drift, which is what makes it retry.
 	assert.True(t, ssm.hasDrift(pgmode.Primary, false, false))
 
-	// The monitor retries every tick; the same failure is logged once.
+	// The monitor retries every tick, and each retry fails the same way.
 	for range 3 {
 		require.Error(t, ssm.fixDrift(ctx, pgmode.Primary, false, false))
 	}
-	assert.Equal(t, 1, logs.count(slog.LevelError), "a repeated failure is logged once")
-	h.setErr(errors.New("catalog_state does not exist"))
-	require.Error(t, ssm.fixDrift(ctx, pgmode.Primary, false, false))
-	assert.Equal(t, 2, logs.count(slog.LevelError), "a different failure is logged again")
 	assert.Equal(t, 1, comp.callCount)
-	assert.Equal(t, 5, h.calls())
+	assert.Equal(t, 4, h.calls())
 
 	// The hook succeeds: the next drift fix completes the transition.
 	h.setErr(nil)
@@ -247,7 +214,7 @@ func TestBeforeServingPrimary_FailureBlocksUntilFixDriftSucceeds(t *testing.T) {
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, comp.lastStatus)
 	assert.Equal(t, clustermetadatapb.PoolerType_PRIMARY, r.Type())
 	assert.False(t, ssm.hasDrift(pgmode.Primary, false, false))
-	assert.Equal(t, 6, h.calls())
+	assert.Equal(t, 5, h.calls())
 }
 
 // TestBeforeServingPrimary_HoldReleaseRetries covers the release of a serving
