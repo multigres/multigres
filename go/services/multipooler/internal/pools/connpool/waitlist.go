@@ -38,6 +38,9 @@ type waitlist[C Connection] struct {
 	nodes sync.Pool
 	mu    sync.Mutex
 	list  list.List[waiter[C]]
+	// sealed is set while the pool is sealed: no client is queued, and the
+	// clients queued when it was sealed were woken with no connection.
+	sealed bool
 }
 
 // waitForConn blocks until a connection with the given settings is returned by another client,
@@ -52,6 +55,10 @@ func (wl *waitlist[C]) waitForConn(ctx context.Context, settings *connstate.Sett
 	elem.Value = waiter[C]{conn: elem.Value.conn, settings: settings}
 
 	wl.mu.Lock()
+	if wl.sealed {
+		wl.mu.Unlock()
+		return nil, errWaitSealed
+	}
 	// add ourselves as a waiter at the end of the waitlist
 	wl.list.PushBackValue(elem)
 	wl.mu.Unlock()
@@ -181,6 +188,33 @@ func (wl *waitlist[D]) tryReturnConnSlow(conn *Pooled[D]) bool {
 	target.Value.conn <- conn
 	runtime.Gosched()
 	return true
+}
+
+// seal refuses to queue clients until unseal, and wakes every queued client
+// with no connection, which its Get turns into the seal's error. The clients
+// are handed nil the way tryReturnConnSlow hands a connection: removed from
+// the list under the lock, then sent to outside it.
+func (wl *waitlist[C]) seal() {
+	wl.mu.Lock()
+	wl.sealed = true
+	var woken []*list.Element[waiter[C]]
+	for e := wl.list.Front(); e != nil; {
+		next := e.Next()
+		wl.list.Remove(e)
+		woken = append(woken, e)
+		e = next
+	}
+	wl.mu.Unlock()
+	for _, e := range woken {
+		e.Value.conn <- nil
+	}
+}
+
+// unseal lets clients queue again.
+func (wl *waitlist[C]) unseal() {
+	wl.mu.Lock()
+	wl.sealed = false
+	wl.mu.Unlock()
 }
 
 func (wl *waitlist[C]) init() {

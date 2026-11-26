@@ -435,6 +435,24 @@ func (c *Conn) Kill(ctx context.Context) error {
 	return err
 }
 
+// KillAndWait terminates this connection's backend process and waits up to
+// timeout for it to exit. It returns nil only once the backend is gone; an
+// error means it may still be running.
+func (c *Conn) KillAndWait(ctx context.Context, timeout time.Duration) error {
+	if c.adminPool == nil {
+		return errors.New("cannot kill connection: admin pool not configured")
+	}
+	pid := c.ProcessID()
+	gone, err := c.adminPool.TerminateBackendAndWait(ctx, pid, timeout)
+	if err != nil {
+		return err
+	}
+	if !gone {
+		return fmt.Errorf("backend %d did not exit within %v", pid, timeout)
+	}
+	return nil
+}
+
 // --- Underlying connection access ---
 
 // RawConn returns the underlying client.Conn.

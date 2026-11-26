@@ -144,7 +144,7 @@ func TestFenceDrain_WaitsForAdmittedRequests(t *testing.T) {
 
 	single.Done()
 	require.NoError(t, requireReturns(t, done, "the fence drain"))
-	assert.Zero(t, mock.closeReservedCallCount())
+	assert.Zero(t, mock.killCallCount())
 }
 
 // The not-serving drain waits for admitted requests the same way.

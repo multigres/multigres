@@ -368,7 +368,13 @@ func (pm *MultipoolerManager) drainForMigrationImport(ctx context.Context) error
 		return err
 	}
 	defer pm.actionLock.Release(lockCtx)
-	return pm.stateManager.ForceMigrationHold(lockCtx)
+	if err := pm.stateManager.ForceMigrationHold(lockCtx); err != nil {
+		return err
+	}
+	// The drain must have ended every write admitted before it: a failed
+	// drain is retried here, and its error fails the barrier, so the
+	// coordinator retries before touching target tables.
+	return pm.qsc.EnsureDrained(lockCtx)
 }
 
 // releaseForMigrationExport is the synchronous serving flip the migration

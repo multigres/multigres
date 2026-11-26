@@ -476,7 +476,11 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 	if ov.qsc != nil {
 		pm.qsc = ov.qsc
 	} else {
-		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multipooler.Id, multipooler.GetShardRef().GetTableGroup(), multipooler.GetShardRef().GetShard(), pm, drainGracePeriod, config.BackendVpidTrackingEnabled)
+		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multipooler.Id, multipooler.GetShardRef().GetTableGroup(), multipooler.GetShardRef().GetShard(), pm, drainGracePeriod, config.BackendVpidTrackingEnabled,
+			// An unmanaged pooler's database is not Multigres's: its drains
+			// end the work left without killing backends (see poolerserver
+			// drain.go).
+			!unmanaged)
 	}
 	// Armed before anything is served, so a primary admits no application
 	// work until it has read its fences (see fence_refresh.go).

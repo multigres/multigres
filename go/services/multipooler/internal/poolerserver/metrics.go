@@ -65,7 +65,7 @@ func newDrainStats() *drainStats {
 
 	s.forceClosed, err = s.meter.Int64Counter(
 		"mg.pooler.drain.force_closed",
-		metric.WithDescription("Reserved connections force-closed because drain exceeded the grace period"),
+		metric.WithDescription("Lent connections terminated because a drain ran out of time"),
 		metric.WithUnit("{connection}"),
 	)
 	if err != nil {
@@ -81,6 +81,9 @@ const (
 	// drainOutcomeCancelled: a fence drain was cancelled before it ended, by
 	// an unfence or a change of the pooler's role (see fence_gate.go).
 	drainOutcomeCancelled = "cancelled"
+	// drainOutcomeFailed: a drain ran out of time and could not end the work
+	// left (see drain.go); the pools stay sealed.
+	drainOutcomeFailed = "failed"
 )
 
 // Drain reasons, the reason attribute of every drain metric: the not-serving

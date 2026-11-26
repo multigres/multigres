@@ -596,8 +596,26 @@ func (p *Pool) ForEachActive(fn func(connID int64, rc *Conn) bool) {
 	}
 }
 
-// KillAllForDrain force-closes active reserved connections when a not-serving
-// transition's drain grace period expires, returning the number closed.
+// Seal stops the pool from making reserved connections until Unseal: a new
+// reservation fails with err (see connpool.Pool.Seal). The reserved
+// connections already made are not affected; KillAllForDrain ends them.
+func (p *Pool) Seal(err error) {
+	p.conns.Seal(err)
+}
+
+// Unseal lets a sealed pool make reserved connections again.
+func (p *Pool) Unseal() {
+	p.conns.Unseal()
+}
+
+// KillAllForDrain ends a drain's reserved connections: it terminates the
+// backend of every active reserved connection except the logical-replication
+// tunnels, waits up to timeout for each to exit, and returns how many it
+// killed and an error if any backend may still be running. A connection is
+// released, and leaves the drain's accounting, only once its backend is
+// confirmed gone: one whose kill is not confirmed stays reserved and counted,
+// so the drain fails and a retry kills it again. Once ctx ends it kills no
+// more, and a connection it has not reached stays reserved.
 //
 // Logical-replication streaming tunnels are deliberately preserved: once
 // streaming, such a tunnel is a read-only WAL walsender that cannot write to
@@ -605,10 +623,9 @@ func (p *Pool) ForEachActive(fn func(connID int64, rc *Conn) bool) {
 // subscriber-mode target, has no reason to sever it. Killing it here
 // deadlocked migration DEACTIVATE: the drain cut the reverse stream and the
 // migration drain barrier then waited forever for it. These tunnels are also
-// excluded from the drain counter, so this backstop only matters when another
-// reserved connection forces the timeout. Process shutdown closes every
-// connection via Close(), not through this path.
-func (p *Pool) KillAllForDrain(ctx context.Context) int {
+// excluded from the drain counter. Process shutdown closes every connection
+// via Close(), not through this path.
+func (p *Pool) KillAllForDrain(ctx context.Context, timeout time.Duration) (int, error) {
 	p.mu.Lock()
 	ids := make([]int64, 0, len(p.active))
 	for id, rc := range p.active {
@@ -619,14 +636,24 @@ func (p *Pool) KillAllForDrain(ctx context.Context) int {
 	}
 	p.mu.Unlock()
 
-	for _, connID := range ids {
-		if err := p.KillConnection(ctx, connID); err != nil {
-			p.logger.WarnContext(ctx, "failed to kill connection during drain",
-				"conn_id", connID, "error", err)
+	return regular.RunKills(ctx, len(ids), func(ctx context.Context, i int) error {
+		p.mu.Lock()
+		rc, ok := p.active[ids[i]]
+		p.mu.Unlock()
+		if !ok {
+			// Released since: nothing runs on it any more.
+			return nil
 		}
-	}
-
-	return len(ids)
+		if err := rc.pooled.Conn.KillAndWait(ctx, timeout); err != nil {
+			// The backend may still be running: keep the connection
+			// reserved, and counted, rather than lose track of it.
+			return err
+		}
+		rc.pooled.Taint()
+		rc.Release(ReleaseKill, nil)
+		p.logger.InfoContext(ctx, "connection killed for drain", "conn_id", ids[i])
+		return nil
+	})
 }
 
 // KillTimedOut kills all connections that have exceeded their timeout.

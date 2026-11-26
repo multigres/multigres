@@ -65,6 +65,11 @@ type PoolerController interface {
 	// ends an admitted request with Admission.Done.
 	StartRequest(target *query.Target, kind RequestKind) (Admission, error)
 
+	// EnsureDrained returns nil once a pooler that is not serving is drained,
+	// running its not-serving drain again if the last one could not end the
+	// work left; ErrDrainIncomplete if it still cannot. See pooler.go.
+	EnsureDrained(ctx context.Context) error
+
 	// EnableFenceGate arms the admission fence gate: a primary refuses new
 	// application work with MTF02 until a fence read is applied, and again
 	// after each promotion. See fence_gate.go.

@@ -17,6 +17,7 @@ package admin
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/connpool"
@@ -89,6 +90,19 @@ func (p *Pool) TerminateBackend(ctx context.Context, processID uint32) (bool, er
 	defer pooled.Recycle()
 
 	return pooled.Conn.TerminateBackend(ctx, processID)
+}
+
+// TerminateBackendAndWait terminates a backend process and reports whether it
+// is gone (see Conn.TerminateBackendAndWait). This is a convenience method
+// that handles getting/returning connections.
+func (p *Pool) TerminateBackendAndWait(ctx context.Context, processID uint32, timeout time.Duration) (bool, error) {
+	pooled, err := p.pool.Get(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer pooled.Recycle()
+
+	return pooled.Conn.TerminateBackendAndWait(ctx, processID, timeout)
 }
 
 // CancelBackend cancels the current query on a backend process using pg_cancel_backend().

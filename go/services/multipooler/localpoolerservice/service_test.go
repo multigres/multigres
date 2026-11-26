@@ -150,7 +150,7 @@ func (f *fakeHealthProvider) SubscribeHealth(ctx context.Context) (*poolerserver
 func newRegisteredServer(t *testing.T) (*Server, *fakeHealthProvider) {
 	t.Helper()
 	hp := &fakeHealthProvider{updates: make(chan *poolerserver.HealthState)}
-	p := poolerserver.NewQueryPoolerServer(slog.New(slog.DiscardHandler), nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", hp, 0, false)
+	p := poolerserver.NewQueryPoolerServer(slog.New(slog.DiscardHandler), nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", hp, 0, false, true)
 	s := NewServer()
 	s.register(p)
 	return s, hp
@@ -478,7 +478,7 @@ func (f failingReplPoolManager) NewLogicalReplicationConn(context.Context, strin
 // newServingServer registers a server whose pooler is SERVING with pm.
 func newServingServer(t *testing.T, pm connpoolmanager.PoolManager) *Server {
 	t.Helper()
-	p := poolerserver.NewQueryPoolerServer(slog.New(slog.DiscardHandler), pm, &clustermetadatapb.ID{Name: "p"}, "", "", nil, 0, false)
+	p := poolerserver.NewQueryPoolerServer(slog.New(slog.DiscardHandler), pm, &clustermetadatapb.ID{Name: "p"}, "", "", nil, 0, false, true)
 	require.NoError(t, p.OnStateChange(t.Context(), servingstate.State{
 		Routing:       servingstate.RoutingState{Role: servingstate.RoutingRoleReplica},
 		ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,
@@ -533,7 +533,7 @@ func TestServer_StreamReplicationInvalidInit(t *testing.T) {
 func TestServer_StreamReplicationAdmissionRejected(t *testing.T) {
 	pm := newStalledReplPoolManager(nil)
 	// The pooler starts NOT_SERVING.
-	p := poolerserver.NewQueryPoolerServer(slog.New(slog.DiscardHandler), pm, &clustermetadatapb.ID{Name: "p"}, "", "", nil, 0, false)
+	p := poolerserver.NewQueryPoolerServer(slog.New(slog.DiscardHandler), pm, &clustermetadatapb.ID{Name: "p"}, "", "", nil, 0, false, true)
 	s := NewServer()
 	s.register(p)
 

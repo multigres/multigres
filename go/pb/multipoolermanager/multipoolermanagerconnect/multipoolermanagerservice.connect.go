@@ -223,8 +223,12 @@ type MultipoolerManagerClient interface {
 	// first the open transactions finish while single queries continue, then
 	// single queries stop too and the in-flight ones finish. Each stage also
 	// waits for requests admitted before it that hold no connection yet. The
-	// call returns once the drain completes; at drain_timeout the remaining
-	// reserved connections are force-closed and their transactions get 40001.
+	// call returns once the drain completes. At drain_timeout the pooler ends
+	// the work left: it stops lending connections, terminates the backends
+	// still lent (their transactions get 40001) and confirms each exited, then
+	// waits until nothing admitted is left; an unmanaged pooler only waits. If
+	// it cannot, the call fails with UNAVAILABLE and the pooler stays closed to
+	// new work; a later call drains again. So success means drained.
 	// A call that finds a drain already running waits for that drain instead,
 	// bounded by its own deadline. A read that finds no fence on the scope
 	// reopens the gate, cancelling a running drain. A refresh that changes
@@ -703,8 +707,12 @@ type MultipoolerManagerHandler interface {
 	// first the open transactions finish while single queries continue, then
 	// single queries stop too and the in-flight ones finish. Each stage also
 	// waits for requests admitted before it that hold no connection yet. The
-	// call returns once the drain completes; at drain_timeout the remaining
-	// reserved connections are force-closed and their transactions get 40001.
+	// call returns once the drain completes. At drain_timeout the pooler ends
+	// the work left: it stops lending connections, terminates the backends
+	// still lent (their transactions get 40001) and confirms each exited, then
+	// waits until nothing admitted is left; an unmanaged pooler only waits. If
+	// it cannot, the call fails with UNAVAILABLE and the pooler stays closed to
+	// new work; a later call drains again. So success means drained.
 	// A call that finds a drain already running waits for that drain instead,
 	// bounded by its own deadline. A read that finds no fence on the scope
 	// reopens the gate, cancelling a running drain. A refresh that changes
