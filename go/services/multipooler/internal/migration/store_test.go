@@ -848,3 +848,38 @@ func TestStoreConnectionQueriesReportAMissingConnectionsTable(t *testing.T) {
 		require.NotErrorIs(t, err, ErrNoConnectionsTable)
 	})
 }
+
+// TestEnsureSchemaTagsPrerequisiteFailures: a failure creating the tables the
+// migrations live in is an ErrSchemaPrerequisite, with its text and cause
+// intact; a failure in the stat_migration view or its grant is not, because
+// the migrations can still be reconciled without them.
+func TestEnsureSchemaTagsPrerequisiteFailures(t *testing.T) {
+	boom := errors.New("boom")
+	for _, tc := range []struct {
+		name         string
+		failingQuery string
+		prerequisite bool
+	}{
+		{"migration table", CreateMigrationSQL, true},
+		{"journal table", CreateMigrationJournalSQL, true},
+		{"connections probe", connectionsPresentSQL, true},
+		{"foreign key", AddConnectionForeignKeySQL, false},
+		{"status view", CreateStatMigrationViewSQL, false},
+		{"status grant", GrantStatMigrationSQL, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			qs := &fakeQS{
+				scriptedResults: map[string]*sqltypes.Result{
+					shardref.CheckLegacyTypeSQL: noLegacyShardRefResult(),
+					connectionsPresentSQL:       boolResult(true),
+				},
+				scriptedErrs: map[string]error{tc.failingQuery: boom},
+			}
+			err := NewStore(qs).EnsureSchema(context.Background())
+			require.ErrorIs(t, err, boom)
+			require.Equal(t, tc.prerequisite, errors.Is(err, ErrSchemaPrerequisite))
+			require.Contains(t, err.Error(), "ensure migration schema")
+			require.NotContains(t, err.Error(), ErrSchemaPrerequisite.Error(), "the tag does not change the text")
+		})
+	}
+}

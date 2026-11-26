@@ -85,7 +85,7 @@ func TestRunMigrationReconcile(t *testing.T) {
 				if tt.wantReconcile == 0 {
 					assert.Nil(t, pm.migrationCoord, "ineligible ticks must not create a coordinator")
 				} else {
-					assert.Contains(t, logs.String(), "migration reconcile failed")
+					assert.Contains(t, logs.String(), "migration reconcile pass failed")
 					assert.Contains(t, logs.String(), "migration load unavailable")
 				}
 			})

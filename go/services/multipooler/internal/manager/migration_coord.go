@@ -18,6 +18,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -147,7 +149,9 @@ func (pm *MultipoolerManager) MigrationCoordinatorIfPrimary(ctx context.Context)
 	if coord == nil {
 		return nil, errors.New("migration coordinator not available: query service not open")
 	}
-	pm.ensureMigrationSchema(ctx, coord)
+	// A schema failure is reported by the reconcile poller. The operation that
+	// follows fails on its own if the tables it needs are missing.
+	_ = pm.ensureMigrationSchema(ctx, coord)
 	return coord, nil
 }
 
@@ -164,6 +168,7 @@ func (pm *MultipoolerManager) forgetMigrationState() {
 	coord := pm.migrationCoord
 	pm.migrationSchemaEnsured = false
 	pm.mu.Unlock()
+	pm.migrationReconcileLog.reset()
 	if coord != nil {
 		coord.ForgetCachedMigrations()
 	}
@@ -182,22 +187,25 @@ func (pm *MultipoolerManager) forgetMigrationState() {
 // ensured. On the catalog shard it means the catalog ensure has not completed
 // (it failed or timed out when the pooler opened), so it is retried on the next
 // call rather than leaving stat_migration uncreated until a restart.
-func (pm *MultipoolerManager) ensureMigrationSchema(ctx context.Context, coord *migration.Coordinator) {
+//
+// It returns the EnsureSchema failure, if any, and logs nothing: the reconcile
+// poller reports it once per change.
+func (pm *MultipoolerManager) ensureMigrationSchema(ctx context.Context, coord *migration.Coordinator) error {
 	pm.mu.Lock()
 	ensured := pm.migrationSchemaEnsured
 	pm.mu.Unlock()
 	if ensured {
-		return
+		return nil
 	}
 	if err := coord.EnsureSchema(ctx); err != nil {
 		if !errors.Is(err, migration.ErrNoConnectionsTable) || pm.isCatalogShard() {
-			pm.logger.WarnContext(ctx, "ensure migration schema failed", "error", err)
-			return // not marked ensured; retried on next call
+			return err // not marked ensured; retried on next call
 		}
 	}
 	pm.mu.Lock()
 	pm.migrationSchemaEnsured = true
 	pm.mu.Unlock()
+	return nil
 }
 
 // migrationHoldState is the three-state result of resolving the migration
@@ -398,11 +406,102 @@ func (pm *MultipoolerManager) releaseForMigrationExport(ctx context.Context) err
 	return pm.stateManager.ReconcileMigrationHold(lockCtx, pm.migrationServingHold())
 }
 
-// runMigrationReconcile is the reconcile poller. Each tick, if this pooler is
-// the primary of the catalog shard, it advances in-flight migrations and
-// resumes coordination, which is what picks a migration up on a newly promoted
-// primary. On a standby every tick is a cheap no-op, and it does nothing off the
-// catalog shard, where migrations are not supported.
+// errMigrationCoordinatorNotReady means the query service is not up yet, so
+// the tick is skipped without touching the poller's error history.
+var errMigrationCoordinatorNotReady = errors.New("migration coordinator not ready")
+
+// runMigrationReconcileOnce is one tick of the reconcile poller. If this
+// pooler is the primary of the catalog shard it ensures the migration schema
+// and advances in-flight migrations, which is what picks a migration up on a
+// newly promoted primary. It does nothing off the catalog shard, where
+// migrations are not supported, and returns a role mismatch on a standby.
+//
+// It logs nothing. The error covers everything that went wrong in the tick,
+// and the results are the per-migration outcomes of a successful listing. A
+// failure to create the tables the migrations live in ends the tick; any
+// other schema failure is reported alongside the reconcile.
+func (pm *MultipoolerManager) runMigrationReconcileOnce(ctx context.Context) (map[int64]migration.ReconcileResult, error) {
+	if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+		return nil, err
+	}
+	coord := pm.migrationCoordinator()
+	if coord == nil {
+		return nil, errMigrationCoordinatorNotReady
+	}
+
+	schemaErr := pm.ensureMigrationSchema(ctx, coord)
+	if errors.Is(schemaErr, migration.ErrSchemaPrerequisite) {
+		return nil, schemaErr
+	}
+	if !pm.isCatalogShard() {
+		// Migrations run on the catalog shard: their connections live in
+		// multigres.connections, which exists there only.
+		return nil, schemaErr
+	}
+	results, listErr := coord.Reconcile(ctx)
+	return results, errors.Join(schemaErr, listErr)
+}
+
+// migrationReconcileLog remembers what the reconcile poller last reported, so
+// a failure that persists across ticks is logged once when it starts or
+// changes, and once at info when it clears. It is reset on promotion so a
+// failure that outlives a primary tenure logs afresh in the next one.
+type migrationReconcileLog struct {
+	mu          sync.Mutex
+	lastErr     string
+	lastResults map[int64]migration.ReconcileResult
+}
+
+func (l *migrationReconcileLog) reset() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lastErr, l.lastResults = "", nil
+}
+
+// report logs the outcome of one tick. A tick that was skipped because the
+// coordinator is not ready leaves the history alone, and a role mismatch ends
+// the tenure, so it resets it.
+func (l *migrationReconcileLog) report(ctx context.Context, logger *slog.Logger, results map[int64]migration.ReconcileResult, err error) {
+	if errors.Is(err, errMigrationCoordinatorNotReady) {
+		return
+	}
+	if isRoleMismatch(err) {
+		l.reset()
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	msg := errString(err)
+	switch {
+	case msg != "" && msg != l.lastErr:
+		logger.WarnContext(ctx, "migration reconcile pass failed",
+			"operation", "migration_reconcile", "error", err)
+	case msg == "" && l.lastErr != "":
+		logger.InfoContext(ctx, "migration reconcile pass succeeded again")
+	}
+	l.lastErr = msg
+
+	if results == nil {
+		return // nothing was listed this tick
+	}
+	for id, result := range results {
+		prev := l.lastResults[id]
+		switch {
+		case result.Err != nil && (prev.Err == nil ||
+			prev.Phase != result.Phase || errString(prev.Err) != errString(result.Err)):
+			logger.WarnContext(ctx, "reconcile migration failed",
+				"migration", id, "phase", result.Phase, "error", result.Err)
+		case result.Err == nil && prev.Err != nil:
+			logger.InfoContext(ctx, "reconcile migration succeeded again",
+				"migration", id, "phase", result.Phase)
+		}
+	}
+	l.lastResults = results
+}
+
+// runMigrationReconcile is the reconcile poller: it runs a tick on every
+// interval and logs what changed since the last one.
 func (pm *MultipoolerManager) runMigrationReconcile(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -411,28 +510,8 @@ func (pm *MultipoolerManager) runMigrationReconcile(ctx context.Context, interva
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := pm.checkPrimaryGuardrails(ctx); err != nil {
-				// A role mismatch is an expected timer skip. A failed probe
-				// must remain visible rather than looking like a standby.
-				if !isRoleMismatch(err) {
-					pm.logger.ErrorContext(ctx, "failed to check recovery status for migration reconcile",
-						"operation", "migration_reconcile", "error", err)
-				}
-				continue
-			}
-			coord := pm.migrationCoordinator()
-			if coord == nil {
-				continue // query service not ready
-			}
-			pm.ensureMigrationSchema(ctx, coord)
-			if !pm.isCatalogShard() {
-				// Migrations run on the catalog shard: their connections live in
-				// multigres.connections, which exists there only.
-				continue
-			}
-			if err := coord.Reconcile(ctx); err != nil {
-				pm.logger.WarnContext(ctx, "migration reconcile failed", "error", err)
-			}
 		}
+		results, err := pm.runMigrationReconcileOnce(ctx)
+		pm.migrationReconcileLog.report(ctx, pm.logger, results, err)
 	}
 }

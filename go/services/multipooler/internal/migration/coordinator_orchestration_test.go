@@ -1289,7 +1289,8 @@ func TestActivate_ExportGrantsBackOnTeardown(t *testing.T) {
 	tc := newTestCoord(t)
 	// A fenced EXPORT migration torn down (COMPLETING resume) must restore CONNECT.
 	tc.seed(&Migration{Phase: PhaseCompleting, Direction: DirectionExport, QuiesceRoles: []string{"app"}, QuiesceRolesHadConnect: map[string]bool{"app": true}})
-	require.NoError(t, tc.c.Reconcile(context.Background()))
+	_, err := tc.c.Reconcile(context.Background())
+	require.NoError(t, err)
 	require.Contains(t, tc.log, "source.GrantConnect", "EXPORT teardown restores app CONNECT on the standalone source")
 }
 
@@ -1297,7 +1298,8 @@ func TestReconcile_CopyingToImporting(t *testing.T) {
 	tc := newTestCoord(t)
 	tc.seed(&Migration{Phase: PhaseCopying})
 	tc.tgt.status = &SubscriptionStatus{TotalRelations: 2, ReadyRelations: 2}
-	require.NoError(t, tc.c.Reconcile(context.Background()))
+	_, err := tc.c.Reconcile(context.Background())
+	require.NoError(t, err)
 	require.Equal(t, PhaseImporting, tc.store.migs[testMigID].Phase)
 	require.NotNil(t, tc.store.migs[testMigID].StreamingSince)
 }
@@ -1305,7 +1307,8 @@ func TestReconcile_CopyingToImporting(t *testing.T) {
 func TestReconcile_CompletingFinishesTeardown(t *testing.T) {
 	tc := newTestCoord(t)
 	tc.seed(&Migration{Phase: PhaseCompleting, Direction: DirectionExport})
-	require.NoError(t, tc.c.Reconcile(context.Background()))
+	_, err := tc.c.Reconcile(context.Background())
+	require.NoError(t, err)
 	require.Equal(t, []int64{testMigID}, tc.store.deletes)
 	require.Contains(t, tc.log, "target.DropPublication", "EXPORT teardown drops the target publication")
 }
@@ -1315,7 +1318,8 @@ func TestReconcile_ExportingReestablishesReverseLink(t *testing.T) {
 	tc.seed(&Migration{Phase: PhaseExporting})
 	tc.src.subExists = false // reverse subscription missing -> reconcile must recreate it
 	tc.tgt.slotReady = true  // the slot itself is fine; only the attach is missing
-	require.NoError(t, tc.c.Reconcile(context.Background()))
+	_, err := tc.c.Reconcile(context.Background())
+	require.NoError(t, err)
 	require.Contains(t, tc.log, "source.CreateSubscription")
 	require.NotContains(t, tc.log, "target.CreateLogicalSlot", "a ready slot must not be recreated, just attached to")
 }
@@ -1324,7 +1328,8 @@ func TestReconcile_SwitchingToExportResumes(t *testing.T) {
 	tc := newTestCoord(t)
 	tc.seed(&Migration{Phase: PhaseSwitchingToExport})
 	tc.tgt.subExists = true // pre-switch import link still live
-	require.NoError(t, tc.c.Reconcile(context.Background()))
+	_, err := tc.c.Reconcile(context.Background())
+	require.NoError(t, err)
 	require.Equal(t, PhaseExporting, tc.store.migs[testMigID].Phase, "an interrupted switch must roll forward to EXPORTING")
 }
 

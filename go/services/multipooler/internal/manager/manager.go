@@ -266,6 +266,10 @@ type MultipoolerManager struct {
 	migrationCoord         *migration.Coordinator
 	migrationSchemaEnsured bool
 
+	// migrationReconcileLog is what the reconcile poller last logged. It locks
+	// internally.
+	migrationReconcileLog migrationReconcileLog
+
 	// connectionDir replaces the sharding catalog as the directory of backing connections
 	// the default primary serves. Nil outside tests.
 	connectionDir connectionDirectory
