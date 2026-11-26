@@ -299,3 +299,34 @@ func TestEnsureDrained(t *testing.T) {
 	assert.False(t, mock.isSealed(), "the drain ended the work: the pools unseal")
 	assert.False(t, s.IsServing())
 }
+
+// A not-serving drain whose context ends first did not drain the pooler,
+// though the transition completes and it holds no seal: EnsureDrained drains
+// again rather than report the pooler drained.
+func TestEnsureDrained_AfterACancelledDrain(t *testing.T) {
+	mock := newDrainMockPoolManager()
+	s := newTestPoolerWithDrain(mock)
+	s.gracePeriod = 5 * time.Second
+	require.NoError(t, s.OnStateChange(t.Context(), serving(servingstate.RoutingRolePrimary)))
+	mock.reservedAdd(1) // a transaction still open
+
+	ctx, cancel := context.WithCancel(t.Context())
+	time.AfterFunc(50*time.Millisecond, cancel)
+	require.NoError(t, s.OnStateChange(ctx, disabled(servingstate.RoutingRolePrimary)))
+	require.False(t, s.IsServing(), "the transition completes")
+	require.False(t, mock.isSealed(), "a cancelled drain holds no seal")
+
+	s.gracePeriod = 20 * time.Millisecond
+	mock.mu.Lock()
+	mock.killErr = errors.New("backend 42 did not exit within 50ms")
+	mock.mu.Unlock()
+	requireDrainIncomplete(t, s.EnsureDrained(t.Context()))
+
+	mock.mu.Lock()
+	mock.killErr = nil
+	mock.onKill = endLent
+	mock.mu.Unlock()
+	require.NoError(t, s.EnsureDrained(t.Context()))
+	require.NoError(t, s.EnsureDrained(t.Context()), "drained: nothing to do")
+	assert.Equal(t, 2, mock.killCallCount(), "the cancelled drain killed nothing; each EnsureDrained drain did")
+}

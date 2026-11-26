@@ -365,7 +365,16 @@ counts as gone only if `pg_stat_activity` no longer lists it. An error, or a
 backend still listed, is an unconfirmed kill. Up to 16 kills run at once.
 
 - **Reserved connections** are found in the reserved pool's active set.
-  Logical-replication tunnels are kept (see above).
+  Logical-replication tunnels are kept (see above). A reserved connection is
+  released, and leaves the drain's accounting, only once its backend is
+  confirmed gone; one whose kill is not confirmed stays reserved and counted,
+  so the drain fails and a retry kills it again.
+- **Regular connections** are found through the pool's record of the
+  connections it has dialed (`connpool.Pool.OpenConns`). The record is
+  written when a connection is dialed and pruned of closed ones lazily, so
+  lending and returning a connection cost nothing extra. A sealed pool
+  keeps no connection idle, so its open connections are the lent ones.
+- Killed transactions surface `40001`.
 - **Regular connections** are found through the pool's record of the
   connections it has dialed (`connpool.Pool.OpenConns`). The record is
   written when a connection is dialed and pruned of closed ones lazily, so

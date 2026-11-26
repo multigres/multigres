@@ -611,8 +611,11 @@ func (p *Pool) Unseal() {
 // KillAllForDrain ends a drain's reserved connections: it terminates the
 // backend of every active reserved connection except the logical-replication
 // tunnels, waits up to timeout for each to exit, and returns how many it
-// killed and an error if any backend may still be running. Once ctx ends it
-// kills no more, and a connection it has not reached stays reserved.
+// killed and an error if any backend may still be running. A connection is
+// released, and leaves the drain's accounting, only once its backend is
+// confirmed gone: one whose kill is not confirmed stays reserved and counted,
+// so the drain fails and a retry kills it again. Once ctx ends it kills no
+// more, and a connection it has not reached stays reserved.
 //
 // Logical-replication streaming tunnels are deliberately preserved: once
 // streaming, such a tunnel is a read-only WAL walsender that cannot write to
@@ -636,19 +639,20 @@ func (p *Pool) KillAllForDrain(ctx context.Context, timeout time.Duration) (int,
 	return regular.RunKills(ctx, len(ids), func(ctx context.Context, i int) error {
 		p.mu.Lock()
 		rc, ok := p.active[ids[i]]
-		if ok {
-			delete(p.active, ids[i])
-		}
 		p.mu.Unlock()
 		if !ok {
 			// Released since: nothing runs on it any more.
 			return nil
 		}
-		err := rc.pooled.Conn.KillAndWait(ctx, timeout)
+		if err := rc.pooled.Conn.KillAndWait(ctx, timeout); err != nil {
+			// The backend may still be running: keep the connection
+			// reserved, and counted, rather than lose track of it.
+			return err
+		}
 		rc.pooled.Taint()
 		rc.Release(ReleaseKill, nil)
 		p.logger.InfoContext(ctx, "connection killed for drain", "conn_id", ids[i])
-		return err
+		return nil
 	})
 }
 

@@ -379,24 +379,25 @@ func TestServingDrainPreservesLogicalReplicationTunnel(t *testing.T) {
 	assert.Equal(t, int64(1), reserveCalls.Load(),
 		"OnReserve must fire for the normal reserved conn but not the logical-replication tunnel")
 
-	// The serving-drain force-close kills the normal conn and preserves the
-	// tunnel. With no admin pool here the kill cannot be confirmed, so it
-	// fails, but the connection is still taken from the pool and ended.
+	// The drain's kill goes for the normal conn only, never the tunnel. With
+	// no admin pool here the kill cannot be confirmed, so the drain fails and
+	// the normal conn stays reserved and counted: it is released only once its
+	// backend is confirmed gone.
 	killed, err := pool.KillAllForDrain(context.Background(), time.Second)
-	assert.Equal(t, 1, killed, "only the normal reserved conn should be force-closed")
+	assert.Equal(t, 1, killed, "only the normal reserved conn is a kill target")
 	assert.ErrorContains(t, err, "admin pool not configured")
 
 	stats := pool.Stats()
-	assert.Equal(t, 1, stats.Active, "the logical-replication tunnel must survive the drain")
+	assert.Equal(t, 2, stats.Active, "an unconfirmed kill keeps the normal conn reserved; the tunnel survives")
 	assert.Equal(t, 1, stats.LogicalReplicationActive)
+	assert.Zero(t, releaseCalls.Load(), "an unconfirmed kill releases nothing, so the drain still counts it")
+	_, ok := pool.Get(normal.ConnID())
+	assert.True(t, ok)
 
-	// The counter stays balanced: OnRelease fired for the killed normal conn only.
-	assert.Equal(t, int64(1), releaseCalls.Load(),
-		"OnRelease must fire for the killed normal conn, not the exempt tunnel")
-
-	// Releasing the exempt tunnel must also skip the counter (symmetry), netting to zero.
+	// The counter stays balanced: OnRelease fires for the normal conn only.
+	normal.Release(ReleaseError, nil)
+	assert.Equal(t, int64(1), releaseCalls.Load())
 	tunnel.Release(ReleaseError, nil)
 	assert.Equal(t, int64(1), releaseCalls.Load(),
 		"releasing the exempt tunnel must not fire OnRelease")
-	_ = normal
 }

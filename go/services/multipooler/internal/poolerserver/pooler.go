@@ -88,6 +88,12 @@ type QueryPoolerServer struct {
 	// notServingSeal is the not-serving drain's hold on the pool seal. A
 	// not-serving drain that failed keeps it until the pooler serves again.
 	notServingSeal bool
+	// notServingDrainIncomplete is set when the last not-serving drain did
+	// not drain the pooler: it failed, or its context ended first. It is
+	// cleared by a not-serving drain that succeeds, and when the pooler
+	// serves again. EnsureDrained drains again while it is set. Guarded by
+	// mu.
+	notServingDrainIncomplete bool
 
 	// killOnDrainTimeout is whether a drain that runs out of time terminates
 	// the backends still lent. It is false for an unmanaged pooler, whose
@@ -236,6 +242,7 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstat
 		s.setRoutingRoleLocked(routingRole)
 		s.servingStatus = servingStatus
 		s.drainPhase = drainNone
+		s.notServingDrainIncomplete = false
 		s.notifyStateChangedLocked()
 		s.mu.Unlock()
 		// A not-serving drain that failed kept the pools sealed until now.
@@ -273,26 +280,22 @@ func (s *QueryPoolerServer) OnStateChange(ctx context.Context, state servingstat
 
 // EnsureDrained returns nil once the pooler, not serving, is drained: nothing
 // admitted before its not-serving drain still runs or can start. If that drain
-// could not end the work left (it kept the pools sealed), EnsureDrained runs
-// it again, refusing everything from the start, and returns ErrDrainIncomplete
-// if it still cannot. A pooler that is serving, or whose drain succeeded,
-// returns nil at once. The IMPORT hold calls it after draining the pooler,
+// did not drain the pooler (it could not end the work left, or its context
+// ended first), EnsureDrained runs it again, refusing everything from the
+// start, and returns its error if it still does not drain: ErrDrainIncomplete,
+// or ctx's. A pooler that is serving, or whose drain succeeded, returns nil at
+// once. The IMPORT hold calls it after draining the pooler,
 // before it touches target tables. Serialized with OnStateChange by the
 // manager's action lock.
 func (s *QueryPoolerServer) EnsureDrained(ctx context.Context) error {
 	if s.poolManager == nil {
 		return nil
 	}
-	s.sealMu.Lock()
-	failed := s.notServingSeal
-	s.sealMu.Unlock()
-	if !failed {
-		return nil
-	}
 	s.mu.Lock()
-	serving, role := s.servingStatus == clustermetadatapb.PoolerServingStatus_SERVING, s.routingRole
+	drained := !s.notServingDrainIncomplete || s.servingStatus == clustermetadatapb.PoolerServingStatus_SERVING
+	role := s.routingRole
 	s.mu.Unlock()
-	if serving {
+	if drained {
 		return nil
 	}
 	// A pooler that is not serving refuses everything new whatever its drain
@@ -300,9 +303,10 @@ func (s *QueryPoolerServer) EnsureDrained(ctx context.Context) error {
 	return s.runNotServingDrain(ctx, role)
 }
 
-// runNotServingDrain runs the not-serving drain, recorded with role.
+// runNotServingDrain runs the not-serving drain, recorded with role, and
+// records whether it drained the pooler (notServingDrainIncomplete).
 func (s *QueryPoolerServer) runNotServingDrain(ctx context.Context, role servingstate.RoutingRole) error {
-	return s.runDrain(ctx, drainSpec{
+	err := s.runDrain(ctx, drainSpec{
 		reason:  drainReasonFailover,
 		role:    role,
 		timeout: s.gracePeriod,
@@ -310,6 +314,10 @@ func (s *QueryPoolerServer) runNotServingDrain(ctx context.Context, role serving
 		seal:    &s.notServingSeal,
 		refusal: mterrors.MTF01.New(),
 	})
+	s.mu.Lock()
+	s.notServingDrainIncomplete = err != nil
+	s.mu.Unlock()
+	return err
 }
 
 // StartRequest checks whether a request should be admitted, based on its

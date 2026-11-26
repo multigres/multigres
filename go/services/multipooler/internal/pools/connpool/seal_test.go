@@ -99,7 +99,7 @@ func TestPoolSealWakesWaiters(t *testing.T) {
 	pool.Unseal()
 }
 
-// A client already past Get's check when the pool is sealed gets no
+// A client already past the check in Get when the pool is sealed gets no
 // connection: the waitlist refuses to queue it.
 func TestWaitlistSealRefusesNewWaiters(t *testing.T) {
 	var wl waitlist[*mockConnection]
