@@ -375,12 +375,6 @@ backend still listed, is an unconfirmed kill. Up to 16 kills run at once.
   lending and returning a connection cost nothing extra. A sealed pool
   keeps no connection idle, so its open connections are the lent ones.
 - Killed transactions surface `40001`.
-- **Regular connections** are found through the pool's record of the
-  connections it has dialed (`connpool.Pool.OpenConns`). The record is
-  written when a connection is dialed and pruned of closed ones lazily, so
-  lending and returning a connection cost nothing extra. A sealed pool
-  keeps no connection idle, so its open connections are the lent ones.
-- Killed transactions surface `40001`.
 
 ### Unmanaged poolers
 
@@ -405,8 +399,10 @@ was for ends, or a later drain succeeds.
 - **The migration IMPORT hold** is the one caller that must know: it drops
   target tables next. After draining the pooler it calls `EnsureDrained`,
   which returns at once if the drain succeeded, and otherwise runs the drain
-  again, refusing everything from the start. If that still cannot end the
-  work it returns `ErrDrainIncomplete`, and the migration coordinator retries
+  again, refusing everything from the start. "Otherwise" includes a drain
+  whose caller's context ended first: it holds no seal, but it did not drain
+  the pooler either. If the drain still does not drain the pooler,
+  `EnsureDrained` returns its error, and the migration coordinator retries
   before touching the tables.
 - **Fence drain:** the gate stays draining, refusing all new work, and the
   next read that finds the fence drains again. See
