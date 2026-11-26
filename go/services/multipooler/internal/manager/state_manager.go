@@ -24,6 +24,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
+	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
@@ -59,7 +60,9 @@ type StateAware interface {
 // On Mutate, the manager fans out OnStateChange to all registered components
 // in parallel, waits for completion, then updates the record via Mutate. The
 // Mutate also schedules an asynchronous publish so callers cannot forget to
-// reflect the new state to etcd.
+// reflect the new state to etcd. A transition that makes this pooler a serving
+// primary first runs the beforeServingPrimary hook, and does not happen if it
+// fails.
 type StateManager struct {
 	mu     sync.Mutex
 	logger *slog.Logger
@@ -93,6 +96,22 @@ type StateManager struct {
 
 	// Registered components that react to state changes.
 	components []StateAware
+
+	// beforeServingPrimary, when set, runs in Mutate before the fan-out of
+	// every transition that makes this pooler a serving primary (see
+	// SetBeforeServingPrimary). Guarded by mu.
+	beforeServingPrimary func(ctx context.Context, target servingstate.State) error
+
+	// beforeServingPrimaryErr is the message of the last beforeServingPrimary
+	// failure logged, empty once the hook succeeds, so a failure the monitor
+	// retries on every tick is logged once per distinct error. Guarded by mu.
+	beforeServingPrimaryErr string
+}
+
+// isServingPrimary reports whether s is the writable primary, serving.
+func isServingPrimary(s servingstate.State) bool {
+	return s.Routing.Role == servingstate.RoutingRolePrimary &&
+		s.ServingStatus == clustermetadatapb.PoolerServingStatus_SERVING
 }
 
 // deriveRoutingState computes the full routing state (role + qualifying rule)
@@ -183,6 +202,49 @@ func (ssm *StateManager) RegisterAndSync(ctx context.Context, component StateAwa
 	})
 }
 
+// SetBeforeServingPrimary sets the hook Mutate runs before every transition
+// that makes this pooler a serving primary: a target of routing role PRIMARY
+// and SERVING when the last fan-out was not both, or none has happened yet.
+// It receives the target state, whose Routing.Rule is the consensus rule this
+// pooler is about to serve as the primary under.
+//
+// If the hook fails, Mutate returns the error before fanning out: no component
+// moves, and the last fanned-out state and the record stay as they were. The
+// monitor then still sees drift (hasDrift) and retries through fixDrift on its
+// next tick, until the hook succeeds. This makes the hook a step of becoming a
+// serving primary that every path to it goes through.
+//
+// The hook runs holding mu and the caller's action lock. Like a StateAware
+// handler it must not call Mutate, Recalc or anything that takes mu
+// (RoutingRole, RoutingState): read the rule from the target instead.
+// Must not be called concurrently with Mutate.
+func (ssm *StateManager) SetBeforeServingPrimary(fn func(ctx context.Context, target servingstate.State) error) {
+	ssm.mu.Lock()
+	defer ssm.mu.Unlock()
+	ssm.beforeServingPrimary = fn
+}
+
+// runBeforeServingPrimaryLocked runs the beforeServingPrimary hook when target
+// makes this pooler a serving primary. Caller must hold mu.
+func (ssm *StateManager) runBeforeServingPrimaryLocked(ctx context.Context, target servingstate.State) error {
+	if ssm.beforeServingPrimary == nil || !isServingPrimary(target) ||
+		(ssm.lastFannedOut != nil && isServingPrimary(*ssm.lastFannedOut)) {
+		return nil
+	}
+	if err := ssm.beforeServingPrimary(ctx, target); err != nil {
+		if msg := err.Error(); msg != ssm.beforeServingPrimaryErr {
+			ssm.beforeServingPrimaryErr = msg
+			ssm.logger.ErrorContext(ctx, "not serving as primary: preparing to serve failed; the monitor retries it", "error", err)
+		}
+		return mterrors.Wrap(err, "not serving as primary")
+	}
+	if ssm.beforeServingPrimaryErr != "" {
+		ssm.beforeServingPrimaryErr = ""
+		ssm.logger.InfoContext(ctx, "preparing to serve as primary succeeded after failing")
+	}
+	return nil
+}
+
 // Unregister removes a component so it receives no further state changes.
 // A component that is closed must be unregistered first: otherwise the next
 // fan-out calls its OnStateChange and can restart it. Holding mu also waits
@@ -267,6 +329,10 @@ type servingStateMutation struct {
 //
 // PoolerType is derived from the leadership observation, and the poolerRecord
 // enforces the Type ⇔ SelfLeadership invariant.
+//
+// A transition that makes this pooler a serving primary first runs the
+// beforeServingPrimary hook (see SetBeforeServingPrimary); if it fails, Mutate
+// returns its error and changes nothing.
 func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMutation)) error {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
 		return err
@@ -307,6 +373,13 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 		// component — leaving it stale could hand that component the wrong role.
 		ssm.pgMode = next.PostgresMode
 		return nil
+	}
+
+	// Before anything moves: a failed hook leaves the components, pgMode,
+	// lastFannedOut and the record as they were, so hasDrift still reports the
+	// drift and the monitor's fixDrift retries the transition.
+	if err := ssm.runBeforeServingPrimaryLocked(ctx, target); err != nil {
+		return err
 	}
 
 	// This point is only reached when the effective state actually changed (the
