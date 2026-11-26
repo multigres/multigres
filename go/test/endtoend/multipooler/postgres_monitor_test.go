@@ -206,10 +206,7 @@ func TestPostgresMonitor_FixesPrimaryConnInfoDrift(t *testing.T) {
 	}
 
 	setup := getSharedTestSetup(t)
-	// Use WithoutReplication so this test owns the SetPrimaryConnInfo call
-	// below — that's how we both establish replication AND populate the
-	// recorded ReplicationPrimary the monitor reads from.
-	setupPoolerTest(t, setup, WithoutReplication())
+	setupPoolerTest(t, setup)
 
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 
@@ -314,10 +311,7 @@ func TestPostgresMonitor_FixesMissingPassfileDrift(t *testing.T) {
 	}
 
 	setup := getSharedTestSetup(t)
-	// Use WithoutReplication so this test owns the SetPrimaryConnInfo call
-	// below — that's how we both establish replication AND populate the
-	// recorded ReplicationPrimary the monitor reads from.
-	setupPoolerTest(t, setup, WithoutReplication())
+	setupPoolerTest(t, setup)
 
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 

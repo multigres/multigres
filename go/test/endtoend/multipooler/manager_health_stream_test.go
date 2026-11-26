@@ -37,7 +37,7 @@ func TestManagerHealthStream_SnapshotOnSetPrimary(t *testing.T) {
 	}
 
 	setup := getSharedTestSetup(t)
-	setupPoolerTest(t, setup, WithoutReplication())
+	setupPoolerTest(t, setup)
 
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
 

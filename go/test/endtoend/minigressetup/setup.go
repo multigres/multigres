@@ -371,16 +371,15 @@ func (s *Setup) PoolerLogFile(t *testing.T) string {
 // SetupTest checks the clean state before a test and restores it afterwards.
 // Clean state: minigres and pgctld are running, PostgreSQL is out of recovery,
 // the pooler is PRIMARY and SERVING, and the baseline settings match. Minigres
-// has no replication, so WithoutReplication and WithPausedReplication fail the
-// test.
+// has no replication, so WithPausedReplication fails the test.
 func (s *Setup) SetupTest(t *testing.T, opts ...clustersetup.SetupTestOption) {
 	t.Helper()
 	cfg := &clustersetup.SetupTestConfig{}
 	for _, opt := range opts {
 		opt(cfg)
 	}
-	if cfg.NoReplication || cfg.PauseReplication {
-		t.Fatalf("SetupTest: replication options are not supported on Minigres (no replication)")
+	if cfg.PauseReplication {
+		t.Fatalf("SetupTest: WithPausedReplication is not supported on Minigres (no replication)")
 	}
 
 	s.checkProcesses(t)
