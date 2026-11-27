@@ -184,13 +184,20 @@ type MultipoolerManagerClient interface {
 	// snapshot below min_routing_version returns FAILED_PRECONDITION. A drain
 	// that is cancelled by a concurrent unfence or a change of the pooler's
 	// role is followed by a new read, whose result is returned.
+	//
+	// A primary pooler whose gate the call closed, or found closed, records
+	// that it is drained for each fence on its scope (AckFences) before it
+	// returns; if the catalog primary cannot record it, the call fails with
+	// UNAVAILABLE and the gate stays closed, for the caller to retry. Replicas
+	// record no ack.
 	RefreshFences(ctx context.Context, in *multipoolermanagerdata.RefreshFencesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RefreshFencesResponse, error)
 	// AckFences records that the sender's shard is drained for each fence: the
 	// sender is a routing-primary pooler whose fence gate closed after a drain,
-	// in the gate epoch in which it read the fences. Served only by the
-	// catalog primary; a pooler of the catalog shard that is not its elected
-	// primary answers UNAVAILABLE, for the sender to find the primary and ask
-	// again, and a pooler off the catalog shard answers FAILED_PRECONDITION.
+	// in the gate epoch in which it read the fences (see RefreshFences).
+	// Served only by the catalog primary; a pooler of the catalog shard that is
+	// not its elected primary answers UNAVAILABLE, for the sender to find the
+	// primary and ask again, and a pooler off the catalog shard answers
+	// FAILED_PRECONDITION.
 	//
 	// An ack replaces the one recorded for the same fence and shard. An ack of a
 	// fence that no longer exists is skipped. An ack whose shard is not in the
@@ -636,13 +643,20 @@ type MultipoolerManagerServer interface {
 	// snapshot below min_routing_version returns FAILED_PRECONDITION. A drain
 	// that is cancelled by a concurrent unfence or a change of the pooler's
 	// role is followed by a new read, whose result is returned.
+	//
+	// A primary pooler whose gate the call closed, or found closed, records
+	// that it is drained for each fence on its scope (AckFences) before it
+	// returns; if the catalog primary cannot record it, the call fails with
+	// UNAVAILABLE and the gate stays closed, for the caller to retry. Replicas
+	// record no ack.
 	RefreshFences(context.Context, *multipoolermanagerdata.RefreshFencesRequest) (*multipoolermanagerdata.RefreshFencesResponse, error)
 	// AckFences records that the sender's shard is drained for each fence: the
 	// sender is a routing-primary pooler whose fence gate closed after a drain,
-	// in the gate epoch in which it read the fences. Served only by the
-	// catalog primary; a pooler of the catalog shard that is not its elected
-	// primary answers UNAVAILABLE, for the sender to find the primary and ask
-	// again, and a pooler off the catalog shard answers FAILED_PRECONDITION.
+	// in the gate epoch in which it read the fences (see RefreshFences).
+	// Served only by the catalog primary; a pooler of the catalog shard that is
+	// not its elected primary answers UNAVAILABLE, for the sender to find the
+	// primary and ask again, and a pooler off the catalog shard answers
+	// FAILED_PRECONDITION.
 	//
 	// An ack replaces the one recorded for the same fence and shard. An ack of a
 	// fence that no longer exists is skipped. An ack whose shard is not in the

@@ -16,6 +16,7 @@ package poolerserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -548,4 +549,43 @@ func TestFenceDrainTimeout(t *testing.T) {
 	assert.Equal(t, s.gracePeriod, s.fenceDrainTimeout(0))
 	s.gracePeriod = 0
 	assert.Equal(t, defaultFenceDrainTimeout, s.fenceDrainTimeout(0))
+}
+
+// FenceClosedOnPrimary holds only for a primary whose gate closed after a
+// drain, in the epoch asked about.
+func TestFenceGate_FenceClosedOnPrimary(t *testing.T) {
+	t.Run("a primary drained in the epoch", func(t *testing.T) {
+		s := newFencedTestPooler(t, newDrainMockPoolManager(), servingstate.RoutingRolePrimary)
+		epoch := s.FenceEpoch()
+		assert.False(t, s.FenceClosedOnPrimary(epoch), "an unread gate")
+		applyFence(t, s, false)
+		assert.False(t, s.FenceClosedOnPrimary(epoch), "an open gate")
+		applyFence(t, s, true)
+		assert.True(t, s.FenceClosedOnPrimary(epoch), "a gate closed after its drain")
+		assert.False(t, s.FenceClosedOnPrimary(epoch-1), "another epoch")
+
+		// A demotion keeps the gate closed, but the pooler is no longer
+		// primary; becoming primary again starts a new epoch.
+		require.NoError(t, s.OnStateChange(t.Context(), servingState(servingstate.RoutingRoleReplica)))
+		assert.False(t, s.FenceClosedOnPrimary(epoch), "a replica")
+		require.NoError(t, s.OnStateChange(t.Context(), servingState(servingstate.RoutingRolePrimary)))
+		assert.NotEqual(t, epoch, s.FenceEpoch())
+		assert.False(t, s.FenceClosedOnPrimary(epoch), "the epoch before a promotion")
+		assert.False(t, s.FenceClosedOnPrimary(s.FenceEpoch()), "unread after the promotion")
+	})
+	t.Run("a replica's gate closes without a drain", func(t *testing.T) {
+		s := newFencedTestPooler(t, newDrainMockPoolManager(), servingstate.RoutingRoleReplica)
+		applyFence(t, s, true)
+		assert.False(t, s.FenceClosedOnPrimary(s.FenceEpoch()))
+	})
+	t.Run("a failed drain leaves the gate draining", func(t *testing.T) {
+		mock := newDrainMockPoolManager()
+		mock.killErr = errors.New("backend 42 did not exit within 50ms")
+		s := newFencedTestPooler(t, mock, servingstate.RoutingRolePrimary)
+		applyFence(t, s, false)
+		mock.reservedAdd(1)
+		err := s.ApplyFence(t.Context(), FenceRead{Epoch: s.FenceEpoch(), Fenced: true}, 50*time.Millisecond)
+		require.ErrorIs(t, err, ErrDrainIncomplete)
+		assert.False(t, s.FenceClosedOnPrimary(s.FenceEpoch()))
+	})
 }

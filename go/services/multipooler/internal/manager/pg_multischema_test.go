@@ -63,6 +63,8 @@ func (m *mockPoolerController) EnableFenceGate()                      {}
 func (m *mockPoolerController) EnsureDrained(context.Context) error   { return nil }
 func (m *mockPoolerController) FenceEpoch() uint64                    { return 0 }
 func (m *mockPoolerController) FenceReadState() (unread, closed bool) { return false, false }
+
+func (m *mockPoolerController) FenceClosedOnPrimary(uint64) bool { return false }
 func (m *mockPoolerController) FenceGateChanged() <-chan struct{} {
 	return nil
 }

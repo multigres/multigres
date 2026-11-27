@@ -1113,4 +1113,5 @@ message AckFencesRequest {
 
 // AckFencesResponse is empty: success means every ack of a fence that still
 // exists is recorded.
-message AckFencesResponse {}
+message AckFencesResponse {
+}
