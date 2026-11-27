@@ -314,7 +314,7 @@ func (s *fenceAckSet) record(epoch uint64, fences []*shardingcatalog.Fence) {
 	if epoch < s.epoch {
 		return
 	}
-	if epoch > s.epoch || s.acked == nil {
+	if epoch > s.epoch {
 		s.epoch = epoch
 		s.acked = make(map[int64]bool)
 	}

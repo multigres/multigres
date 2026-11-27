@@ -352,7 +352,7 @@ func TestRefreshFences_TheCatalogPrimaryReadsItsOwnCatalog(t *testing.T) {
 		env, qsc := newCatalogFenceEnv(t)
 		env.expectPrimary()
 		env.expectSnapshotRead(9, 2)
-		env.expectCatalogRows() // fences the whole default tablegroup: fence 50 at version 7
+		env.expectCatalogRows() // fences the whole default tablegroup: fence 50
 		// Drained, it acknowledges the fence for its shard (0-inf, id 1) in
 		// its own catalog.
 		env.expect(lockAckedFencePattern, []string{"in_scope"}, [][]any{{true}})
