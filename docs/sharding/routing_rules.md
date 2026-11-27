@@ -273,6 +273,45 @@ before its Sync, when an earlier step of its plan already ran on a pooler, or
 when output has already reached the client. Minigres has no catalog cache and
 runs every statement once.
 
+### Fence acks
+
+An **ack** is a row of `multigres.admission_fence_ack` saying that a shard's
+primary was drained for a fence: one per fence and shard, so a tablegroup
+fence gets one per shard.
+
+A pooler acks every fence covering its shard once its gate is closed after a
+drain, as routing primary, with no promotion since the fence read. Replicas
+and failed drains write none. The acks go to the catalog primary
+(`AckFences`), and `RefreshFences` succeeds only once they are recorded:
+otherwise it fails with `UNAVAILABLE`, the gate stays closed, and the caller
+(or the pooler's own 30-second recheck) retries. A pooler sends each ack once
+per gate epoch; after a restart or promotion it acks again, replacing the row,
+so after a failover the row names the new primary.
+
+One ack per shard is enough: every later primary starts with its gate unread
+and refuses work until it reads the fence. Deleting a fence deletes its acks,
+so a missing ack means no guarantee. Acks aren't in the routing snapshot and
+don't advance `routing_version`. Nothing reads them yet; the change that makes
+`FenceScopes` refresh the scope's poolers will wait for them.
+
+A fence's progress, on the catalog primary:
+
+```sql
+SELECT f.fence_id, f.operation_id, f.state, g.name AS tablegroup, s.shard_name,
+       a.pooler_id, a.acked_at, a.fence_id IS NOT NULL AS acked
+FROM multigres.admission_fence f
+JOIN multigres.tablegroup g USING (tablegroup_id)
+JOIN multigres.shard s
+  ON s.tablegroup_id = f.tablegroup_id
+ AND (f.shard_id IS NULL OR s.shard_id = f.shard_id)
+LEFT JOIN multigres.admission_fence_ack a
+  ON a.fence_id = f.fence_id AND a.shard_id = s.shard_id
+WHERE s.state = 'active' OR s.shard_id = f.shard_id
+ORDER BY f.fence_id, s.shard_name;
+```
+
+Rows with `acked = false` are the shards still missing an ack.
+
 ## API
 
 The catalog primary serves the RPCs on its manager service; multiadmin
