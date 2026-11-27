@@ -25,6 +25,8 @@ import (
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/common/shardingcatalog"
@@ -143,6 +145,14 @@ func TestFenceGate(t *testing.T) {
 		// A refresh with nothing changed is a no-op.
 		assert.True(t, pc.refresh(t, fencedAt, 10*time.Second).GetFenced())
 
+		// The drained primary acknowledged the fence before the refresh
+		// returned: one ack, for the catalog shard.
+		acks := fenceAcksOf(t, direct, fenceGateOp)
+		require.Len(t, acks, 1)
+		assert.Equal(t, defaultShardID(t, direct), acks[0].shardID)
+		assert.NotEmpty(t, acks[0].poolerID)
+		assert.NotEmpty(t, acks[0].rule, "a managed primary records its consensus rule")
+
 		start := time.Now()
 		err := write(ctx)
 		require.Error(t, err)
@@ -153,6 +163,36 @@ func TestFenceGate(t *testing.T) {
 		// new application work.
 		_, err = gw.ExecContext(ctx, `SELECT count(*) FROM fence_gate_t`)
 		assert.True(t, isFenced(err), "want MTF02, got %v", err)
+	})
+
+	t.Run("AckFences replaces the recorded ack and skips a lifted fence", func(t *testing.T) {
+		acks := fenceAcksOf(t, direct, fenceGateOp)
+		require.Len(t, acks, 1)
+		ack := func(shardID int64, poolerID string) error {
+			_, err := pc.manager.AckFences(ctx, &mdpb.AckFencesRequest{Acks: []*mdpb.FenceAck{{
+				FenceId: acks[0].fenceID, ShardId: shardID, PoolerId: poolerID,
+			}}})
+			return err
+		}
+		// A new ack replaces the recorded one: the row names the latest sender.
+		require.NoError(t, ack(acks[0].shardID, "test-replace"))
+		got := fenceAcksOf(t, direct, fenceGateOp)
+		require.Len(t, got, 1)
+		assert.Equal(t, "test-replace", got[0].poolerID)
+		assert.Empty(t, got[0].rule)
+
+		// A shard outside the fence's scope is refused.
+		err := ack(acks[0].shardID+1000, "test-out-of-scope")
+		assert.Equal(t, codes.FailedPrecondition, status.Code(err), "%v", err)
+
+		// A fence that does not exist is skipped, the other acks of the call
+		// recorded.
+		_, err = pc.manager.AckFences(ctx, &mdpb.AckFencesRequest{Acks: []*mdpb.FenceAck{
+			{FenceId: acks[0].fenceID + 1000, ShardId: acks[0].shardID, PoolerId: "test-lifted"},
+			{FenceId: acks[0].fenceID, ShardId: acks[0].shardID, PoolerId: acks[0].poolerID, ConsensusRule: acks[0].rule},
+		}})
+		require.NoError(t, err)
+		assert.Equal(t, acks, fenceAcksOf(t, direct, fenceGateOp))
 	})
 
 	t.Run("the catalog primary's own fence never blocks the catalog", func(t *testing.T) {
@@ -168,9 +208,12 @@ func TestFenceGate(t *testing.T) {
 		// so the gate stays closed through both writes.
 		unfence(t, pc)
 		require.False(t, pc.hasFenceOf(t, fenceGateOp), "UnfenceScopes wrote")
+		assert.Empty(t, fenceAcksOf(t, direct, fenceGateOp), "unfencing deletes the fence's acks")
 		fence(t)
 		require.True(t, pc.hasFenceOf(t, fenceGateOp), "FenceScopes wrote")
 		assert.True(t, pc.refresh(t, fencedAt, 10*time.Second).GetFenced())
+		acks := fenceAcksOf(t, direct, fenceGateOp)
+		require.Len(t, acks, 1, "the new fence is acknowledged")
 	})
 
 	t.Run("the gateway retries a statement whose fence lifts within its window", func(t *testing.T) {
@@ -304,6 +347,10 @@ func TestFenceGate(t *testing.T) {
 	})
 
 	t.Run("the fence survives a pooler restart", func(t *testing.T) {
+		// Forget the ack, to see the restarted pooler, in a new gate epoch,
+		// acknowledge the fence again from its background read.
+		_, err := direct.ExecContext(ctx, `DELETE FROM multigres.admission_fence_ack`)
+		require.NoError(t, err)
 		// The restarted process must outlive this subtest: start it on the
 		// test's context, not the subtest's.
 		killMultipooler(t, primary)
@@ -314,6 +361,10 @@ func TestFenceGate(t *testing.T) {
 			defer cancel()
 			return isFenced(write(cctx))
 		}, utils.ScaleTimeout(60*time.Second), 500*time.Millisecond, "the restarted primary should read its fence and refuse writes")
+		require.Eventually(t, func() bool {
+			acks := fenceAcksOf(t, direct, fenceGateOp)
+			return len(acks) == 1
+		}, utils.ScaleTimeout(30*time.Second), 200*time.Millisecond, "the restarted primary acknowledges the fence")
 	})
 
 	t.Run("the fence survives a failover", func(t *testing.T) {
@@ -321,6 +372,8 @@ func TestFenceGate(t *testing.T) {
 			_, err := c.manager.SetPostgresRestartsEnabled(ctx, &mdpb.SetPostgresRestartsEnabledRequest{Enabled: false})
 			require.NoError(t, err, "disable postgres restarts on %s", name)
 		}
+		acked := fenceAcksOf(t, direct, fenceGateOp)
+		require.Len(t, acked, 1)
 		old := setup.PrimaryName
 		setup.KillPostgres(t, old)
 		newName := shardsetup.WaitForNewPrimary(t, setup, old, utils.ScaleTimeout(60*time.Second))
@@ -331,10 +384,26 @@ func TestFenceGate(t *testing.T) {
 			defer cancel()
 			return isFenced(write(cctx))
 		}, utils.ScaleTimeout(60*time.Second), 500*time.Millisecond, "the new primary should read the fence on promotion and refuse writes")
+
+		// The ack survives on the new primary, which acknowledges the fence
+		// again: the row then names the new primary and its consensus rule.
+		db := connectToPostgresViaSocket(t, getPostgresSocketPath(primary.Pgctld.PoolerDir), primary.Pgctld.PgPort)
+		defer db.Close()
+		require.Eventually(t, func() bool {
+			acks := fenceAcksOf(t, db, fenceGateOp)
+			return len(acks) == 1 && acks[0].poolerID != acked[0].poolerID
+		}, utils.ScaleTimeout(30*time.Second), 200*time.Millisecond, "the new primary acknowledges the fence")
+		acks := fenceAcksOf(t, db, fenceGateOp)
+		assert.Equal(t, acked[0].fenceID, acks[0].fenceID)
+		assert.Equal(t, acked[0].shardID, acks[0].shardID)
+		assert.NotEqual(t, acked[0].rule, acks[0].rule, "a failover is under a newer consensus rule")
 	})
 
 	t.Run("unfencing and refreshing restores traffic", func(t *testing.T) {
 		version := unfence(t, pc)
+		db := connectToPostgresViaSocket(t, getPostgresSocketPath(primary.Pgctld.PoolerDir), primary.Pgctld.PgPort)
+		defer db.Close()
+		assert.Empty(t, fenceAcksOf(t, db, fenceGateOp), "unfencing deletes the fence's acks")
 		assert.False(t, pc.refresh(t, version, 10*time.Second).GetFenced())
 		require.Eventually(t, func() bool { return write(ctx) == nil }, utils.ScaleTimeout(30*time.Second), 200*time.Millisecond,
 			"writes flow again once the fence is lifted")
@@ -374,4 +443,37 @@ func (c routingClients) hasFenceOf(t *testing.T, op string) bool {
 		}
 	}
 	return false
+}
+
+// fenceAck is a multigres.admission_fence_ack row.
+type fenceAck struct {
+	fenceID, shardID int64
+	poolerID, rule   string
+}
+
+// fenceAcksOf returns the acks of op's fences, by fence and shard.
+func fenceAcksOf(t *testing.T, db *sql.DB, op string) []fenceAck {
+	t.Helper()
+	rows, err := db.QueryContext(t.Context(), `SELECT a.fence_id, a.shard_id, a.pooler_id, a.consensus_rule
+FROM multigres.admission_fence_ack a JOIN multigres.admission_fence f USING (fence_id)
+WHERE f.operation_id = $1::uuid ORDER BY a.fence_id, a.shard_id`, op)
+	require.NoError(t, err)
+	defer rows.Close()
+	var out []fenceAck
+	for rows.Next() {
+		var a fenceAck
+		require.NoError(t, rows.Scan(&a.fenceID, &a.shardID, &a.poolerID, &a.rule))
+		out = append(out, a)
+	}
+	require.NoError(t, rows.Err())
+	return out
+}
+
+// defaultShardID returns the catalog id of default/0-inf.
+func defaultShardID(t *testing.T, db *sql.DB) int64 {
+	t.Helper()
+	var id int64
+	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT s.shard_id FROM multigres.shard s
+JOIN multigres.tablegroup g USING (tablegroup_id) WHERE g.name = 'default' AND s.shard_name = '0-inf'`).Scan(&id))
+	return id
 }
