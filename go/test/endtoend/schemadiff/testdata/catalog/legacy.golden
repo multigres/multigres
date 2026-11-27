@@ -1,0 +1,26 @@
+== table
+CREATE TABLE multigres.tablegroup (
+		oid BIGSERIAL PRIMARY KEY,
+		name TEXT NOT NULL UNIQUE,
+		type TEXT NOT NULL
+	)
+== table
+CREATE TABLE multigres.tablegroup_table (
+		oid BIGSERIAL PRIMARY KEY,
+		tablegroup_oid BIGINT NOT NULL REFERENCES multigres.tablegroup(oid),
+		name TEXT NOT NULL,
+		UNIQUE (tablegroup_oid, name)
+	)
+== table
+CREATE TABLE multigres.shard (
+		oid BIGSERIAL PRIMARY KEY,
+		tablegroup_oid BIGINT NOT NULL REFERENCES multigres.tablegroup(oid),
+		shard_name TEXT NOT NULL,
+		key_range_start BYTEA NULL,
+		key_range_end BYTEA NULL,
+		UNIQUE (tablegroup_oid, shard_name)
+	)
+== seed
+INSERT INTO multigres.tablegroup (name, type) VALUES ('default', 'unsharded')
+== seed
+INSERT INTO multigres.shard (tablegroup_oid, shard_name) SELECT oid, '0-inf' FROM multigres.tablegroup WHERE name = 'default'
