@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -147,7 +148,9 @@ func (pm *MultipoolerManager) MigrationCoordinatorIfPrimary(ctx context.Context)
 	if coord == nil {
 		return nil, errors.New("migration coordinator not available: query service not open")
 	}
-	pm.ensureMigrationSchema(ctx, coord)
+	if err := pm.ensureMigrationSchema(ctx, coord); err != nil {
+		return nil, err
+	}
 	return coord, nil
 }
 
@@ -169,6 +172,21 @@ func (pm *MultipoolerManager) forgetMigrationState() {
 	}
 }
 
+// Consecutive failed attempts are tracked separately for serving transitions
+// and tenures. An RPC retry cannot clear or mask a blocked serving transition.
+const schemaFailureAlertEvery = 3
+
+func (pm *MultipoolerManager) reportMigrationEnsure(ctx context.Context, failures *atomic.Uint64, path string, err error) error {
+	if err == nil {
+		failures.Store(0)
+		return nil
+	}
+	if n := failures.Add(1); n%schemaFailureAlertEvery == 0 {
+		pm.logger.ErrorContext(ctx, "migration schema upgrade still pending", "path", path, "attempts", n, "error", err)
+	}
+	return err
+}
+
 // ensureMigrationSchema runs EnsureSchema at most once per primary tenure
 // (forgetMigrationState resets it on promotion). The schema is normally
 // created at shard bootstrap and replicated in, and on the catalog shard
@@ -181,23 +199,25 @@ func (pm *MultipoolerManager) forgetMigrationState() {
 // absent. Off the catalog shard that is the normal state, and the schema is
 // ensured. On the catalog shard it means the catalog ensure has not completed,
 // so it is retried on the next call rather than leaving stat_migration
-// uncreated.
-func (pm *MultipoolerManager) ensureMigrationSchema(ctx context.Context, coord *migration.Coordinator) {
+// uncreated. Return the ensure error so RPCs and the reconcile tick stop before reading.
+func (pm *MultipoolerManager) ensureMigrationSchema(ctx context.Context, coord *migration.Coordinator) error {
 	pm.mu.Lock()
 	ensured := pm.migrationSchemaEnsured
 	pm.mu.Unlock()
 	if ensured {
-		return
+		return nil
 	}
-	if err := coord.EnsureSchema(ctx); err != nil {
+	attempt, cancel := context.WithTimeout(ctx, migrationSchemaTimeout)
+	defer cancel()
+	if err := coord.EnsureSchema(attempt); err != nil {
 		if !errors.Is(err, migration.ErrNoConnectionsTable) || pm.isCatalogShard() {
-			pm.logger.WarnContext(ctx, "ensure migration schema failed", "error", err)
-			return // not marked ensured; retried on next call
+			return pm.reportMigrationEnsure(ctx, &pm.tenureSchemaFailures, "primary tenure", err)
 		}
 	}
 	pm.mu.Lock()
 	pm.migrationSchemaEnsured = true
 	pm.mu.Unlock()
+	return pm.reportMigrationEnsure(ctx, &pm.tenureSchemaFailures, "primary tenure", nil)
 }
 
 // migrationHoldState is the three-state result of resolving the migration
@@ -272,19 +292,19 @@ func (pm *MultipoolerManager) migrationServingHold() bool {
 // failure could let a DRAINING pooler reconcile back to SERVING
 // mid-migration. It is a single count over a tiny table and never touches
 // the state-manager lock.
-func (pm *MultipoolerManager) refreshMigrationHold(ctx context.Context) {
+func (pm *MultipoolerManager) refreshMigrationHold(ctx context.Context) error {
 	if pm.IsUnmanaged() {
 		// An unmanaged pooler's database is external: no migration state of ours lives
 		// there, so nothing holds it, and it is never queried for that state.
 		pm.migrationImportHold.Store(int32(migrationHoldNotHeld))
-		return
+		return nil
 	}
 	qs := pm.internalQueryService()
 	if qs == nil {
 		// Connection pools not yet open at startup, or otherwise unavailable: the
 		// same ambiguous-read-failure case the docstring above describes. Leave the
 		// hold at its last known value rather than resolving it.
-		return
+		return errors.New("migration hold: query service unavailable")
 	}
 	res, err := qs.QueryAdmin(ctx,
 		"SELECT count(*) FROM multigres.migration WHERE migration_phase != 'EXPORTING'")
@@ -293,21 +313,23 @@ func (pm *MultipoolerManager) refreshMigrationHold(ctx context.Context) {
 			// multigres.migration absent: the migrator has never been used on this
 			// shard, the common case for most poolers.
 			pm.migrationImportHold.Store(int32(migrationHoldNotHeld))
+			return nil
 		}
-		return
+		return fmt.Errorf("read migration hold: %w", err)
 	}
 	var n int64
 	if err := executor.ScanSingleRow(res, &n); err != nil {
 		// A decode failure here is the same kind of ambiguous read failure the
 		// docstring above describes for QueryAdmin itself: leave the hold at
 		// its last known value rather than resolving it.
-		return
+		return fmt.Errorf("read migration hold: %w", err)
 	}
 	if n > 0 {
 		pm.migrationImportHold.Store(int32(migrationHoldHeld))
 	} else {
 		pm.migrationImportHold.Store(int32(migrationHoldNotHeld))
 	}
+	return nil
 }
 
 // resolveMigrationHoldBeforeServing makes a few quick, local attempts to
@@ -329,7 +351,7 @@ func (pm *MultipoolerManager) refreshMigrationHold(ctx context.Context) {
 // tick resolves it once connections are up, same as before this existed.
 func (pm *MultipoolerManager) resolveMigrationHoldBeforeServing(ctx context.Context) {
 	if pm.internalQueryService() == nil {
-		pm.refreshMigrationHold(ctx)
+		_ = pm.refreshMigrationHold(ctx)
 		return
 	}
 	timeoutCtx, cancel := context.WithTimeout(ctx, migrationHoldResolveTimeout)
@@ -339,7 +361,7 @@ func (pm *MultipoolerManager) resolveMigrationHoldBeforeServing(ctx context.Cont
 		if err != nil {
 			return
 		}
-		pm.refreshMigrationHold(timeoutCtx)
+		_ = pm.refreshMigrationHold(timeoutCtx)
 		if migrationHoldState(pm.migrationImportHold.Load()) != migrationHoldUnknown {
 			return
 		}
@@ -389,7 +411,9 @@ func (pm *MultipoolerManager) drainForMigrationImport(ctx context.Context) error
 func (pm *MultipoolerManager) releaseForMigrationExport(ctx context.Context) error {
 	// Recompute from the table rather than blindly clearing: another migration on
 	// this shard may still be importing and must keep the hold.
-	pm.refreshMigrationHold(ctx)
+	if err := pm.refreshMigrationHold(ctx); err != nil {
+		return err
+	}
 	lockCtx, err := pm.actionLock.Acquire(ctx, "MigrationExportRelease")
 	if err != nil {
 		return err
@@ -424,7 +448,10 @@ func (pm *MultipoolerManager) runMigrationReconcile(ctx context.Context, interva
 			if coord == nil {
 				continue // query service not ready
 			}
-			pm.ensureMigrationSchema(ctx, coord)
+			if err := pm.ensureMigrationSchema(ctx, coord); err != nil {
+				pm.logger.WarnContext(ctx, "ensure migration schema failed", "error", err)
+				continue
+			}
 			if !pm.isCatalogShard() {
 				// Migrations run on the catalog shard: their connections live in
 				// multigres.connections, which exists there only.

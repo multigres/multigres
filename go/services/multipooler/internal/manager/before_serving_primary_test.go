@@ -18,11 +18,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -38,6 +40,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/heartbeat"
+	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 	testutils "github.com/multigres/multigres/go/test/utils"
@@ -509,7 +512,7 @@ func startTestPostgres(t *testing.T) func() *client.Conn {
 	require.NoError(t, err, "initdb: %s", out)
 
 	start := exec.Command("pg_ctl", "start", "-D", data, "-l", filepath.Join(dir, "postgres.log"), "-w", "-t", "30",
-		"-o", "-c listen_addresses= -c unix_socket_directories="+sockets)
+		"-o", "-p 5432 -c listen_addresses= -c unix_socket_directories="+sockets)
 	start.Env = env
 	out, err = start.CombinedOutput()
 	require.NoError(t, err, "pg_ctl start: %s", out)
@@ -717,4 +720,198 @@ func TestEnsureSidecarSchemas_UpToDateAssignsNoTransactionID(t *testing.T) {
 			assert.False(t, observe())
 		})
 	}
+}
+
+// A stale hash alone must not require locks that conflict with migration writes
+// or a reader of stat_migration (which also reads multigres.connections).
+func TestEnsureSidecarSchemas_StaleCatalogHash(t *testing.T) {
+	connect := startTestPostgres(t)
+	ctx := t.Context()
+	qs := &sessionQueryService{conn: connect()}
+	pm, _ := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+	pm.qsc = &sessionController{qs: qs}
+	exec := func(sql string) {
+		t.Helper()
+		require.NoError(t, qs.QueryMultiStatement(ctx, sql))
+	}
+	read := func(sql string) string {
+		t.Helper()
+		res, err := qs.Query(ctx, sql)
+		require.NoError(t, err)
+		require.Len(t, res.Rows, 1)
+		return string(res.Rows[0].Values[0])
+	}
+	const stale = "UPDATE multigres.catalog_state SET definition_hash = 'stale'"
+	const definition = "SELECT pg_get_viewdef('multigres.stat_migration'::regclass)"
+	const aclXmin = "SELECT xmin::text FROM pg_class WHERE oid = 'multigres.stat_migration'::regclass"
+	const recordedHash = "SELECT definition_hash FROM multigres.catalog_state"
+	const publicSelect = `SELECT EXISTS (SELECT FROM pg_class c, aclexplode(c.relacl) a
+		WHERE c.oid = 'multigres.stat_migration'::regclass AND a.grantee = 0 AND a.privilege_type = 'SELECT')`
+
+	exec("CREATE SCHEMA multigres; SET lock_timeout = '1s'")
+	require.NoError(t, pm.ensureSidecarSchemas(ctx, nil))
+	originalDefinition := read(definition)
+	originalACLXmin := read(aclXmin)
+
+	exec(stale)
+	writer := &sessionQueryService{conn: connect()}
+	require.NoError(t, writer.QueryMultiStatement(ctx, `BEGIN;
+		UPDATE multigres.migration SET migration_phase = migration_phase WHERE false;
+		LOCK TABLE multigres.migration_journal IN ROW EXCLUSIVE MODE`))
+	reader := &sessionQueryService{conn: connect()}
+	require.NoError(t, reader.QueryMultiStatement(ctx, "BEGIN; SELECT 1 FROM multigres.stat_migration"))
+	require.NoError(t, pm.ensureSidecarSchemas(ctx, nil))
+	require.Equal(t, catalogDefinitionHash, read(recordedHash))
+	require.Equal(t, originalDefinition, read(definition))
+	require.Equal(t, originalACLXmin, read(aclXmin), "the existing PUBLIC grant must not rewrite pg_class")
+	require.NoError(t, reader.QueryMultiStatement(ctx, "ROLLBACK"))
+	require.NoError(t, writer.QueryMultiStatement(ctx, "ROLLBACK"))
+
+	// An older definition with the same columns still needs replacement, and a
+	// missing grant needs repair.
+	oldDefinition := strings.Replace(migration.CreateStatMigrationViewSQL, "\tm.last_error\nFROM", "\tNULL::text AS last_error\nFROM", 1)
+	require.NotEqual(t, migration.CreateStatMigrationViewSQL, oldDefinition)
+	exec(oldDefinition)
+	require.NotEqual(t, originalDefinition, read(definition))
+	exec("REVOKE SELECT ON multigres.stat_migration FROM PUBLIC")
+	require.Equal(t, "f", read(publicSelect))
+	exec(stale)
+	require.NoError(t, pm.ensureSidecarSchemas(ctx, nil))
+	require.Equal(t, originalDefinition, read(definition))
+	require.Equal(t, "t", read(publicSelect))
+	require.Equal(t, catalogDefinitionHash, read(recordedHash))
+}
+
+// An old primary already has the table, so editing CREATE TABLE cannot fix it.
+// Exercise the actual promotion-time ensure, including its definition hash.
+func TestMigrationSchemaUpgradeFrom54f188a5(t *testing.T) {
+	ctx := t.Context()
+	setup := &sessionQueryService{conn: startTestPostgres(t)()}
+	bootstrap, err := os.ReadFile("testdata/bootstrap_54f188a5.sql")
+	require.NoError(t, err)
+	require.NoError(t, setup.QueryAdminMultiStatement(ctx, string(bootstrap)))
+	require.NoError(t, setup.QueryAdminMultiStatement(ctx, `INSERT INTO multigres.connections(name,dsn) VALUES ('old','postgres://app@localhost:5432/postgres');
+ INSERT INTO multigres.migration(migration_id, migration_phase, migration_target, connection_id) VALUES (7, 'IMPORTING', ROW('postgres','default','0-inf'), 1);
+ INSERT INTO multigres.migration_tables VALUES (7,'public','items')`))
+	pm, _ := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+	pm.qsc = &sessionController{qs: setup}
+	store := migration.NewStore(setup)
+	_, err = store.List(ctx)
+	require.ErrorContains(t, err, "column m.quiesce_roles does not exist")
+	for range 2 {
+		require.NoError(t, pm.ensureSidecarSchemas(ctx, nil))
+	}
+	m, err := store.Get(ctx, 7)
+	require.NoError(t, err)
+	require.Equal(t, []string{"public.items"}, m.Tables)
+	require.Empty(t, m.OwnerRole)
+	require.Empty(t, m.QuiesceRoles)
+	require.True(t, m.PublicHadConnect)
+	require.False(t, m.QuiesceApplied)
+	require.Empty(t, m.QuiesceRoleConnLimits)
+	require.Empty(t, m.QuiesceRolesHadConnect)
+	conns, err := store.ListConnections(ctx)
+	require.NoError(t, err)
+	require.Len(t, conns, 1)
+}
+
+func TestMigrationSchemaEquivalence(t *testing.T) {
+	legacy, err := os.ReadFile("testdata/bootstrap_54f188a5.sql")
+	require.NoError(t, err)
+	shape, err := os.ReadFile("testdata/schema_shape.sql")
+	require.NoError(t, err)
+	for _, group := range []string{constants.DefaultTableGroup, "commerce"} {
+		t.Run(group, func(t *testing.T) {
+			connect := startTestPostgres(t)
+			qs := &sessionQueryService{conn: connect()}
+			ctx := t.Context()
+			snapshot := func(old bool) string {
+				pm, _ := newTestManagerWithMock(t, group, constants.DefaultShard)
+				pm.qsc = &sessionController{qs: qs}
+				if old {
+					for i, part := range strings.Split(string(legacy), "-- catalog-only boundary\n") {
+						if i%2 == 0 || pm.isCatalogShard() {
+							require.NoError(t, qs.QueryMultiStatement(ctx, part))
+						}
+					}
+				} else {
+					require.NoError(t, qs.QueryMultiStatement(ctx, "CREATE SCHEMA multigres"))
+				}
+				require.NoError(t, pm.ensureSidecarSchemas(ctx, nil))
+				if !pm.isCatalogShard() {
+					coord := pm.migrationCoordinator()
+					if old {
+						checkContendedMigrationUpgrade(t, pm, coord, connect)
+					} else {
+						require.NoError(t, pm.ensureMigrationSchema(ctx, coord))
+					}
+				}
+				checkSteadyStateMigrationLocks(t, pm, qs, connect)
+				res, err := qs.Query(ctx, string(shape))
+				require.NoError(t, err)
+				require.Len(t, res.Rows, 1)
+				return string(res.Rows[0].Values[0])
+			}
+			fresh := snapshot(false)
+			require.NotEmpty(t, fresh)
+			require.NoError(t, qs.QueryMultiStatement(ctx, "DROP SCHEMA multigres CASCADE"))
+			require.Equal(t, fresh, snapshot(true))
+		})
+	}
+}
+
+func checkContendedMigrationUpgrade(t *testing.T, pm *MultipoolerManager, coord *migration.Coordinator, connect func() *client.Conn) {
+	t.Helper()
+	ctx := t.Context()
+	// A normal reader permits the catalog probe but not a necessary ALTER.
+	reader := &sessionQueryService{conn: connect()}
+	lock := func() {
+		require.NoError(t, reader.QueryMultiStatement(ctx, "BEGIN; SELECT 1 FROM multigres.migration"))
+	}
+	unlock := func() { require.NoError(t, reader.QueryMultiStatement(ctx, "ROLLBACK")) }
+	lock()
+	var logs syncBuffer
+	pm.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	monitor, _ := newTestManagerWithMock(t, "commerce", constants.DefaultShard)
+	monitor.qsc = &sessionController{qs: &sessionQueryService{conn: connect()}}
+	// Keep the original reader open across ticks. A waiting ALTER
+	// would hit the attempt deadline instead of the NOWAIT error.
+	for i := 1; i <= schemaFailureAlertEvery; i++ {
+		attempt, cancel := context.WithTimeout(ctx, 800*time.Millisecond)
+		done := make(chan error, 1)
+		go func() { done <- pm.ensureMigrationSchema(attempt, coord) }()
+		monitor.migrationImportHold.Store(int32(migrationHoldUnknown))
+		require.NoError(t, monitor.refreshMigrationHold(ctx))
+		err := <-done
+		cancel()
+		require.ErrorContains(t, err, "could not obtain lock")
+		require.False(t, pm.migrationSchemaEnsured)
+		require.Equal(t, int32(migrationHoldNotHeld), monitor.migrationImportHold.Load())
+		require.Equal(t, i/schemaFailureAlertEvery, strings.Count(logs.String(), "level=ERROR"))
+	}
+	require.Contains(t, logs.String(), "attempts=3")
+	unlock()
+	require.NoError(t, pm.ensureMigrationSchema(ctx, coord))
+	require.Zero(t, pm.tenureSchemaFailures.Load())
+}
+
+func checkSteadyStateMigrationLocks(t *testing.T, pm *MultipoolerManager, qs *sessionQueryService, connect func() *client.Conn) {
+	t.Helper()
+	ctx := t.Context()
+	// Capture all relation locks after a complete steady-state tenure
+	// ensure in one open transaction. Inspect before COMMIT releases them.
+	writer := &sessionQueryService{conn: connect()}
+	require.NoError(t, writer.QueryMultiStatement(ctx, "BEGIN; UPDATE multigres.migration SET migration_phase = migration_phase WHERE false"))
+	if pm.isCatalogShard() {
+		require.NoError(t, writer.QueryMultiStatement(ctx, "SELECT 1 FROM multigres.stat_migration"))
+	}
+	pm.forgetMigrationState()
+	require.NoError(t, qs.QueryMultiStatement(ctx, "BEGIN"))
+	require.NoError(t, pm.ensureMigrationSchema(ctx, pm.migrationCoordinator()))
+	locks, err := qs.Query(ctx, `SELECT c.relname,l.mode FROM pg_locks l JOIN pg_class c ON c.oid=l.relation
+                  WHERE l.pid=pg_backend_pid() AND c.relnamespace='multigres'::regnamespace AND l.mode <> 'AccessShareLock'`)
+	require.NoError(t, err)
+	require.Empty(t, locks.Rows)
+	require.NoError(t, qs.QueryMultiStatement(ctx, "COMMIT"))
+	require.NoError(t, writer.QueryMultiStatement(ctx, "ROLLBACK"))
 }

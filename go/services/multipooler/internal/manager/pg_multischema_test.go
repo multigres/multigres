@@ -60,10 +60,13 @@ func (m *mockPoolerController) StartRequest(*query.Target, poolerserver.RequestK
 	return poolerserver.Admission{}, nil
 }
 
-func (m *mockPoolerController) EnableFenceGate()                      {}
-func (m *mockPoolerController) EnsureDrained(context.Context) error   { return nil }
-func (m *mockPoolerController) FenceEpoch() uint64                    { return 0 }
-func (m *mockPoolerController) FenceReadState() (unread, closed bool) { return false, false }
+func (m *mockPoolerController) EnableFenceGate()                    {}
+func (m *mockPoolerController) EnsureDrained(context.Context) error { return nil }
+func (m *mockPoolerController) FenceEpoch() uint64                  { return 0 }
+func (m *mockPoolerController) FenceReadState() (time.Time, bool, uint64) {
+	return time.Time{}, false, 0
+}
+
 func (m *mockPoolerController) FenceGateChanged() <-chan struct{} {
 	return nil
 }
@@ -92,6 +95,7 @@ func newTestManagerWithMock(t *testing.T, tableGroup, shard string) (*Multipoole
 	// Create a memorytopo store for tests that need topoClient (e.g., GetRemoteOperationTimeout)
 	ctx := context.Background()
 	topoStore := memorytopo.NewServer(ctx, "test-cell")
+	t.Cleanup(func() { _ = topoStore.Close() })
 
 	multipooler := &clustermetadatapb.Multipooler{
 		ShardRef: &clustermetadatapb.ShardRef{
@@ -146,6 +150,18 @@ func addMigrationTableCreate(m *mock.QueryService) {
 	m.AddQueryPatternOnce("CREATE INDEX IF NOT EXISTS migration_journal_migration_id_idx", mock.MakeQueryResult(nil, nil))
 }
 
+// A tenure checks for missing objects without comparing view definitions.
+func addTenureMigrationEnsure(m *mock.QueryService) {
+	for _, stmt := range []string{migration.CreateMigrationSQL, migration.CreateMigrationTablesSQL, migration.CreateMigrationJournalSQL, migration.AddConnectionForeignKeySQL} {
+		m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+	}
+	for range 4 {
+		m.AddQueryPatternOnce(`^DO \$migration_schema\$`, mock.MakeQueryResult(nil, nil))
+	}
+	m.AddQueryPatternOnce(`^DO \$migration_roles\$`, mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce(connectionsProbePattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{true}}))
+}
+
 // addCatalogMigrationEnsure registers the migration store's EnsureSchema that
 // ensureSidecarSchemas runs on the catalog shard after the catalog
 // (ensureCatalogMigrationSchema), with multigres.connections present. A
@@ -153,18 +169,21 @@ func addMigrationTableCreate(m *mock.QueryService) {
 func addCatalogMigrationEnsure(m *mock.QueryService, fkErr error) {
 	for _, stmt := range []string{
 		migration.CreateMigrationSQL, migration.CreateMigrationTablesSQL, migration.CreateMigrationJournalSQL,
-		migration.MigrationNameUniqueIndexSQL, migration.MigrationJournalMigrationIndexSQL,
 	} {
 		m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
 	}
+	for _, stmt := range []string{migration.MigrationNameUniqueIndexSQL, migration.MigrationJournalMigrationIndexSQL} {
+		m.AddQueryPatternOnce(regexp.QuoteMeta(stmt), mock.MakeQueryResult(nil, nil))
+	}
+	m.AddQueryPatternOnce(`^DO \$migration_roles\$`, mock.MakeQueryResult(nil, nil))
 	m.AddQueryPatternOnce(connectionsProbePattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{true}}))
 	if fkErr != nil {
 		m.AddQueryPatternOnceWithError(exactPattern(migration.AddConnectionForeignKeySQL), fkErr)
 		return
 	}
 	m.AddQueryPatternOnce(exactPattern(migration.AddConnectionForeignKeySQL), mock.MakeQueryResult(nil, nil))
-	m.AddQueryPatternOnce(exactPattern(migration.CreateStatMigrationViewSQL), mock.MakeQueryResult(nil, nil))
-	m.AddQueryPatternOnce(exactPattern(migration.GrantStatMigrationSQL), mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce(regexp.QuoteMeta(migration.CreateStatMigrationViewSQL), mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce(regexp.QuoteMeta(migration.GrantStatMigrationSQL), mock.MakeQueryResult(nil, nil))
 }
 
 // catalogDefinitionReadPattern matches the read ensureCatalogShard's fast path
@@ -466,7 +485,7 @@ func TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard(t *testing.T) {
 
 			firstCatalog := slices.IndexFunc(queries, catalogRef.MatchString)
 			fkey := slices.Index(queries, migration.AddConnectionForeignKeySQL)
-			view := slices.Index(queries, migration.CreateStatMigrationViewSQL)
+			view := indexOf(migration.CreateStatMigrationViewSQL)
 			if !tt.wantCatalog {
 				assert.Equal(t, -1, firstCatalog, "non-catalog shard must not touch catalog tables: %v", queries)
 				assert.Equal(t, -1, fkey, "non-catalog shard must not add the connections foreign key")
@@ -478,7 +497,7 @@ func TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard(t *testing.T) {
 			// table and the seed rows.
 			assert.Greater(t, firstCatalog, vpid, "catalog ensure must run as part of ensureSidecarSchemas")
 			for _, stmt := range slices.Concat(catalogMigrations[0].statements, catalogTables, catalogSeed) {
-				assert.Contains(t, queries, stmt)
+				assert.Contains(t, queries, catalogTableEnsureSQL(stmt))
 			}
 			// The migrator's foreign key into multigres.connections and its
 			// stat_migration view come right after the catalog commits, so a
@@ -489,7 +508,7 @@ func TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard(t *testing.T) {
 			assert.Greater(t, view, fkey, "stat_migration must be created after the foreign key: %v", queries)
 			// The definition hash is recorded last, once everything it covers
 			// is in place.
-			assert.Equal(t, migration.GrantStatMigrationSQL, queries[len(queries)-2])
+			assert.Contains(t, queries[len(queries)-2], migration.GrantStatMigrationSQL)
 			assert.Equal(t, recordCatalogDefinitionSQL, queries[len(queries)-1])
 		})
 	}
@@ -536,7 +555,8 @@ func TestEnsureSidecarSchemas_ProbeGrantFailureDoesNotBlock(t *testing.T) {
 
 	require.NoError(t, pm.ensureSidecarSchemas(context.Background(), nil))
 	require.NoError(t, mockQueryService.ExpectationsWereMet(), "the grant should have been attempted")
-	assert.Contains(t, queries, migration.GrantStatMigrationSQL, "the catalog ensure should run after a failed grant")
+	assert.True(t, slices.ContainsFunc(queries, func(q string) bool { return strings.Contains(q, migration.GrantStatMigrationSQL) }),
+		"the catalog ensure should run after a failed grant")
 }
 
 // TestCreateBackendVpidTable_WritesOnlyWhenNotInPlace checks that

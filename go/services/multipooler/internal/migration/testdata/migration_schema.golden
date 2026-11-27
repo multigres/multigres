@@ -1,0 +1,118 @@
+CREATE TYPE multigres.shard_ref AS (
+	database TEXT,
+	table_group TEXT,
+	shard TEXT
+);
+
+CREATE TABLE IF NOT EXISTS multigres.migration (
+	migration_id BIGINT PRIMARY KEY,
+	migration_name TEXT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	migration_phase TEXT NOT NULL,
+	migration_target multigres.shard_ref NOT NULL,
+	connection_id BIGINT NOT NULL,
+	owner_role TEXT NOT NULL DEFAULT '',
+	sequence_margin BIGINT NOT NULL DEFAULT 0,
+	copy_data BOOLEAN NOT NULL DEFAULT true,
+	skip_schema_copy BOOLEAN NOT NULL DEFAULT false,
+	direction TEXT NOT NULL DEFAULT 'IMPORT',
+	quiesce_roles TEXT NOT NULL DEFAULT '[]',
+	public_had_connect BOOLEAN NOT NULL DEFAULT true,
+	quiesce_applied BOOLEAN NOT NULL DEFAULT false,
+	quiesce_role_conn_limits TEXT NOT NULL DEFAULT '{}',
+	quiesce_roles_had_connect TEXT NOT NULL DEFAULT '{}',
+	last_error TEXT NOT NULL DEFAULT '',
+	reverse_link_error TEXT NOT NULL DEFAULT '',
+	streaming_since TIMESTAMPTZ NULL
+);
+
+CREATE TABLE IF NOT EXISTS multigres.migration_tables (
+	migration_id BIGINT NOT NULL REFERENCES multigres.migration(migration_id) ON DELETE CASCADE,
+	schema_name TEXT NOT NULL,
+	table_name TEXT NOT NULL,
+	PRIMARY KEY (migration_id, schema_name, table_name)
+);
+
+CREATE TABLE IF NOT EXISTS multigres.migration_journal (
+	seq BIGSERIAL PRIMARY KEY,
+	migration_id BIGINT NOT NULL,
+	migration_name TEXT NOT NULL DEFAULT '',
+	event TEXT NOT NULL,
+	phase TEXT NOT NULL,
+	direction TEXT NOT NULL,
+	from_lsn TEXT NOT NULL DEFAULT '',
+	to_lsn TEXT NOT NULL DEFAULT '',
+	last_error TEXT NOT NULL DEFAULT '',
+	detail TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS migration_name_key
+	ON multigres.migration (migration_name) WHERE migration_name IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS migration_journal_migration_id_idx
+	ON multigres.migration_journal (migration_id, seq);
+
+DO $migration_roles$
+BEGIN
+ IF (SELECT count(*) FROM pg_catalog.pg_attribute
+     WHERE attrelid = 'multigres.migration'::regclass AND NOT attisdropped
+       AND attname IN ('owner_role', 'quiesce_roles', 'public_had_connect', 'quiesce_applied',
+                       'quiesce_role_conn_limits', 'quiesce_roles_had_connect')) < 6 THEN
+  SET LOCAL lock_timeout = '1s';
+  LOCK TABLE multigres.migration IN ACCESS EXCLUSIVE MODE NOWAIT;
+  ALTER TABLE multigres.migration
+   ADD COLUMN IF NOT EXISTS owner_role TEXT NOT NULL DEFAULT '',
+   ADD COLUMN IF NOT EXISTS quiesce_roles TEXT NOT NULL DEFAULT '[]',
+   ADD COLUMN IF NOT EXISTS public_had_connect BOOLEAN NOT NULL DEFAULT true,
+   ADD COLUMN IF NOT EXISTS quiesce_applied BOOLEAN NOT NULL DEFAULT false,
+   ADD COLUMN IF NOT EXISTS quiesce_role_conn_limits TEXT NOT NULL DEFAULT '{}',
+   ADD COLUMN IF NOT EXISTS quiesce_roles_had_connect TEXT NOT NULL DEFAULT '{}';
+ END IF;
+END
+$migration_roles$
+-- catalog shard only
+DO $fk$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1 FROM pg_constraint
+		WHERE contype = 'f'
+		  AND conrelid = to_regclass('multigres.migration')
+		  AND confrelid = to_regclass('multigres.connections')
+	) THEN
+		ALTER TABLE multigres.migration
+			ADD CONSTRAINT migration_connections_fkey FOREIGN KEY (connection_id)
+			REFERENCES multigres.connections (connection_id) NOT VALID;
+	END IF;
+END
+$fk$;
+
+CREATE OR REPLACE VIEW multigres.stat_migration AS
+SELECT
+	m.migration_id,
+	m.migration_name,
+	c.name::name AS connection_name,
+	m.migration_target,
+	m.migration_phase,
+	m.direction AS active_direction,
+	count(r.*) AS total_relations,
+	count(r.*) FILTER (WHERE r.srsubstate = 'r') AS ready_relations,
+	COALESCE(lag.lag_bytes, 0) AS lag_bytes,
+	COALESCE(lag.lag_seconds, 0) AS lag_seconds,
+	m.last_error
+FROM multigres.migration m
+JOIN multigres.connections c USING (connection_id)
+LEFT JOIN pg_subscription ps ON ps.subname = 'mt_sub_' || m.migration_id::text
+LEFT JOIN pg_subscription_rel r ON r.srsubid = ps.oid
+LEFT JOIN LATERAL (
+	SELECT
+		GREATEST(pg_wal_lsn_diff(pg_current_wal_lsn(), sl.confirmed_flush_lsn), 0)::bigint AS lag_bytes,
+		COALESCE(EXTRACT(EPOCH FROM sr.replay_lag), 0)::float8 AS lag_seconds
+	FROM pg_replication_slots sl
+	LEFT JOIN pg_stat_replication sr ON sr.pid = sl.active_pid
+	WHERE sl.slot_name = 'mt_sub_' || m.migration_id::text
+) lag ON true
+GROUP BY m.migration_id, m.migration_name, c.name, m.migration_target,
+	 m.migration_phase, m.direction, m.last_error, lag.lag_bytes, lag.lag_seconds;
+
+GRANT SELECT ON multigres.stat_migration TO PUBLIC;

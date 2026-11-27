@@ -400,8 +400,10 @@ func (pm *MultipoolerManager) monitorPostgresIteration(noTimeoutCtx context.Cont
 	// Refresh the migration serving gate from the replicated multigres.migration
 	// table before the drift check reads it, so a shard still importing does not
 	// serve. Runs on primary and standbys; outside any lock. Uses the bounded
-	// discover context so the table read can't hang the tick.
-	pm.refreshMigrationHold(discoverCtx)
+	// discover context, with a shorter read deadline to leave time for remediation.
+	holdCtx, cancelHold := context.WithTimeout(discoverCtx, time.Second)
+	_ = pm.refreshMigrationHold(holdCtx) // use the cached hold on read failure
+	cancelHold()
 
 	// Determine what remediation is needed
 	action := pm.determineRemedialAction(discoverCtx, currentState)

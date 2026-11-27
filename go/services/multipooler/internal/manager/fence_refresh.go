@@ -74,8 +74,9 @@ var fenceRecheckInterval = 30 * time.Second
 
 // Backoff of the background fence read after a failure.
 var (
-	fenceReadRetryBase = 100 * time.Millisecond
-	fenceReadRetryMax  = 10 * time.Second
+	fenceUnreadErrorAfter = 10 * time.Second
+	fenceReadRetryBase    = 100 * time.Millisecond
+	fenceReadRetryMax     = 10 * time.Second
 )
 
 // fenceReadTimeout bounds one read of the catalog snapshot.
@@ -230,8 +231,10 @@ func (pm *MultipoolerManager) runFenceReads(ctx context.Context) {
 	backoff := retry.NewExponentialBackoff(fenceReadRetryBase, fenceReadRetryMax)
 	recheck := false
 	var lastErr string
+	var reportedEpoch uint64
 	for {
-		unread, closed := pm.qsc.FenceReadState()
+		since, closed, epoch := pm.qsc.FenceReadState()
+		unread := !since.IsZero()
 		var wait <-chan time.Time
 		if unread || (recheck && closed) {
 			version, fenced, err := pm.refreshFences(ctx, 0, 0)
@@ -239,7 +242,13 @@ func (pm *MultipoolerManager) runFenceReads(ctx context.Context) {
 				if ctx.Err() != nil {
 					return
 				}
-				if msg := err.Error(); msg != lastErr {
+				// Another refresh or role change can finish while this read is in flight.
+				currentSince, _, currentEpoch := pm.qsc.FenceReadState()
+				if unread && !currentSince.IsZero() && epoch == currentEpoch && epoch != reportedEpoch && time.Since(currentSince) >= fenceUnreadErrorAfter {
+					pm.logger.ErrorContext(ctx, "primary cannot admit traffic: admission fences remain unread", "error", err, "elapsed", time.Since(currentSince))
+					reportedEpoch = epoch
+					lastErr = err.Error()
+				} else if msg := err.Error(); msg != lastErr {
 					pm.logger.WarnContext(ctx, "failed to read admission fences; retrying", "error", err)
 					lastErr = msg
 				}

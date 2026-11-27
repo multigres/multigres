@@ -67,7 +67,7 @@ func NewStore(qs executor.InternalQueryService) *Store {
 	return &Store{qs: qs}
 }
 
-// EnsureSchema creates the migration tables if they do not already exist. It is
+// EnsureSchema creates or upgrades the migration tables. It is
 // idempotent and safe to call on every coordinator start, covering shards
 // bootstrapped before the tables were added to createSidecarSchema.
 // The shared multigres.shard_ref type (see package shardref) is ensured first:
@@ -86,11 +86,51 @@ func NewStore(qs executor.InternalQueryService) *Store {
 // has not completed, so the caller must retry rather than treat the schema as
 // ensured.
 func (s *Store) EnsureSchema(ctx context.Context) error {
+	return s.ensureSchema(ctx, false)
+}
+
+// EnsureSchemaForTenure repairs missing objects, but does not re-install an
+// existing view: the catalog primary's full, hash-gated pre-serving ensure
+// owns changes to its definition. Avoid issuing even idempotent index/view
+// DDL when it would lock a busy relation merely to discover it already exists.
+func (s *Store) EnsureSchemaForTenure(ctx context.Context) error {
+	return s.ensureSchema(ctx, true)
+}
+
+// Skip only the specific operations proven unnecessary by catalog reads.
+// Future appended upgrade steps still execute, including on non-catalog shards.
+func migrationSchemaDDL(stmt string, tenure bool) string {
+	var needed string
+	switch stmt {
+	case MigrationNameUniqueIndexSQL:
+		needed = "to_regclass('multigres.migration_name_key') IS NULL"
+	case MigrationJournalMigrationIndexSQL:
+		needed = "to_regclass('multigres.migration_journal_migration_id_idx') IS NULL"
+	case CreateStatMigrationViewSQL:
+		if !tenure {
+			return ensureStatMigrationViewSQL
+		}
+		// Let CREATE OR REPLACE VIEW reject a same-named non-view before GRANT.
+		needed = "NOT EXISTS (SELECT FROM pg_class WHERE oid = to_regclass('multigres.stat_migration') AND relkind = 'v')"
+	case GrantStatMigrationSQL:
+		needed = `NOT EXISTS (SELECT 1 FROM pg_class c, aclexplode(c.relacl) a
+    WHERE c.oid = to_regclass('multigres.stat_migration') AND a.grantee = 0 AND a.privilege_type = 'SELECT')`
+	default:
+		return stmt
+	}
+	return "DO $migration_schema$ BEGIN IF " + needed + " THEN " + stmt + "; END IF; END $migration_schema$"
+}
+
+func (s *Store) ensureSchema(ctx context.Context, tenure bool) error {
+	run := func(stmt string) error {
+		_, err := s.qs.QueryAdmin(ctx, migrationSchemaDDL(stmt, tenure))
+		return err
+	}
 	if _, err := shardref.Ensure(ctx, s.qs); err != nil {
 		return fmt.Errorf("ensure migration schema: %w", err)
 	}
 	for _, sql := range schemaTableSQL {
-		if _, err := s.qs.QueryAdmin(ctx, sql); err != nil {
+		if err := run(sql); err != nil {
 			return fmt.Errorf("ensure migration schema: %w", err)
 		}
 	}
@@ -106,7 +146,7 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 		return ErrNoConnectionsTable
 	}
 	for _, stmt := range schemaConnectionsSQL {
-		if _, err := s.qs.QueryAdmin(ctx, stmt.sql); err != nil {
+		if err := run(stmt.sql); err != nil {
 			return fmt.Errorf("ensure migration schema: %s: %w", stmt.label, err)
 		}
 	}
@@ -120,6 +160,7 @@ var (
 	schemaTableSQL = []string{
 		CreateMigrationSQL, CreateMigrationTablesSQL, CreateMigrationJournalSQL,
 		MigrationNameUniqueIndexSQL, MigrationJournalMigrationIndexSQL,
+		upgradeMigrationRolesSQL,
 	}
 	schemaConnectionsSQL = []struct{ label, sql string }{
 		{"add foreign key to connections", AddConnectionForeignKeySQL},

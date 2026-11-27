@@ -15,10 +15,13 @@
 package manager
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -400,11 +403,16 @@ func (env *fenceTestEnv) startReads(t *testing.T) {
 // A primary rejects work until its fences are read; the reader keeps
 // retrying an unreachable catalog primary and opens the gate once it reads.
 func TestFenceReads_FailClosedOnStart(t *testing.T) {
+	savedThreshold := fenceUnreadErrorAfter
+	fenceUnreadErrorAfter = 100 * time.Millisecond
+	t.Cleanup(func() { fenceUnreadErrorAfter = savedThreshold })
 	saved := fenceReadRetryMax
 	fenceReadRetryMax = 20 * time.Millisecond
 	t.Cleanup(func() { fenceReadRetryMax = saved })
 
 	env := newFenceTestEnv(t, fenceTestCommerceID)
+	var logs syncBuffer
+	env.pm.logger = slog.New(slog.NewTextHandler(&logs, nil))
 	env.client.SetError(env.catalog, errors.New("connection refused"))
 	env.serve(fenceTestSnapshot(3))
 
@@ -413,9 +421,12 @@ func TestFenceReads_FailClosedOnStart(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	assert.Zero(t, env.snapshotReads(), "no read before registration")
 
-	env.startReads(t)
+	env.pm.record.registeredOnce.Do(func() { close(env.pm.record.registered) })
 	require.Eventually(t, func() bool { return env.snapshotReads() >= 2 }, 5*time.Second, 10*time.Millisecond, "the reader retries")
 	env.requireFenced(t)
+	require.Eventually(t, func() bool {
+		return strings.Contains(logs.String(), `level=ERROR msg="primary cannot admit traffic: admission fences remain unread" error=`)
+	}, 5*time.Second, 10*time.Millisecond)
 
 	env.client.SetError(env.catalog, nil)
 	env.waitAdmits(t)
@@ -450,4 +461,57 @@ func TestFenceReads_PromotionAndMissedUnfence(t *testing.T) {
 	// The fence is lifted with no refresh: the periodic re-read lifts it.
 	env.serve(fenceTestSnapshot(5))
 	env.waitAdmits(t)
+}
+
+// Hold the background reader's first snapshot RPC while a concurrent refresh
+// opens the gate. Later calls, including the concurrent one, proceed normally.
+type delayedFenceClient struct {
+	*rpcclient.FakeClient
+	first            atomic.Bool
+	started, release chan struct{}
+}
+
+func (c *delayedFenceClient) GetRoutingSnapshot(ctx context.Context, p *clustermetadatapb.Multipooler, r *multipoolermanagerdatapb.GetRoutingSnapshotRequest) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
+	if c.first.CompareAndSwap(false, true) {
+		close(c.started)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-c.release:
+			return nil, errors.New("delayed read failed")
+		}
+	}
+	return c.FakeClient.GetRoutingSnapshot(ctx, p, r)
+}
+
+func TestFenceReads_ReportOnlyCurrentUnreadEpoch(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		env := newFenceTestEnv(t, fenceTestCommerceID)
+		t.Cleanup(func() { require.NoError(t, env.pm.topoClient.Close()) })
+		var logs syncBuffer
+		env.pm.logger = slog.New(slog.NewTextHandler(&logs, nil))
+		c := &delayedFenceClient{FakeClient: env.client, started: make(chan struct{}), release: make(chan struct{})}
+		env.pm.config.ManagerClient = c
+		env.serve(fenceTestSnapshot(3))
+		time.Sleep(fenceUnreadErrorAfter) // already eligible for an ERROR if the gate stays unread
+		env.startReads(t)
+		<-c.started
+		_, err := env.refresh(t, 0)
+		require.NoError(t, err)
+		close(c.release)
+		synctest.Wait()
+		require.NotContains(t, logs.String(), "level=ERROR")
+		env.client.SetError(env.catalog, errors.New("snapshot unavailable"))
+		count := func() int { return strings.Count(logs.String(), "level=ERROR") }
+		for episode := range 2 {
+			env.setRole(t, servingstate.RoutingRoleReplica)
+			env.setRole(t, servingstate.RoutingRolePrimary)
+			time.Sleep(fenceUnreadErrorAfter - time.Millisecond)
+			synctest.Wait()
+			require.Equal(t, episode, count())
+			time.Sleep(3 * fenceUnreadErrorAfter)
+			synctest.Wait()
+			require.Equal(t, episode+1, count())
+		}
+	})
 }

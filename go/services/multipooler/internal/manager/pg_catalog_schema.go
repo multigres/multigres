@@ -156,6 +156,21 @@ const connectionsConnInfoColumnSQL = `ALTER TABLE multigres.connections ADD COLU
 		END
 	)`
 
+// catalogTableEnsureSQL keeps the historical DDL intact but avoids taking an
+// AccessExclusiveLock for an already-present conninfo column. A reader of
+// stat_migration also holds AccessShareLock on connections.
+func catalogTableEnsureSQL(stmt string) string {
+	if stmt != connectionsConnInfoColumnSQL {
+		return stmt
+	}
+	return `DO $conninfo$ BEGIN
+  IF NOT EXISTS (SELECT FROM pg_attribute
+    WHERE attrelid = to_regclass('multigres.connections') AND attname = 'conninfo' AND NOT attisdropped) THEN
+    ` + stmt + `;
+  END IF;
+END $conninfo$`
+}
+
 // selectUnfilledConnectionsSQL lists the connections that have a dsn and no conninfo, and
 // fillConnInfoSQL gives one its conninfo and the canonical rendering of it as its dsn. The write
 // names the row and requires the column to be empty, so it changes nothing that a concurrent setup
@@ -378,7 +393,7 @@ func latestCatalogFormat() int {
 // SQL lists catalogDefinitionHash covers: its Go steps, such as fillConnInfo
 // and legacyConnInfo, and their order. Bump it on any change to them, or
 // catalogs that recorded the previous hash never run the changed steps.
-const catalogEnsureRevision = 1
+const catalogEnsureRevision = 2
 
 // catalogDefinitionHash identifies everything a full ensure of the catalog
 // shard (ensureCatalogShard) applies: catalogEnsureRevision,
@@ -446,9 +461,9 @@ WHERE format_version = $2 AND definition_hash IS DISTINCT FROM $1`
 // binary ensured they find everything already there and change nothing. It
 // then records its own hash, so the other binary runs its full ensure again
 // on its next serving transition, which is idempotent too. The exception is
-// the migrator's stat_migration view, which CREATE OR REPLACE VIEW rewrites
-// to the running binary's definition on every full ensure; the hash makes it
-// change hands only when the binary that becomes the primary changes.
+// the migrator's stat_migration view, which is replaced only if its definition
+// differs from the running binary's. A real replacement needs an exclusive
+// view lock; a stale catalog hash by itself does not.
 func (pm *MultipoolerManager) ensureCatalogShard(ctx context.Context, rule *clustermetadatapb.RuleNumber) error {
 	current, err := pm.catalogDefinitionCurrent(ctx)
 	if err != nil {
@@ -578,7 +593,7 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context, rule *clu
 	}
 
 	for _, stmt := range catalogTables {
-		if _, err := tx.Query(execCtx, stmt); err != nil {
+		if _, err := tx.Query(execCtx, catalogTableEnsureSQL(stmt)); err != nil {
 			return mterrors.Wrap(err, "failed to ensure catalog tables")
 		}
 	}

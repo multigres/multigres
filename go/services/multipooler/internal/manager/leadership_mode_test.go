@@ -102,7 +102,7 @@ func TestUnmanagedPoolerIsNeverHeldForAMigration(t *testing.T) {
 	pm := newUnmanagedTestManager(t)
 	pm.migrationImportHold.Store(int32(migrationHoldHeld))
 
-	pm.refreshMigrationHold(t.Context())
+	require.NoError(t, pm.refreshMigrationHold(t.Context()))
 
 	require.Equal(t, migrationHoldNotHeld, migrationHoldState(pm.migrationImportHold.Load()))
 	require.False(t, pm.migrationServingHold())

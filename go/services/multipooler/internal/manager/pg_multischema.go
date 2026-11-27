@@ -195,7 +195,8 @@ func (pm *MultipoolerManager) ensureCatalogMigrationSchema(ctx context.Context) 
 	}
 	execCtx, cancel := context.WithTimeout(ctx, migrationSchemaTimeout)
 	defer cancel()
-	if err := migration.NewStore(queryService).EnsureSchema(execCtx); err != nil {
+	err := migration.NewStore(queryService).EnsureSchema(execCtx)
+	if err := pm.reportMigrationEnsure(ctx, &pm.catalogSchemaFailures, "catalog ensure", err); err != nil {
 		return mterrors.Wrap(err, "failed to ensure migration schema")
 	}
 	return nil

@@ -145,7 +145,7 @@ func TestFenceGate_FailedDrainStaysDrainingUntilADrainSucceeds(t *testing.T) {
 	assert.Nil(t, s.fence.drain)
 	s.mu.Unlock()
 	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)), "a failed drain refuses everything")
-	_, closed := s.FenceReadState()
+	_, closed, _ := s.FenceReadState()
 	assert.True(t, closed, "the reader keeps re-reading")
 	assert.True(t, mock.isSealed())
 

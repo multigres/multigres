@@ -143,23 +143,25 @@ func TestStartRequest_FenceMatrix(t *testing.T) {
 // once a read finds none; a read that finds a fence closes it.
 func TestFenceGate_FailsClosedUntilRead(t *testing.T) {
 	s := newFencedTestPooler(t, newDrainMockPoolManager(), servingstate.RoutingRolePrimary)
-	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)))
+	err := admit(s.StartRequest(nil, RequestSingleQuery))
+	requireMTF02(t, err)
+	require.ErrorContains(t, err, "admission fences have not yet been read")
 	requireMTF02(t, admit(s.StartRequest(nil, RequestNewReservation)))
-	unread, closed := s.FenceReadState()
-	assert.True(t, unread)
+	unread, closed, _ := s.FenceReadState()
+	assert.False(t, unread.IsZero())
 	assert.False(t, closed)
 
 	applyFence(t, s, false)
 	require.NoError(t, admit(s.StartRequest(nil, RequestSingleQuery)))
 	require.NoError(t, admit(s.StartRequest(nil, RequestNewReservation)))
-	unread, closed = s.FenceReadState()
-	assert.False(t, unread)
+	unread, closed, _ = s.FenceReadState()
+	assert.True(t, unread.IsZero())
 	assert.False(t, closed)
 
 	applyFence(t, s, true)
 	requireMTF02(t, admit(s.StartRequest(nil, RequestSingleQuery)))
 	require.NoError(t, admit(s.StartRequest(nil, RequestExistingReserved)), "an existing reserved connection is always admitted")
-	_, closed = s.FenceReadState()
+	_, closed, _ = s.FenceReadState()
 	assert.True(t, closed)
 	assert.True(t, s.IsServing(), "a fenced pooler stays serving")
 
@@ -175,8 +177,8 @@ func TestFenceGate_FailsClosedUntilRead(t *testing.T) {
 func TestFenceGate_PromotionResetsTheGate(t *testing.T) {
 	s := newFencedTestPooler(t, newDrainMockPoolManager(), servingstate.RoutingRoleReplica)
 	require.NoError(t, admit(s.StartRequest(nil, RequestSingleQuery)), "a replica is not fenced, read or not")
-	unread, closed := s.FenceReadState()
-	assert.False(t, unread, "a replica needs no read")
+	unread, closed, _ := s.FenceReadState()
+	assert.True(t, unread.IsZero(), "a replica needs no read")
 	assert.False(t, closed)
 	applyFence(t, s, true)
 	require.NoError(t, admit(s.StartRequest(nil, RequestNewReservation)), "a replica the read finds fenced is not gated")
@@ -218,8 +220,8 @@ func TestFenceGate_Off(t *testing.T) {
 	require.NoError(t, admit(s.StartRequest(nil, RequestNewReservation)))
 	require.NoError(t, s.ApplyFence(t.Context(), FenceRead{Epoch: 0, Fenced: true}, time.Second))
 	require.NoError(t, admit(s.StartRequest(nil, RequestNewReservation)))
-	unread, closed := s.FenceReadState()
-	assert.False(t, unread)
+	unread, closed, _ := s.FenceReadState()
+	assert.True(t, unread.IsZero())
 	assert.False(t, closed)
 }
 
