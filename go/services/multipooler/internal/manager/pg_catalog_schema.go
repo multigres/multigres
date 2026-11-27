@@ -68,6 +68,14 @@ const catalogSchemaLockKey int64 = 0x6d756c7469677273
 // including the wait for the advisory lock.
 const catalogSchemaTimeout = 10 * time.Second
 
+// catalogSchemaLockTimeout bounds each table lock ensureCatalogSchema waits
+// for once it holds the advisory lock. Its DDL takes table locks (CREATE INDEX
+// IF NOT EXISTS a ShareLock, ALTER TABLE ... ADD COLUMN IF NOT EXISTS an
+// AccessExclusiveLock) even when it changes nothing, and a lock request
+// waiting behind a long-running reader of the table also queues every new
+// reader behind it. A timeout fails the ensure, and the monitor retries it.
+const catalogSchemaLockTimeout = "1s"
+
 // catalogMigration upgrades the catalog from format version-1 to version, in
 // two phases inside ensureCatalogSchema's transaction:
 //
@@ -366,13 +374,19 @@ func latestCatalogFormat() int {
 	return catalogMigrations[len(catalogMigrations)-1].version
 }
 
+// catalogEnsureRevision versions what the full catalog ensure does beyond the
+// SQL lists catalogDefinitionHash covers: its Go steps, such as fillConnInfo
+// and legacyConnInfo, and their order. Bump it on any change to them, or
+// catalogs that recorded the previous hash never run the changed steps.
+const catalogEnsureRevision = 1
+
 // catalogDefinitionHash identifies everything a full ensure of the catalog
-// shard (ensureCatalogShard) applies: latestCatalogFormat, every migration's
-// statements, catalogTables, catalogSeed and the migration store's schema. Two
-// binaries with the same hash apply the same catalog, so one whose hash
-// catalog_state already records has nothing to apply. A step added to the full
-// ensure must change this hash, or catalogs that recorded the previous one
-// never run it.
+// shard (ensureCatalogShard) applies: catalogEnsureRevision,
+// latestCatalogFormat, every migration's statements, catalogTables,
+// catalogSeed and the migration store's schema. Two binaries with the same
+// hash apply the same catalog, so one whose hash catalog_state already records
+// has nothing to apply. A change to the full ensure must change this hash: SQL
+// through the lists, anything else through catalogEnsureRevision.
 var catalogDefinitionHash = computeCatalogDefinitionHash()
 
 // computeCatalogDefinitionHash computes catalogDefinitionHash from the lists
@@ -385,6 +399,7 @@ func computeCatalogDefinitionHash() string {
 			fmt.Fprintf(h, "%d:%s\n", len(stmt), stmt)
 		}
 	}
+	add(fmt.Sprintf("ensure revision %d", catalogEnsureRevision))
 	add(fmt.Sprintf("format %d", latestCatalogFormat()))
 	for _, m := range catalogMigrations {
 		add(fmt.Sprintf("migration %d", m.version))
@@ -508,8 +523,8 @@ func (pm *MultipoolerManager) catalogDefinitionCurrent(ctx context.Context) (boo
 //
 // rule is the consensus rule this pooler is the primary under, which labels
 // the versions it publishes. It is passed in rather than read from the
-// StateManager because the serving transition that runs this holds the
-// StateManager's lock, and has not yet made this pooler the primary there.
+// StateManager because the serving transition that runs this has not yet made
+// this pooler the primary there.
 func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context, rule *clustermetadatapb.RuleNumber) error {
 	queryService := pm.internalQueryService()
 	if queryService == nil {
@@ -527,6 +542,11 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context, rule *clu
 
 	if _, err := tx.QueryArgs(execCtx, "SELECT pg_advisory_xact_lock($1)", catalogSchemaLockKey); err != nil {
 		return mterrors.Wrap(err, "failed to lock catalog schema")
+	}
+	// Set after the advisory lock, whose wait (for another ensure) blocks no
+	// reader and is bounded by catalogSchemaTimeout instead.
+	if _, err := tx.Query(execCtx, "SET LOCAL lock_timeout = '"+catalogSchemaLockTimeout+"'"); err != nil {
+		return mterrors.Wrap(err, "failed to set the catalog schema lock timeout")
 	}
 
 	current, existed, err := readCatalogFormat(execCtx, tx)
@@ -618,6 +638,9 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context, rule *clu
 // its connection as it is, without a conninfo, which every reader reports as a connection to drop
 // and create again; the log names the connection and never the dsn or anything parsed from it,
 // which holds the password.
+//
+// A change to what fillConnInfo or legacyConnInfo does is a change to the full
+// ensure: bump catalogEnsureRevision with it.
 func fillConnInfo(ctx context.Context, tx executor.InternalTx, logger *slog.Logger) error {
 	res, err := tx.Query(ctx, selectUnfilledConnectionsSQL)
 	if err != nil {

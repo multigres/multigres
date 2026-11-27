@@ -26,6 +26,7 @@ import (
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
@@ -209,27 +210,69 @@ func (ssm *StateManager) RegisterAndSync(ctx context.Context, component StateAwa
 // next tick, until the hook succeeds. This makes the hook a step of becoming a
 // serving primary that every path to it goes through.
 //
-// The hook runs holding mu and the caller's action lock. Like a StateAware
-// handler it must not call Mutate, Recalc or anything that takes mu
-// (RoutingRole, RoutingState): read the rule from the target instead.
-// Must not be called concurrently with Mutate.
+// The hook runs holding the caller's action lock but not mu, so readers of the
+// routing state (Status, the catalog RPCs) do not wait for it. The action lock
+// keeps every other Mutate out meanwhile; only the live consensus snapshot can
+// move, and Mutate re-derives the target under mu afterwards and fails the
+// transition if it is no longer the one the hook prepared for, which the
+// monitor's next fixDrift retries. The hook must not call Mutate or Recalc.
+// RoutingRole and RoutingState still report the state before the transition,
+// so it reads the rule from the target. Must not be called concurrently with
+// Mutate.
 func (ssm *StateManager) SetBeforeServingPrimary(fn func(ctx context.Context, target servingstate.State) error) {
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()
 	ssm.beforeServingPrimary = fn
 }
 
-// runBeforeServingPrimaryLocked runs the beforeServingPrimary hook when target
-// makes this pooler a serving primary. Caller must hold mu.
-func (ssm *StateManager) runBeforeServingPrimaryLocked(ctx context.Context, target servingstate.State) error {
-	if ssm.beforeServingPrimary == nil || !isServingPrimary(target) ||
-		(ssm.lastFannedOut != nil && isServingPrimary(*ssm.lastFannedOut)) {
-		return nil
+// becomesServingPrimaryLocked reports whether target makes this pooler a
+// serving primary it was not at the last fan-out. Caller must hold mu.
+func (ssm *StateManager) becomesServingPrimaryLocked(target servingstate.State) bool {
+	return isServingPrimary(target) && (ssm.lastFannedOut == nil || !isServingPrimary(*ssm.lastFannedOut))
+}
+
+// prepareServingPrimary runs the beforeServingPrimary hook, without holding
+// mu, when fn would make this pooler a serving primary, and returns the target
+// it prepared for, or nil if it ran nothing.
+func (ssm *StateManager) prepareServingPrimary(ctx context.Context, fn func(s *servingStateMutation)) (*servingstate.State, error) {
+	ssm.mu.Lock()
+	_, _, target := ssm.targetLocked(fn)
+	hook := ssm.beforeServingPrimary
+	needed := hook != nil && ssm.becomesServingPrimaryLocked(target)
+	ssm.mu.Unlock()
+	if !needed {
+		return nil, nil
 	}
-	if err := ssm.beforeServingPrimary(ctx, target); err != nil {
-		return mterrors.Wrap(err, "not serving as primary")
+	if err := hook(ctx, target); err != nil {
+		return nil, mterrors.Wrap(err, "not serving as primary")
 	}
-	return nil
+	return &target, nil
+}
+
+// targetLocked applies fn to the current state and derives the effective
+// target state from it. Caller must hold mu.
+func (ssm *StateManager) targetLocked(fn func(s *servingStateMutation)) (cur, next servingStateMutation, target servingstate.State) {
+	cur = servingStateMutation{
+		PostgresMode:  ssm.pgMode,
+		ServingStatus: ssm.record.ServingStatus(),
+	}
+	next = cur
+	fn(&next)
+
+	// The effective state components react to. routingRole is derived live from
+	// recovery + the consensus snapshot, so it can change (the committed rule
+	// lands, a revocation arrives) even when serving/recovery have not — comparing
+	// the whole target against the last fan-out is what ensures OnStateChange fires
+	// on ANY effective-state change.
+	cs := ssm.consensusStatus()
+	// The full routing state (role + qualifying rule) is derived here, so
+	// components that advertise it (the health streamer, the record projection)
+	// publish it as a pure function of the fanned state — no explicit push.
+	target = servingstate.State{
+		Routing:       ssm.deriveRoutingState(next.PostgresMode, cs),
+		ServingStatus: next.ServingStatus,
+	}
+	return cur, next, target
 }
 
 // Unregister removes a component so it receives no further state changes.
@@ -319,35 +362,27 @@ type servingStateMutation struct {
 //
 // A transition that makes this pooler a serving primary first runs the
 // beforeServingPrimary hook (see SetBeforeServingPrimary); if it fails, Mutate
-// returns its error and changes nothing.
+// returns its error and changes nothing. fn then runs twice, once to find the
+// target the hook prepares for and once for the transition, so it must only
+// set fields.
 func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMutation)) error {
 	if err := actionlock.AssertActionLockHeld(ctx); err != nil {
+		return err
+	}
+
+	// Before anything moves, and before taking mu for the transition: a failed
+	// hook leaves the components, pgMode, lastFannedOut and the record as they
+	// were, so hasDrift still reports the drift and the monitor's fixDrift
+	// retries the transition.
+	prepared, err := ssm.prepareServingPrimary(ctx, fn)
+	if err != nil {
 		return err
 	}
 
 	ssm.mu.Lock()
 	defer ssm.mu.Unlock()
 
-	cur := servingStateMutation{
-		PostgresMode:  ssm.pgMode,
-		ServingStatus: ssm.record.ServingStatus(),
-	}
-	next := cur
-	fn(&next)
-
-	// The effective state components react to. routingRole is derived live from
-	// recovery + the consensus snapshot, so it can change (the committed rule
-	// lands, a revocation arrives) even when serving/recovery have not — comparing
-	// the whole target against the last fan-out is what ensures OnStateChange fires
-	// on ANY effective-state change.
-	cs := ssm.consensusStatus()
-	// The full routing state (role + qualifying rule) is derived here, so
-	// components that advertise it (the health streamer, the record projection
-	// below) publish it as a pure function of the fanned state — no explicit push.
-	target := servingstate.State{
-		Routing:       ssm.deriveRoutingState(next.PostgresMode, cs),
-		ServingStatus: next.ServingStatus,
-	}
+	cur, next, target := ssm.targetLocked(fn)
 	if ssm.lastFannedOut != nil && sameFanout(*ssm.lastFannedOut, target) {
 		// The effective state (routing role + rule + serving) is unchanged; no
 		// fan-out, no record write.
@@ -362,11 +397,12 @@ func (ssm *StateManager) Mutate(ctx context.Context, fn func(s *servingStateMuta
 		return nil
 	}
 
-	// Before anything moves: a failed hook leaves the components, pgMode,
-	// lastFannedOut and the record as they were, so hasDrift still reports the
-	// drift and the monitor's fixDrift retries the transition.
-	if err := ssm.runBeforeServingPrimaryLocked(ctx, target); err != nil {
-		return err
+	// The consensus snapshot may have moved while the hook ran without mu. A
+	// serving primary is reached only through the target the hook prepared.
+	if ssm.beforeServingPrimary != nil && ssm.becomesServingPrimaryLocked(target) &&
+		(prepared == nil || !sameFanout(*prepared, target)) {
+		return mterrors.New(mtrpcpb.Code_UNAVAILABLE,
+			"not serving as primary: the routing state changed while preparing to serve; retrying")
 	}
 
 	// This point is only reached when the effective state actually changed (the

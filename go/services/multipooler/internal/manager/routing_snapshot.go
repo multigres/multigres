@@ -340,9 +340,13 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 		snapshot, err := loadRoutingSnapshot(execCtx, tx)
 		if mterrors.ExtractSQLSTATE(err) == mterrors.PgSSUndefinedTable {
 			// catalog_state exists but a table this binary reads does not: the
-			// catalog is behind this binary. It is not NOT_FOUND, which a pooler
-			// reading its fences takes as no fences: the table may be the one
-			// that holds them.
+			// catalog is behind this binary, for instance a table dropped by
+			// hand under a catalog whose recorded definition hash says it is
+			// current. Forget the hash, so the next serving transition runs the
+			// full ensure, which recreates the table. It is not NOT_FOUND, which
+			// a pooler reading its fences takes as no fences: the table may be
+			// the one that holds them.
+			pm.forgetCatalogDefinition(ctx)
 			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
 				"the sharding catalog of database %q is behind this binary's catalog schema: %v",
 				pm.record.ShardRef().GetDatabase(), err)
@@ -564,6 +568,22 @@ func (pm *MultipoolerManager) runCatalogVersionRefresh(ctx context.Context, inte
 		case <-ticker.C:
 			pm.refreshCatalogVersions(ctx)
 		}
+	}
+}
+
+// forgetCatalogDefinitionSQL clears the recorded catalog definition hash. It
+// matches no row once the hash is cleared, so repeating it writes nothing.
+const forgetCatalogDefinitionSQL = `UPDATE multigres.catalog_state SET definition_hash = NULL WHERE definition_hash IS NOT NULL`
+
+// forgetCatalogDefinition clears the recorded catalog definition hash, so the
+// next transition to serving primary runs the full catalog ensure instead of
+// trusting it. Best effort: a failure is logged, and the read that found the
+// catalog behind fails either way.
+func (pm *MultipoolerManager) forgetCatalogDefinition(ctx context.Context) {
+	execCtx, cancel := context.WithTimeout(ctx, tableGroupOpTimeout)
+	defer cancel()
+	if err := pm.adminExec(execCtx, forgetCatalogDefinitionSQL); err != nil {
+		pm.logger.WarnContext(ctx, "failed to clear the catalog definition hash", "error", err)
 	}
 }
 

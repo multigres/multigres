@@ -244,6 +244,75 @@ func TestBeforeServingPrimary_HoldReleaseRetries(t *testing.T) {
 	assert.Equal(t, 3, h.calls())
 }
 
+// TestBeforeServingPrimary_RunsWithoutTheStateManagerLock checks that
+// readers of the routing state, such as Status, do not wait for the hook: it
+// runs before Mutate takes the StateManager's lock.
+func TestBeforeServingPrimary_RunsWithoutTheStateManagerLock(t *testing.T) {
+	ssm := NewStateManager(newTestLogger(),
+		newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING),
+		selfLeaderConsensusStatus, &testComponent{})
+	entered, release := make(chan struct{}), make(chan struct{})
+	ssm.SetBeforeServingPrimary(func(context.Context, servingstate.State) error {
+		close(entered)
+		<-release
+		return nil
+	})
+
+	ctx := newActionLockedCtx(t)
+	done := make(chan error, 1)
+	go func() {
+		done <- ssm.Mutate(ctx, mutateTo(pgmode.Primary, clustermetadatapb.PoolerServingStatus_SERVING))
+	}()
+	<-entered
+
+	read := make(chan clustermetadatapb.RoutingRole, 1)
+	go func() { read <- ssm.RoutingRole() }()
+	select {
+	case role := <-read:
+		assert.Equal(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_REPLICA, role, "readers see the state before the transition")
+	case <-time.After(5 * time.Second):
+		t.Fatal("RoutingRole waited for the hook")
+	}
+
+	close(release)
+	require.NoError(t, <-done)
+	assert.Equal(t, clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY, ssm.RoutingRole())
+}
+
+// TestBeforeServingPrimary_RoutingChangeDuringHookRetries checks that a
+// transition fails, changing nothing, when the consensus snapshot moves while
+// the hook runs, so the pooler never serves under a rule the hook did not
+// prepare for; the next fixDrift prepares for the new rule and completes it.
+func TestBeforeServingPrimary_RoutingChangeDuringHookRetries(t *testing.T) {
+	cs := &switchableConsensus{}
+	cs.term.Store(1)
+	comp := &testComponent{}
+	r := newTestRecord(clustermetadatapb.PoolerType_REPLICA, clustermetadatapb.PoolerServingStatus_SERVING)
+	ssm := NewStateManager(newTestLogger(), r, cs.status, comp)
+	var rules []int64
+	ssm.SetBeforeServingPrimary(func(_ context.Context, target servingstate.State) error {
+		rules = append(rules, target.Routing.Rule.GetCoordinatorTerm())
+		if len(rules) == 1 {
+			cs.term.Store(2) // a new committed rule lands while the hook runs
+		}
+		return nil
+	})
+	ctx := newActionLockedCtx(t)
+	require.NoError(t, ssm.Mutate(ctx, mutateTo(pgmode.InRecovery, clustermetadatapb.PoolerServingStatus_SERVING)))
+
+	err := ssm.Mutate(ctx, mutateTo(pgmode.Primary, clustermetadatapb.PoolerServingStatus_SERVING))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "routing state changed while preparing to serve")
+	assert.Equal(t, 1, comp.callCount, "nothing fans out")
+	assert.Equal(t, clustermetadatapb.PoolerType_REPLICA, r.Type())
+	assert.True(t, ssm.hasDrift(pgmode.Primary, false, false))
+
+	require.NoError(t, ssm.fixDrift(ctx, pgmode.Primary, false, false))
+	assert.Equal(t, []int64{1, 2}, rules, "the retry prepares for the new rule")
+	assert.Equal(t, servingstate.RoutingRolePrimary, comp.lastRole)
+	assert.Equal(t, int64(2), r.RoutingState().GetRule().GetCoordinatorTerm())
+}
+
 // addCatalogUpgradeFromFormat1 registers a catalog shard whose catalog is at
 // format 1 with nothing else in place, so the hook's ensure runs everything,
 // including a migration that advances routing_version (and so publishes under
@@ -263,12 +332,11 @@ func addCatalogUpgradeFromFormat1(m *mock.QueryService, record func(string)) {
 	m.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), record)
 }
 
-// TestBeforeServingPrimary_EnsureDoesNotReenterStateManager runs the real
-// hook inside a real StateManager's Mutate, which holds its lock, through a
-// full catalog upgrade. An ensure that read the StateManager (as reading the
-// routing rule from it once did) would deadlock; the timeout turns that into
-// a failure.
-func TestBeforeServingPrimary_EnsureDoesNotReenterStateManager(t *testing.T) {
+// TestBeforeServingPrimary_RealEnsureThroughMutate runs the real hook through
+// a real StateManager's Mutate, over a full catalog upgrade, and checks it
+// receives the target's rule and completes the transition. The timeout turns a
+// hang into a failure.
+func TestBeforeServingPrimary_RealEnsureThroughMutate(t *testing.T) {
 	pm, m := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
 	var mu sync.Mutex
 	var queries []string
@@ -297,7 +365,7 @@ func TestBeforeServingPrimary_EnsureDoesNotReenterStateManager(t *testing.T) {
 	case err := <-done:
 		require.NoError(t, err)
 	case <-time.After(10 * time.Second):
-		t.Fatal("Mutate did not return: the ensure re-entered the StateManager")
+		t.Fatal("Mutate did not return")
 	}
 
 	assert.Equal(t, int64(1), gotRule.GetCoordinatorTerm())

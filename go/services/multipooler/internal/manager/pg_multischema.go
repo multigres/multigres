@@ -127,8 +127,8 @@ func (pm *MultipoolerManager) isCatalogShard() bool {
 // waits for a standby. Each step checks before it writes.
 //
 // rule is the consensus rule this pooler is the primary under (see
-// ensureCatalogSchema). It must not read the StateManager: the serving
-// transition that calls it holds the StateManager's lock.
+// ensureCatalogSchema). It comes from the serving transition that calls this,
+// which has not yet made this pooler the primary in the StateManager.
 //
 // Currently this is the shared multigres.shard_ref type, backend_vpid and the
 // probe role's read grant on the heartbeat table on every shard, plus, on the
