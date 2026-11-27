@@ -29,7 +29,10 @@ import (
 // Keeping this set small keeps metric cardinality bounded.
 const (
 	// ReadyReasonUnknown is the reason before the first poll completes.
-	ReadyReasonUnknown = "unknown"
+	ReadyReasonUnknown                = "unknown"
+	ReadyReasonWALCommandUnrecognized = "wal_command_unrecognized"
+	ReadyReasonWALWrapperUnverified   = "wal_wrapper_unverified"
+	ReadyReasonWALWrapperUnavailable  = "wal_wrapper_unavailable"
 	// ReadyReasonOK means backups can run: repo reachable, stanza present,
 	// archiving configured and not failing, restore configured.
 	ReadyReasonOK = "ok"
@@ -347,9 +350,16 @@ func (e *Engine) refreshHealth(ctx context.Context) {
 	// Record refresh completion on every poll, whatever path it takes.
 	defer e.health.markRefreshed()
 
+	walReason := ""
+	if e.settings.WALReadiness != nil {
+		walReason = e.settings.WALReadiness(ctx)
+	}
 	// Disabled: backup config not loaded from topology yet.
 	if _, err := e.requireBackupConfig(); err != nil {
-		e.health.applyReadiness(false, ReadyReasonDisabled)
+		if walReason == "" {
+			walReason = ReadyReasonDisabled
+		}
+		e.health.applyReadiness(false, walReason)
 		return
 	}
 
@@ -372,6 +382,10 @@ func (e *Engine) refreshHealth(ctx context.Context) {
 	snap := e.health.Snapshot()
 	archivingFailing := snap.ArchivingFailing && snap.ArchiverFresh(time.Now())
 	reason := resolveReadiness(reachable, repoReason, configReason, archivingFailing)
+	// Inventory warnings must not mask an unreachable repository or failing archiver.
+	if walReason != "" && reason == ReadyReasonOK {
+		reason = walReason
+	}
 	e.health.applyReadiness(reason == ReadyReasonOK, reason)
 }
 

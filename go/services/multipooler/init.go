@@ -134,6 +134,7 @@ type Multipooler struct {
 	pgBackRestCAFile                 viperutil.Value[string]
 	pgBackRestPort                   viperutil.Value[int]
 	pgBackRestCipherKeyFile          viperutil.Value[string]
+	walCommandWrappers               viperutil.Value[bool]
 	backendVpidTrackingEnabled       viperutil.Value[bool]
 	postgresUnrecoverableTimeout     viperutil.Value[time.Duration]
 	postgresUnrecoverableMinAttempts viperutil.Value[int]
@@ -334,6 +335,13 @@ func NewMultipooler(telemetry *telemetry.Telemetry, reg *viperutil.Registry, res
 			EnvVars:  []string{backup.CipherKeyFileEnvVar},
 			Dynamic:  false,
 		}),
+		// Ship the executables for one release before enabling conversion by default.
+		walCommandWrappers: viperutil.Configure(reg, "wal-command-wrappers", viperutil.Options[bool]{
+			Default:  false,
+			FlagName: "wal-command-wrappers",
+			EnvVars:  []string{"MT_WAL_COMMAND_WRAPPERS"},
+			Dynamic:  false,
+		}),
 		backendVpidTrackingEnabled: viperutil.Configure(reg, "backend-vpid-tracking-enabled", viperutil.Options[bool]{
 			Default:  false,
 			FlagName: "backend-vpid-tracking-enabled",
@@ -418,6 +426,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 	flags.String("pgbackrest-ca-file", mp.pgBackRestCAFile.Default(), "TLS CA certificate for validating primary's pgBackRest server")
 	flags.Int("pgbackrest-port", mp.pgBackRestPort.Default(), "pgBackRest TLS server port")
 	flags.String("pgbackrest-cipher-key-file", mp.pgBackRestCipherKeyFile.Default(), "Path to a JSON file mapping backup repository generation to cipher passphrase, e.g. {\"1\": \"<passphrase>\"} (env: "+backup.CipherKeyFileEnvVar+"). When set, the initial repository is encrypted at stanza creation.")
+	flags.Bool("wal-command-wrappers", mp.walCommandWrappers.Default(), "Write and migrate to standalone WAL commands when pgctld reports support. Enable only after all postgres images and rollback targets contain the executables.")
 	flags.Bool("backend-vpid-tracking-enabled", mp.backendVpidTrackingEnabled.Default(), "Track active gateway virtual pid to PostgreSQL backend pid mappings in multigres.backend_vpid")
 	flags.Duration("postgres-unrecoverable-timeout", mp.postgresUnrecoverableTimeout.Default(), "How long postgres may continuously fail to start/rewind/restore before the pooler quarantines itself for replacement. Default 5m; set 0 to disable (do so where no actor replaces quarantined nodes).")
 	flags.Int("postgres-unrecoverable-min-attempts", mp.postgresUnrecoverableMinAttempts.Default(), "Minimum consecutive failed postgres start/rewind/restore attempts required alongside --postgres-unrecoverable-timeout before quarantining. Must be >= 2 and < 10.")
@@ -447,6 +456,7 @@ func (mp *Multipooler) RegisterFlags(flags *pflag.FlagSet) {
 		mp.pgBackRestCAFile,
 		mp.pgBackRestPort,
 		mp.pgBackRestCipherKeyFile,
+		mp.walCommandWrappers,
 		mp.backendVpidTrackingEnabled,
 		mp.postgresUnrecoverableTimeout,
 		mp.postgresUnrecoverableMinAttempts,
@@ -698,6 +708,7 @@ func (mp *Multipooler) Init(startCtx context.Context, ts topoclient.Store) error
 		PgctldAddr:                     mp.pgctldAddr.Get(),
 		ConsensusEnabled:               consensusEnabled,
 		ConnPoolConfig:                 mp.connPoolConfig,
+		WALCommandWrappers:             mp.walCommandWrappers.Get(),
 		BackendVpidTrackingEnabled:     mp.backendVpidTrackingEnabled.Get() && !unmanaged,
 		SlotBasedReplicationEnabled:    mp.slotBasedReplicationEnabled.Get,
 		// pgBackRest TLS certificate paths for connecting to primary's pgBackRest server

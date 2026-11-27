@@ -372,7 +372,8 @@ func (m *mockPgctldClient) Status(ctx context.Context, req *pgctldpb.StatusReque
 		return m.statusResponse, nil
 	}
 	return &pgctldpb.StatusResponse{
-		Status: pgctldpb.ServerStatus_RUNNING,
+		WalWrapperVersion: 1,
+		Status:            pgctldpb.ServerStatus_RUNNING,
 	}, nil
 }
 

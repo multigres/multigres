@@ -27,9 +27,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	commonbackup "github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	backupengine "github.com/multigres/multigres/go/services/multipooler/internal/manager/backup"
+	"github.com/multigres/multigres/go/test/utils"
 
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
@@ -111,9 +114,9 @@ type diskStatusPgctldClient struct {
 
 func (c *diskStatusPgctldClient) Status(context.Context, *pgctldpb.StatusRequest, ...grpc.CallOption) (*pgctldpb.StatusResponse, error) {
 	if _, err := os.Stat(filepath.Join(postgresDataDir(), "PG_VERSION")); err == nil {
-		return &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_STOPPED}, nil
+		return &pgctldpb.StatusResponse{WalWrapperVersion: commonbackup.WALWrapperVersion, Status: pgctldpb.ServerStatus_STOPPED}, nil
 	}
-	return &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_NOT_INITIALIZED}, nil
+	return &pgctldpb.StatusResponse{WalWrapperVersion: commonbackup.WALWrapperVersion, Status: pgctldpb.ServerStatus_NOT_INITIALIZED}, nil
 }
 
 // plantPartialRestore creates the on-disk state an interrupted restore leaves
@@ -346,8 +349,9 @@ func TestRestoreAndStartPostgres_UnreadableRestoreSentinel(t *testing.T) {
 func newRestoreTestManager(t *testing.T, poolerDir string) *MultipoolerManager {
 	t.Helper()
 	pm := &MultipoolerManager{
-		logger:     slog.Default(),
-		actionLock: actionlock.NewActionLock(),
+		pgctldClient: &mockPgctldClient{},
+		logger:       slog.Default(),
+		actionLock:   actionlock.NewActionLock(),
 		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			PoolerDir: poolerDir,
 		}),
@@ -418,34 +422,104 @@ func newMockPgbackrestRestoreManager(t *testing.T, restoreScript string) (*Multi
 	require.NoError(t, os.WriteFile(configPath, []byte("[global]\n"), 0o600))
 
 	pm := newRestoreTestManager(t, poolerDir)
+	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{PgDataDir: dataDir})
+	cfg, err := commonbackup.NewConfig(utils.FilesystemBackupLocation(filepath.Join(tmpDir, "backups")))
+	require.NoError(t, err)
+	pm.backup.SetBackupConfig(cfg)
 	pm.backup.SetConfigPath(configPath)
 	return pm, dataDir
 }
 
-// TestRestoreFromBackupLocked_SentinelCoversOnlyTheRestore verifies the sentinel
-// is on disk while pgbackrest restore runs and is cleared as soon as it
-// succeeds, so a failure in a later step can't get the restored data discarded.
-func TestRestoreFromBackupLocked_SentinelCoversOnlyTheRestore(t *testing.T) {
-	observedFile := filepath.Join(t.TempDir(), "sentinel_during_restore")
-	t.Setenv("OBSERVED", observedFile)
-	// Records whether the sentinel exists while the restore runs, then
-	// "restores" by writing PG_VERSION into PGDATA.
+const restoredArchiveConfig = `# inherited from the backup
+archive_mode = 'on'
+archive_command = 'source archive command'
+restore_command = 'provisional restore command'
+`
+
+const completeRestoreScript = `mkdir -p "$PGDATA" && echo 17 > "$PGDATA/PG_VERSION"
+cat > "$PGDATA/postgresql.auto.conf" <<'EOF'
+` + restoredArchiveConfig + `EOF
+`
+
+type restoreFinalizationPgctld struct {
+	mockPgctldClient
+	status  func(*pgctldpb.StatusRequest) (*pgctldpb.StatusResponse, error)
+	restart func(*pgctldpb.RestartRequest)
+}
+
+func (c *restoreFinalizationPgctld) Status(_ context.Context, req *pgctldpb.StatusRequest, _ ...grpc.CallOption) (*pgctldpb.StatusResponse, error) {
+	return c.status(req)
+}
+
+func (c *restoreFinalizationPgctld) Restart(_ context.Context, req *pgctldpb.RestartRequest, _ ...grpc.CallOption) (*pgctldpb.RestartResponse, error) {
+	c.restart(req)
+	return nil, errors.New("test stops at restart")
+}
+
+func TestRestoreFromBackupLocked_FinalizesBeforeRestart(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		version  uint32
+		probeErr error
+	}{{name: "wrappers available", version: commonbackup.WALWrapperVersion}, {name: "legacy daemon"}, {name: "probe failed", probeErr: errors.New("test status unavailable")}} {
+		t.Run(tc.name, func(t *testing.T) {
+			pm, dataDir := newMockPgbackrestRestoreManager(t, completeRestoreScript)
+			pm.config = &Config{WALCommandWrappers: true}
+			conf := filepath.Join(dataDir, "postgresql.auto.conf")
+			dir := pm.record.PoolerDir()
+			statusCalls := 0
+			pm.pgctldClient = &restoreFinalizationPgctld{
+				status: func(req *pgctldpb.StatusRequest) (*pgctldpb.StatusResponse, error) {
+					statusCalls++
+					require.True(t, req.GetRecheckWalWrappers())
+					require.FileExists(t, pm.restoreSentinel().path)
+					got, err := os.ReadFile(conf)
+					require.NoError(t, err)
+					require.Equal(t, restoredArchiveConfig, string(got), "capability check precedes any config edits")
+					return &pgctldpb.StatusResponse{WalWrapperVersion: tc.version, PoolerDir: dir}, tc.probeErr
+				},
+				restart: func(req *pgctldpb.RestartRequest) {
+					require.True(t, req.GetAsStandby())
+					require.NoFileExists(t, pm.restoreSentinel().path)
+					got, err := os.ReadFile(conf)
+					require.NoError(t, err)
+					archive, restore := commonbackup.WALCommands(tc.version != 0, filepath.Join(filepath.Dir(dir), "pgbackrest.conf"), dir)
+					archiveValue, err := ast.QuoteConfValue(archive)
+					require.NoError(t, err)
+					restoreValue, err := ast.QuoteConfValue(restore)
+					require.NoError(t, err)
+					require.Contains(t, string(got), "archive_command = "+archiveValue+"\nrestore_command = "+restoreValue+"\n")
+					require.NotContains(t, string(got), "source archive command")
+					require.NotContains(t, string(got), "provisional restore command")
+				},
+			}
+			withLock(t, pm, func(ctx context.Context) {
+				require.ErrorContains(t, pm.restoreFromBackupLocked(ctx, "some-backup-id"), "test stops at restart")
+			})
+			assert.Equal(t, 1, statusCalls)
+			assert.FileExists(t, filepath.Join(dataDir, "PG_VERSION"))
+		})
+	}
+}
+
+func TestRestoreFromBackupLocked_FinalizationFailureKeepsSentinel(t *testing.T) {
 	pm, dataDir := newMockPgbackrestRestoreManager(t, `
-[[ -f "$SENTINEL" ]] && echo present > "$OBSERVED"
-mkdir -p "$PGDATA" && echo 17 > "$PGDATA/PG_VERSION"`)
-
+[[ -f "$SENTINEL" ]] || exit 1
+`+completeRestoreScript+`
+mv "$PGDATA/postgresql.auto.conf" "$PGDATA/original"
+ln -s original "$PGDATA/postgresql.auto.conf"
+`)
+	client := &mockPgctldClient{}
+	pm.pgctldClient = client
 	withLock(t, pm, func(ctx context.Context) {
-		// The engine has no data directory configured, so the step after the
-		// restore (reconfiguring the archive settings) fails.
-		err := pm.restoreFromBackupLocked(ctx, "some-backup-id")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to remove old archive configuration")
+		require.ErrorContains(t, pm.restoreFromBackupLocked(ctx, "some-backup-id"), "failed to finalize restored WAL configuration")
 	})
-
-	assert.FileExists(t, observedFile, "the sentinel must be on disk while pgbackrest restore runs")
-	assert.NoFileExists(t, pm.restoreSentinel().path, "the sentinel must be cleared once the restore succeeds")
-	assert.FileExists(t, filepath.Join(dataDir, "PG_VERSION"),
-		"a failure after a successful restore must not discard the restored data")
+	assert.False(t, client.restartCalled)
+	assert.FileExists(t, pm.restoreSentinel().path, "startup must still be blocked")
+	assert.FileExists(t, filepath.Join(dataDir, "PG_VERSION"))
+	got, err := os.ReadFile(filepath.Join(dataDir, "original"))
+	require.NoError(t, err)
+	assert.Equal(t, restoredArchiveConfig, string(got))
 }
 
 // TestRestoreFromBackupLocked_SentinelRemovalFails covers a sentinel that can't
@@ -467,8 +541,7 @@ func TestRestoreFromBackupLocked_SentinelRemovalFails(t *testing.T) {
 	})
 
 	t.Run("after a successful restore the attempt fails so it is redone", func(t *testing.T) {
-		pm, dataDir := newMockPgbackrestRestoreManager(t, swapSentinel+"\n"+
-			`mkdir -p "$PGDATA" && echo 17 > "$PGDATA/PG_VERSION"`)
+		pm, dataDir := newMockPgbackrestRestoreManager(t, swapSentinel+"\n"+completeRestoreScript)
 
 		withLock(t, pm, func(ctx context.Context) {
 			err := pm.restoreFromBackupLocked(ctx, "some-backup-id")

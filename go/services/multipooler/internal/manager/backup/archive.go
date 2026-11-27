@@ -15,15 +15,17 @@
 package backup
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	commonbackup "github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	"github.com/multigres/multigres/go/tools/fileutil"
 )
 
 // autoConfPath returns the path to postgresql.auto.conf in the PostgreSQL data
@@ -37,88 +39,116 @@ func (e *Engine) autoConfPath() (string, error) {
 	return filepath.Join(e.settings.PgDataDir, "postgresql.auto.conf"), nil
 }
 
-// RemoveArchiveConfig removes archive configuration lines from postgresql.auto.conf
-// This is used after restore to remove the primary's archive config before applying the standby's config
-func (e *Engine) RemoveArchiveConfig() error {
-	autoConfPath, err := e.autoConfPath()
-	if err != nil {
-		return err
-	}
+const archiveConfigHeader = "# Archive mode for pgbackrest backups"
 
-	content, err := os.ReadFile(autoConfPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil // File doesn't exist, nothing to remove
-		}
-		return fmt.Errorf("failed to read postgresql.auto.conf: %w", err)
-	}
-
-	var filtered []string
-	for line := range strings.SplitSeq(string(content), "\n") {
-		trimmed := strings.TrimSpace(line)
-		// Skip archive-related lines
-		if strings.HasPrefix(trimmed, "archive_mode") ||
-			strings.HasPrefix(trimmed, "archive_command") ||
-			trimmed == "# Archive mode for pgbackrest backups" {
-			continue
-		}
-		filtered = append(filtered, line)
-	}
-
-	return os.WriteFile(autoConfPath, []byte(strings.Join(filtered, "\n")), 0o644)
+// ConfigureArchiveMode configures archiving after InitDataDir and before
+// starting PostgreSQL. It leaves an already-configured archive_mode alone.
+func (e *Engine) ConfigureArchiveMode(ctx context.Context, wrappers bool) error {
+	return e.configureWALCommands(ctx, wrappers, "", false)
 }
 
-// ConfigureArchiveMode configures archive_mode in postgresql.auto.conf for pgbackrest
-// This must be called after InitDataDir but BEFORE starting PostgreSQL
-func (e *Engine) ConfigureArchiveMode(ctx context.Context) error {
+// FinalizeRestore replaces the restored archive and recovery settings with
+// commands for this pooler, before PostgreSQL can start. Both commands use the
+// same freshly selected ABI and are made durable together.
+func (e *Engine) FinalizeRestore(ctx context.Context, wrappers bool, poolerDir string) error {
+	return e.configureWALCommands(ctx, wrappers, poolerDir, true)
+}
+
+func (e *Engine) configureWALCommands(ctx context.Context, wrappers bool, poolerDir string, afterRestore bool) error {
 	configPath, err := e.requireConfigPath()
 	if err != nil {
 		return mterrors.Wrap(err, "failed to initialize pgbackrest")
 	}
-
 	cfg, err := e.requireBackupConfig()
 	if err != nil {
 		return err
 	}
-
-	// Check if pgbackrest config file exists before configuring archive mode
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+	configInfo, err := os.Stat(configPath)
+	if err != nil {
 		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("pgbackrest config file not found at %s - ensure pgctld generated the config successfully", configPath))
+			fmt.Sprintf("failed to stat pgbackrest config file at %s: %v", configPath, err))
+	}
+	if !configInfo.Mode().IsRegular() {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
+			"pgbackrest config is not a regular file: "+configPath)
 	}
 
-	autoConfPath, err := e.autoConfPath()
+	path, err := e.autoConfPath()
 	if err != nil {
 		return err
 	}
+	var content []byte
+	info, err := os.Lstat(path)
+	switch {
+	case err == nil:
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("cannot edit non-regular file %s", path)
+		}
+		content, err = os.ReadFile(path)
+		if err != nil {
+			return mterrors.Wrap(err, "failed to read postgresql.auto.conf")
+		}
+	case !os.IsNotExist(err) || afterRestore:
+		// A standby restore writes its recovery settings here. If the file is
+		// missing, fail rather than creating one without the rest of its config.
+		return mterrors.Wrap(err, "failed to stat postgresql.auto.conf")
+	}
 
-	// Check if archive_mode is already configured to avoid duplicates
-	if _, err := os.Stat(autoConfPath); err == nil {
-		content, err := os.ReadFile(autoConfPath)
-		if err == nil && bytes.Contains(content, []byte("archive_mode")) {
-			e.logger.InfoContext(ctx, "archive_mode already configured, skipping", "auto_conf", autoConfPath)
-			return nil
+	var updated strings.Builder
+	for line := range strings.SplitAfterSeq(string(content), "\n") {
+		trimmed := strings.TrimSpace(line)
+		name := trimmed
+		if end := strings.IndexAny(name, " \t="); end != -1 {
+			name = name[:end]
+		}
+		switch strings.ToLower(name) {
+		case "archive_mode":
+			if !afterRestore {
+				e.logger.InfoContext(ctx, "archive_mode already configured, skipping", "auto_conf", path)
+				return nil
+			}
+			continue
+		case "archive_command", "restore_command":
+			if afterRestore {
+				continue
+			}
+		}
+		if afterRestore && trimmed == archiveConfigHeader {
+			continue
+		}
+		if line != "" {
+			updated.WriteString(line)
+			if !strings.HasSuffix(line, "\n") {
+				updated.WriteByte('\n')
+			}
 		}
 	}
 
-	// Configure archive_mode in postgresql.auto.conf
-	// Following the pattern from test/endtoend/multipooler/setup_test.go:479-498
-	archiveConfig := fmt.Sprintf(`
-# Archive mode for pgbackrest backups
-archive_mode = 'on'
-archive_command = 'pgbackrest --stanza=%s --config=%s archive-push %%p'
-`, stanzaName, configPath)
-
-	f, err := os.OpenFile(autoConfPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	archive, restore := commonbackup.WALCommands(wrappers, configPath, poolerDir)
+	archiveValue, err := ast.QuoteConfValue(archive)
 	if err != nil {
-		return mterrors.Wrap(err, "failed to open postgresql.auto.conf")
+		return err
 	}
-	defer f.Close()
-
-	if _, err := f.WriteString(archiveConfig); err != nil {
-		return mterrors.Wrap(err, "failed to write archive config")
+	fmt.Fprintf(&updated, "%s\narchive_mode = 'on'\narchive_command = %s\n", archiveConfigHeader, archiveValue)
+	if afterRestore {
+		restoreValue, err := ast.QuoteConfValue(restore)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(&updated, "restore_command = %s\n", restoreValue)
 	}
 
-	e.logger.InfoContext(ctx, "configured archive_mode in postgresql.auto.conf", "config_path", configPath, "stanza", stanzaName, "backup_type", cfg.Type())
+	data := []byte(updated.String())
+	if info != nil {
+		err = fileutil.AtomicReplaceFile(path, data)
+	} else {
+		// Initdb normally provides auto.conf. If absent, use a private file
+		// as initdb does by default.
+		err = fileutil.AtomicWriteFile(path, data, 0o600)
+	}
+	if err != nil {
+		return mterrors.Wrap(err, "failed to write postgresql.auto.conf")
+	}
+	e.logger.InfoContext(ctx, "configured WAL commands in postgresql.auto.conf", "config_path", configPath, "stanza", stanzaName, "backup_type", cfg.Type())
 	return nil
 }

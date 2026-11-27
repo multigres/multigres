@@ -36,7 +36,7 @@ import (
 )
 
 // stanzaName is the fixed pgBackRest stanza name used by multigres.
-const stanzaName = "multigres"
+const stanzaName = commonbackup.WALStanza
 
 // Identity exposes the pooler identity the backup engine needs.
 type Identity interface {
@@ -47,6 +47,8 @@ type Identity interface {
 // Settings are the static settings fixed at construction (from the pooler's
 // static config / environment).
 type Settings struct {
+	// WALReadiness inventories persisted commands independently of the conversion switch or SQL availability.
+	WALReadiness func(context.Context) string
 	// PgpassPath, when set, is exported as PGPASSFILE for pgbackrest commands.
 	PgpassPath string
 	// PgDataDir is the PostgreSQL data directory (for archive-command config in

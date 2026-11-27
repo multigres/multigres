@@ -28,12 +28,11 @@ import (
 // itself dies.
 //
 // restoreFromBackupLocked writes the sentinel just before pgbackrest restore
-// runs and removes it as soon as the restore completes, or after the partial
-// data directory has been removed on failure. Its presence on a later monitor
-// tick is therefore the authoritative signal that a prior restore did not
-// complete. The monitor uses it to route to the restore path, which, once it has
-// found a backup to restore from, removes the partial data directory and
-// restores again instead of starting postgres on it.
+// runs and removes it once the restore and local WAL configuration are durable,
+// or after the partial data directory has been removed on failure. A sentinel
+// on a later monitor tick means the prior restore did not complete. Once the
+// monitor finds a backup, it removes the data directory and restores again
+// instead of starting postgres on it.
 //
 // Because the restore path removes the data directory whenever the sentinel is
 // present, nothing may start postgres while it is: postgres serving that data

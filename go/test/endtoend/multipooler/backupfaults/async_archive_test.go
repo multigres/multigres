@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/s3mock"
 	"github.com/multigres/multigres/go/test/utils"
@@ -53,6 +55,24 @@ func TestAsyncWALArchive_PushRetryAndArchiveReplay(t *testing.T) {
 	}
 	if utils.ShouldSkipRealPostgres() {
 		t.Skip("Skipping end-to-end test (no postgres binaries available)")
+	}
+
+	for _, tc := range []struct {
+		name     string
+		wrappers bool
+	}{{"legacy", false}, {"wrappers", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("MT_WAL_COMMAND_WRAPPERS", strconv.FormatBool(tc.wrappers))
+			testArchiveRetryAndReplay(t, tc.wrappers)
+		})
+	}
+}
+
+func testArchiveRetryAndReplay(t *testing.T, wrappers bool) {
+	// A cap smaller than one segment must never acknowledge a dropped segment,
+	// including in the separately spawned async worker.
+	if wrappers {
+		t.Setenv("PGBACKREST_ARCHIVE_PUSH_QUEUE_MAX", "1MiB")
 	}
 
 	// WAL-segment PUTs fail (HTTP 500) while the outage flag is set; stanza
@@ -93,6 +113,13 @@ func TestAsyncWALArchive_PushRetryAndArchiveReplay(t *testing.T) {
 
 	primaryDB := connectToPostgresViaSocket(t, filepath.Join(primary.Pgctld.PoolerDir, "pg_sockets"), primary.Pgctld.PgPort)
 	defer primaryDB.Close()
+	var archiveCommand string
+	require.NoError(t, primaryDB.QueryRow("SHOW archive_command").Scan(&archiveCommand))
+	if wrappers {
+		require.Equal(t, backup.ArchiveWALCommand, archiveCommand)
+	} else {
+		require.Contains(t, archiveCommand, " archive-push %p")
+	}
 	_, err = primaryDB.Exec("CREATE TABLE async_archive_test (id serial PRIMARY KEY, phase text NOT NULL)")
 	require.NoError(t, err)
 
@@ -151,6 +178,13 @@ func TestAsyncWALArchive_PushRetryAndArchiveReplay(t *testing.T) {
 
 	restoredDB := connectToPostgresViaSocket(t, filepath.Join(restored.Pgctld.PoolerDir, "pg_sockets"), restored.Pgctld.PgPort)
 	defer restoredDB.Close()
+	var restoreCommand string
+	require.NoError(t, restoredDB.QueryRow("SHOW restore_command").Scan(&restoreCommand))
+	if wrappers {
+		require.Equal(t, backup.RestoreWALCommand, restoreCommand)
+	} else {
+		require.Contains(t, restoreCommand, "pgctld restore-wrapper ")
+	}
 	require.Eventually(t, func() bool {
 		var n int
 		if err := restoredDB.QueryRow("SELECT count(*) FROM async_archive_test").Scan(&n); err != nil {

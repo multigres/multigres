@@ -17,8 +17,12 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
+
+	"github.com/multigres/multigres/go/common/backup"
 
 	"github.com/multigres/multigres/go/cmd/pgctld/command"
 	"github.com/multigres/multigres/go/tools/initproc"
@@ -33,6 +37,14 @@ func main() {
 		os.Exit(initproc.Run(slog.New(slog.NewJSONHandler(os.Stderr, nil)))) //nolint:forbidigo // main() is allowed to call os.Exit
 	}
 
+	switch name := filepath.Base(os.Args[0]); name {
+	case backup.ArchiveWALExecutable, backup.RestoreWALExecutable:
+		if err := command.RunWALCommand(name, os.Args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1) //nolint:forbidigo // main returns failure to the archiver.
+		}
+		return
+	}
 	root, pgctlCmd := command.GetRootCommand()
 
 	if err := root.Execute(); err != nil {

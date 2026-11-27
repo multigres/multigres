@@ -1633,7 +1633,7 @@ func TestRestartAsStandby_ManualStopSkipsConnInfoFileWrite(t *testing.T) {
 }
 
 // TestRestartAsStandby_FileWriteFailureFallsBackToSQL: the pre-start file write
-// is best-effort — when it fails (unwritable auto.conf here), the restart still
+// is best-effort — when it fails (a symlink in place of auto.conf here), the restart still
 // proceeds and the post-start SQL path establishes the conninfo, preserving the
 // helper's "working standby of source on return" contract for nodes that can
 // accept connections.
@@ -1659,8 +1659,11 @@ func TestRestartAsStandby_FileWriteFailureFallsBackToSQL(t *testing.T) {
 	const stale = "primary_conninfo = 'host=old-leader port=5432 user=postgres application_name=stale'\n"
 	manager, autoConfPath, autoConfAtRestart := newRestartAsStandbyTestManager(t, mockQueryService, stale)
 
-	// Make the file unwritable so the pre-start write fails (logged, not fatal).
-	require.NoError(t, os.Chmod(autoConfPath, 0o400))
+	// An atomic rename can still replace a read-only file. Use a symlink to
+	// trigger refusal to replace a non-regular file, even when running as root.
+	target := autoConfPath + ".real"
+	require.NoError(t, os.Rename(autoConfPath, target))
+	require.NoError(t, os.Symlink(target, autoConfPath))
 
 	err := restartAsStandbyNoRewindForTest(t, manager, "source-host", 5433)
 	require.NoError(t, err, "restart must succeed despite the failed file write")

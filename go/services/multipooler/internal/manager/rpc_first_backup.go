@@ -167,7 +167,7 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	}
 
 	// Configure archive_mode before starting PostgreSQL.
-	if err := pm.backup.ConfigureArchiveMode(ctx); err != nil {
+	if err := pm.backup.ConfigureArchiveMode(ctx, pm.supportsWALWrappers(ctx)); err != nil {
 		return false, false, mterrors.Wrap(err, "failed to configure archive mode")
 	}
 
