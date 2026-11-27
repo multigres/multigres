@@ -140,7 +140,7 @@ func (e *equalsGen) structMethod(t types.Type, strct *types.Struct, spi generato
 }
 
 // ptrToStructMethod handles pointers to structs: identical or both-nil pointers
-// are equal, otherwise every field is compared.
+// are equal, otherwise the pointees are compared.
 func (e *equalsGen) ptrToStructMethod(t types.Type, strct *types.Struct, spi generatorSPI) error {
 	elem := t.Underlying().(*types.Pointer).Elem()
 	var cmp jen.Code
