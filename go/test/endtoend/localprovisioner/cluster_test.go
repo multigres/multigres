@@ -182,8 +182,8 @@ func cleanupTestProcesses(tempDir string) error {
 type clusterOption func(*local.LocalProvisionerConfig)
 
 // withBackupEncryption requires client-side backup encryption for the cluster.
-// The provisioner generates the cipher key file and starts every multipooler
-// with --pgbackrest-cipher-key-file, encrypting the initial repository.
+// The provisioner generates the cipher key file and starts every pooler's
+// pgbackrestd with --cipher-key-file, encrypting the initial repository.
 func withBackupEncryption() clusterOption {
 	return func(c *local.LocalProvisionerConfig) {
 		c.Backup = local.BackupConfig{
@@ -846,6 +846,10 @@ func executeStartCommand(t *testing.T, args []string, tempDir string) (string, e
 		"MULTIGRES_TESTDATA_DIR="+tempDir,
 		"LC_ALL=en_US.UTF-8",
 	)
+	// A developer's shell usually holds AWS keys when the launcher runs, so
+	// every cluster these tests start is given some: none of the services may
+	// inherit them (TestServicesDoNotInheritRepositoryCredentials).
+	cmd.Env = append(cmd.Env, launcherCredentialEnv...)
 
 	// On macOS, PostgreSQL 17 requires proper locale settings to avoid
 	// "postmaster became multithreaded during startup" errors.
@@ -1865,7 +1869,7 @@ func setupTestCluster(t *testing.T, opts ...clusterOption) *testClusterSetup {
 	// Find a multigateway that has access to the PRIMARY pooler.
 	// We need to wait for discovery to complete.
 	readyPort := testPorts.Zones[0].MultigatewayPGPort
-	waitCtx, waitCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer waitCancel()
 	err = waitForMultigatewayReady(t, waitCtx, readyPort, serviceStates["multigateway"].PID)
 	require.NoError(t, err, "multigateway should be ready after bootstrap")

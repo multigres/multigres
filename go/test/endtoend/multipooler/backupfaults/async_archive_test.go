@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -46,7 +47,11 @@ import (
 //     action.
 //  3. Restore and replay: a fresh pooler restores from the bootstrap backup
 //     and replays every archived segment, including the one that was
-//     retried, through async archive-get.
+//     retried, through restore_command.
+//  4. The asynchronous paths themselves, on Linux: the push acknowledgement
+//     and the archive-get queue are files only pgBackRest's detached async
+//     workers write. Off Linux the sidecar runs both commands with
+//     --no-archive-async, so there this test covers 1 to 3 only.
 func TestAsyncWALArchive_PushRetryAndArchiveReplay(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping end-to-end tests in short mode")
@@ -83,13 +88,6 @@ func TestAsyncWALArchive_PushRetryAndArchiveReplay(t *testing.T) {
 
 	primary := setup.GetPrimary(t)
 	require.NotNil(t, primary)
-	pgbackrestDir := filepath.Join(primary.Pgctld.PoolerDir, "pgbackrest")
-
-	// The rendered conf is the contract under test.
-	conf, err := os.ReadFile(filepath.Join(pgbackrestDir, "pgbackrest.conf"))
-	require.NoError(t, err)
-	require.Regexp(t, `(?m)^archive-async=y$`, string(conf))
-	require.NotRegexp(t, `(?m)^archive-push-queue-max=`, string(conf), "a push queue limit would let pgbackrest drop WAL")
 
 	primaryDB := connectToPostgresViaSocket(t, filepath.Join(primary.Pgctld.PoolerDir, "pg_sockets"), primary.Pgctld.PgPort)
 	defer primaryDB.Close()
@@ -97,17 +95,25 @@ func TestAsyncWALArchive_PushRetryAndArchiveReplay(t *testing.T) {
 	require.NoError(t, err)
 
 	archiveStatus := filepath.Join(primary.Pgctld.PoolerDir, "pg_data", "pg_wal", "archive_status")
-	spoolOut := filepath.Join(pgbackrestDir, "spool", "archive", "multigres", "out")
+	// The conf the sidecar rendered for its pgBackRest commands is the contract
+	// under test.
+	conf, err := os.ReadFile(filepath.Join(primary.PgBackRestd.Paths.StateDir, "conf", "pgbackrest.conf"))
+	require.NoError(t, err)
+	require.Regexp(t, `(?m)^archive-async=y$`, string(conf))
+	require.NotRegexp(t, `(?m)^archive-push-queue-max=`, string(conf), "a push queue limit would let pgbackrest drop WAL")
+	spoolOut := filepath.Join(primary.PgBackRestd.Paths.StateDir, "spool", "archive", "multigres", "out")
 
 	// --- 1. Successful archival through the async process. In async mode the
 	// foreground archive-push logs only to its console, which postgres
 	// captures into its own log.
 	seg1 := writeAndSwitchWAL(t, primaryDB, "archived")
 	waitForSegmentArchived(t, s3Server, archiveStatus, seg1)
-	requireLogLine(t, filepath.Join(primary.Pgctld.PoolerDir, "pg_data", "postgresql.log"),
-		fmt.Sprintf("pushed WAL file '%s' to the archive asynchronously", seg1),
-		"archive_command must have gone through the async path")
-	t.Logf("Segment %s archived asynchronously", seg1)
+	if asyncArchiveWorkers {
+		// The foreground archive-push only waits; the detached async worker
+		// stores the segment and leaves this acknowledgement for it.
+		requireSpoolEntry(t, spoolOut, seg1+".ok", "archive_command must have gone through the async worker")
+	}
+	t.Logf("Segment %s archived", seg1)
 
 	// --- 2. Storage outage: archive_command must fail, and the segment must
 	// stay queued in archive_status with no ack in the spool.
@@ -159,17 +165,45 @@ func TestAsyncWALArchive_PushRetryAndArchiveReplay(t *testing.T) {
 		return n == 3
 	}, 120*time.Second, 1*time.Second, "restored pooler should replay every archived segment")
 
-	// The retried segment can come from the async spool or, when postgres asks
-	// before the async batch has fetched it, straight from the repo; which one
-	// depends on download timing. Require the replay, and that the async path
-	// served some segment.
-	restoredLog := filepath.Join(restored.Pgctld.PoolerDir, "pg_data", "postgresql.log")
-	requireLogLine(t, restoredLog,
+	// Postgres logs each segment restore_command hands it. pgBackRest runs in the
+	// sidecar, so its own console output never reaches this log.
+	requireLogLine(t, filepath.Join(restored.Pgctld.PoolerDir, "pg_data", "postgresql.log"),
 		fmt.Sprintf("restored log file %q from archive", seg2),
 		"the retried segment must have been replayed from the archive")
-	requireLogLine(t, restoredLog, "in the archive asynchronously",
-		"restore_command must have used async archive-get")
-	t.Logf("%s replayed the archive, including retried segment %s, through async archive-get", restoredName, seg2)
+	if asyncArchiveWorkers {
+		// Only the async archive-get worker writes into this queue: segments it
+		// fetched ahead of postgres, and an .ok marker for the segment after
+		// the last one, which postgres keeps asking for. A synchronous get
+		// hands the segment straight to postgres and never creates an entry.
+		spoolIn := filepath.Join(restored.PgBackRestd.Paths.StateDir, "spool", "archive", "multigres", "in")
+		requireSpoolEntry(t, spoolIn, "", "restore_command must have used the async archive-get worker")
+	}
+	t.Logf("%s replayed the archive, including retried segment %s", restoredName, seg2)
+}
+
+// asyncArchiveWorkers reports whether the sidecar under test runs pgBackRest's
+// detached asynchronous archive workers. Off Linux it passes --no-archive-async.
+const asyncArchiveWorkers = runtime.GOOS == "linux"
+
+// requireSpoolEntry waits for an entry in a pgBackRest spool directory: the
+// one called name, or any entry when name is empty.
+func requireSpoolEntry(t *testing.T, dir, name, msg string) {
+	t.Helper()
+	var seen []string
+	require.Eventually(t, func() bool {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return false
+		}
+		seen = seen[:0]
+		for _, e := range entries {
+			seen = append(seen, e.Name())
+			if name == "" || e.Name() == name {
+				return true
+			}
+		}
+		return false
+	}, 60*time.Second, 200*time.Millisecond, "%s: no %q in %s (has %v)", msg, name, dir, seen)
 }
 
 // requireLogLine waits briefly for line to appear in the log at path: the

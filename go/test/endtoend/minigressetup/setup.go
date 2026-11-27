@@ -36,6 +36,7 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
+	"github.com/multigres/multigres/go/provisioner/local"
 	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
 	"github.com/multigres/multigres/go/test/endtoend/testconst"
 	"github.com/multigres/multigres/go/test/utils"
@@ -115,9 +116,11 @@ type Setup struct {
 	TopoServer     topoclient.Store
 	CellName       string
 
-	// Pgctld runs PostgreSQL; Minigres runs the gateway and the pooler.
-	Pgctld   *clustersetup.ProcessInstance
-	Minigres *clustersetup.ProcessInstance
+	// Pgctld runs PostgreSQL; Minigres runs the gateway and the pooler;
+	// PgBackRestd runs every pgBackRest command for the pooler.
+	Pgctld      *clustersetup.ProcessInstance
+	Minigres    *clustersetup.ProcessInstance
+	PgBackRestd *clustersetup.PgBackRestdInstance
 
 	// TLSCertPaths is set when the client port serves TLS.
 	TLSCertPaths *clustersetup.MultigatewayTLSCertPaths
@@ -141,7 +144,8 @@ func New(t *testing.T, opts ...Option) *Setup {
 		opt(cfg)
 	}
 
-	for _, binary := range []string{"minigres", "pgctld"} {
+	clustersetup.RequireSidecarHost(t)
+	for _, binary := range []string{"minigres", "pgctld", "pgbackrestd"} {
 		if _, err := exec.LookPath(binary); err != nil {
 			t.Fatalf("%s binary not found in PATH - ensure TestMain calls clustersetup.RunTestMain", binary)
 		}
@@ -185,14 +189,25 @@ func New(t *testing.T, opts ...Option) *Setup {
 		s.TLSCertPaths = clustersetup.GenerateMultigatewayTLSCerts(t, filepath.Join(tempDir, "minigres-tls"))
 	}
 
-	// pgctld runs PostgreSQL. No pgBackRest TLS server: a static leader backs
-	// up and restores locally.
+	// pgctld runs PostgreSQL. A static leader backs up and restores through the
+	// same sidecar a pooler of a Multigres topology has.
 	s.Pgctld = clustersetup.CreatePgctldInstance(t, serviceID, tempDir,
-		utils.GetFreePort(t), utils.GetFreePort(t), utils.GetFreePort(t), 0, "", backupLocation)
+		utils.GetFreePort(t), utils.GetFreePort(t), utils.GetFreePort(t), backupLocation)
 	s.Pgctld.PgInitdbArgs = cfg.pgInitdbArgs
 	s.Pgctld.PgInitdbExtraConfFiles = append(s.Pgctld.PgInitdbExtraConfFiles, cfg.pgInitdbExtraConfFiles...)
 	s.Minigres = s.newMinigresInstance(t, cfg)
+	if _, err := local.GeneratePgBackRestCerts(filepath.Join(tempDir, "certs")); err != nil {
+		cancel()
+		t.Fatalf("failed to generate pgBackRest certificates: %v", err)
+	}
+	s.PgBackRestd = clustersetup.AttachPgBackRestd(t, serviceID, tempDir, s.Pgctld, s.Minigres, backupLocation,
+		clustersetup.SidecarSettings{ServerPort: utils.GetFreePort(t), TLSCertDir: filepath.Join(tempDir, "certs")})
 
+	// The sidecar first: postgres's archive_command dials its WAL socket.
+	if err := s.PgBackRestd.Start(runningCtx, t); err != nil {
+		cancel()
+		t.Fatalf("failed to start pgbackrestd: %v", err)
+	}
 	if err := s.Pgctld.Start(runningCtx, t); err != nil {
 		cancel()
 		t.Fatalf("failed to start pgctld: %v", err)
@@ -422,6 +437,9 @@ func (s *Setup) checkProcesses(t *testing.T) {
 	if !s.Pgctld.IsRunningOrZombie() {
 		dead = append(dead, "pgctld")
 	}
+	if !s.PgBackRestd.IsRunning() {
+		dead = append(dead, "pgbackrestd")
+	}
 	if len(dead) > 0 {
 		t.Fatalf("Shared test process(es) died: %v. A previous test likely crashed them. Check service logs above.", dead)
 	}
@@ -517,6 +535,15 @@ func (s *Setup) ReinitializeCluster(t *testing.T) {
 	// the port. Immediate mode skips the checkpoint: the data is wiped next.
 	s.Pgctld.StopPostgresImmediate(t)
 	s.Pgctld.TerminateGracefully(t.Logf, gracePeriod)
+	// The sidecar is stopped and its directory removed first. Wiping the pooler
+	// directory deletes the pg_sockets directory its sandbox rules were opened
+	// on, and its state belongs to the old repository. Both steps must succeed
+	// before anything below is wiped: a sidecar that is still running would keep
+	// archiving into the cleared repository, and state left behind would bind
+	// the new sidecar to the old repository.
+	if err := s.PgBackRestd.StopAndRemoveState(gracePeriod); err != nil {
+		t.Fatalf("ReinitializeCluster: %v", err)
+	}
 
 	testutil.ReleaseOrphanedSharedMemory(t.Logf, s.Pgctld.PoolerDir)
 	clustersetup.ClearDirContents(t, s.Pgctld.PoolerDir)
@@ -525,6 +552,17 @@ func (s *Setup) ReinitializeCluster(t *testing.T) {
 
 	t.Logf("ReinitializeCluster: restarting minigres...")
 	clustersetup.WaitForPortFree(t, s.Pgctld.PgPort, 60*time.Second)
+	// The sidecar first, on a fresh pooler directory and state directory:
+	// postgres's archive_command dials its WAL socket.
+	if err := os.MkdirAll(s.Pgctld.PoolerDir, 0o755); err != nil {
+		t.Fatalf("ReinitializeCluster: create %s: %v", s.Pgctld.PoolerDir, err)
+	}
+	if err := s.PgBackRestd.Paths.Prepare(clustersetup.TestPostgresPassword); err != nil {
+		t.Fatalf("ReinitializeCluster: prepare pgbackrestd: %v", err)
+	}
+	if err := s.PgBackRestd.Start(s.runningCtx, t); err != nil {
+		t.Fatalf("ReinitializeCluster: failed to start pgbackrestd: %v", err)
+	}
 	if err := s.Pgctld.Start(s.runningCtx, t); err != nil {
 		t.Fatalf("ReinitializeCluster: failed to start pgctld: %v", err)
 	}
@@ -555,6 +593,8 @@ func (s *Setup) Cleanup(testsFailed bool) {
 		// pgctld stops PostgreSQL through gRPC before it is signalled.
 		s.Pgctld.TerminateGracefully(logf, 15*time.Second)
 	}
+	// After pgctld: postgres archives its shutdown WAL through the sidecar.
+	s.PgBackRestd.Terminate(logf, 5*time.Second)
 	if s.cancel != nil {
 		s.cancel()
 	}

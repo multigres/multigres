@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/removedflags"
 	"github.com/multigres/multigres/go/tools/viperutil"
 )
 
@@ -42,6 +43,11 @@ func prepareConfig(reg *viperutil.Registry) viperutil.ConfigPreparer {
 			omitted[reg.WithPrefix(constants.ServiceMultipooler).Key(name)] = true
 		}
 
+		// Before the keys are sorted into known and unknown: a removed
+		// pgBackRest setting gets the message that says what replaced it.
+		if err := removedflags.CheckConfig(settings, constants.ServiceMinigres, removedflags.Multipooler); err != nil {
+			return nil, err
+		}
 		extra := make(map[string]any)
 		var errs []error
 		for _, key := range slices.Sorted(maps.Keys(settings)) {

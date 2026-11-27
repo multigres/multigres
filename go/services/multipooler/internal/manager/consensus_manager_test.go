@@ -81,11 +81,18 @@ func NewMultipoolerManagerForTesting(t *testing.T, logger *slog.Logger, mp *clus
 	for _, o := range opts {
 		o(&c)
 	}
+	// The sidecar is not optional: a test that names no sockets of its own gets
+	// a fake whose Run execs the stub pgbackrest on PATH.
+	if config.PgBackRestControlSocket == "" {
+		withTestSidecarServer(t, config, mp)
+	} else {
+		applyTestSidecar(config, mp.GetPoolerDir())
+	}
 	// Default to a no-op postgres monitor (see noopPeriodicRunner).
 	if c.pgMonitor == nil {
 		c.pgMonitor = noopPeriodicRunner{}
 	}
-	ov := overrides{qsc: c.qsc, pgMonitor: c.pgMonitor}
+	ov := overrides{qsc: c.qsc, pgMonitor: c.pgMonitor, skipSidecarSync: true}
 	if c.rules != nil {
 		// Build the ConsensusManager with the fake rule store. Promises is rooted
 		// at the pooler dir; no broadcaster (these tests don't assert broadcasts).
@@ -229,6 +236,7 @@ func newTestManager(t *testing.T, opts ...testManagerOption) *MultipoolerManager
 		record:       cfg.record,
 		consensusMgr: cfg.consensusManager(t),
 	}
+	useTestSidecar(t, pm)
 	// The remedial-action decision path (determineRoleAction) consults
 	// StateManager.hasDrift, so a non-nil StateManager wired to the same record and
 	// live consensus snapshot the manager uses is required.

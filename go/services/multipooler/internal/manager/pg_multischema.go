@@ -113,9 +113,9 @@ func (pm *MultipoolerManager) isCatalogShard() bool {
 // unlike createSidecarSchema's other steps, this one is expected to run
 // repeatedly against an already-initialized schema.
 //
-// Currently this is the shared multigres.shard_ref type, backend_vpid and the
-// probe role's read grant on the heartbeat table on every shard, plus, on the
-// catalog shard, the versioned sharding catalog
+// Currently this is the shared multigres.shard_ref type, backend_vpid, the
+// probe role's read grant on the heartbeat table and pgbackrest_repos_meta on
+// every shard, plus, on the catalog shard, the versioned sharding catalog
 // (ensureCatalogSchema, which is idempotent via its format version rather than
 // IF NOT EXISTS) and the migrator's schema that depends on it
 // (ensureCatalogMigrationSchema); add future late-added sidecar tables here as
@@ -139,6 +139,13 @@ func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context) error {
 		pm.logger.WarnContext(ctx, "failed to grant heartbeat read access to the probe role", "error", err)
 	}
 
+	// pgbackrest_repos_meta versions the generation list; shards bootstrapped
+	// before it existed have the repos table but not the revision. Its error is
+	// returned only after the catalog ensures below have run: they do not
+	// depend on it, and a statement timeout here must not cost a catalog shard
+	// its schema upgrade on this open.
+	reposMetaErr := pm.ensurePgBackRestReposMeta(ctx)
+
 	if pm.isCatalogShard() {
 		if err := pm.ensureCatalogSchema(ctx); err != nil {
 			return err
@@ -150,7 +157,7 @@ func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context) error {
 		}
 	}
 
-	return nil
+	return reposMetaErr
 }
 
 // ensureCatalogMigrationSchema runs the migration store's EnsureSchema on the

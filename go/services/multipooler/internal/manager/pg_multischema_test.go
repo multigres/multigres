@@ -28,6 +28,7 @@ import (
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
+	pb "github.com/multigres/multigres/go/pb/pgbackrestdservice"
 	"github.com/multigres/multigres/go/pb/query"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
@@ -85,6 +86,18 @@ var _ poolerserver.PoolerController = (*mockPoolerController)(nil)
 
 // newTestManagerWithMock creates a test MultipoolerManager with a mock query service
 func newTestManagerWithMock(t *testing.T, tableGroup, shard string) (*MultipoolerManager, *mock.QueryService) {
+	pm, qs := newTestManagerWithMockNoSidecar(t, tableGroup, shard)
+	// The sidecar is not optional; a fake that answers Status stands in for it.
+	pm.sidecar = newSidecarClient(serveFakeSidecar(t, &fakeSidecarServer{status: &pb.StatusResponse{}}))
+	t.Cleanup(pm.sidecar.Close)
+	return pm, qs
+}
+
+// newTestManagerWithMockNoSidecar is newTestManagerWithMock without a sidecar
+// client, for a test inside a synctest bubble: a serving fake is a goroutine
+// blocked in Accept, which is not durably blocked and so stops the bubble's
+// clock. The caller installs useTestSidecar if it needs a client at all.
+func newTestManagerWithMockNoSidecar(t *testing.T, tableGroup, shard string) (*MultipoolerManager, *mock.QueryService) {
 	logger := slog.New(slog.DiscardHandler)
 	mockQueryService := mock.NewQueryService()
 
@@ -185,6 +198,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce(probeGrantPattern, mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos_meta", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
@@ -279,6 +293,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				addMigrationTableCreate(m)
 				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce(probeGrantPattern, mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos_meta", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("pg_advisory_xact_lock", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce(catalogStatePresentPattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{false}}))
 				m.AddQueryPatternOnceWithError("^DROP TABLE IF EXISTS multigres.shard", errors.New("drop failed"))
@@ -294,6 +309,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce(probeGrantPattern, mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos_meta", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
@@ -314,6 +330,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce(probeGrantPattern, mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos_meta", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
@@ -474,6 +491,28 @@ func TestEnsureSidecarSchemas_ProbeGrantFailureDoesNotBlock(t *testing.T) {
 	require.NoError(t, pm.ensureSidecarSchemas(context.Background()))
 	require.NoError(t, mockQueryService.ExpectationsWereMet(), "the grant should have been attempted")
 	assert.Contains(t, queries, migration.GrantStatMigrationSQL, "the catalog ensure should run after a failed grant")
+}
+
+// A failed pgbackrest_repos_meta ensure is reported, but only after the catalog
+// ensure ran: the two are unrelated, and a brief failure of the first must not
+// leave a catalog shard without its schema upgrade on this open.
+func TestEnsureSidecarSchemas_ReposMetaFailureDoesNotSkipTheCatalog(t *testing.T) {
+	pm, mockQueryService := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+
+	var queries []string
+	record := func(q string) { queries = append(queries, q) }
+	addShardRefEnsure(mockQueryService, record)
+	mockQueryService.AddQueryPatternOnceWithError("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos_meta", errors.New("canceling statement due to statement timeout"))
+	mockQueryService.AddQueryPatternWithCallback(catalogStatePresentPattern,
+		mock.MakeQueryResult([]string{"exists"}, [][]any{{false}}), record)
+	mockQueryService.AddQueryPatternWithCallback(connectionsProbePattern,
+		mock.MakeQueryResult([]string{"exists"}, [][]any{{true}}), record)
+	mockQueryService.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), record)
+
+	err := pm.ensureSidecarSchemas(context.Background())
+	require.ErrorContains(t, err, "pgbackrest_repos_meta", "the failure is still reported")
+	require.NoError(t, mockQueryService.ExpectationsWereMet(), "the meta ensure should have been attempted")
+	assert.Contains(t, queries, migration.GrantStatMigrationSQL, "the catalog ensure should run after a failed meta ensure")
 }
 
 // TestCreateBackendVpidTable_IdempotentAcrossRepeatedCalls guards the

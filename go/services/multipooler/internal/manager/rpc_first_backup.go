@@ -17,8 +17,6 @@ package manager
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"time"
 
 	"google.golang.org/protobuf/types/known/durationpb"
@@ -74,7 +72,7 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	}
 
 	// Refuse to run on an already-initialized data directory. This node is already initialized
-	if pm.hasDataDirectory() {
+	if pm.dataDirPresentOrUntrusted() {
 		return false, false, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
 			"data directory already exists; cannot create first backup on an initialized node")
 	}
@@ -97,7 +95,11 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	if err != nil {
 		return false, false, mterrors.Wrap(err, "failed to load database record")
 	}
-	if err := requireInitialRepoEncryptionError(db.BackupLocation, pm.config.BackupCipherKeys); err != nil {
+	keys, err := pm.cipherKeys(ctx)
+	if err != nil {
+		return false, false, mterrors.Wrap(err, "failed to read cipher keys")
+	}
+	if err := requireInitialRepoEncryptionError(db.BackupLocation, keys); err != nil {
 		return false, false, mterrors.Wrap(err, "refusing to bootstrap")
 	}
 
@@ -106,14 +108,6 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// (not PGDATA), so it is not captured by pgBackRest backups.
 	if err := pm.bootstrapSentinel().write(); err != nil {
 		return false, false, mterrors.Wrap(err, "failed to write bootstrap sentinel")
-	}
-
-	// A restore sentinel left by an interrupted restore would make pgctld refuse
-	// the start below. Bootstrap rebuilds the data directory from scratch, and the
-	// bootstrap sentinel written above now guards whatever is on disk, so the
-	// restore sentinel can go.
-	if err := pm.restoreSentinel().remove(); err != nil {
-		return false, false, mterrors.Wrap(err, "failed to remove restore sentinel")
 	}
 
 	// Cleanup runs on every exit path. On success it tears down the local
@@ -157,8 +151,11 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 		}
 	}()
 
-	if err := clearArchiveSpool(pm.record.PoolerDir()); err != nil {
-		return false, false, mterrors.Wrap(err, "failed to clear stale archive spool")
+	// Clears the async archive-push state of earlier attempts and lifts a stop
+	// file an interrupted stanza reset left, which would block stanza-create and
+	// archive-push. PostgreSQL is not running, so the sidecar has nothing to drain.
+	if err := pm.backup.ResetArchiveSpool(ctx); err != nil {
+		return false, false, mterrors.Wrap(err, "failed to reset the archive spool")
 	}
 
 	// Initialize a fresh data directory.
@@ -169,12 +166,6 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 	// Configure archive_mode before starting PostgreSQL.
 	if err := pm.backup.ConfigureArchiveMode(ctx); err != nil {
 		return false, false, mterrors.Wrap(err, "failed to configure archive mode")
-	}
-
-	// A stop file left by an interrupted stanza reset would block stanza-create
-	// and archive-push.
-	if err := pm.backup.StanzaStart(ctx); err != nil {
-		return false, false, mterrors.Wrap(err, "failed to start the pgbackrest stanza")
 	}
 
 	// Start PostgreSQL as a writable primary: this one-time bootstrap of a
@@ -195,6 +186,11 @@ func (pm *MultipoolerManager) createFirstBackupAndInitializeLocked(ctx context.C
 
 	if err := pm.insertInitialPgBackRestRepo(ctx); err != nil {
 		return false, false, err
+	}
+	// The seed has committed, so the PVC copy may follow it; a failure is
+	// logged because the sync loop writes it again.
+	if err := pm.refreshGenerationsCopy(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "failed to copy the seeded pgbackrest generation list to the PVC", "error", err)
 	}
 
 	// The initial row (term=0, empty cohort) was already inserted by
@@ -332,13 +328,6 @@ func (pm *MultipoolerManager) prepareStanzaLocked(ctx context.Context) (backupFo
 		return false, mterrors.Wrap(createErr, "failed to create pgbackrest stanza")
 	}
 	return false, nil
-}
-
-// clearArchiveSpool removes async archive-push state from earlier attempts. A new
-// initdb restarts WAL numbering, so a stale acknowledgement would make
-// archive-push skip the new cluster's first segment and the archive check time out.
-func clearArchiveSpool(poolerDir string) error {
-	return os.RemoveAll(filepath.Join(poolerDir, "pgbackrest", "spool", "archive"))
 }
 
 // bootstrapSentinel returns the first-backup bootstrap sentinel; see

@@ -30,6 +30,7 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/removedflags"
 	"github.com/multigres/multigres/go/common/servenv"
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -170,6 +171,14 @@ func setDefaultIfUnset(fs *pflag.FlagSet, name, value string) error {
 
 func (m *minigres) preRun(cmd *cobra.Command) error {
 	fs := cmd.Flags()
+	// First, before anything is set up: a process given a removed pgBackRest
+	// flag has no sidecar and must not start.
+	if err := removedflags.Check(fs, constants.ServiceMinigres, removedflags.Multipooler); err != nil {
+		return err
+	}
+	if err := removedflags.CheckEnv(os.LookupEnv, constants.ServiceMinigres); err != nil {
+		return err
+	}
 	if err := setDefaultIfUnset(fs, "table-group", constants.DefaultTableGroup); err != nil {
 		return err
 	}

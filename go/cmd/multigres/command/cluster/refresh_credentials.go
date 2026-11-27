@@ -17,15 +17,12 @@ package cluster
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/multigres/multigres/go/common/backup"
-	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
-	"github.com/multigres/multigres/go/tools/fileutil"
+	"github.com/multigres/multigres/go/provisioner/local"
 	s3tools "github.com/multigres/multigres/go/tools/s3"
 )
 
@@ -42,8 +39,9 @@ func AddRefreshCredentialsCommand(clusterCmd *cobra.Command) {
 		Long: `Refreshes AWS credentials for S3 backups after obtaining new temporary credentials.
 
 This command reads fresh credentials from environment variables (AWS_ACCESS_KEY_ID,
-AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN) and updates the credentials in each pooler's
-pgbackrest.conf file.
+AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN), writes them to the key directory of each
+pooler's pgbackrestd sidecar, and makes every running sidecar reload them. It fails if
+any sidecar could not be refreshed.
 
 Run this command after refreshing your AWS credentials (e.g., via 'aws sso login') to
 ensure backup operations continue to work with the new credentials.
@@ -122,42 +120,15 @@ func (rcmd *refreshCredentialsCmd) runRefreshCredentials(cmd *cobra.Command, arg
 		return err
 	}
 
+	// Only that each one is there: no part of a key, secret or token is
+	// printed, whatever its length.
 	fmt.Println("Found credentials in environment:")
-	fmt.Printf("  AWS_ACCESS_KEY_ID: %s\n", maskCredential(creds.AccessKey))
-	fmt.Printf("  AWS_SECRET_ACCESS_KEY: %s\n", maskCredential(creds.SecretKey))
+	fmt.Println("  AWS_ACCESS_KEY_ID: set")
+	fmt.Println("  AWS_SECRET_ACCESS_KEY: set")
 	if creds.SessionToken != "" {
-		fmt.Printf("  AWS_SESSION_TOKEN: %s\n", maskCredential(creds.SessionToken))
+		fmt.Println("  AWS_SESSION_TOKEN: set")
 	}
 	fmt.Println()
-
-	// Create backup config to get credentials
-	bucket, _ := s3Config["bucket"].(string)
-	region, _ := s3Config["region"].(string)
-	endpoint, _ := s3Config["endpoint"].(string)
-	keyPrefix, _ := s3Config["key-prefix"].(string)
-
-	backupConfig, err := backup.NewConfig(&clustermetadatapb.BackupLocation{
-		Location: &clustermetadatapb.BackupLocation_S3{
-			S3: &clustermetadatapb.S3Backup{
-				Bucket:            bucket,
-				Region:            region,
-				Endpoint:          endpoint,
-				KeyPrefix:         keyPrefix,
-				UseEnvCredentials: true,
-			},
-		},
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create backup config: %w", err)
-	}
-
-	// Get new credentials
-	// repo1-only: this CLI predates repo generations; it becomes repoN-aware
-	// with the repo-rotation flow.
-	newCreds, err := backupConfig.PgBackRestCredentials(1)
-	if err != nil {
-		return fmt.Errorf("failed to get credentials: %w", err)
-	}
 
 	// Find all pooler directories
 	clusterDir := filepath.Dir(configFile)
@@ -171,54 +142,69 @@ func (rcmd *refreshCredentialsCmd) runRefreshCredentials(cmd *cobra.Command, arg
 		return fmt.Errorf("no pooler directories found in %s", dataDir)
 	}
 
-	// Update pgbackrest.conf in each pooler directory
-	updatedFiles := []string{}
+	// Each pooler has its own pgbackrestd, which is the only process that holds
+	// the keys. Give every one the new keys and report each outcome: a partial
+	// refresh leaves some poolers archiving with keys that are about to expire.
+	//
+	// A pooler directory without a sidecar directory is a pooler that was not
+	// refreshed, and counts as a failure. The exception is a directory the
+	// cluster's configuration does not name: a leftover that no pooler of this
+	// cluster uses.
+	configured := configuredPoolerDirs(config.ProvisionerConfig)
+	var reloaded, staged, failed []string
 	for _, poolerDir := range poolerDirs {
-		pgbackrestConf := filepath.Join(poolerDir, "pgbackrest", "pgbackrest.conf")
-
-		// Read current config
-		currentContent, err := os.ReadFile(pgbackrestConf)
-		if err != nil {
-			if os.IsNotExist(err) {
-				fmt.Printf("⚠ Skipping %s (does not exist)\n", pgbackrestConf)
-				continue
-			}
-			return fmt.Errorf("failed to read %s: %w", pgbackrestConf, err)
+		name := filepath.Base(poolerDir)
+		outcome, err := local.RefreshSidecarS3Keys(cmd.Context(), poolerDir)
+		switch {
+		case errors.Is(err, local.ErrNoSidecar) && len(configured) > 0 && !configured[filepath.Clean(poolerDir)]:
+			fmt.Printf("⚠ Skipping %s (not a pooler of this cluster's configuration, and it has no pgbackrestd sidecar directory)\n", name)
+		case errors.Is(err, local.ErrNoSidecar):
+			fmt.Printf("✗ %s: no pgbackrestd sidecar directory\n", name)
+			failed = append(failed, name)
+		case err != nil:
+			fmt.Printf("✗ %s: %v\n", name, err)
+			failed = append(failed, name)
+		case outcome == local.S3KeysReloaded:
+			fmt.Printf("✓ %s: running sidecar reloaded the new credentials\n", name)
+			reloaded = append(reloaded, name)
+		default:
+			fmt.Printf("✓ %s: credentials written; the sidecar reads them when it is next configured\n", name)
+			staged = append(staged, name)
 		}
+	}
+	fmt.Println()
 
-		// Update credentials in config
-		updatedContent, err := backup.UpdateCredentialsInConfig(string(currentContent), newCreds)
-		if err != nil {
-			return fmt.Errorf("failed to update credentials in %s: %w", pgbackrestConf, err)
-		}
-
-		// Write back atomically
-		if err := fileutil.AtomicWriteFile(pgbackrestConf, []byte(updatedContent), 0o600); err != nil {
-			return fmt.Errorf("failed to write %s: %w", pgbackrestConf, err)
-		}
-
-		updatedFiles = append(updatedFiles, pgbackrestConf)
+	if len(failed) > 0 {
+		return fmt.Errorf("credentials were not refreshed for %d of %d poolers (%s); fix the cause and run the command again",
+			len(failed), len(poolerDirs), strings.Join(failed, ", "))
+	}
+	if len(reloaded)+len(staged) == 0 {
+		return fmt.Errorf("no pgbackrestd sidecar found beside the pooler directories in %s; nothing was refreshed", dataDir)
 	}
 
 	fmt.Printf("✓ Credentials refreshed successfully\n")
-	for _, f := range updatedFiles {
-		fmt.Printf("  Updated: %s\n", f)
+	if len(reloaded) > 0 {
+		fmt.Println("pgBackRest commands started from now on use the new credentials. A command that is already running keeps the ones it started with.")
 	}
-	fmt.Println()
-	fmt.Println("AWS credentials have been updated. Backup operations will use the new credentials.")
+	if len(reloaded) == 0 {
+		fmt.Println("No sidecar is running with a configured repository; the new credentials take effect when the cluster starts.")
+	}
 
 	return nil
 }
 
-// maskCredential masks all but the first 4 and last 4 characters of a credential
-func maskCredential(cred string) string {
-	if len(cred) <= 8 {
-		return cred
+// configuredPoolerDirs returns the pooler directories the cluster's
+// configuration names (cells.<cell>.pgctld.pooler-dir), cleaned. It is empty
+// when the configuration names none.
+func configuredPoolerDirs(provisionerConfig map[string]any) map[string]bool {
+	dirs := map[string]bool{}
+	cells, _ := provisionerConfig["cells"].(map[string]any)
+	for _, cell := range cells {
+		services, _ := cell.(map[string]any)
+		pgctld, _ := services["pgctld"].(map[string]any)
+		if dir, _ := pgctld["pooler-dir"].(string); dir != "" {
+			dirs[filepath.Clean(dir)] = true
+		}
 	}
-
-	first4 := cred[:4]
-	last4 := cred[len(cred)-4:]
-	middle := strings.Repeat("*", len(cred)-8)
-
-	return first4 + middle + last4
+	return dirs
 }
