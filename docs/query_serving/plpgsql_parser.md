@@ -426,10 +426,11 @@ go/common/parser/ast/plpgsqlast/
   expr.go               PLpgSQL_expr (embedded-SQL boundary), RawParseMode
   ast_clone.go          generated deep-clone helpers
   ast_rewrite.go        generated tree-walk/rewrite helpers
+  ast_equals.go         generated deep-equality helpers
   rewriter_api.go       Cursor / Rewrite entry points for the generated walk
 ```
 
-Generated files (`plpgsql.go`, `ast_clone.go`, `ast_rewrite.go`) are regenerated
+Generated files (`plpgsql.go`, `ast_clone.go`, `ast_rewrite.go`, `ast_equals.go`) are regenerated
 by `make parser`; edit `plpgsql.y` and the hand-written AST types, not the
 generated output.
 
