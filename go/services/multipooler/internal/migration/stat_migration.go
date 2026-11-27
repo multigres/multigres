@@ -48,7 +48,9 @@ package migration
 //     local subscription for this migration, so total_relations/ready_relations
 //     read 0 here instead.
 const CreateStatMigrationViewSQL = `CREATE OR REPLACE VIEW multigres.stat_migration AS
-SELECT
+` + statMigrationSelectSQL
+
+const statMigrationSelectSQL = `SELECT
 	m.migration_id,
 	m.migration_name,
 	c.name::name AS connection_name,
@@ -74,6 +76,25 @@ LEFT JOIN LATERAL (
 ) lag ON true
 GROUP BY m.migration_id, m.migration_name, c.name, m.migration_target,
 	 m.migration_phase, m.direction, m.last_error, lag.lag_bytes, lag.lag_seconds`
+
+// Let Postgres parse and deparse both SELECTs in the same session rather than
+// comparing pg_get_viewdef's output to source SQL or pinning version-specific
+// formatting. The temporary view and its drop are confined to this statement;
+// they do not need an exclusive lock on the live view or its inputs.
+const ensureStatMigrationViewSQL = `DO $migration_schema$
+DECLARE needs_replace boolean := true;
+BEGIN
+  IF EXISTS (SELECT FROM pg_class WHERE oid = to_regclass('multigres.stat_migration') AND relkind = 'v') THEN
+    CREATE TEMP VIEW _multigres_stat_migration_expected AS
+` + statMigrationSelectSQL + `;
+    needs_replace := pg_get_viewdef('multigres.stat_migration'::regclass) IS DISTINCT FROM
+                     pg_get_viewdef('pg_temp._multigres_stat_migration_expected'::regclass);
+    DROP VIEW pg_temp._multigres_stat_migration_expected;
+  END IF;
+  IF needs_replace THEN
+    ` + CreateStatMigrationViewSQL + `;
+  END IF;
+END $migration_schema$`
 
 // GrantStatMigrationSQL makes the view readable by any role, unlike
 // multigres.migration/connections/migration_journal, which carry a

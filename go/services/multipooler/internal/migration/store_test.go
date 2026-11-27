@@ -602,7 +602,7 @@ func TestEnsureSchemaAddsTheForeignKeyAfterTheMigrationTable(t *testing.T) {
 		}
 		return -1
 	}
-	table, fk, view := idx(CreateMigrationSQL), idx(AddConnectionForeignKeySQL), idx(CreateStatMigrationViewSQL)
+	table, fk, view := idx(CreateMigrationSQL), idx(AddConnectionForeignKeySQL), idx(ensureStatMigrationViewSQL)
 	require.GreaterOrEqual(t, table, 0)
 	require.Greater(t, fk, table)
 	require.Greater(t, view, fk)

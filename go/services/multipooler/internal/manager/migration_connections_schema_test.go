@@ -44,7 +44,8 @@ func TestEnsureMigrationSchema_MissingConnectionsTable(t *testing.T) {
 			addShardRefEnsure(m, nil)
 			m.AddQueryPattern(".*", mock.MakeQueryResult(nil, nil))
 
-			pm.ensureMigrationSchema(context.Background(), pm.migrationCoordinator())
+			err := pm.ensureMigrationSchema(context.Background(), pm.migrationCoordinator())
+			assert.Equal(t, tc.wantEnsured, err == nil)
 
 			pm.mu.Lock()
 			defer pm.mu.Unlock()
@@ -58,7 +59,7 @@ func TestEnsureMigrationSchema_MissingConnectionsTable(t *testing.T) {
 		addShardRefEnsure(m, nil)
 		m.AddQueryPattern(".*", mock.MakeQueryResult(nil, nil))
 
-		pm.ensureMigrationSchema(context.Background(), pm.migrationCoordinator())
+		assert.NoError(t, pm.ensureMigrationSchema(context.Background(), pm.migrationCoordinator()))
 
 		pm.mu.Lock()
 		defer pm.mu.Unlock()

@@ -322,6 +322,27 @@ const CreateMigrationSQL = `CREATE TABLE IF NOT EXISTS multigres.migration (
 	streaming_since TIMESTAMPTZ NULL
 )`
 
+// Existing tables skip the CREATE above. Upgrade all role bookkeeping in one
+// statement so an old migration row never gets a partial set of defaults.
+const upgradeMigrationRolesSQL = `DO $migration_roles$
+BEGIN
+ IF (SELECT count(*) FROM pg_catalog.pg_attribute
+     WHERE attrelid = 'multigres.migration'::regclass AND NOT attisdropped
+       AND attname IN ('owner_role', 'quiesce_roles', 'public_had_connect', 'quiesce_applied',
+                       'quiesce_role_conn_limits', 'quiesce_roles_had_connect')) < 6 THEN
+  SET LOCAL lock_timeout = '1s';
+  LOCK TABLE multigres.migration IN ACCESS EXCLUSIVE MODE NOWAIT;
+  ALTER TABLE multigres.migration
+   ADD COLUMN IF NOT EXISTS owner_role TEXT NOT NULL DEFAULT '',
+   ADD COLUMN IF NOT EXISTS quiesce_roles TEXT NOT NULL DEFAULT '[]',
+   ADD COLUMN IF NOT EXISTS public_had_connect BOOLEAN NOT NULL DEFAULT true,
+   ADD COLUMN IF NOT EXISTS quiesce_applied BOOLEAN NOT NULL DEFAULT false,
+   ADD COLUMN IF NOT EXISTS quiesce_role_conn_limits TEXT NOT NULL DEFAULT '{}',
+   ADD COLUMN IF NOT EXISTS quiesce_roles_had_connect TEXT NOT NULL DEFAULT '{}';
+ END IF;
+END
+$migration_roles$`
+
 // AddConnectionForeignKeySQL adds the foreign key from migration.connection_id
 // into multigres.connections, on the catalog shard (the store runs it only where
 // that table exists), right after multigres.migration is created. It is skipped,

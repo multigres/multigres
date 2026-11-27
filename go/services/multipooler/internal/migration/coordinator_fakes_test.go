@@ -98,7 +98,7 @@ func (f *fakeStore) ListConnections(context.Context) ([]*Connection, error) {
 	return out, nil
 }
 
-func (f *fakeStore) EnsureSchema(context.Context) error { return f.ensureErr }
+func (f *fakeStore) EnsureSchemaForTenure(context.Context) error { return f.ensureErr }
 
 // Forget is a no-op: fakeStore keeps no cache in front of its map.
 func (f *fakeStore) Forget() {}

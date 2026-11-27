@@ -53,7 +53,7 @@ func exactPattern(stmt string) string {
 // not at a newer format.
 func addCatalogEnsureTail(m *mock.QueryService) {
 	for _, stmt := range catalogTables {
-		m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+		m.AddQueryPatternOnce(exactPattern(catalogTableEnsureSQL(stmt)), mock.MakeQueryResult(nil, nil))
 	}
 	for _, stmt := range catalogSeed {
 		m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
@@ -124,7 +124,9 @@ func recordCatalogEnsure(t *testing.T, exists bool, format int) []string {
 // come after catalogTables and catalogSeed.
 func catalogEnsureTail(from int) []string {
 	var tail []string
-	tail = append(tail, catalogTables...)
+	for _, stmt := range catalogTables {
+		tail = append(tail, catalogTableEnsureSQL(stmt))
+	}
 	tail = append(tail, catalogSeed...)
 	for _, mig := range catalogMigrations[from:] {
 		tail = append(tail, mig.postStatements...)
@@ -541,7 +543,7 @@ func TestEnsureCatalogSchema_Errors(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				addExistingCatalogState(m, latestCatalogFormat())
 				for _, stmt := range catalogTables {
-					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+					m.AddQueryPatternOnce(exactPattern(catalogTableEnsureSQL(stmt)), mock.MakeQueryResult(nil, nil))
 				}
 				m.AddQueryPatternOnceWithError(exactPattern(catalogSeed[0]), errors.New("permission denied"))
 			},
@@ -552,7 +554,7 @@ func TestEnsureCatalogSchema_Errors(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				addExistingCatalogState(m, 1)
 				for _, stmt := range slices.Concat(catalogTables, catalogSeed) {
-					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+					m.AddQueryPatternOnce(exactPattern(catalogTableEnsureSQL(stmt)), mock.MakeQueryResult(nil, nil))
 				}
 				m.AddQueryPatternOnceWithError(exactPattern(catalogMigrations[1].postStatements[0]), errors.New("permission denied"))
 			},
@@ -563,7 +565,7 @@ func TestEnsureCatalogSchema_Errors(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				addExistingCatalogState(m, latestCatalogFormat())
 				for _, stmt := range slices.Concat(catalogTables, catalogSeed) {
-					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+					m.AddQueryPatternOnce(exactPattern(catalogTableEnsureSQL(stmt)), mock.MakeQueryResult(nil, nil))
 				}
 				m.AddQueryPatternOnceWithError(exactPattern(selectUnfilledConnectionsSQL), errors.New("permission denied"))
 			},
@@ -574,7 +576,7 @@ func TestEnsureCatalogSchema_Errors(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				addExistingCatalogState(m, latestCatalogFormat())
 				for _, stmt := range slices.Concat(catalogTables, catalogSeed) {
-					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+					m.AddQueryPatternOnce(exactPattern(catalogTableEnsureSQL(stmt)), mock.MakeQueryResult(nil, nil))
 				}
 				m.AddQueryPatternOnce(exactPattern(selectUnfilledConnectionsSQL), mock.MakeQueryResult(
 					[]string{"connection_id", "name", "dsn"}, [][]any{{int64(1), "legacy", legacyDSN}}))
@@ -587,7 +589,7 @@ func TestEnsureCatalogSchema_Errors(t *testing.T) {
 			setupMock: func(m *mock.QueryService) {
 				addExistingCatalogState(m, latestCatalogFormat())
 				for _, stmt := range catalogTables {
-					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+					m.AddQueryPatternOnce(exactPattern(catalogTableEnsureSQL(stmt)), mock.MakeQueryResult(nil, nil))
 				}
 				for _, stmt := range catalogSeed {
 					m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
@@ -627,7 +629,7 @@ func fillConnInfoRun(t *testing.T, rows [][]any) (log string, stored int) {
 
 	addExistingCatalogState(m, latestCatalogFormat())
 	for _, stmt := range slices.Concat(catalogTables, catalogSeed) {
-		m.AddQueryPatternOnce(exactPattern(stmt), mock.MakeQueryResult(nil, nil))
+		m.AddQueryPatternOnce(exactPattern(catalogTableEnsureSQL(stmt)), mock.MakeQueryResult(nil, nil))
 	}
 	m.AddQueryPatternOnce(exactPattern(selectUnfilledConnectionsSQL),
 		mock.MakeQueryResult([]string{"connection_id", "name", "dsn"}, rows))

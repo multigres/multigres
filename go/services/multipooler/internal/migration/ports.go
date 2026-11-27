@@ -27,7 +27,7 @@ import "context"
 
 // migrationStore is the subset of *Store the Coordinator uses.
 type migrationStore interface {
-	EnsureSchema(ctx context.Context) error
+	EnsureSchemaForTenure(ctx context.Context) error
 	Insert(ctx context.Context, m *Migration) error
 	Update(ctx context.Context, m *Migration) error
 	Delete(ctx context.Context, id int64) error

@@ -509,6 +509,20 @@ func TestDrop_GracefulImportSoftQuiesce(t *testing.T) {
 		"nothing was ever revoked for this migration, so teardown must not grant CONNECT a role may have been denied for an unrelated reason")
 }
 
+func TestDrop_LegacyExportPreservesSourceACL(t *testing.T) {
+	tc := newTestCoord(t)
+	// The schema upgrade defaults PublicHadConnect to true without a snapshot.
+	m := tc.seed(&Migration{Phase: PhaseExporting, PublicHadConnect: true})
+
+	_, err := tc.c.DropMigration(context.Background(), Ref{ID: m.ID}, DropOptions{Force: true})
+	require.NoError(t, err)
+	require.Equal(t, []int64{m.ID}, tc.store.deletes)
+	require.Contains(t, tc.log, "source.DropSubscription")
+	require.Contains(t, tc.log, "target.DropPublication")
+	require.NotContains(t, tc.log, "source.GrantConnect")
+	require.NotContains(t, tc.log, "source.RevokeConnect")
+}
+
 func TestDrop_GracefulDrainFailureRestoresPhase(t *testing.T) {
 	tc := newTestCoord(t)
 	tc.seed(&Migration{Phase: PhaseExporting})
@@ -1100,9 +1114,10 @@ func TestActivate_NotReadyTimeout(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotReady)
 }
 
-func TestDeactivate_ExportToImportFullSwitch(t *testing.T) {
+func TestDeactivate_LegacyExportPreservesSourceACL(t *testing.T) {
 	tc := newTestCoord(t)
-	m := tc.seed(&Migration{Phase: PhaseExporting})
+	// The schema upgrade defaults PublicHadConnect to true without a snapshot.
+	m := tc.seed(&Migration{Phase: PhaseExporting, PublicHadConnect: true})
 	tc.src.subExists = true // export subscription live on the source (currentLinkLive + reverse-link no-op)
 
 	proj, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionImport, ActivateOptions{})
@@ -1111,6 +1126,8 @@ func TestDeactivate_ExportToImportFullSwitch(t *testing.T) {
 	require.Contains(t, tc.log, "source.CreatePublication", "IMPORT makes the source the publisher again")
 	require.Contains(t, tc.log, "target.DropLogicalSlot", "the reverse slot is dropped on the target")
 	require.Contains(t, tc.log, "target.CreateSubscription", "the forward subscription is re-established on the target")
+	require.NotContains(t, tc.log, "source.GrantConnect")
+	require.NotContains(t, tc.log, "source.RevokeConnect")
 }
 
 // TestDeactivate_GrantConnectAfterForwardSubscriptionExists is the regression
@@ -1124,7 +1141,7 @@ func TestDeactivate_ExportToImportFullSwitch(t *testing.T) {
 func TestDeactivate_GrantConnectAfterForwardSubscriptionExists(t *testing.T) {
 	tc := newTestCoord(t)
 	tc.c.drainForImport = func(context.Context) error { return nil }
-	m := tc.seed(&Migration{Phase: PhaseExporting, QuiesceRoles: []string{"app"}, QuiesceRolesHadConnect: map[string]bool{"app": true}})
+	m := tc.seed(&Migration{Phase: PhaseExporting, QuiesceApplied: true, QuiesceRoles: []string{"app"}, QuiesceRolesHadConnect: map[string]bool{"app": true}})
 	tc.src.subExists = true
 
 	_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionImport, ActivateOptions{})
@@ -1146,7 +1163,7 @@ func TestDeactivate_DrainsTargetAndRestoresConnect(t *testing.T) {
 	tc := newTestCoord(t)
 	drained := 0
 	tc.c.drainForImport = func(context.Context) error { drained++; return nil }
-	m := tc.seed(&Migration{Phase: PhaseExporting, QuiesceRoles: []string{"app"}, QuiesceRolesHadConnect: map[string]bool{"app": true}})
+	m := tc.seed(&Migration{Phase: PhaseExporting, QuiesceApplied: true, QuiesceRoles: []string{"app"}, QuiesceRolesHadConnect: map[string]bool{"app": true}})
 	tc.src.subExists = true
 
 	proj, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionImport, ActivateOptions{})
@@ -1166,7 +1183,7 @@ func TestDeactivate_GrantConnectRestoresPublicOnlyWhenItHadConnect(t *testing.T)
 	t.Run("PUBLIC never had CONNECT: not restored", func(t *testing.T) {
 		tc := newTestCoord(t)
 		tc.c.drainForImport = func(context.Context) error { return nil }
-		m := tc.seed(&Migration{Phase: PhaseExporting, QuiesceRoles: []string{"app"}, QuiesceRolesHadConnect: map[string]bool{"app": true}, PublicHadConnect: false})
+		m := tc.seed(&Migration{Phase: PhaseExporting, QuiesceApplied: true, QuiesceRoles: []string{"app"}, QuiesceRolesHadConnect: map[string]bool{"app": true}, PublicHadConnect: false})
 		tc.src.subExists = true
 
 		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionImport, ActivateOptions{})
@@ -1178,7 +1195,7 @@ func TestDeactivate_GrantConnectRestoresPublicOnlyWhenItHadConnect(t *testing.T)
 	t.Run("PUBLIC had CONNECT: restored", func(t *testing.T) {
 		tc := newTestCoord(t)
 		tc.c.drainForImport = func(context.Context) error { return nil }
-		m := tc.seed(&Migration{Phase: PhaseExporting, QuiesceRoles: []string{"app"}, QuiesceRolesHadConnect: map[string]bool{"app": true}, PublicHadConnect: true})
+		m := tc.seed(&Migration{Phase: PhaseExporting, QuiesceApplied: true, QuiesceRoles: []string{"app"}, QuiesceRolesHadConnect: map[string]bool{"app": true}, PublicHadConnect: true})
 		tc.src.subExists = true
 
 		_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionImport, ActivateOptions{})
@@ -1196,6 +1213,7 @@ func TestDeactivate_GrantConnectRestoresOriginalConnLimits(t *testing.T) {
 	tc := newTestCoord(t)
 	tc.c.drainForImport = func(context.Context) error { return nil }
 	m := tc.seed(&Migration{
+		QuiesceApplied:        true,
 		Phase:                 PhaseExporting,
 		QuiesceRoles:          []string{"app", "reporting"},
 		QuiesceRoleConnLimits: map[string]int32{"app": 5, "reporting": -1},
@@ -1219,6 +1237,7 @@ func TestDeactivate_GrantConnectOnlyRestoresRolesThatHadConnect(t *testing.T) {
 	tc := newTestCoord(t)
 	tc.c.drainForImport = func(context.Context) error { return nil }
 	m := tc.seed(&Migration{
+		QuiesceApplied:         true,
 		Phase:                  PhaseExporting,
 		QuiesceRoles:           []string{"app", "reporting"},
 		QuiesceRolesHadConnect: map[string]bool{"app": true, "reporting": false},
@@ -1288,7 +1307,7 @@ func TestDeactivate_StuckDrainFailsWithinCeiling(t *testing.T) {
 func TestActivate_ExportGrantsBackOnTeardown(t *testing.T) {
 	tc := newTestCoord(t)
 	// A fenced EXPORT migration torn down (COMPLETING resume) must restore CONNECT.
-	tc.seed(&Migration{Phase: PhaseCompleting, Direction: DirectionExport, QuiesceRoles: []string{"app"}, QuiesceRolesHadConnect: map[string]bool{"app": true}})
+	tc.seed(&Migration{Phase: PhaseCompleting, Direction: DirectionExport, QuiesceApplied: true, QuiesceRoles: []string{"app"}, QuiesceRolesHadConnect: map[string]bool{"app": true}})
 	require.NoError(t, tc.c.Reconcile(context.Background()))
 	require.Contains(t, tc.log, "source.GrantConnect", "EXPORT teardown restores app CONNECT on the standalone source")
 }

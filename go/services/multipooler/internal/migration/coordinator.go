@@ -105,7 +105,7 @@ func (c *Coordinator) ForgetCachedMigrations() {
 // EnsureSchema creates the migration table if absent (covers shards bootstrapped
 // before the table existed). Safe to call on every coordinator start.
 func (c *Coordinator) EnsureSchema(ctx context.Context) error {
-	return c.store.EnsureSchema(ctx)
+	return c.store.EnsureSchemaForTenure(ctx)
 }
 
 // resolveSourceConn returns m's current source connection, validated: a fresh (uncached) lookup
@@ -1061,6 +1061,11 @@ func (c *Coordinator) captureQuiesceState(ctx context.Context, m *Migration, src
 // flag with the completed switch. Until then, and after a failed restore, the
 // flag stays set, so a retry of the same cutover keeps its snapshot.
 func (c *Coordinator) restoreSourceConnect(ctx context.Context, m *Migration, src migrationSource) {
+	// Legacy EXPORT rows may have a default PublicHadConnect value without
+	// ever having captured an ACL snapshot. Only restore a recorded quiesce.
+	if !m.QuiesceApplied {
+		return
+	}
 	err := src.GrantConnect(m.quiesceRolesToRestoreConnect(), m.PublicHadConnect, m.QuiesceRoleConnLimits)
 	if err == nil {
 		m.QuiesceApplied = false
@@ -1982,12 +1987,8 @@ func (c *Coordinator) teardown(ctx context.Context, m *Migration, dir Direction)
 			// succeeded but before a later step such as SetReadOnly fails and marks the
 			// migration FAILED. Without this, the app roles and PUBLIC would stay
 			// locked out, since the EXPORT-direction restore below only runs once
-			// ACTIVATE fully succeeds. QuiesceApplied is the only reliable proof a
-			// revoke was attempted, since QuiesceRoleConnLimits stays empty whenever
-			// QuiesceRoles is empty even though PUBLIC was still revoked.
-			if m.QuiesceApplied {
-				c.restoreSourceConnect(ctx, m, src)
-			}
+			// ACTIVATE fully succeeds. The helper only restores a recorded quiesce.
+			c.restoreSourceConnect(ctx, m, src)
 			logErr("drop source publication", src.DropPublication(m.PublicationName()))
 		}
 		return

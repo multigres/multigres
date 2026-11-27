@@ -265,6 +265,8 @@ type MultipoolerManager struct {
 	// guarded by pm.mu.
 	migrationCoord         *migration.Coordinator
 	migrationSchemaEnsured bool
+	tenureSchemaFailures   atomic.Uint64
+	catalogSchemaFailures  atomic.Uint64
 
 	// connectionDir replaces the sharding catalog as the directory of backing connections
 	// the default primary serves. Nil outside tests.

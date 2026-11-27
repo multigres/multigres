@@ -90,10 +90,10 @@ type PoolerController interface {
 	// reset (the pooler became primary) or closed.
 	FenceGateChanged() <-chan struct{}
 
-	// FenceReadState reports what the fence gate of a primary needs: unread,
+	// FenceReadState reports the epoch together with what a primary needs: a nonzero unreadSince,
 	// a fence read before it admits work; closed, a periodic re-read for a
-	// missed unfence. Both are false on a replica.
-	FenceReadState() (unread, closed bool)
+	// missed unfence. Neither read is needed on a replica.
+	FenceReadState() (unreadSince time.Time, closed bool, epoch uint64)
 
 	// AwaitStateChange blocks until the pooler's routing role and serving status
 	// match the given targets, or ctx is cancelled. Used by the health streamer to

@@ -96,7 +96,9 @@ func TestPromoteForgetsMigrationsReadBeforeTheTenure(t *testing.T) {
 	m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 	m.AddQueryPatternOnce(selectMigrationsPattern, &sqltypes.Result{})
+	addTenureMigrationEnsure(m)
 	expectLeaderPromoteMocks(m)
+	addTenureMigrationEnsure(m)
 	// After promotion: the migration has arrived by physical replication.
 	m.AddQueryPatternOnce("SELECT pg_is_in_recovery",
 		mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))

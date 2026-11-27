@@ -157,7 +157,8 @@ type fenceGate struct {
 	// becomes primary. A read takes it before it reads the catalog, and
 	// ApplyFence refuses the read (ABORTED) when it has changed: the read
 	// began before the promotion (see the checks at the top of this file).
-	epoch uint64
+	epoch       uint64
+	unreadSince time.Time // set at the reset, not the first failed retry
 	// floor is the position of the newest snapshot a read applied. ApplyFence
 	// refuses a read of an older one (UNAVAILABLE): a deposed catalog primary
 	// may still answer (see the checks at the top of this file). Resets keep
@@ -213,6 +214,7 @@ func (g *fenceGate) endDrain() {
 func (g *fenceGate) reset() {
 	g.endDrain()
 	g.state = fenceGateUnread
+	g.unreadSince = time.Now()
 	g.epoch++
 	g.notify()
 }
@@ -250,6 +252,10 @@ func (g fenceGateState) String() string {
 func (s *QueryPoolerServer) checkFenceLocked(kind RequestKind) error {
 	if s.routingRole != servingstate.RoutingRolePrimary || s.fence.admits(kind) {
 		return nil
+	}
+	if s.fence.state == fenceGateUnread {
+		// Keep the retry signal older gateways understand, without claiming a fence exists.
+		return mterrors.MTF02Unread.New()
 	}
 	return mterrors.MTF02.New()
 }
@@ -343,14 +349,16 @@ func (s *QueryPoolerServer) FenceGateChanged() <-chan struct{} {
 // reader: unread, a read before it admits work again; closed (draining or
 // closed), a periodic re-read, so an unfence it missed is eventually applied.
 // Both are false on a replica and on a gate that is off or open.
-func (s *QueryPoolerServer) FenceReadState() (unread, closed bool) {
+func (s *QueryPoolerServer) FenceReadState() (unreadSince time.Time, closed bool, epoch uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.routingRole != servingstate.RoutingRolePrimary {
-		return false, false
+		return time.Time{}, false, s.fence.epoch
 	}
-	return s.fence.state == fenceGateUnread,
-		s.fence.state == fenceGateDraining || s.fence.state == fenceGateClosed
+	if s.fence.state == fenceGateUnread {
+		return s.fence.unreadSince, false, s.fence.epoch
+	}
+	return time.Time{}, s.fence.state == fenceGateDraining || s.fence.state == fenceGateClosed, s.fence.epoch
 }
 
 // FenceRead is one read of the fences on the pooler's scope, for ApplyFence.

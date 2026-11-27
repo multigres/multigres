@@ -209,7 +209,7 @@ func TestRefreshMigrationHold_UndefinedTableClearsHold(t *testing.T) {
 	qs.AddQueryPatternWithError("SELECT count\\(\\*\\) FROM multigres.migration",
 		&mterrors.PgDiagnostic{Code: mterrors.PgSSUndefinedTable, Message: `relation "multigres.migration" does not exist`})
 
-	pm.refreshMigrationHold(t.Context())
+	require.NoError(t, pm.refreshMigrationHold(t.Context()))
 
 	assert.Equal(t, migrationHoldNotHeld, migrationHoldState(pm.migrationImportHold.Load()), "undefined_table must resolve to not held")
 }
@@ -234,7 +234,7 @@ func TestRefreshMigrationHold_OtherErrorFailsClosed(t *testing.T) {
 			pm.migrationImportHold.Store(int32(state))
 			qs.AddQueryPatternWithError("SELECT count\\(\\*\\) FROM multigres.migration", otherErr)
 
-			pm.refreshMigrationHold(t.Context())
+			require.Error(t, pm.refreshMigrationHold(t.Context()))
 
 			assert.Equal(t, state, migrationHoldState(pm.migrationImportHold.Load()), "an unrelated read failure must not change the hold state")
 		})
@@ -254,7 +254,7 @@ func TestRefreshMigrationHold_NilQueryServiceFailsClosed(t *testing.T) {
 			pm.qsc = nil
 			pm.migrationImportHold.Store(int32(state))
 
-			pm.refreshMigrationHold(t.Context())
+			require.Error(t, pm.refreshMigrationHold(t.Context()))
 
 			assert.Equal(t, state, migrationHoldState(pm.migrationImportHold.Load()), "a nil query service must not change the hold state")
 		})
@@ -276,11 +276,27 @@ func TestRefreshMigrationHold_UndecodableResultFailsClosed(t *testing.T) {
 			pm.migrationImportHold.Store(int32(state))
 			qs.AddQueryPattern("SELECT count\\(\\*\\) FROM multigres.migration", mock.MakeQueryResult(nil, nil))
 
-			pm.refreshMigrationHold(t.Context())
+			require.Error(t, pm.refreshMigrationHold(t.Context()))
 
 			assert.Equal(t, state, migrationHoldState(pm.migrationImportHold.Load()), "an undecodable result must not change the hold state")
 		})
 	}
+}
+
+// A committed cutover leaves retrying the flip to the monitor if the inline
+// hold read fails. Do not reconcile a stale not-held value as a fresh result.
+func TestMigrationExportReleaseRequiresFreshHold(t *testing.T) {
+	pm, qs := newTestManagerWithMock(t, "default", "0")
+	pm.migrationImportHold.Store(int32(migrationHoldNotHeld))
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	wantDeadline, _ := ctx.Deadline()
+	qs.AddQueryPatternWithContextCallback(`SELECT count\(\*\) FROM multigres.migration`, mock.MakeQueryResult(nil, nil), func(readCtx context.Context, _ string) {
+		deadline, ok := readCtx.Deadline()
+		require.True(t, ok)
+		require.Equal(t, wantDeadline, deadline)
+	})
+	require.ErrorContains(t, pm.releaseForMigrationExport(ctx), "read migration hold")
 }
 
 // TestResolveMigrationHoldBeforeServing_RecoversFromTransientFailure covers the
@@ -358,4 +374,56 @@ func TestResolveMigrationHoldBeforeServing_NoQueryServiceReturnsImmediately(t *t
 
 	assert.Equal(t, migrationHoldUnknown, migrationHoldState(pm.migrationImportHold.Load()))
 	assert.Less(t, elapsed, migrationHoldResolveBaseWait, "a nil query service must not trigger any retry wait")
+}
+
+func TestMigrationReconcileEnsuresBeforeLoading(t *testing.T) {
+	for _, tc := range []struct {
+		name, tableGroup string
+		failUpgrade      bool
+		want             []string
+	}{
+		{"catalog primary", "default", false, []string{"upgrade", "load"}},
+		{"non-catalog primary upgrades but never loads", "commerce", false, []string{"upgrade"}},
+		{"failed upgrade prevents load", "default", true, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				pm, qs := newTestManagerWithMock(t, tc.tableGroup, "0-inf")
+				t.Cleanup(func() { require.NoError(t, pm.topoClient.Close()) })
+				qs.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"recovery"}, [][]any{{false}}))
+				addShardRefEnsure(qs, nil)
+				empty := mock.MakeQueryResult(nil, nil)
+				var calls []string
+				if tc.failUpgrade {
+					qs.AddQueryPatternOnceWithError(`^DO \$migration_roles\$`, errors.New("DDL unavailable"))
+				} else {
+					qs.AddQueryPatternWithCallback(`^DO \$migration_roles\$`, empty, func(string) { calls = append(calls, "upgrade") })
+				}
+				qs.AddQueryPattern(connectionsProbePattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{tc.tableGroup == "default"}}))
+				qs.AddQueryPatternWithCallback("^SELECT m.migration_id, m.migration_phase", empty, func(string) { calls = append(calls, "load") })
+				qs.AddQueryPattern(".*", empty)
+				ctx, cancel := context.WithCancel(t.Context())
+				go pm.runMigrationReconcile(ctx, time.Second)
+				time.Sleep(1500 * time.Millisecond)
+				cancel()
+				synctest.Wait()
+				require.Equal(t, tc.want, calls)
+				require.NoError(t, qs.ExpectationsWereMet())
+				require.Equal(t, !tc.failUpgrade, pm.migrationSchemaEnsured)
+			})
+		})
+	}
+}
+
+func TestMigrationCoordinatorIfPrimary_EnsureFailure(t *testing.T) {
+	pm, qs := newTestManagerWithMock(t, "default", "0-inf")
+	qs.AddQueryPattern("SELECT pg_is_in_recovery", mock.MakeQueryResult([]string{"recovery"}, [][]any{{false}}))
+	addShardRefEnsure(qs, nil)
+	failed := errors.New("DDL unavailable")
+	qs.AddQueryPatternWithError(`^DO \$migration_roles\$`, failed)
+	qs.AddQueryPattern(".*", mock.MakeQueryResult(nil, nil))
+	coord, err := pm.MigrationCoordinatorIfPrimary(t.Context())
+	require.ErrorIs(t, err, failed)
+	require.Nil(t, coord)
+	require.False(t, pm.migrationSchemaEnsured)
 }

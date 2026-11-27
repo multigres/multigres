@@ -319,6 +319,11 @@ var (
 		Format:      "fenced: the target is closed to application traffic while an operation moves its data",
 		Description: "The target was fenced by an operation moving its data. The query is retried automatically once the gateway sees the new routing; if this error reaches the client, retry the query.",
 	}
+	// MTF02Unread is retry-compatible with confirmed fences without implying one exists.
+	MTF02Unread = &MTError{
+		ID: MTF02.ID, Severity: "ERROR", Format: "admission fences have not yet been read",
+		Description: "The primary cannot admit application traffic until it reads its fences. Retry the query.",
+	}
 )
 
 // NewPgError creates a *PgDiagnostic with a real PostgreSQL SQLSTATE code.
