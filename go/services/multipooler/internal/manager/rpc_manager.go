@@ -1397,11 +1397,19 @@ func (pm *MultipoolerManager) editAutoConfWith(ctx context.Context, write func(s
 // matching the name at a token boundary so e.g. "primary_conninfo" does not
 // also match "primary_conninfo_extra".
 func autoConfLineSets(line, name string) bool {
-	trimmed := strings.TrimSpace(line)
-	return trimmed == name ||
-		strings.HasPrefix(trimmed, name+" ") ||
-		strings.HasPrefix(trimmed, name+"=") ||
-		strings.HasPrefix(trimmed, name+"\t")
+	key, _ := splitAutoConfSetting(line)
+	return strings.EqualFold(key, name)
+}
+
+// PostgreSQL setting names are case-insensitive and the '=' is optional.
+// Split only the name; command paths, arguments and quotes keep their case.
+func splitAutoConfSetting(line string) (name, value string) {
+	line = strings.TrimSpace(line)
+	i := strings.IndexAny(line, " \t=")
+	if i < 0 {
+		return line, ""
+	}
+	return line[:i], strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line[i:]), "="))
 }
 
 // dropAutoConfSettings removes every postgresql.auto.conf line that sets one of

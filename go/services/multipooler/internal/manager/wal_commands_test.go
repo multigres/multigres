@@ -56,6 +56,8 @@ func TestStartMigratesLegacyWALCommands(t *testing.T) {
 		{"released", released, restore},
 		{"different roots", custom, custom},
 		{"legacy", old + "\n" + oldRestore, archive + "\n" + restore},
+		{"mixed case", strings.Replace(old, "archive_command =", "ARCHIVE_COMMAND", 1) + "\n" + strings.Replace(oldRestore, "restore_command", "Restore_Command", 1), archive + "\n" + restore},
+		{"preserve later custom", old + "\nARCHIVE_COMMAND = 'MyArchive'", archive + "\nARCHIVE_COMMAND = 'MyArchive'"},
 		{"streaming", old, archive},
 		{"custom", "archive_command = 'custom'\nrestore_command = ''", "archive_command = 'custom'\nrestore_command = ''"},
 	} {
@@ -280,7 +282,11 @@ func TestOfflineWALReadinessInventory(t *testing.T) {
 	p := filepath.Join(dir, "postgresql.auto.conf")
 	pm.config = &Config{}
 	write := func(s string) { require.NoError(t, os.WriteFile(p, []byte(s), 0o600)) }
-	write("archive_command = 'pgbackrest custom push'\n")
+	const known = "archive_command = '" + backup.ArchiveWALCommand + "'\n"
+	const custom = "ARCHIVE_COMMAND\t'MyArchive'\n"
+	write(custom + known)
+	require.Equal(t, "wal_wrapper_unverified", pm.walCommandReadiness(t.Context()))
+	write(known + custom)
 	require.Equal(t, "wal_command_unrecognized", pm.walCommandReadiness(t.Context()))
 	write("restore_command = '" + backup.RestoreWALCommand + "'\n")
 	pm.pgctldClient = &mockPgctldClient{statusResponse: &pgctldpb.StatusResponse{Status: pgctldpb.ServerStatus_STOPPED}}

@@ -159,11 +159,11 @@ func (pm *MultipoolerManager) migrateStoppedWALCommands(ctx context.Context) err
 		changed := false
 		for _, s := range walSettings {
 			for i, line := range lines {
-				if !autoConfLineSets(line, s.name) {
+				key, value := splitAutoConfSetting(line)
+				if !strings.EqualFold(key, s.name) {
 					continue
 				}
-				_, value, ok := strings.Cut(line, "=")
-				if ok && s.matches(strings.TrimSpace(value), dir) {
+				if s.matches(value, dir) {
 					stable, _ := ast.QuoteConfValue(s.stable)
 					lines[i] = s.name + " = " + stable
 					changed = true
@@ -236,13 +236,10 @@ func (pm *MultipoolerManager) walCommandReadiness(ctx context.Context) string {
 	}
 	var values [2]string
 	for line := range strings.SplitSeq(string(content), "\n") {
-		key, v, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
+		key, v := splitAutoConfSetting(line)
 		for i, s := range walSettings {
-			if strings.TrimSpace(key) == s.name {
-				values[i] = strings.TrimSpace(v)
+			if strings.EqualFold(key, s.name) {
+				values[i] = v
 			}
 		}
 	}
