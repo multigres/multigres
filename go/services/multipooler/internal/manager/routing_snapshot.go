@@ -317,11 +317,12 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 	}
 	res, err := tx.Query(execCtx, catalogVersionsQuery)
 	if mterrors.ExtractSQLSTATE(err) == mterrors.PgSSUndefinedTable {
-		// The catalog was never created on this primary: ensureCatalogSchema
-		// has not succeeded here (a failed ensure on open is only logged).
-		// Every fence lives in the catalog, written under the catalog_state
-		// row lock, so none exists, and a pooler reading its fences takes
-		// NOT_FOUND as no fences.
+		// The catalog was never created on this primary. A pooler serves as
+		// the catalog primary only once its sidecar ensure has created the
+		// catalog (see beforeServingPrimary), so this is a primary from before
+		// that, or one whose catalog was dropped under it. Every fence lives in
+		// the catalog, written under the catalog_state row lock, so none
+		// exists, and a pooler reading its fences takes NOT_FOUND as no fences.
 		return nil, mterrors.Errorf(mtrpcpb.Code_NOT_FOUND, "the sharding catalog of database %q was never created on this primary", pm.record.ShardRef().GetDatabase())
 	}
 	if err != nil {
@@ -337,6 +338,19 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 		out.Unchanged = true
 	} else {
 		snapshot, err := loadRoutingSnapshot(execCtx, tx)
+		if mterrors.ExtractSQLSTATE(err) == mterrors.PgSSUndefinedTable {
+			// catalog_state exists but a table this binary reads does not: the
+			// catalog is behind this binary, for instance a table dropped by
+			// hand under a catalog whose recorded definition hash says it is
+			// current. Forget the hash, so the next serving transition runs the
+			// full ensure, which recreates the table. It is not NOT_FOUND, which
+			// a pooler reading its fences takes as no fences: the table may be
+			// the one that holds them.
+			pm.forgetCatalogDefinition(ctx)
+			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+				"the sharding catalog of database %q is behind this binary's catalog schema: %v",
+				pm.record.ShardRef().GetDatabase(), err)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -557,6 +571,22 @@ func (pm *MultipoolerManager) runCatalogVersionRefresh(ctx context.Context, inte
 	}
 }
 
+// forgetCatalogDefinitionSQL clears the recorded catalog definition hash. It
+// matches no row once the hash is cleared, so repeating it writes nothing.
+const forgetCatalogDefinitionSQL = `UPDATE multigres.catalog_state SET definition_hash = NULL WHERE definition_hash IS NOT NULL`
+
+// forgetCatalogDefinition clears the recorded catalog definition hash, so the
+// next transition to serving primary runs the full catalog ensure instead of
+// trusting it. Best effort: a failure is logged, and the read that found the
+// catalog behind fails either way.
+func (pm *MultipoolerManager) forgetCatalogDefinition(ctx context.Context) {
+	execCtx, cancel := context.WithTimeout(ctx, tableGroupOpTimeout)
+	defer cancel()
+	if err := pm.adminExec(execCtx, forgetCatalogDefinitionSQL); err != nil {
+		pm.logger.WarnContext(ctx, "failed to clear the catalog definition hash", "error", err)
+	}
+}
+
 // publishCatalogWrite publishes the versions a catalog write committed while
 // this pooler was the primary under rule, so gateways learn of it without
 // waiting for the next refresh.
@@ -564,13 +594,4 @@ func (pm *MultipoolerManager) publishCatalogWrite(rule *clustermetadatapb.RuleNu
 	if pm.healthStreamer != nil {
 		pm.healthStreamer.observeCatalogVersions(rule, v)
 	}
-}
-
-// routingRule returns the consensus rule this pooler currently routes under,
-// nil when it has no state manager.
-func (pm *MultipoolerManager) routingRule() *clustermetadatapb.RuleNumber {
-	if pm.stateManager == nil {
-		return nil
-	}
-	return pm.stateManager.RoutingState().GetRule()
 }
