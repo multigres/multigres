@@ -17,6 +17,7 @@
 // This package automatically generates helper methods for AST nodes including:
 //   - Deep cloning (Clone methods)
 //   - AST rewriting/transformation (Rewrite methods)
+//   - Deep equality (Equals functions)
 //
 // The generator works by discovering all types that implement a root interface and
 // then generating the appropriate helper methods for each type using a plugin architecture.
@@ -411,6 +412,7 @@ func GenerateASTHelpers(options *Options) (map[string]*jen.File, error) {
 	generator := newGenerator(loaded[0].Module, loaded[0].TypesSizes, nt,
 		newCloneGen(pName, pPath, &options.Clone),
 		newRewriterGen(pName, ifaceName),
+		newEqualsGen(pName, pPath),
 	)
 
 	it, err := generator.GenerateCode()

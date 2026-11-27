@@ -18,7 +18,8 @@ package plpgsqlast
 // the generated Clone/Rewrite helpers stay self-contained in this subpackage
 // instead of bloating package ast. The one cross-hierarchy field
 // (PLpgSQL_expr.Parsed, an ast.Stmt) is treated as an opaque boundary: rewrite
-// skips it (it does not implement plpgsqlast.Node) and clone shallow-copies it
-// (foreign-package types are not deep-cloned).
+// skips it (it does not implement plpgsqlast.Node), clone shallow-copies it
+// (foreign-package types are not deep-cloned) and equals leaves it out of the
+// comparison.
 
 //go:generate go run ../../../../tools/asthelpergen/main --in . --iface github.com/multigres/multigres/go/common/parser/ast/plpgsqlast.Node
