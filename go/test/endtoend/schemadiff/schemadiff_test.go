@@ -276,7 +276,7 @@ func requireTools(t *testing.T, names ...string) {
 func startPostgres(t *testing.T) int {
 	t.Helper()
 	requireTools(t, "initdb", "postgres", "pg_isready")
-	server, err := pgbuilder.StartInstalledStandalone(t, t.Context(), password)
+	server, err := pgbuilder.StartInstalledStandalone(t, t.Context(), password, pgbuilder.StandaloneOptions{})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		_ = server.Stop()
