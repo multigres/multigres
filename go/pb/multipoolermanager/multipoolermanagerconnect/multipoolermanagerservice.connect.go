@@ -99,6 +99,9 @@ const (
 	// MultipoolerManagerRefreshFencesProcedure is the fully-qualified name of the MultipoolerManager's
 	// RefreshFences RPC.
 	MultipoolerManagerRefreshFencesProcedure = "/multipoolermanager.MultipoolerManager/RefreshFences"
+	// MultipoolerManagerAckFencesProcedure is the fully-qualified name of the MultipoolerManager's
+	// AckFences RPC.
+	MultipoolerManagerAckFencesProcedure = "/multipoolermanager.MultipoolerManager/AckFences"
 	// MultipoolerManagerReloadConfigProcedure is the fully-qualified name of the MultipoolerManager's
 	// ReloadConfig RPC.
 	MultipoolerManagerReloadConfigProcedure = "/multipoolermanager.MultipoolerManager/ReloadConfig"
@@ -242,6 +245,17 @@ type MultipoolerManagerClient interface {
 	// that is cancelled by a concurrent unfence or a change of the pooler's
 	// role is followed by a new read, whose result is returned.
 	RefreshFences(context.Context, *connect.Request[multipoolermanagerdata.RefreshFencesRequest]) (*connect.Response[multipoolermanagerdata.RefreshFencesResponse], error)
+	// AckFences records that the sender's shard is drained for each fence: the
+	// sender is a routing-primary pooler whose fence gate closed after a drain,
+	// in the gate epoch in which it read the fences. Served only by the
+	// catalog primary; a pooler of the catalog shard that is not its elected
+	// primary answers UNAVAILABLE, for the sender to find the primary and ask
+	// again, and a pooler off the catalog shard answers FAILED_PRECONDITION.
+	//
+	// An ack replaces the one recorded for the same fence and shard. An ack of a
+	// fence that no longer exists is skipped. An ack whose shard is not in the
+	// fence's scope fails the call with FAILED_PRECONDITION.
+	AckFences(context.Context, *connect.Request[multipoolermanagerdata.AckFencesRequest]) (*connect.Response[multipoolermanagerdata.AckFencesResponse], error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
@@ -411,6 +425,12 @@ func NewMultipoolerManagerClient(httpClient connect.HTTPClient, baseURL string, 
 			connect.WithSchema(multipoolerManagerMethods.ByName("RefreshFences")),
 			connect.WithClientOptions(opts...),
 		),
+		ackFences: connect.NewClient[multipoolermanagerdata.AckFencesRequest, multipoolermanagerdata.AckFencesResponse](
+			httpClient,
+			baseURL+MultipoolerManagerAckFencesProcedure,
+			connect.WithSchema(multipoolerManagerMethods.ByName("AckFences")),
+			connect.WithClientOptions(opts...),
+		),
 		reloadConfig: connect.NewClient[multipoolermanagerdata.ReloadConfigRequest, multipoolermanagerdata.ReloadConfigResponse](
 			httpClient,
 			baseURL+MultipoolerManagerReloadConfigProcedure,
@@ -475,6 +495,7 @@ type multipoolerManagerClient struct {
 	fenceScopes                *connect.Client[multipoolermanagerdata.FenceScopesRequest, multipoolermanagerdata.FenceScopesResponse]
 	unfenceScopes              *connect.Client[multipoolermanagerdata.UnfenceScopesRequest, multipoolermanagerdata.UnfenceScopesResponse]
 	refreshFences              *connect.Client[multipoolermanagerdata.RefreshFencesRequest, multipoolermanagerdata.RefreshFencesResponse]
+	ackFences                  *connect.Client[multipoolermanagerdata.AckFencesRequest, multipoolermanagerdata.AckFencesResponse]
 	reloadConfig               *connect.Client[multipoolermanagerdata.ReloadConfigRequest, multipoolermanagerdata.ReloadConfigResponse]
 	createTableGroup           *connect.Client[multipoolermanagerdata.CreateTableGroupRequest, multipoolermanagerdata.CreateTableGroupResponse]
 	getOperation               *connect.Client[multipoolermanagerdata.GetOperationRequest, multipoolermanagerdata.GetOperationResponse]
@@ -568,6 +589,11 @@ func (c *multipoolerManagerClient) UnfenceScopes(ctx context.Context, req *conne
 // RefreshFences calls multipoolermanager.MultipoolerManager.RefreshFences.
 func (c *multipoolerManagerClient) RefreshFences(ctx context.Context, req *connect.Request[multipoolermanagerdata.RefreshFencesRequest]) (*connect.Response[multipoolermanagerdata.RefreshFencesResponse], error) {
 	return c.refreshFences.CallUnary(ctx, req)
+}
+
+// AckFences calls multipoolermanager.MultipoolerManager.AckFences.
+func (c *multipoolerManagerClient) AckFences(ctx context.Context, req *connect.Request[multipoolermanagerdata.AckFencesRequest]) (*connect.Response[multipoolermanagerdata.AckFencesResponse], error) {
+	return c.ackFences.CallUnary(ctx, req)
 }
 
 // ReloadConfig calls multipoolermanager.MultipoolerManager.ReloadConfig.
@@ -726,6 +752,17 @@ type MultipoolerManagerHandler interface {
 	// that is cancelled by a concurrent unfence or a change of the pooler's
 	// role is followed by a new read, whose result is returned.
 	RefreshFences(context.Context, *connect.Request[multipoolermanagerdata.RefreshFencesRequest]) (*connect.Response[multipoolermanagerdata.RefreshFencesResponse], error)
+	// AckFences records that the sender's shard is drained for each fence: the
+	// sender is a routing-primary pooler whose fence gate closed after a drain,
+	// in the gate epoch in which it read the fences. Served only by the
+	// catalog primary; a pooler of the catalog shard that is not its elected
+	// primary answers UNAVAILABLE, for the sender to find the primary and ask
+	// again, and a pooler off the catalog shard answers FAILED_PRECONDITION.
+	//
+	// An ack replaces the one recorded for the same fence and shard. An ack of a
+	// fence that no longer exists is skipped. An ack whose shard is not in the
+	// fence's scope fails the call with FAILED_PRECONDITION.
+	AckFences(context.Context, *connect.Request[multipoolermanagerdata.AckFencesRequest]) (*connect.Response[multipoolermanagerdata.AckFencesResponse], error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
@@ -891,6 +928,12 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 		connect.WithSchema(multipoolerManagerMethods.ByName("RefreshFences")),
 		connect.WithHandlerOptions(opts...),
 	)
+	multipoolerManagerAckFencesHandler := connect.NewUnaryHandler(
+		MultipoolerManagerAckFencesProcedure,
+		svc.AckFences,
+		connect.WithSchema(multipoolerManagerMethods.ByName("AckFences")),
+		connect.WithHandlerOptions(opts...),
+	)
 	multipoolerManagerReloadConfigHandler := connect.NewUnaryHandler(
 		MultipoolerManagerReloadConfigProcedure,
 		svc.ReloadConfig,
@@ -969,6 +1012,8 @@ func NewMultipoolerManagerHandler(svc MultipoolerManagerHandler, opts ...connect
 			multipoolerManagerUnfenceScopesHandler.ServeHTTP(w, r)
 		case MultipoolerManagerRefreshFencesProcedure:
 			multipoolerManagerRefreshFencesHandler.ServeHTTP(w, r)
+		case MultipoolerManagerAckFencesProcedure:
+			multipoolerManagerAckFencesHandler.ServeHTTP(w, r)
 		case MultipoolerManagerReloadConfigProcedure:
 			multipoolerManagerReloadConfigHandler.ServeHTTP(w, r)
 		case MultipoolerManagerCreateTableGroupProcedure:
@@ -1058,6 +1103,10 @@ func (UnimplementedMultipoolerManagerHandler) UnfenceScopes(context.Context, *co
 
 func (UnimplementedMultipoolerManagerHandler) RefreshFences(context.Context, *connect.Request[multipoolermanagerdata.RefreshFencesRequest]) (*connect.Response[multipoolermanagerdata.RefreshFencesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.RefreshFences is not implemented"))
+}
+
+func (UnimplementedMultipoolerManagerHandler) AckFences(context.Context, *connect.Request[multipoolermanagerdata.AckFencesRequest]) (*connect.Response[multipoolermanagerdata.AckFencesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("multipoolermanager.MultipoolerManager.AckFences is not implemented"))
 }
 
 func (UnimplementedMultipoolerManagerHandler) ReloadConfig(context.Context, *connect.Request[multipoolermanagerdata.ReloadConfigRequest]) (*connect.Response[multipoolermanagerdata.ReloadConfigResponse], error) {

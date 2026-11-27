@@ -249,6 +249,16 @@ func refreshFences(ctx context.Context, pm *manager.MultipoolerManager, req *mul
 	return resp, nil
 }
 
+// AckFences records that the sender's shard is drained for each fence. Served by the catalog
+// primary, which is always managed, so unmanagedService does not serve it.
+func (s *managerService) AckFences(ctx context.Context, req *multipoolermanagerdatapb.AckFencesRequest) (*multipoolermanagerdatapb.AckFencesResponse, error) {
+	resp, err := s.manager.AckFences(ctx, req)
+	if err != nil {
+		return nil, mterrors.ToGRPC(err)
+	}
+	return resp, nil
+}
+
 // ReloadConfig triggers a PostgreSQL configuration reload and confirms it took effect.
 func (s *managerService) ReloadConfig(ctx context.Context, req *multipoolermanagerdatapb.ReloadConfigRequest) (*multipoolermanagerdatapb.ReloadConfigResponse, error) {
 	resp, err := s.manager.ReloadConfig(ctx, req)

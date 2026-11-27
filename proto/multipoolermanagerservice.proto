@@ -197,6 +197,19 @@ service MultipoolerManager {
   rpc RefreshFences(multipoolermanagerdata.RefreshFencesRequest)
       returns (multipoolermanagerdata.RefreshFencesResponse);
 
+  // AckFences records that the sender's shard is drained for each fence: the
+  // sender is a routing-primary pooler whose fence gate closed after a drain,
+  // in the gate epoch in which it read the fences. Served only by the
+  // catalog primary; a pooler of the catalog shard that is not its elected
+  // primary answers UNAVAILABLE, for the sender to find the primary and ask
+  // again, and a pooler off the catalog shard answers FAILED_PRECONDITION.
+  //
+  // An ack replaces the one recorded for the same fence and shard. An ack of a
+  // fence that no longer exists is skipped. An ack whose shard is not in the
+  // fence's scope fails the call with FAILED_PRECONDITION.
+  rpc AckFences(multipoolermanagerdata.AckFencesRequest)
+      returns (multipoolermanagerdata.AckFencesResponse);
+
   //
   // PostgreSQL Configuration Reload
   //

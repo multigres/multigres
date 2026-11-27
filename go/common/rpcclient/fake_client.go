@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -105,6 +106,12 @@ type FakeClient struct {
 	// Request tracking for verification in tests
 	PromoteRequests    map[topoclient.ComponentID]*consensusdatapb.PromoteRequest
 	SetPrimaryRequests map[topoclient.ComponentID]*consensusdatapb.SetPrimaryRequest
+	// AckFencesRequests records every AckFences request, failed ones
+	// included, in call order.
+	AckFencesRequests []*multipoolermanagerdatapb.AckFencesRequest
+	// AckFencesErr, if set, fails every AckFences call, while the pooler's
+	// other methods still answer.
+	AckFencesErr error
 
 	// OnManagerHealthStream, if set, is called after each FakeManagerHealthStream
 	// is created. Tests use this to capture the stream and inject snapshots.
@@ -670,6 +677,37 @@ func (f *FakeClient) RefreshFences(ctx context.Context, pooler *clustermetadatap
 		return resp, nil
 	}
 	return &multipoolermanagerdatapb.RefreshFencesResponse{}, nil
+}
+
+func (f *FakeClient) AckFences(ctx context.Context, pooler *clustermetadatapb.Multipooler, req *multipoolermanagerdatapb.AckFencesRequest) (*multipoolermanagerdatapb.AckFencesResponse, error) {
+	poolerID := f.getPoolerID(pooler)
+	f.logCall("AckFences", poolerID)
+	f.mu.Lock()
+	f.AckFencesRequests = append(f.AckFencesRequests, req)
+	ackErr := f.AckFencesErr
+	f.mu.Unlock()
+	if ackErr != nil {
+		return nil, ackErr
+	}
+
+	if err := f.checkError(poolerID); err != nil {
+		return nil, err
+	}
+	return &multipoolermanagerdatapb.AckFencesResponse{}, nil
+}
+
+// SetAckFencesError sets the error every AckFences call returns; nil clears it.
+func (f *FakeClient) SetAckFencesError(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.AckFencesErr = err
+}
+
+// GetAckFencesRequests returns a copy of the AckFences requests made so far.
+func (f *FakeClient) GetAckFencesRequests() []*multipoolermanagerdatapb.AckFencesRequest {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return slices.Clone(f.AckFencesRequests)
 }
 
 //
