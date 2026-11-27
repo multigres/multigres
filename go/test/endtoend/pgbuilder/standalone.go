@@ -61,6 +61,23 @@ type Standalone struct {
 // on disk after Stop to aid debugging.
 func StartStandalone(t *testing.T, ctx context.Context, builder *Builder, password string) (*Standalone, error) {
 	t.Helper()
+	return startStandalone(t, ctx, builder.BinDir(), filepath.Join(builder.OutputDir, "standalone"), "md5", password)
+}
+
+// StartInstalledStandalone is StartStandalone with the PostgreSQL binaries
+// found on PATH instead of built ones, the data directory under t.TempDir(),
+// which the test removes when it ends, and scram-sha-256 authentication, the
+// only password method multigres's own client (pgprotocol/client) speaks.
+func StartInstalledStandalone(t *testing.T, ctx context.Context, password string) (*Standalone, error) {
+	t.Helper()
+	return startStandalone(t, ctx, "", t.TempDir(), "scram-sha-256", password)
+}
+
+// startStandalone starts the server from the binaries in binDir, or on PATH
+// when binDir is empty, with its files under rootDir and TCP connections
+// authenticated by authMethod (md5 or scram-sha-256).
+func startStandalone(t *testing.T, ctx context.Context, binDir, rootDir, authMethod, password string) (*Standalone, error) {
+	t.Helper()
 
 	if password == "" {
 		password = "pgbuilder"
@@ -71,7 +88,6 @@ func StartStandalone(t *testing.T, ctx context.Context, builder *Builder, passwo
 		return nil, fmt.Errorf("pick free port: %w", err)
 	}
 
-	rootDir := filepath.Join(builder.OutputDir, "standalone")
 	dataDir := filepath.Join(rootDir, "data")
 	logPath := filepath.Join(rootDir, "postgres.log")
 	pwFile := filepath.Join(rootDir, "pwfile")
@@ -90,16 +106,16 @@ func StartStandalone(t *testing.T, ctx context.Context, builder *Builder, passwo
 		User:     "postgres",
 		Password: password,
 		Database: "postgres",
-		binDir:   builder.BinDir(),
+		binDir:   binDir,
 	}
 
-	if err := si.runInitdb(ctx, pwFile); err != nil {
+	if err := si.runInitdb(ctx, pwFile, authMethod); err != nil {
 		return nil, err
 	}
 
-	// Loopback-only, md5 auth so psql/pgx connecting with PGPASSWORD works and
-	// nothing outside the host can reach the server.
-	hba := "host all all 127.0.0.1/32 md5\nhost all all ::1/128 md5\n"
+	// Loopback-only, password auth so psql/pgx connecting with PGPASSWORD works
+	// and nothing outside the host can reach the server.
+	hba := fmt.Sprintf("host all all 127.0.0.1/32 %[1]s\nhost all all ::1/128 %[1]s\n", authMethod)
 	if err := os.WriteFile(filepath.Join(dataDir, "pg_hba.conf"), []byte(hba), 0o600); err != nil {
 		return nil, fmt.Errorf("write pg_hba.conf: %w", err)
 	}
@@ -117,7 +133,7 @@ func StartStandalone(t *testing.T, ctx context.Context, builder *Builder, passwo
 	return si, nil
 }
 
-func (s *Standalone) runInitdb(ctx context.Context, pwFile string) error {
+func (s *Standalone) runInitdb(ctx context.Context, pwFile, authMethod string) error {
 	cmd := executil.Command(ctx, filepath.Join(s.binDir, "initdb"),
 		"-D", s.DataDir,
 		"-U", s.User,
@@ -125,7 +141,7 @@ func (s *Standalone) runInitdb(ctx context.Context, pwFile string) error {
 		"--encoding=UTF8",
 		"--locale=C",
 		"--auth-local=trust",
-		"--auth-host=md5",
+		"--auth-host="+authMethod,
 	)
 	var out bytes.Buffer
 	cmd.Stdout = &out
