@@ -739,6 +739,7 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 	// Hostname of the machine postgres runs on (postgres is colocated with
 	// pgctld). Best-effort: empty when unavailable.
 	host, _ := os.Hostname()
+	walVersion, unknown := installedWALVersion(ctx, req.GetRecheckWalWrappers())
 
 	// pgBackRest is configured only when BOTH port and cert dir are set —
 	// NewPgCtldService generates no server config otherwise. Report the pair
@@ -769,6 +770,7 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 			Message:           "Data directory is not initialized",
 			PgbackrestStatus:  s.getPgBackRestStatus(),
 			PoolerDir:         s.poolerDir,
+			WalWrapperVersion: walVersion, WalWrapperProbeUnknown: unknown,
 			PgbackrestPort:    pgbackrestPort,
 			PgbackrestCertDir: pgbackrestCertDir,
 		}, nil
@@ -819,6 +821,7 @@ func (s *PgCtldService) Status(ctx context.Context, req *pb.StatusRequest) (*pb.
 		Message:           result.Message,
 		PgbackrestStatus:  s.getPgBackRestStatus(),
 		PoolerDir:         s.poolerDir,
+		WalWrapperVersion: walVersion, WalWrapperProbeUnknown: unknown,
 		MaxConnections:    gucs["max_connections"],
 		PgbackrestPort:    pgbackrestPort,
 		PgbackrestCertDir: pgbackrestCertDir,
@@ -924,7 +927,7 @@ func (s *PgCtldService) PgRewind(ctx context.Context, req *pb.PgRewindRequest) (
 	}
 
 	// Use the shared rewind function with detailed result, passing password separately
-	result, err := PgRewindWithResult(runCtx, s.logger, sourceServer, s.ctldConfig.Password, req.GetDryRun(), req.GetExtraArgs())
+	result, err := PgRewindWithResult(runCtx, s.logger, s.poolerDir, sourceServer, s.ctldConfig.Password, req.GetDryRun(), req.GetExtraArgs())
 	if err != nil {
 		s.logger.ErrorContext(ctx, "pg_rewind output", "output", result.Output)
 		return nil, fmt.Errorf("failed to rewind PostgreSQL: %w", err)

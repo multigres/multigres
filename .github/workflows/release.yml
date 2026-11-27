@@ -282,6 +282,8 @@ jobs:
             "README.md"
             "multigres"
             "pgctld"
+            "pgbackrest-archive-wal"
+            "pgbackrest-restore-wal"
             "multigateway"
             "multiorch"
             "multipooler"

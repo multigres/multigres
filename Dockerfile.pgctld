@@ -51,10 +51,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy pgctld binary
-COPY --from=builder /src/bin/pgctld /usr/local/bin/
-
-# Ensure pgctld is executable
-RUN chmod +x /usr/local/bin/pgctld
+COPY --from=builder /src/bin/pgctld /src/bin/pgbackrest-archive-wal /src/bin/pgbackrest-restore-wal /usr/local/bin/
 
 # PostgreSQL data directory (default)
 ENV PGDATA=/var/lib/postgresql/data

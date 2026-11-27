@@ -368,6 +368,7 @@ func startPostgreSQLWithConfig(logger *slog.Logger, config *pgctld.PostgresCtlCo
 	logger.Info("starting Postgres with configuration", "port", config.Port, "data_dir", config.PostgresDataDir, "config_file", config.PostgresConfigFile)
 
 	cmd := exec.Command("pg_ctl", args...)
+	cmd.Env = append(os.Environ(), walChildEnv(config.PoolerDir)...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

@@ -33,6 +33,7 @@ export PGPROTO_VER
 
 # List of all commands to build
 CMDS = multigateway multipooler pgctld multiorch multigres multiadmin portpoolserver minigres
+CMD_PACKAGES := $(addprefix ./go/cmd/,$(CMDS))
 BIN_DIR = bin
 
 GIT_COMMIT ?= unknown
@@ -156,26 +157,26 @@ pgcatalog: ## Generate the builtin PostgreSQL catalog tables.
 # Build Go binaries only (debug, with symbols)
 build: ## Build Go binaries (debug, with symbols).
 	mkdir -p $(BIN_DIR)
-	@for cmd in $(CMDS); do \
-		echo "Building $$cmd (debug)"; \
-		go build -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
-	done
+	go build -o $(BIN_DIR)/ $(CMD_PACKAGES)
+ifneq ($(filter pgctld,$(CMDS)),)
+	./tools/install-wal-commands.sh $(BIN_DIR)
+endif
 
 # Build Go binaries with coverage
 build-coverage:
-	mkdir -p bin/cov/
-	@for cmd in $(CMDS); do \
-		echo "Building $$cmd (coverage)"; \
-		go build -cover -covermode=atomic -coverpkg=./... -o $(BIN_DIR)/cov/$$cmd ./go/cmd/$$cmd; \
-	done
+	mkdir -p $(BIN_DIR)/cov
+	go build -cover -covermode=atomic -coverpkg=./... -o $(BIN_DIR)/cov/ $(CMD_PACKAGES)
+ifneq ($(filter pgctld,$(CMDS)),)
+	./tools/install-wal-commands.sh $(BIN_DIR)/cov
+endif
 
 # Build Go binaries only (release, static, stripped)
 build-release: ## Build Go binaries (release, static, stripped).
 	mkdir -p $(BIN_DIR)
-	@for cmd in $(CMDS); do \
-		echo "Building $$cmd (release)"; \
-		CGO_ENABLED=0 go build -ldflags="$(RELEASE_LDFLAGS)" -o $(BIN_DIR)/$$cmd ./go/cmd/$$cmd; \
-	done
+	CGO_ENABLED=0 go build -ldflags="$(RELEASE_LDFLAGS)" -o $(BIN_DIR)/ $(CMD_PACKAGES)
+ifneq ($(filter pgctld,$(CMDS)),)
+	./tools/install-wal-commands.sh $(BIN_DIR)
+endif
 
 # Build everything (proto + parser + binaries)
 build-all: proto parser metrics pgcatalog build ## Build everything (proto + parser + metrics + pgcatalog + binaries).
@@ -190,10 +191,11 @@ images:
 
 # Install binaries to GOPATH/bin
 install: ## Install binaries to GOPATH/bin.
-	@for cmd in $(CMDS); do \
-		echo "Installing $$cmd"; \
-		go install ./go/cmd/$$cmd; \
-	done
+	go install $(CMD_PACKAGES)
+ifneq ($(filter pgctld,$(CMDS)),)
+	@bin=$$(go env GOBIN); if [ -z "$$bin" ]; then gp=$$(go env GOPATH); bin=$${gp%%:*}/bin; fi; \
+		./tools/install-wal-commands.sh "$$bin"
+endif
 
 ##@ Linting
 
@@ -313,6 +315,7 @@ clean: ## Remove build artifacts and temp files.
 		echo "Removing $(BIN_DIR)/$$cmd"; \
 		rm -f $(BIN_DIR)/$$cmd; \
 	done
+	rm -f $(BIN_DIR)/pgbackrest-archive-wal $(BIN_DIR)/pgbackrest-restore-wal
 
 # Clean build and dependencies
 clean-all: clean ## Remove build dependencies and distribution files.

@@ -15,9 +15,12 @@
 package fileutil
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestAtomicWriteFileReplacesExistingMode(t *testing.T) {
@@ -47,4 +50,37 @@ func TestAtomicWriteFileReplacesExistingMode(t *testing.T) {
 	if got := string(content); got != "new" {
 		t.Errorf("content = %q, want %q", got, "new")
 	}
+}
+
+func TestAtomicReplaceFileFailureBeforeRename(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "postgresql.auto.conf")
+	original := []byte("archive_command = 'legacy'\nshared_buffers = '128MB'\n")
+	require.NoError(t, os.WriteFile(path, original, 0o640))
+	before, err := os.Stat(path)
+	require.NoError(t, err)
+	replacement := []byte("archive_command = 'stable'\nshared_buffers = '128MB'\n")
+	injected := errors.New("rename failed")
+	err = atomicReplaceFile(path, replacement, func(tmp, target string) error {
+		require.Equal(t, path, target)
+		require.Equal(t, dir, filepath.Dir(tmp))
+		data, err := os.ReadFile(tmp)
+		require.NoError(t, err)
+		require.Equal(t, replacement, data)
+		return injected
+	})
+	require.ErrorIs(t, err, injected)
+	got, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, original, got)
+	after, err := os.Stat(path)
+	require.NoError(t, err)
+	require.True(t, os.SameFile(before, after))
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	require.NoError(t, AtomicReplaceFile(path, replacement))
+	after, err = os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, before.Mode(), after.Mode())
 }

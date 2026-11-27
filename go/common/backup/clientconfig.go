@@ -152,7 +152,7 @@ func WriteClientConfig(opts ClientConfigOpts, backupCfg *Config, repos []PgBackR
 	// 0600, matching refresh-credentials. Atomic write-then-rename so the
 	// mode applies to a pre-existing file too and a concurrent
 	// postgres-spawned archive-push never reads a torn conf.
-	configPath := filepath.Join(pgbackrestDir, "pgbackrest.conf")
+	configPath := ClientConfigPath(opts.PoolerDir)
 	if err := fileutil.AtomicWriteFile(configPath, buf.Bytes(), 0o600); err != nil {
 		return "", fmt.Errorf("failed to write pgbackrest.conf: %w", err)
 	}

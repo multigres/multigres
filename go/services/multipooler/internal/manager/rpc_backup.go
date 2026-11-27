@@ -364,13 +364,16 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 	//   - A restore that fails without the process dying is cleaned up here,
 	//     so the next tick retries.
 	//
-	// Both are scoped to the restore itself: later steps run after a
-	// successful restore, so their failures shouldn't discard good data.
+	// Keep the sentinel through durable configuration finalization. Later
+	// startup or connection failures must not discard a finalized restore.
 	if err := pm.restoreSentinel().write(); err != nil {
 		return mterrors.Wrap(err, "failed to write restore sentinel")
 	}
 	if err := telemetry.WithSpan(ctx, "restore/pgbackrest", func(ctx context.Context) error {
-		return pm.backup.Restore(ctx, backupID, pm.record.PoolerDir())
+		// pgBackRest needs a recovery option to write while extracting, but
+		// PostgreSQL cannot start with the sentinel set. Select the ABI that
+		// will actually be used only after extraction finishes.
+		return pm.backup.Restore(ctx, backupID, false, pm.record.PoolerDir())
 	}); err != nil {
 		// Ordering matters: only clear the sentinel after the data directory is
 		// gone, to preserve the "partial data dir present ⇒ sentinel present"
@@ -386,28 +389,18 @@ func (pm *MultipoolerManager) restoreFromBackupLocked(ctx context.Context, backu
 		return err
 	}
 
-	// PGDATA now holds a complete restore. Clear the sentinel before the steps
-	// below so a failure in one of them can't get the restored data discarded.
-	// If it can't be cleared, fail the restore: with the sentinel still on disk
-	// the next attempt redoes it from scratch, which is wasteful but safe. If only
-	// the directory fsync failed after the unlink, the sentinel is gone and the
-	// next tick starts postgres on the restored data, as after a failure in one
-	// of the steps below.
-	if err := pm.restoreSentinel().remove(); err != nil {
-		return mterrors.Wrap(err, "failed to remove restore sentinel after restore")
-	}
-
-	// Reconfigure archive_command to use this pooler's local pgbackrest.conf
-	// After restore, postgresql.auto.conf contains archive_command pointing to the
-	// primary's pgbackrest.conf path. Each pooler needs its own config path.
-	pm.logger.InfoContext(ctx, "reconfiguring archive_command for local pgbackrest.conf")
-	if err := telemetry.WithSpan(ctx, "restore/reconfigure-archive", func(ctx context.Context) error {
-		if err := pm.backup.RemoveArchiveConfig(); err != nil {
-			return mterrors.Wrap(err, "failed to remove old archive configuration")
-		}
-		return mterrors.Wrap(pm.backup.ConfigureArchiveMode(ctx), "failed to configure archive mode")
+	if err := telemetry.WithSpan(ctx, "restore/finalize-wal-config", func(ctx context.Context) error {
+		wrappers := pm.supportsWALWrappers(ctx)
+		return mterrors.Wrap(pm.backup.FinalizeRestore(ctx, wrappers, pm.record.PoolerDir()), "failed to finalize restored WAL configuration")
 	}); err != nil {
 		return err
+	}
+
+	// PGDATA and both local WAL commands are durable. If unlink fails, the
+	// sentinel still blocks startup and the monitor retries the restore. If
+	// only the directory sync after unlink fails, PGDATA is safe to start.
+	if err := pm.restoreSentinel().remove(); err != nil {
+		return mterrors.Wrap(err, "failed to remove restore sentinel after restore")
 	}
 
 	if err := telemetry.WithSpan(ctx, "restore/start-postgres", func(ctx context.Context) error {

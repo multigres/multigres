@@ -547,6 +547,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 	// supplied later (SetConfigPath / SetPgpassPath / SetBackupConfig) once
 	// topology and the backup location have loaded.
 	pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{
+		WALReadiness:  pm.walCommandReadiness,
 		PgpassPath:    pm.pgpassPath,
 		PgDataDir:     postgresDataDir(),
 		NoBackupLease: config.StaticLeader,

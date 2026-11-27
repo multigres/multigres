@@ -73,6 +73,16 @@ func runRestoreWrapper(cmd *cobra.Command, args []string) error {
 		return errors.New("usage: pgctld restore-wrapper <pidfile> -- <command> [args...]")
 	}
 
+	err := runTrackedRestore(pidfile, args)
+	if errors.Is(err, errRestoreCanceled) {
+		return nil
+	} // Preserve restore-wrapper's original cancellation contract.
+	return err
+}
+
+var errRestoreCanceled = errors.New("WAL restore canceled")
+
+func runTrackedRestore(pidfile string, args []string) error {
 	// Install the handler before publishing our PID so StopRestoreCommand cannot
 	// terminate the wrapper in the gap between discovering it and signal.Notify.
 	// SIGQUIT is how postgres's immediate shutdown reaches this process group;
@@ -237,14 +247,9 @@ func runWrappedCommand(name string, args []string, sigCh <-chan os.Signal) error
 			_ = syscall.Kill(pgid, syscall.SIGKILL)
 			<-done
 		}
-		// Exit 0 without the requested file is how restore_command reports a
-		// segment missing from the archive, and is the outcome StopRestoreCommand
-		// wants: recovery carries on without that segment. A signal-terminated
-		// exit would be read differently: SIGTERM as a shutdown request, any
-		// other signal as a FATAL error that aborts recovery. When the signal
-		// came from postgres's own shutdown, the startup process is already
-		// exiting and ignores this status.
-		return nil
+		// Report cancellation separately from a child exit. pgbackrest-restore-wal must not
+		// report a successful fetch, but the legacy wrapper returns zero here.
+		return errRestoreCanceled
 	case err := <-done:
 		return err
 	}

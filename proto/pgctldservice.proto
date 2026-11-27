@@ -167,6 +167,8 @@ message ReloadConfigResponse {
 
 // Get PostgreSQL server status
 message StatusRequest {
+  // Re-run both WAL executable handshakes even if the files appear unchanged.
+  bool recheck_wal_wrappers = 1;
 }
 
 message StatusResponse {
@@ -226,6 +228,14 @@ message StatusResponse {
   // Directory holding the pgBackRest TLS material (ca.crt, pgbackrest.crt,
   // pgbackrest.key). Empty when pgBackRest is not configured.
   string pgbackrest_cert_dir = 14;
+
+  // Installed standalone WAL command contract. Zero (including older servers)
+  // selects the legacy archive-push and tracked restore commands for new writes.
+  uint32 wal_wrapper_version = 17;
+
+  // A transient probe failure is not a negative capability observation.
+  // Keep the last known version when this is true.
+  bool wal_wrapper_probe_unknown = 18;
 }
 
 // pgBackRest TLS server status

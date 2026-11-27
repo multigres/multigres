@@ -320,3 +320,12 @@ func TestAPoolerRefusesABackingConnectionThatServesAnotherDatabase(t *testing.T)
 	err := mp.Init(t.Context(), ts)
 	require.EqualError(t, err, `backing connection "src" serves database "other", which does not match --database "db"`)
 }
+
+func TestWALCommandWrappersOptIn(t *testing.T) {
+	mp := newTestMultipooler()
+	flags := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	mp.RegisterFlags(flags)
+	require.Equal(t, "false", flags.Lookup("wal-command-wrappers").DefValue)
+	require.NoError(t, flags.Parse([]string{"--wal-command-wrappers"}))
+	require.True(t, mp.walCommandWrappers.Get())
+}

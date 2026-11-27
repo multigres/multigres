@@ -15,17 +15,19 @@
 package backup
 
 import (
-	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonbackup "github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 )
 
@@ -46,34 +48,44 @@ func TestAutoConfPath(t *testing.T) {
 }
 
 func TestConfigureArchiveMode(t *testing.T) {
-	ctx := context.Background()
-
 	t.Run("writes archive config and is idempotent", func(t *testing.T) {
 		poolerDir := t.TempDir()
 		configPath := setupMockPgBackRestConfig(t, poolerDir)
 		e, _ := newTestEngine(t, poolerDir, "test-tg", "0", "/tmp/backups")
 		e.SetConfigPath(configPath)
 
-		require.NoError(t, e.ConfigureArchiveMode(ctx))
+		require.NoError(t, e.ConfigureArchiveMode(t.Context(), true))
 
 		autoConf := filepath.Join(poolerDir, "postgresql.auto.conf")
 		content, err := os.ReadFile(autoConf)
 		require.NoError(t, err)
 		assert.Contains(t, string(content), "archive_mode = 'on'")
-		assert.Contains(t, string(content), "archive_command = 'pgbackrest --stanza="+stanzaName+" --config="+configPath)
+		archiveValue, err := ast.QuoteConfValue(commonbackup.ArchiveWALCommand)
+		require.NoError(t, err)
+		assert.Contains(t, string(content), "archive_command = "+archiveValue)
 
 		// A second call detects the existing archive_mode and skips, so the
 		// config is not appended twice.
-		require.NoError(t, e.ConfigureArchiveMode(ctx))
+		require.NoError(t, e.ConfigureArchiveMode(t.Context(), true))
 		content, err = os.ReadFile(autoConf)
 		require.NoError(t, err)
 		assert.Equal(t, 1, strings.Count(string(content), "archive_mode = 'on'"))
 	})
 
+	t.Run("legacy when wrapper capability is absent", func(t *testing.T) {
+		dir := t.TempDir()
+		config := setupMockPgBackRestConfig(t, dir)
+		e, _ := newTestEngine(t, dir, "tg", "0", "/tmp/backups")
+		e.SetConfigPath(config)
+		require.NoError(t, e.ConfigureArchiveMode(t.Context(), false))
+		got, err := os.ReadFile(filepath.Join(dir, "postgresql.auto.conf"))
+		require.NoError(t, err)
+		require.Contains(t, string(got), "archive_command = 'pgbackrest --stanza=multigres --config="+config+" archive-push %p'")
+	})
 	t.Run("errors when config path is not set", func(t *testing.T) {
 		poolerDir := t.TempDir()
 		e, _ := newTestEngine(t, poolerDir, "test-tg", "0", "/tmp/backups")
-		err := e.ConfigureArchiveMode(ctx)
+		err := e.ConfigureArchiveMode(t.Context(), true)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not yet generated")
 	})
@@ -83,50 +95,61 @@ func TestConfigureArchiveMode(t *testing.T) {
 		configPath := setupMockPgBackRestConfig(t, poolerDir)
 		e, _ := newTestEngine(t, poolerDir, "test-tg", "0", "") // no backup location → no repo config
 		e.SetConfigPath(configPath)
-		err := e.ConfigureArchiveMode(ctx)
+		err := e.ConfigureArchiveMode(t.Context(), true)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "backup config not set")
 	})
 }
 
-func TestRemoveArchiveConfig(t *testing.T) {
-	t.Run("removes only the archive lines", func(t *testing.T) {
-		poolerDir := t.TempDir()
-		e, _ := newTestEngine(t, poolerDir, "test-tg", "0", "/tmp/backups")
+func TestFinalizeRestore(t *testing.T) {
+	const original = "archive_mode = 'off'\n" + archiveConfigHeader + "\n" +
+		"archive_command = 'wrong pooler'\nARCHIVE_COMMAND 'another pooler'\n" +
+		"restore_command = 'wrong restore command'\nrestore_command = 'old wrapper'\n" +
+		"# restore_command = 'comment'\narchive_timeout = '5min'\nshared_buffers = '128MB'"
+	const kept = "# restore_command = 'comment'\narchive_timeout = '5min'\nshared_buffers = '128MB'\n"
 
-		autoConf := filepath.Join(poolerDir, "postgresql.auto.conf")
-		original := strings.Join([]string{
-			"shared_buffers = '128MB'",
-			"# Archive mode for pgbackrest backups",
-			"archive_mode = 'on'",
-			"archive_command = 'pgbackrest --stanza=multigres --config=/x archive-push %p'",
-			"max_connections = 100",
-			"",
-		}, "\n")
-		require.NoError(t, os.WriteFile(autoConf, []byte(original), 0o644))
+	for _, tc := range []struct {
+		name     string
+		wrappers bool
+	}{{"standalone wrappers", true}, {"legacy commands", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			configPath := setupMockPgBackRestConfig(t, dir)
+			e, _ := newTestEngine(t, dir, "tg", "0", "/tmp/backups")
+			e.SetConfigPath(configPath)
+			path := filepath.Join(dir, "postgresql.auto.conf")
+			require.NoError(t, os.WriteFile(path, []byte(original), 0o640))
+			before, err := os.Stat(path)
+			require.NoError(t, err)
 
-		require.NoError(t, e.RemoveArchiveConfig())
+			require.NoError(t, e.FinalizeRestore(t.Context(), tc.wrappers, dir))
+			got, err := os.ReadFile(path)
+			require.NoError(t, err)
+			archive, restore := commonbackup.WALCommands(tc.wrappers, configPath, dir)
+			archiveValue, err := ast.QuoteConfValue(archive)
+			require.NoError(t, err)
+			restoreValue, err := ast.QuoteConfValue(restore)
+			require.NoError(t, err)
+			assert.Equal(t, kept+archiveConfigHeader+"\narchive_mode = 'on'\narchive_command = "+archiveValue+"\nrestore_command = "+restoreValue+"\n", string(got))
+			after, err := os.Stat(path)
+			require.NoError(t, err)
+			assert.False(t, os.SameFile(before, after), "must replace atomically, not truncate in place")
+			assert.Equal(t, before.Mode(), after.Mode())
+			assert.Equal(t, before.Sys().(*syscall.Stat_t).Uid, after.Sys().(*syscall.Stat_t).Uid)
+			assert.Equal(t, before.Sys().(*syscall.Stat_t).Gid, after.Sys().(*syscall.Stat_t).Gid)
+		})
+	}
 
-		content, err := os.ReadFile(autoConf)
+	t.Run("invalid replacement keeps original file", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := setupMockPgBackRestConfig(t, dir)
+		e, _ := newTestEngine(t, dir, "tg", "0", "/tmp/backups")
+		e.SetConfigPath(configPath)
+		path := filepath.Join(dir, "postgresql.auto.conf")
+		require.NoError(t, os.WriteFile(path, []byte(original), 0o600))
+		require.ErrorContains(t, e.FinalizeRestore(t.Context(), false, "invalid\npath"), "must not contain a line break")
+		got, err := os.ReadFile(path)
 		require.NoError(t, err)
-		s := string(content)
-		assert.NotContains(t, s, "archive_mode")
-		assert.NotContains(t, s, "archive_command")
-		assert.NotContains(t, s, "# Archive mode for pgbackrest backups")
-		assert.Contains(t, s, "shared_buffers = '128MB'")
-		assert.Contains(t, s, "max_connections = 100")
-	})
-
-	t.Run("no-op when the file is missing", func(t *testing.T) {
-		poolerDir := t.TempDir()
-		e, _ := newTestEngine(t, poolerDir, "test-tg", "0", "/tmp/backups")
-		require.NoError(t, e.RemoveArchiveConfig())
-	})
-
-	t.Run("errors when PgDataDir is not configured", func(t *testing.T) {
-		e := NewEngine(slog.Default(), nil, &fakeIdentity{}, Settings{})
-		err := e.RemoveArchiveConfig()
-		require.Error(t, err)
-		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+		assert.Equal(t, original, string(got))
 	})
 }

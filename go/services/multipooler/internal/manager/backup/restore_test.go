@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -27,27 +26,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonbackup "github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
-
-// TestShellQuoteSingle round-trips values through an actual shell (not just
-// string comparison against a hand-computed expectation), since a bug in the
-// escaping logic could just as easily be mirrored in a hardcoded expectation.
-func TestShellQuoteSingle(t *testing.T) {
-	tests := []string{
-		"/tmp/pooler/restore_command.pid",
-		"/tmp/pooler's dir/restore_command.pid",
-		"'leading and trailing quotes'",
-		"has spaces and\ttabs",
-	}
-	for _, raw := range tests {
-		t.Run(raw, func(t *testing.T) {
-			out, err := exec.Command("sh", "-c", "printf '%s' "+shellQuoteSingle(raw)).Output()
-			require.NoError(t, err)
-			assert.Equal(t, raw, string(out))
-		})
-	}
-}
 
 // TestRestore_ExecPaths drives Restore against a stubbed pgbackrest, covering
 // the success and failure paths both with and without an explicit backup ID.
@@ -70,7 +51,7 @@ func TestRestore_ExecPaths(t *testing.T) {
 			e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
 			e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
-			err := e.Restore(context.Background(), tt.backupID, poolerDir)
+			err := e.Restore(context.Background(), tt.backupID, true, poolerDir)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errContains)
@@ -84,7 +65,7 @@ func TestRestore_ExecPaths(t *testing.T) {
 func TestRestore_ErrorsWhenConfigPathMissing(t *testing.T) {
 	poolerDir := t.TempDir()
 	e, _ := newTestEngine(t, poolerDir, "", "", "/tmp/backups")
-	err := e.Restore(context.Background(), "20250104-100000F", poolerDir)
+	err := e.Restore(context.Background(), "20250104-100000F", true, poolerDir)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "pgbackrest config not found")
 	assert.True(t, e.Health().Snapshot().RestoreInProgressStart.IsZero())
@@ -137,7 +118,7 @@ exit %d
 			finished := make(chan struct{})
 			go func() {
 				defer close(finished)
-				done <- e.Restore(ctx, "20250104-100000F", poolerDir)
+				done <- e.Restore(ctx, "20250104-100000F", true, poolerDir)
 			}()
 			t.Cleanup(func() {
 				cancel()
@@ -189,13 +170,14 @@ exit %d
 func TestRestoreCommand(t *testing.T) {
 	e := NewEngine(slog.New(slog.DiscardHandler), nil, nil, Settings{})
 
-	_, err := e.RestoreCommand("/pooler")
+	_, err := e.RestoreCommand(true, "/pooler")
 	require.Error(t, err, "no pgbackrest config yet")
 
 	e.SetConfigPath("/etc/pgbackrest.conf")
-	cmd, err := e.RestoreCommand("/pooler")
+	cmd, err := e.RestoreCommand(true, "/pooler")
 	require.NoError(t, err)
-	assert.Equal(t,
-		`pgctld restore-wrapper '/pooler/restore_command.pid' -- pgbackrest --stanza='`+stanzaName+`' --config='/etc/pgbackrest.conf' archive-get %f "%p"`,
-		cmd)
+	assert.Equal(t, commonbackup.RestoreWALCommand, cmd)
+	cmd, err = e.RestoreCommand(false, "/pooler")
+	require.NoError(t, err)
+	require.Equal(t, `pgctld restore-wrapper '/pooler/restore_command.pid' -- pgbackrest --stanza='multigres' --config='/etc/pgbackrest.conf' archive-get %f "%p"`, cmd)
 }

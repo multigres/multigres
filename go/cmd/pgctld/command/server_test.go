@@ -117,6 +117,9 @@ func TestPgCtldServiceStart(t *testing.T) {
 			errorContains: "data directory not initialized",
 		},
 		{
+			name: "start passes WAL environment to postmaster", request: &pb.StartRequest{AsPrimary: true}, setupDataDir: func(baseDir string) string { return testutil.CreateDataDir(t, baseDir, true) }, setupBinaries: true,
+		},
+		{
 			name: "start already running server",
 			request: &pb.StartRequest{
 				Port: 5432,
@@ -169,6 +172,11 @@ func TestPgCtldServiceStart(t *testing.T) {
 			service, err := NewPgCtldService(testLogger(), testServiceConfig, 30, poolerDir, "localhost", 0, "")
 			require.NoError(t, err)
 
+			if tt.name == "start passes WAL environment to postmaster" {
+				t.Setenv("MULTIGRES_WAL_POOLER_DIR", "")
+				t.Setenv("PGPASSFILE", "")
+				captureWALLaunchEnv(t, filepath.Join(baseDir, "bin"), poolerDir)
+			}
 			resp, err := service.Start(context.Background(), tt.request)
 
 			if tt.expectError {

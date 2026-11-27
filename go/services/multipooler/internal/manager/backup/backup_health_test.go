@@ -179,6 +179,7 @@ func TestRefreshHealth_StanzaMissing(t *testing.T) {
 	e, _ := newTestEngine(t, poolerDir, "tg1", "0", "/tmp/backups")
 	e.SetConfigPath(setupMockPgBackRestConfig(t, poolerDir))
 
+	e.settings.WALReadiness = func(context.Context) string { return ReadyReasonWALCommandUnrecognized }
 	e.refreshHealth(t.Context())
 	snap := e.Health().Snapshot()
 	assert.False(t, snap.Ready)
@@ -677,4 +678,17 @@ func TestRefreshArchiver_NilProvider(t *testing.T) {
 	e, _ := newTestEngine(t, t.TempDir(), "tg1", "0", "/tmp/backups")
 	e.refreshArchiver(t.Context(), pgmode.Primary)
 	assert.False(t, e.Health().Snapshot().ArchivingFailing, "no provider → cannot be failing")
+}
+
+func TestWALReadinessPublishedWithoutSQLOrRepo(t *testing.T) {
+	for _, reason := range []string{ReadyReasonWALCommandUnrecognized, ReadyReasonWALWrapperUnavailable, ReadyReasonWALWrapperUnverified} {
+		t.Run(reason, func(t *testing.T) {
+			e, _ := newTestEngine(t, t.TempDir(), "tg", "0", "")
+			e.settings.WALReadiness = func(context.Context) string { return reason }
+			e.refreshHealth(t.Context())
+			s := e.Health().Snapshot()
+			require.False(t, s.Ready)
+			require.Equal(t, reason, s.Reason)
+		})
+	}
 }

@@ -26,7 +26,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	commonbackup "github.com/multigres/multigres/go/common/backup"
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/parser/ast"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	pgctldpb "github.com/multigres/multigres/go/pb/pgctldservice"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
@@ -217,11 +219,15 @@ func TestRunPgRewind_RestoreTargetWAL(t *testing.T) {
 		require.NoError(t, os.WriteFile(autoConf, []byte("primary_conninfo = 'host=x'\n"), 0o600))
 
 		pm := newSentinelTestManager(t)
+		pm.config = &Config{WALCommandWrappers: true}
 		pm.backup = backupengine.NewEngine(pm.logger, pm.runLongCommand, pm.record, backupengine.Settings{})
 		if withBackupConfig {
 			pm.backup.SetConfigPath("/etc/pgbackrest.conf")
 		}
-		return pm, &mockPgctldClient{pgRewindResponse: &pgctldpb.PgRewindResponse{Output: diverged}}, autoConf
+		return pm, &mockPgctldClient{
+			statusResponse:   &pgctldpb.StatusResponse{WalWrapperVersion: commonbackup.WALWrapperVersion, PoolerDir: pm.record.PoolerDir()},
+			pgRewindResponse: &pgctldpb.PgRewindResponse{Output: diverged},
+		}, autoConf
 	}
 	read := func(t *testing.T, path string) string {
 		t.Helper()
@@ -232,8 +238,17 @@ func TestRunPgRewind_RestoreTargetWAL(t *testing.T) {
 
 	t.Run("passes -c and sets restore_command for dry-run and real run", func(t *testing.T) {
 		pm, client, autoConf := setup(t, true)
+		require.NoError(t, os.Chmod(autoConf, 0o640))
+		before, err := os.Stat(autoConf)
+		require.NoError(t, err)
 		var confAtCall []string
-		client.pgRewindOnCall = func(*pgctldpb.PgRewindRequest) { confAtCall = append(confAtCall, read(t, autoConf)) }
+		client.pgRewindOnCall = func(*pgctldpb.PgRewindRequest) {
+			confAtCall = append(confAtCall, read(t, autoConf))
+			current, err := os.Stat(autoConf)
+			require.NoError(t, err)
+			assert.False(t, os.SameFile(before, current), "must replace atomically")
+			assert.Equal(t, before.Mode(), current.Mode())
+		}
 		pm.pgctldClient = client
 
 		performed, err := pm.runPgRewind(t.Context(), "leader", 5432)
@@ -246,13 +261,15 @@ func TestRunPgRewind_RestoreTargetWAL(t *testing.T) {
 		assert.False(t, client.pgRewindReqs[1].DryRun)
 		assert.Equal(t, []string{"-R", "--restore-target-wal"}, client.pgRewindReqs[1].ExtraArgs)
 
+		restoreValue, err := ast.QuoteConfValue(commonbackup.RestoreWALCommand)
+		require.NoError(t, err)
 		for _, conf := range confAtCall {
-			assert.Contains(t, conf, "restore_command = ")
-			assert.Contains(t, conf, "pgctld restore-wrapper")
-			assert.Contains(t, conf, "archive-get")
-			assert.Contains(t, conf, constants.RestoreCommandPIDFile)
+			assert.Contains(t, conf, "restore_command = "+restoreValue)
 		}
 		assert.Equal(t, "primary_conninfo = 'host=x'\n", read(t, autoConf), "restore_command must be removed after the rewind")
+		after, err := os.Stat(autoConf)
+		require.NoError(t, err)
+		assert.Equal(t, before.Mode(), after.Mode())
 	})
 
 	t.Run("failed mutating rewind keeps the on-disk sentinel", func(t *testing.T) {

@@ -63,7 +63,7 @@ func (s *stubPgctldClient) ReloadConfig(_ context.Context, _ *pgctldpb.ReloadCon
 }
 
 func (s *stubPgctldClient) Status(_ context.Context, _ *pgctldpb.StatusRequest, _ ...grpc.CallOption) (*pgctldpb.StatusResponse, error) {
-	return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "stub: not available")
+	return &pgctldpb.StatusResponse{WalWrapperVersion: 1}, nil
 }
 
 func (s *stubPgctldClient) Version(_ context.Context, _ *pgctldpb.VersionRequest, _ ...grpc.CallOption) (*pgctldpb.VersionResponse, error) {
@@ -117,7 +117,7 @@ func (s *successStubPgctldClient) ReloadConfig(context.Context, *pgctldpb.Reload
 }
 
 func (s *successStubPgctldClient) Status(context.Context, *pgctldpb.StatusRequest, ...grpc.CallOption) (*pgctldpb.StatusResponse, error) {
-	return &pgctldpb.StatusResponse{}, nil
+	return &pgctldpb.StatusResponse{WalWrapperVersion: 1}, nil
 }
 
 func (s *successStubPgctldClient) Version(context.Context, *pgctldpb.VersionRequest, ...grpc.CallOption) (*pgctldpb.VersionResponse, error) {

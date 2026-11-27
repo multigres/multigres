@@ -20,7 +20,8 @@ builds:
     goarch:
       - amd64
       - arm64
-  - id: pgctld
+  - &pgctld
+    id: pgctld
     main: ./go/cmd/pgctld
     binary: pgctld
     env:
@@ -35,6 +36,12 @@ builds:
     goarch:
       - amd64
       - arm64
+  - <<: *pgctld
+    id: pgbackrest-archive-wal
+    binary: pgbackrest-archive-wal
+  - <<: *pgctld
+    id: pgbackrest-restore-wal
+    binary: pgbackrest-restore-wal
   - id: multigateway
     main: ./go/cmd/multigateway
     binary: multigateway

@@ -136,3 +136,30 @@ to run it locally, you can use the following command:
 ```bash
  ./tools/run_super_linter.sh
 ```
+
+## Packaging pgctld for WAL archiving and recovery
+
+Install `pgbackrest-archive-wal` and `pgbackrest-restore-wal` as independent
+executables beside `pgctld`, as `make install` does. Do not symlink either name
+to `pgctld`: downgrading the symlink target could let an old CLI acknowledge a
+WAL segment without archiving it. Managed launches and rewinds supply the
+binary directory in `MULTIGRES_WAL_BIN_DIR`. The commands require this variable
+rather than searching `PATH`. A manually launched postmaster on a converted
+volume needs the same environment as the managed one.
+
+The multipooler flag `--wal-command-wrappers` defaults to false. Install the
+executables on every PostgreSQL image, including supported rollback images,
+before enabling it. Enabling it sooner makes rollback to a pre-wrapper image
+unsupported. In particular, `pg_rewind` can copy a converted command onto a
+follower that does not have the executable.
+
+Enabling the flag does not rewrite a running postmaster's settings. New
+bootstrap and restore operations can select the wrappers; an existing volume
+keeps its commands until a managed start can safely convert them. Only known
+legacy commands are converted. Missing and custom commands stay as they are.
+
+Check `pgbackrest.backup.ready` (Prometheus: `pgbackrest_backup_ready`) by
+`reason` for rollout problems. `wal_command_unrecognized` means a persisted
+command needs manual review. `wal_wrapper_unavailable` means a required
+wrapper is unavailable; `wal_wrapper_unverified` means the installation could
+not be verified. The inventory is read-only even when conversion is enabled.

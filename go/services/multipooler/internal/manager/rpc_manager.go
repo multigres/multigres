@@ -39,6 +39,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/consensus"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pgmode"
+	"github.com/multigres/multigres/go/tools/fileutil"
 	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
@@ -1326,14 +1327,10 @@ func (pm *MultipoolerManager) runPgRewind(ctx context.Context, sourceHost string
 // Returns nil, meaning rewind without -c, if no backup config is available or
 // the setting cannot be written.
 func (pm *MultipoolerManager) prepareRewindRestoreSource(ctx context.Context) []string {
-	pm.mu.Lock()
-	poolerDir := pm.record.PoolerDir()
-	pm.mu.Unlock()
-
 	if pm.backup == nil {
 		return nil
 	}
-	restoreCommand, err := pm.backup.RestoreCommand(poolerDir)
+	restoreCommand, err := pm.backup.RestoreCommand(pm.supportsWALWrappers(ctx), pm.record.PoolerDir())
 	if err != nil {
 		pm.logger.InfoContext(ctx, "no backup config; running pg_rewind without --restore-target-wal", "reason", err.Error())
 		return nil
@@ -1361,14 +1358,24 @@ func (pm *MultipoolerManager) dropRestoreCommandFromAutoConf(ctx context.Context
 	return pm.dropAutoConfSettings(ctx, "restore_command")
 }
 
-// editAutoConf reads postgresql.auto.conf, applies transform, and writes the
-// result back only when transform reports a change. It edits the file directly,
-// so — unlike ALTER SYSTEM — it is safe to call while postgres is stopped (the
-// crash-recovery and rewind paths rely on that). Centralizing the read / write /
-// permissions here lets callers express only the content transform.
+// editAutoConf reads postgresql.auto.conf, applies transform, and replaces it
+// durably, preserving owner, group and mode, only when the transform reports a
+// change. Call it only while postgres is stopped: unlike ALTER SYSTEM, the
+// file edit is not coordinated with the running server.
 func (pm *MultipoolerManager) editAutoConf(ctx context.Context, transform func(content string) (string, bool)) error {
+	return pm.editAutoConfWith(ctx, fileutil.AtomicReplaceFile, transform)
+}
+
+func (pm *MultipoolerManager) editAutoConfWith(ctx context.Context, write func(string, []byte) error, transform func(content string) (string, bool)) error {
 	autoConfPath := filepath.Join(postgresDataDir(), "postgresql.auto.conf")
 
+	info, err := os.Lstat(autoConfPath)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to stat postgresql.auto.conf")
+	}
+	if !info.Mode().IsRegular() {
+		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "postgresql.auto.conf is not a regular file")
+	}
 	content, err := os.ReadFile(autoConfPath)
 	if err != nil {
 		return mterrors.Wrap(err, "failed to read postgresql.auto.conf")
@@ -1380,8 +1387,7 @@ func (pm *MultipoolerManager) editAutoConf(ctx context.Context, transform func(c
 	}
 
 	pm.logger.InfoContext(ctx, "rewriting postgresql.auto.conf", "file", autoConfPath)
-	// #nosec G703 -- autoConfPath is postgresql.auto.conf under the pooler's own data dir, not external input.
-	if err := os.WriteFile(autoConfPath, []byte(updated), 0o600); err != nil {
+	if err := write(autoConfPath, []byte(updated)); err != nil {
 		return mterrors.Wrap(err, "failed to write postgresql.auto.conf")
 	}
 	return nil

@@ -582,9 +582,11 @@ func (x *ReloadConfigResponse) GetMessage() string {
 
 // Get PostgreSQL server status
 type StatusRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Re-run both WAL executable handshakes even if the files appear unchanged.
+	RecheckWalWrappers bool `protobuf:"varint,1,opt,name=recheck_wal_wrappers,json=recheckWalWrappers,proto3" json:"recheck_wal_wrappers,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *StatusRequest) Reset() {
@@ -615,6 +617,13 @@ func (x *StatusRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use StatusRequest.ProtoReflect.Descriptor instead.
 func (*StatusRequest) Descriptor() ([]byte, []int) {
 	return file_pgctldservice_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *StatusRequest) GetRecheckWalWrappers() bool {
+	if x != nil {
+		return x.RecheckWalWrappers
+	}
+	return false
 }
 
 type StatusResponse struct {
@@ -661,8 +670,14 @@ type StatusResponse struct {
 	// Directory holding the pgBackRest TLS material (ca.crt, pgbackrest.crt,
 	// pgbackrest.key). Empty when pgBackRest is not configured.
 	PgbackrestCertDir string `protobuf:"bytes,14,opt,name=pgbackrest_cert_dir,json=pgbackrestCertDir,proto3" json:"pgbackrest_cert_dir,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Installed standalone WAL command contract. Zero (including older servers)
+	// selects the legacy archive-push and tracked restore commands for new writes.
+	WalWrapperVersion uint32 `protobuf:"varint,17,opt,name=wal_wrapper_version,json=walWrapperVersion,proto3" json:"wal_wrapper_version,omitempty"`
+	// A transient probe failure is not a negative capability observation.
+	// Keep the last known version when this is true.
+	WalWrapperProbeUnknown bool `protobuf:"varint,18,opt,name=wal_wrapper_probe_unknown,json=walWrapperProbeUnknown,proto3" json:"wal_wrapper_probe_unknown,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *StatusResponse) Reset() {
@@ -805,6 +820,20 @@ func (x *StatusResponse) GetPgbackrestCertDir() string {
 		return x.PgbackrestCertDir
 	}
 	return ""
+}
+
+func (x *StatusResponse) GetWalWrapperVersion() uint32 {
+	if x != nil {
+		return x.WalWrapperVersion
+	}
+	return 0
+}
+
+func (x *StatusResponse) GetWalWrapperProbeUnknown() bool {
+	if x != nil {
+		return x.WalWrapperProbeUnknown
+	}
+	return false
 }
 
 // pgBackRest TLS server status
@@ -1486,8 +1515,9 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"\x15\n" +
 	"\x13ReloadConfigRequest\"0\n" +
 	"\x14ReloadConfigResponse\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage\"\x0f\n" +
-	"\rStatusRequest\"\xc5\x05\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\"A\n" +
+	"\rStatusRequest\x120\n" +
+	"\x14recheck_wal_wrappers\x18\x01 \x01(\bR\x12recheckWalWrappers\"\xb0\x06\n" +
 	"\x0eStatusResponse\x123\n" +
 	"\x06status\x18\x01 \x01(\x0e2\x1b.pgctldservice.ServerStatusR\x06status\x12\x10\n" +
 	"\x03pid\x18\x02 \x01(\x05R\x03pid\x12\x18\n" +
@@ -1506,7 +1536,9 @@ const file_pgctldservice_proto_rawDesc = "" +
 	"\x0fpgbackrest_port\x18\r \x01(\x05R\x0epgbackrestPort\x12I\n" +
 	"\x1esuperuser_reserved_connections\x18\x0f \x01(\x05H\x00R\x1csuperuserReservedConnections\x88\x01\x01\x126\n" +
 	"\x14reserved_connections\x18\x10 \x01(\x05H\x01R\x13reservedConnections\x88\x01\x01\x12.\n" +
-	"\x13pgbackrest_cert_dir\x18\x0e \x01(\tR\x11pgbackrestCertDirB!\n" +
+	"\x13pgbackrest_cert_dir\x18\x0e \x01(\tR\x11pgbackrestCertDir\x12.\n" +
+	"\x13wal_wrapper_version\x18\x11 \x01(\rR\x11walWrapperVersion\x129\n" +
+	"\x19wal_wrapper_probe_unknown\x18\x12 \x01(\bR\x16walWrapperProbeUnknownB!\n" +
 	"\x1f_superuser_reserved_connectionsB\x17\n" +
 	"\x15_reserved_connections\"\xb5\x01\n" +
 	"\x10PgBackRestStatus\x12\x18\n" +

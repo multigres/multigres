@@ -30,7 +30,7 @@ type PgRewindResult struct {
 	Output  string
 }
 
-func PgRewindWithResult(ctx context.Context, logger *slog.Logger, sourceServer, password string, dryRun bool, extraArgs []string) (*PgRewindResult, error) {
+func PgRewindWithResult(ctx context.Context, logger *slog.Logger, poolerDir, sourceServer, password string, dryRun bool, extraArgs []string) (*PgRewindResult, error) {
 	result := &PgRewindResult{}
 	dataDir := pgctld.PostgresDataDir()
 
@@ -50,7 +50,7 @@ func PgRewindWithResult(ctx context.Context, logger *slog.Logger, sourceServer, 
 		"target_pgdata", dataDir,
 		"dry_run", dryRun)
 
-	cmd := executil.Command(ctx, "pg_rewind", args...)
+	cmd := executil.Command(ctx, "pg_rewind", args...).AddEnv(walChildEnv(poolerDir)...)
 
 	// Set PGPASSWORD environment variable for pg_rewind to use
 	// pg_rewind doesn't reliably use passwords from connection strings

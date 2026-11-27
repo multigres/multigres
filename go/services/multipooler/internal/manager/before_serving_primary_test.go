@@ -501,6 +501,8 @@ func startTestPostgres(t *testing.T) func() *client.Conn {
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	data, sockets := filepath.Join(dir, "data"), filepath.Join(dir, "sockets")
 	require.NoError(t, os.MkdirAll(sockets, 0o700))
+	t.Setenv("PGPORT", "5432")
+	t.Setenv("PGHOST", "")
 	env := append(os.Environ(), "LC_ALL=C")
 
 	initdb := exec.Command("initdb", "-D", data, "-U", "postgres", "--no-instructions", "-A", "trust")

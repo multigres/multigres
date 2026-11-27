@@ -1313,8 +1313,9 @@ func TestRestoreFromBackupLocked_FailedRestoreRemovesPartialDataDir(t *testing.T
 	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "partial_marker"), []byte("x"), 0o644))
 
 	pm := &MultipoolerManager{
-		logger:     slog.Default(),
-		actionLock: actionlock.NewActionLock(),
+		pgctldClient: &mockPgctldClient{},
+		logger:       slog.Default(),
+		actionLock:   actionlock.NewActionLock(),
 		record: newRecordFromProto(&clustermetadatapb.Multipooler{
 			PoolerDir: poolerDir,
 		}),

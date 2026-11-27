@@ -94,12 +94,17 @@ func TestRunStart(t *testing.T) {
 			// rather than the missing-credential error.
 			t.Setenv(constants.PgPasswordEnvVar, "test-password")
 
+			t.Setenv("MULTIGRES_WAL_POOLER_DIR", "")
+			t.Setenv("PGPASSFILE", "")
 			// Setup mock binaries if needed
 			if tt.setupBinaries {
 				binDir := filepath.Join(baseDir, "bin")
 				require.NoError(t, os.MkdirAll(binDir, 0o755))
 				testutil.CreateMockPostgreSQLBinaries(t, binDir)
 
+				if tt.name == "successful start with initialized data dir" {
+					captureWALLaunchEnv(t, binDir, baseDir)
+				}
 				// Add to PATH for test
 				originalPath := os.Getenv("PATH")
 				os.Setenv("PATH", binDir+":"+originalPath)

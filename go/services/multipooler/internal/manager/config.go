@@ -103,6 +103,9 @@ type Config struct {
 	// monitor starts postgres as a primary rather than a standby.
 	StaticLeader bool
 
+	// WALCommandWrappers opts in to writing standalone WAL commands.
+	WALCommandWrappers bool
+
 	// ExternalBackend is the external PostgreSQL an unmanaged pooler fronts: required for an
 	// unmanaged pooler, refused for a managed one. It is the resolved form of
 	// --backing-connection, and the one place the endpoint of an unmanaged pooler is kept:

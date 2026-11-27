@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 )
 
 // AtomicWriteFile writes data to a file atomically by writing to a temporary
@@ -31,6 +32,31 @@ import (
 // writes. If the directory sync fails the new content is already in place but
 // not known to be durable, and an error is returned.
 func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	return atomicWriteFile(path, data, perm, nil, os.Rename)
+}
+
+// AtomicReplaceFile replaces a regular file durably, preserving its owner,
+// group and permissions. Any failure to copy metadata aborts before rename.
+func AtomicReplaceFile(path string, data []byte) error {
+	return atomicReplaceFile(path, data, os.Rename)
+}
+
+func atomicReplaceFile(path string, data []byte, rename func(string, string) error) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("cannot replace non-regular file %s", path)
+	}
+	owner, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return fmt.Errorf("cannot determine owner of %s", path)
+	}
+	return atomicWriteFile(path, data, info.Mode(), owner, rename)
+}
+
+func atomicWriteFile(path string, data []byte, perm os.FileMode, owner *syscall.Stat_t, rename func(string, string) error) error {
 	dir := filepath.Dir(path)
 	tmpFile, err := os.CreateTemp(dir, ".tmp-*")
 	if err != nil {
@@ -43,6 +69,18 @@ func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		os.Remove(tmpPath)
 	}()
 
+	if owner != nil {
+		info, err := tmpFile.Stat()
+		if err != nil {
+			return err
+		}
+		tmpOwner := info.Sys().(*syscall.Stat_t)
+		if tmpOwner.Uid != owner.Uid || tmpOwner.Gid != owner.Gid {
+			if err := tmpFile.Chown(int(owner.Uid), int(owner.Gid)); err != nil {
+				return fmt.Errorf("preserve file ownership: %w", err)
+			}
+		}
+	}
 	if err := tmpFile.Chmod(perm); err != nil {
 		return fmt.Errorf("failed to set permissions: %w", err)
 	}
@@ -59,7 +97,7 @@ func AtomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		return fmt.Errorf("failed to close temp file: %w", err)
 	}
 
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err := rename(tmpPath, path); err != nil {
 		return fmt.Errorf("failed to rename temp file: %w", err)
 	}
 

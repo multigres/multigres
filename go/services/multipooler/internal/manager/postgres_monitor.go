@@ -1739,6 +1739,10 @@ func (pm *MultipoolerManager) startPostgres(ctx context.Context) error {
 		}
 	}
 
+	if err := pm.migrateStoppedWALCommands(ctx); err != nil {
+		pm.logger.WarnContext(ctx, "could not migrate WAL commands before start; continuing with existing settings", "error", err)
+	}
+
 	// Recover and start via pgctld. AllowCrashRecovery lets pgctld recover a node
 	// that was not cleanly shut down. SuspectedDivergence tells pgctld whether this
 	// node may have diverged from the leader's timeline: only then does it force
