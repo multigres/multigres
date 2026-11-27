@@ -92,6 +92,7 @@ func TestScalarsAgainstPostgres(t *testing.T) {
 	t.Run("Functions", func(t *testing.T) { compareFunctions(t, ctx, conn, version) })
 	t.Run("Expressions", func(t *testing.T) { compareExpressions(t, ctx, conn) })
 	t.Run("ShardIndexHash", func(t *testing.T) { compareShardIndexHash(t, ctx, conn) })
+	t.Run("ShardIndexHashBytes", func(t *testing.T) { compareShardIndexHashBytes(t, ctx, conn) })
 }
 
 // compareFunctions calls every ported builtin directly through fmgr and
