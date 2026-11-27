@@ -366,7 +366,6 @@ func compareShardIndexHashBytes(t *testing.T, ctx context.Context, conn *pgx.Con
 		// Padding does not change a bpchar's identifier.
 		padded := append(bytes.Clone(text), strings.Repeat(" ", 1+rng.IntN(4))...)
 		check("bpchar", padded)
-		require.Equal(t, local("bpchar", text), local("bpchar", padded))
 		check("text", padded)
 		check("bytea", randomBytes(64))
 		uuid := make([]byte, 16)

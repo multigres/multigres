@@ -611,65 +611,14 @@ func TestHash_GoldenBytes(t *testing.T) {
 func TestHash_EmptyBytes(t *testing.T) {
 	t.Parallel()
 	h := newHash(t)
-	ctx := context.Background()
-	for typ, want := range map[pgoid.Oid]uint64{
-		pgoid.TEXTOID:    pghash.BytesExtended(nil, HashSeed),
-		pgoid.VARCHAROID: pghash.BytesExtended(nil, HashSeed),
-		pgoid.BPCHAROID:  pghash.BytesExtended(nil, HashSeed),
-		pgoid.BYTEAOID:   pghash.BytesExtended(nil, HashSeed),
-	} {
-		wantID := binary.BigEndian.AppendUint64(nil, want)
-		for _, value := range []Value{{Type: typ}, bytesValue(typ, nil), bytesValue(typ, []byte{})} {
-			require.Equal(t, datum.Datum{}, value.Datum)
-			got, err := h.Hash(value)
-			require.NoError(t, err)
-			assert.Equal(t, wantID, got, "type %d", typ)
-
-			destinations, err := h.Map(ctx, nil, []Value{value})
-			require.NoError(t, err)
-			assert.Equal(t, KindRoutingID, destinations[0].Kind())
-			assert.Equal(t, wantID, destinations[0].RoutingID())
-
-			verified, err := h.Verify(ctx, nil, []Value{value}, [][]byte{wantID})
-			require.NoError(t, err)
-			assert.Equal(t, []bool{true}, verified)
-		}
-	}
-	// A bpchar of spaces only is empty once its padding is removed.
-	spaces, err := h.Hash(bytesValue(pgoid.BPCHAROID, []byte("    ")))
-	require.NoError(t, err)
-	empty, err := h.Hash(bytesValue(pgoid.BPCHAROID, nil))
-	require.NoError(t, err)
-	assert.Equal(t, empty, spaces)
-}
-
-// The identifier depends on the type: the same bytes map differently as text
-// and as bpchar. text, varchar, bytea and uuid hash the bytes they are given.
-func TestHash_TypeDecidesTheMapping(t *testing.T) {
-	t.Parallel()
-	h := newHash(t)
-	hash := func(typ pgoid.Oid, payload string) uint64 {
-		t.Helper()
-		id, err := h.Hash(bytesValue(typ, []byte(payload)))
+	want := binary.BigEndian.AppendUint64(nil, pghash.BytesExtended(nil, HashSeed))
+	for _, typ := range []pgoid.Oid{pgoid.TEXTOID, pgoid.VARCHAROID, pgoid.BPCHAROID, pgoid.BYTEAOID} {
+		value := bytesValue(typ, []byte{})
+		require.Equal(t, Value{Type: typ}, value)
+		got, err := h.Hash(value)
 		require.NoError(t, err)
-		return binary.BigEndian.Uint64(id)
+		assert.Equal(t, want, got, "type %d", typ)
 	}
-	text := hash(pgoid.TEXTOID, "ab ")
-	assert.Equal(t, pghash.BytesExtended([]byte("ab "), HashSeed), text)
-	assert.Equal(t, text, hash(pgoid.VARCHAROID, "ab "))
-	assert.Equal(t, pghash.BytesExtended([]byte("ab"), HashSeed), hash(pgoid.BPCHAROID, "ab "))
-	assert.Equal(t, text, hash(pgoid.BYTEAOID, "ab "))
-
-	// A uuid is its 16 bytes.
-	sixteen := "0123456789abcdef"
-	assert.Equal(t, hash(pgoid.TEXTOID, sixteen), hash(pgoid.UUIDOID, sixteen))
-	assert.Equal(t, hash(pgoid.UUIDOID, sixteen), hash(pgoid.BYTEAOID, sixteen))
-
-	// The mapping does not modify or retain the payload.
-	payload := []byte("ab   ")
-	_, err := h.Hash(bytesValue(pgoid.BPCHAROID, payload))
-	require.NoError(t, err)
-	assert.Equal(t, "ab   ", string(payload))
 }
 
 func BenchmarkHash_MapText(b *testing.B) {

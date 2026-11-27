@@ -76,8 +76,7 @@ const hashIDLen = 8
 // value. hash_record_extended (rowtypes.c) starts from 0 and folds each column
 // in as result*31 + the column's extended hash, and mixes in nothing else, so
 // for one column it is that column's hash unchanged. The same bytes therefore
-// have one identifier as text and as bytea. (The array hash,
-// hash_array_extended, is not used: it starts from 1 and so adds 31.)
+// have one identifier as text and as bytea.
 //
 // All of these are the values a little-endian PostgreSQL server computes (see
 // pghash.BytesExtended). In no case is the mapping injective: an identifier

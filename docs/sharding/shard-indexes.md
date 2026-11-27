@@ -219,9 +219,6 @@ SQL form hashes the **one-column row** holding the value:
 and folds each column in as `result * 31 + hash(column, seed)`, and mixes in
 nothing else. For one column the result is that column's hash, unchanged.
 
-The array hash, `hash_array_extended(ARRAY[value], seed)`, is **not** the
-routing identifier: it starts from 1, so it is 31 more.
-
 #### Rules for every type
 
 - **Type.** The routing identifier depends on the column's type, not only on

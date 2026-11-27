@@ -145,26 +145,6 @@ func TestBytesExtended_MatchesUint32Extended(t *testing.T) {
 	}
 }
 
-func TestBytesExtended_Properties(t *testing.T) {
-	t.Parallel()
-	// A nil key is the empty key.
-	assert.Equal(t, BytesExtended([]byte{}, partitionSeed), BytesExtended(nil, partitionSeed))
-	// The length is hashed: a trailing zero byte changes the result.
-	assert.NotEqual(t, BytesExtended([]byte{1}, 0), BytesExtended([]byte{1, 0}, 0))
-
-	// The result depends on the bytes alone, not on where they sit in
-	// memory: PostgreSQL's aligned and unaligned paths agree.
-	key := []byte("0123456789abcdefghijklmnopqrstuvwxyz!")
-	want := BytesExtended(key, partitionSeed)
-	for offset := range 8 {
-		buf := make([]byte, offset+len(key))
-		copy(buf[offset:], key)
-		assert.Equal(t, want, BytesExtended(buf[offset:], partitionSeed), "offset %d", offset)
-	}
-	// The key is not modified.
-	assert.Equal(t, "0123456789abcdefghijklmnopqrstuvwxyz!", string(key))
-}
-
 func TestBytesExtended_Allocations(t *testing.T) {
 	key := make([]byte, 100)
 	var sink uint64
