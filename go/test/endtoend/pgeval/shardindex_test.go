@@ -175,7 +175,7 @@ type hashBytesGolden struct {
 // bytesExtendedGolden is one golden vector of bytesExtendedGoldenPath: a key
 // in hex, a seed, and hash_bytes_extended(key, seed) as 8 bytes of hex.
 type bytesExtendedGolden struct {
-	Key  string `json:"key"`
+	Key  string `json:"input_hex"`
 	Seed int64  `json:"seed"`
 	Hash string `json:"hash"`
 }
@@ -299,7 +299,7 @@ func compareShardIndexHashBytes(t *testing.T, ctx context.Context, conn *pgx.Con
 			key, err := hex.DecodeString(g.Key)
 			require.NoError(t, err)
 			objects[i] = []string{
-				`"key": "` + g.Key + `"`,
+				`"input_hex": "` + g.Key + `"`,
 				`"seed": ` + strconv.FormatInt(g.Seed, 10),
 				fmt.Sprintf(`"hash": "%016x"`, serverBytesExtended(key, g.Seed)),
 			}

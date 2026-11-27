@@ -85,7 +85,7 @@ func TestInt8Extended(t *testing.T) {
 // Shard indexes place rows by these values. A failure here means the hash
 // changed, which must never ship: fix the code, never the file.
 type bytesExtendedGolden struct {
-	Key  string `json:"key"`
+	Key  string `json:"input_hex"`
 	Seed int64  `json:"seed"`
 	Hash string `json:"hash"`
 }
