@@ -97,6 +97,23 @@ jobs:
       - name: Test the coverage driver's go test -json stream
         run: python3 .github/scripts/test_coverage_reporting.py
 
+  image-binaries-lint:
+    name: Image Binaries Lint
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Check the Dockerfile ships every binary the image is meant to carry
+        run: make image-binaries-lint
+        shell: bash
+
   verify-action-versions:
     name: Verify Action Versions
     runs-on: ubuntu-latest

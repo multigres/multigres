@@ -1,0 +1,223 @@
+// Copyright 2026 Supabase, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package pgbackrestdservice;
+
+option go_package = "github.com/multigres/multigres/go/pb/pgbackrestdservice";
+
+service PgBackRestd {
+  // Configure sets the repository generation list. Rejected when revision is lower than the one held.
+  rpc Configure(ConfigureRequest) returns (ConfigureResponse);
+  // Run executes one allowlisted pgBackRest command, streaming output; the last message carries the exit code.
+  rpc Run(RunRequest) returns (stream RunOutput);
+  rpc Status(StatusRequest) returns (StatusResponse);
+  // Unix control only; shuts down this exact serving instance gracefully.
+  rpc Shutdown(ShutdownRequest) returns (ShutdownResponse);
+}
+
+message RepoGeneration {
+  uint32 generation = 1;
+  uint32 repo_number = 2;
+}
+
+message ConfigureRequest {
+  int64 revision = 1;
+  repeated RepoGeneration repos = 2;
+  uint32 wal_segment_size_bytes = 3;
+  // The location fingerprint the caller expects this sidecar to serve (the
+  // value Status reports as location_fingerprint). Required: a Configure that
+  // names none, or one that differs from the sidecar's own, fails, so a
+  // sidecar started for another backup location, CA file or TLS verification
+  // setting is not configured, and neither is one whose caller compared
+  // nothing.
+  string location_fingerprint = 4;
+}
+
+message ConfigureResponse {
+  bool accepted = 1;
+  int64 held_revision = 2;
+}
+
+enum Command {
+  COMMAND_UNSPECIFIED = 0;
+  COMMAND_BACKUP = 1;
+  COMMAND_VERIFY = 2;
+  COMMAND_INFO = 3;
+  COMMAND_CHECK = 4;
+  COMMAND_EXPIRE = 5;
+  COMMAND_STANZA_CREATE = 6;
+  COMMAND_RESTORE = 7;
+  // Lists one directory of this stanza's WAL archive (see RunRequest.archive_id
+  // and wal_dir). Read-only.
+  COMMAND_REPO_LS = 8;
+  // Removes this stanza and its archived WAL. Takes no options. The sidecar
+  // quiesces the repository, refuses unless it holds no backup, and starts
+  // archiving again before it returns.
+  COMMAND_STANZA_DELETE = 9;
+  // Stops archiving, clears the asynchronous archive-push spool and starts
+  // archiving again. Takes no options and needs no configured repository.
+  COMMAND_ARCHIVE_SPOOL_RESET = 10;
+}
+
+message RunRequest {
+  Command command = 1;
+  repeated string args = 2;
+  RestoreOperation restore = 3;
+  // Only for COMMAND_REPO_LS, which lists archive/<stanza>, then
+  // archive/<stanza>/<archive_id>, then archive/<stanza>/<archive_id>/<wal_dir>.
+  // The sidecar builds the path; a caller never supplies one. archive_id is
+  // <pg major>-<history id>, wal_dir the 16 uppercase hex digits timeline and
+  // log of a WAL segment name. wal_dir needs archive_id. Rejected for every
+  // other command.
+  string archive_id = 4;
+  string wal_dir = 5;
+  // Chosen by the caller, one per request. Status.active_runs lists the runs the
+  // sidecar is still executing or reaping with their ids, so a caller can tell
+  // whether its own run is still there whatever else is running. Optional.
+  string run_id = 6;
+  // Required for COMMAND_STANZA_DELETE: the instance_id the caller read from
+  // Status. The sidecar refuses (FAILED_PRECONDITION, nothing spawned) when it is
+  // empty or is not this sidecar's own, so a delete is never admitted by an
+  // instance other than the one the caller bound it to.
+  string expected_instance_id = 7;
+}
+
+message RunOutput {
+  oneof chunk {
+    bytes stdout = 1;
+    bytes stderr = 2;
+    int32 exit_code = 3;
+  }
+  // Set on the final message when output was dropped. Restore uses a bounded
+  // queue; any command may truncate output after foreground exit if a worker
+  // retains stdio. Consumers that parse output must reject truncation.
+  bool output_truncated = 4;
+}
+
+// ActiveRun is one run the sidecar has accepted and not yet finished reaping.
+message ActiveRun {
+  Command command = 1;
+  string run_id = 2;
+}
+
+message ShutdownRequest {
+  string instance_id = 1;
+}
+message ShutdownResponse {
+  bool accepted = 1;
+}
+
+message StatusRequest {
+  // Answer only once no Configure is in progress, so that the response
+  // reflects every Configure that started before this request. The wait ends
+  // with the request's deadline or cancellation.
+  bool after_configure = 1;
+}
+
+message StatusResponse {
+  bool configured = 1;
+  int64 revision = 2;
+  repeated RepoGeneration repos = 3;
+  repeated uint32 generations_with_keys = 4;
+  bool server_up = 5;
+  uint32 server_port = 6;
+  string pgbackrest_version = 7;
+  string location_fingerprint = 8;
+  // Why a persisted configuration was set aside at startup; empty when none was.
+  string state_error = 9;
+  // True while a start that clears the stop file left by a restore, a stanza
+  // delete or an archive spool reset is still being retried in the background.
+  bool restore_start_pending = 10;
+  // Fingerprint of the cipher key for each generation that has one, computed
+  // like pgbackrest_repos.key_fingerprint so a caller can record it without
+  // ever holding the key.
+  map<uint32, string> generation_fingerprints = 11;
+  // True from the moment a restore starts quiescing until its gate reopens
+  // (the background start retry is reported by restore_start_pending instead).
+  // Diagnostic only: false does not fence a decoded but unadmitted request.
+  // Callers must never authorize PGDATA cleanup from this field.
+  bool restore_in_progress = 12;
+  // Legacy diagnostic only. Never use for settlement: restore_result binds
+  // a terminal result to the admitted operation and exact arguments.
+  bool last_restore_succeeded = 13;
+  // Commands of the Command enum that are running or are still being killed
+  // and reaped, one entry per run (a command running twice appears twice). An
+  // entry covers foreground execution and bounded cancellation settlement.
+  // Detached lifetime ownership is independent: this is NOT a cleanup permit.
+  // Restore appears here too.
+  repeated Command active_commands = 14;
+  string restore_incarnation = 15;
+  RestoreResult restore_result = 16;
+  string instance_id = 17;
+  // Version 1: supervised lifetime, matched shutdown and atomic credentials bundle.
+  uint32 lifecycle_protocol_version = 18;
+  // Path of this sidecar's repository below the location's base path, as
+  // backup.Config.RepositoryScope reports it; empty for the catalog shard. It
+  // is fixed by the sidecar's own flags, so the caller can compare it with the
+  // scope it expects but cannot change it.
+  string repository_scope = 19;
+  // The same runs as active_commands, with the run_id each request carried (empty
+  // when it carried none). active_commands stays for diagnostics and for callers
+  // that count by command.
+  repeated ActiveRun active_runs = 20;
+  // Set when a stanza delete's worker could not be proven settled. The stop file
+  // stays in place, so WAL archiving stays stopped, and no start, restore,
+  // stanza delete or spool reset runs. The sidecar then exits non-zero, so in a
+  // container its restart changes instance_id: that recovery relies on the
+  // container's PID-1 contract, which retires the old container's worker markers
+  // and lets the new instance lift the stop file at startup. Elsewhere a killed
+  // supervisor's marker keeps the next instance from starting until it is removed
+  // by hand. The reason names the run and what failed to settle.
+  bool delete_unproven = 21;
+  string delete_unproven_reason = 22;
+  // True when this sidecar was started with --s3-skip-tls-verify: every
+  // pgBackRest command it runs talks to the S3 endpoint without verifying its
+  // TLS certificate. The location fingerprint covers the setting too, so this
+  // field is for whoever reads the status, not for a comparison.
+  bool s3_tls_verify_disabled = 23;
+  // Set only while the sidecar is not configured and holds a saved repository
+  // list it did not load because the list was saved under another location
+  // fingerprint (or under none, by a build that recorded none). It is the
+  // list the sidecar held at `revision`. A caller that has compared this
+  // sidecar's location_fingerprint with the backup location it expects can
+  // send it back in a Configure at that revision; the sidecar refuses any
+  // lower revision.
+  repeated RepoGeneration set_aside_repos = 24;
+}
+
+// Restore admission is a compare-and-swap on predecessor within one incarnation.
+// Replaying an identical admitted operation never executes it twice. The most
+// recent result is retained durably, including across restart. Superseded
+// requests fail their predecessor CAS; unknown requests from an old incarnation
+// cannot enter. The manager persists this identity in its restore sentinel
+// before Run. cleanup is only for a marked interrupted restore after pgctld
+// reports postgres stopped and a complete backup has been selected.
+message RestoreOperation {
+  string id = 1;
+  string predecessor = 2;
+  string incarnation = 3;
+  bool cleanup = 4;
+  // Strictly increasing admission sequence (current + 1); prevents ABA even
+  // if a client mistakenly reuses an older UUID with a newer predecessor.
+  uint64 sequence = 5;
+}
+message RestoreResult {
+  RestoreOperation operation = 1;
+  repeated string args = 2;
+  bool terminal = 3;
+  bool succeeded = 4;
+  int32 exit_code = 5;
+}

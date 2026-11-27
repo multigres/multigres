@@ -41,7 +41,16 @@ LABEL org.opencontainers.image.licenses="Apache-2.0"
 # Set pipefail to catch errors in piped commands
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Install pgBackRest from PostgreSQL APT repository and procps
+# Install pgBackRest from PostgreSQL APT repository and procps.
+# pgBackRest is pinned exactly because the pods of one shard talk pgBackRest's
+# remote protocol to each other (a standby backs up through the primary's 8432
+# server), pgBackRest refuses a peer of a different version, and during a
+# rolling update the peer is a pod still on the previous image.
+# No init wrapper is installed: pgbackrestd must be PID 1 of its container. It
+# reaps its own children, and after an unclean exit it only accepts leftover
+# worker markers when both the old and the new run were PID 1 of their
+# namespace, which is what proves the old workers died with it. The live PGDG index keeps only the newest release, so the
+# pgdg-archive source keeps the pin resolvable later. ca-certificates stays for the sidecar's S3 TLS.
 # hadolint ignore=DL3008
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -51,15 +60,16 @@ RUN apt-get update && \
     lsb-release && \
     curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql-archive-keyring.gpg && \
     echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list && \
+    echo "deb [signed-by=/usr/share/keyrings/postgresql-archive-keyring.gpg] https://apt-archive.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg-archive main" >> /etc/apt/sources.list.d/pgdg.list && \
     apt-get update && \
     apt-cache policy pgbackrest && \
     apt-get install -y --no-install-recommends \
-    pgbackrest \
+    pgbackrest=2.60.0-1.pgdg12+1 \
     postgresql-client-17 \
     procps && \
     pgbackrest version && \
     pg_dump --version && \
-    apt-get remove -y ca-certificates curl gnupg lsb-release && \
+    apt-get remove -y curl gnupg lsb-release && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
@@ -76,6 +86,7 @@ COPY --from=builder /src/bin/multigateway /multigres/bin/
 COPY --from=builder /src/bin/multiorch /multigres/bin/
 COPY --from=builder /src/bin/multipooler /multigres/bin/
 COPY --from=builder /src/bin/minigres /multigres/bin/
+COPY --from=builder /src/bin/pgbackrestd /multigres/bin/
 
 # Since this container serves multiple binaries depending on the execution it's impossible to have a healthcheck that applies to all at this point.
 # The healthcheck below exists only to satisfy Super-linter CHECKOV and it's not a reliable healthcheck for production.

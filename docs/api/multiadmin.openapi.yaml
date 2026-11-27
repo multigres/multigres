@@ -2720,6 +2720,16 @@ components:
           description: S3 bucket name (required)
           title: bucket
           type: string
+        caFile:
+          description: |-
+            Optional: path of a PEM file with the certificate authorities that verify
+             the endpoint's TLS certificate, in place of the system trust store. For a
+             self-hosted S3 service (MinIO, Garage, RustFS, Ceph RGW) behind a private
+             CA. The file may hold several certificates, and a self-signed server
+             certificate works as its own CA. The path is read by the pgbackrestd
+             sidecar, in its own filesystem.
+          title: ca_file
+          type: string
         endpoint:
           description: |-
             Optional: S3-compatible endpoint URL (e.g., for s3mock testing)
@@ -2736,6 +2746,14 @@ components:
           description: AWS region (required, e.g., "us-east-1")
           title: region
           type: string
+        skipTlsVerify:
+          description: |-
+            If true, the endpoint's TLS certificate is not verified at all. Anyone
+             who can intercept the connection can then read and replace backups and
+             WAL. False, the default, verifies. It is never turned on implicitly, and
+             it cannot be combined with ca_file.
+          title: skip_tls_verify
+          type: boolean
         useEnvCredentials:
           description: |-
             If true, read AWS credentials from environment variables at runtime

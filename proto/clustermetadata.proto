@@ -169,6 +169,20 @@ message S3Backup {
   // If false, use automatic credential detection via repo1-s3-key-type=auto
   // (IRSA, EC2 metadata, etc.). This will only work when running on AWS.
   bool use_env_credentials = 5;
+
+  // Optional: path of a PEM file with the certificate authorities that verify
+  // the endpoint's TLS certificate, in place of the system trust store. For a
+  // self-hosted S3 service (MinIO, Garage, RustFS, Ceph RGW) behind a private
+  // CA. The file may hold several certificates, and a self-signed server
+  // certificate works as its own CA. The path is read by the pgbackrestd
+  // sidecar, in its own filesystem.
+  string ca_file = 6;
+
+  // If true, the endpoint's TLS certificate is not verified at all. Anyone
+  // who can intercept the connection can then read and replace backups and
+  // WAL. False, the default, verifies. It is never turned on implicitly, and
+  // it cannot be combined with ca_file.
+  bool skip_tls_verify = 7;
 }
 
 // =============================================================================

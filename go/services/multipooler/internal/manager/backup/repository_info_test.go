@@ -23,6 +23,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	commonbackup "github.com/multigres/multigres/go/common/backup"
 )
 
 // repositoryInfoJSON builds a `pgbackrest info` document with the given repo
@@ -46,26 +48,26 @@ func TestRepositoryInfo(t *testing.T) {
 		wantTotal   int
 		wantBackups int
 	}{
-		{name: "stanza never created", json: repositoryInfoJSON(pgBackRestRepoStatusMissingStanzaPath)},
-		{name: "stanza without backups", json: repositoryInfoJSON(pgBackRestRepoStatusNoValidBackups), wantExists: true},
-		{name: "stanza dir without info files", json: repositoryInfoJSON(pgBackRestRepoStatusMissingStanzaData), wantExists: true},
+		{name: "stanza never created", json: repositoryInfoJSON(commonbackup.RepoStatusMissingStanzaPath)},
+		{name: "stanza without backups", json: repositoryInfoJSON(commonbackup.RepoStatusNoValidBackups), wantExists: true},
+		{name: "stanza dir without info files", json: repositoryInfoJSON(commonbackup.RepoStatusMissingStanzaData), wantExists: true},
 		{name: "no stanza entry in the output", json: "[]", wantExists: true},
 		{
 			name:        "this shard's backup",
-			json:        repositoryInfoJSON(pgBackRestRepoStatusOK, [2]string{"20261116-100000F", "0"}),
+			json:        repositoryInfoJSON(commonbackup.RepoStatusOK, [2]string{"20261116-100000F", "0"}),
 			wantExists:  true,
 			wantTotal:   1,
 			wantBackups: 1,
 		},
 		{
 			name:       "only another shard's backups are not listed but are counted",
-			json:       repositoryInfoJSON(pgBackRestRepoStatusOK, [2]string{"20261116-100000F", "1"}, [2]string{"20261116-110000F", "2"}),
+			json:       repositoryInfoJSON(commonbackup.RepoStatusOK, [2]string{"20261116-100000F", "1"}, [2]string{"20261116-110000F", "2"}),
 			wantExists: true,
 			wantTotal:  2,
 		},
 		{
 			name:        "this shard's backup among other shards'",
-			json:        repositoryInfoJSON(pgBackRestRepoStatusOK, [2]string{"20261116-100000F", "0"}, [2]string{"20261116-110000F", "1"}),
+			json:        repositoryInfoJSON(commonbackup.RepoStatusOK, [2]string{"20261116-100000F", "0"}, [2]string{"20261116-110000F", "1"}),
 			wantExists:  true,
 			wantTotal:   2,
 			wantBackups: 1,
@@ -177,34 +179,6 @@ func TestRepositoryInfo_ErrorWhenOutputCannotBeTrusted(t *testing.T) {
 			_, err := e.RepositoryInfo(t.Context())
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.errContains)
-		})
-	}
-}
-
-func TestStanzaExists(t *testing.T) {
-	repos := func(codes ...int) []pgBackRestInfo {
-		statuses := make([]pgBackRestRepoStatus, 0, len(codes))
-		for i, c := range codes {
-			statuses = append(statuses, pgBackRestRepoStatus{Key: i + 1, Status: pgBackRestRepoState{Code: c}})
-		}
-		return []pgBackRestInfo{{Name: "multigres", Repo: statuses}}
-	}
-	tests := []struct {
-		name string
-		info []pgBackRestInfo
-		want bool
-	}{
-		{name: "no stanza entry", info: nil, want: true},
-		{name: "entry without repositories", info: repos(), want: true},
-		{name: "never created", info: repos(pgBackRestRepoStatusMissingStanzaPath), want: false},
-		{name: "never created on every repository", info: repos(pgBackRestRepoStatusMissingStanzaPath, pgBackRestRepoStatusMissingStanzaPath), want: false},
-		{name: "created on one of two repositories", info: repos(pgBackRestRepoStatusMissingStanzaPath, pgBackRestRepoStatusOK), want: true},
-		{name: "stanza data missing", info: repos(pgBackRestRepoStatusMissingStanzaData), want: true},
-		{name: "no valid backups", info: repos(pgBackRestRepoStatusNoValidBackups), want: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, stanzaExists(tt.info))
 		})
 	}
 }

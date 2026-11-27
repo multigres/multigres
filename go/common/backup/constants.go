@@ -72,4 +72,29 @@ const (
 	// waits for the segment to reach the repo, so it is short — but allow
 	// headroom for archive-push latency to a remote (S3) repo.
 	CheckTimeout = 2 * time.Minute
+	// ResetDrainWait is how long the sidecar waits for in-flight commands and
+	// WAL requests before a stanza delete or an archive spool reset gives up.
+	ResetDrainWait = 30 * time.Second
+	// ResetStepTimeout bounds each pgBackRest child of a stanza delete or an
+	// archive spool reset: start, stop, stanza-delete.
+	ResetStepTimeout = 30 * time.Second
+	// WorkerStopWait bounds how long the sidecar waits for a cancelled or stopped
+	// worker, and for the worker barrier, to be acknowledged quiescent. A child
+	// that is cancelled can need this long on top of its own timeout, and so can
+	// the pause of the 8432 server.
+	WorkerStopWait = 15 * time.Second
+	// StartAttempts is how many times the sidecar tries the final
+	// "pgbackrest start" of a restore, stanza delete or spool reset before it
+	// hands a persistent failure to its background retry; StartRetryDelay is the
+	// pause between attempts.
+	StartAttempts   = 3
+	StartRetryDelay = time.Second
+	// ChildSpawnedTrailer is the response trailer a COMMAND_STANZA_DELETE Run ends
+	// with: "1" when a stanza-delete child was started for the run, "0" when none
+	// was (refused, failed or cancelled before spawn). A caller that gets no
+	// trailer, because the response was lost, must assume one was.
+	ChildSpawnedTrailer = "Pgbackrestd-Child-Spawned"
+	// ChildSpawnedYes and ChildSpawnedNone are its two values.
+	ChildSpawnedYes  = "1"
+	ChildSpawnedNone = "0"
 )
