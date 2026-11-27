@@ -123,6 +123,15 @@ CREATE TABLE IF NOT EXISTS multigres.admission_fence (
 	state         text   NOT NULL CHECK (state IN ('FENCING', 'FENCED')),
 	version       bigint NOT NULL
 )
+== table
+CREATE TABLE IF NOT EXISTS multigres.admission_fence_ack (
+	fence_id       bigint NOT NULL REFERENCES multigres.admission_fence (fence_id) ON DELETE CASCADE,
+	shard_id       bigint NOT NULL REFERENCES multigres.shard (shard_id),
+	pooler_id      text   NOT NULL,
+	consensus_rule text   NOT NULL,
+	acked_at       timestamptz NOT NULL DEFAULT now(),
+	PRIMARY KEY (fence_id, shard_id)
+)
 == seed
 INSERT INTO multigres.catalog_state (format_version) VALUES (0) ON CONFLICT (singleton) DO NOTHING
 == seed
