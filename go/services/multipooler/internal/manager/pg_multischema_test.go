@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/multigres/multigres/go/common/constants"
+	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/topoclient/memorytopo"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
@@ -60,6 +61,7 @@ func (m *mockPoolerController) StartRequest(*query.Target, poolerserver.RequestK
 }
 
 func (m *mockPoolerController) EnableFenceGate()                      {}
+func (m *mockPoolerController) EnsureDrained(context.Context) error   { return nil }
 func (m *mockPoolerController) FenceEpoch() uint64                    { return 0 }
 func (m *mockPoolerController) FenceReadState() (unread, closed bool) { return false, false }
 func (m *mockPoolerController) FenceGateChanged() <-chan struct{} {
@@ -165,6 +167,55 @@ func addCatalogMigrationEnsure(m *mock.QueryService, fkErr error) {
 	m.AddQueryPatternOnce(exactPattern(migration.GrantStatMigrationSQL), mock.MakeQueryResult(nil, nil))
 }
 
+// catalogDefinitionReadPattern matches the read ensureCatalogShard's fast path
+// makes, and catalogDefinitionWritePattern the hash write after a full ensure.
+var (
+	catalogDefinitionReadPattern  = exactPattern(catalogDefinitionSQL)
+	catalogDefinitionWritePattern = exactPattern(recordCatalogDefinitionSQL)
+)
+
+// addCatalogFullEnsure registers what ensureCatalogShard runs around a full
+// ensure of a catalog with no catalog_state: the fast path's read failing on
+// the missing table, then the hash write. The catalog and migration schema
+// statements are registered separately (addFreshCatalogEnsure,
+// addCatalogMigrationEnsure).
+func addCatalogFullEnsure(m *mock.QueryService) {
+	addCatalogDefinitionMissing(m)
+	m.AddQueryPatternOnce(catalogDefinitionWritePattern, mock.MakeQueryResult(nil, nil))
+}
+
+// addCatalogDefinitionMissing registers the fast path's read failing, once,
+// because catalog_state does not exist.
+func addCatalogDefinitionMissing(m *mock.QueryService) {
+	m.AddQueryPatternOnceWithError(catalogDefinitionReadPattern,
+		mterrors.NewPgError("ERROR", mterrors.PgSSUndefinedTable, `relation "multigres.catalog_state" does not exist`, ""))
+}
+
+// backendVpidCheckPattern matches createBackendVpidTable's read before it
+// writes.
+var backendVpidCheckPattern = exactPattern(backendVpidInPlaceSQL)
+
+// addBackendVpidMissing registers createBackendVpidTable's check finding no
+// table, once, so the DDL runs.
+func addBackendVpidMissing(m *mock.QueryService) {
+	m.AddQueryPatternOnce(backendVpidCheckPattern, mock.MakeQueryResult([]string{"coalesce"}, nil))
+}
+
+// addSidecarsInPlace registers, without consuming them, the reads the
+// serving-primary hook's ensure makes on a catalog shard whose sidecar
+// schemas are all in place, so a transition to serving primary writes
+// nothing. A pattern a test registered before it takes precedence.
+func addSidecarsInPlace(m *mock.QueryService) {
+	m.AddQueryPattern(regexp.QuoteMeta(shardref.CheckLegacyTypeSQL),
+		mock.MakeQueryResult([]string{"legacy", "current"}, [][]any{{false, true}}))
+	m.AddQueryPattern(regexp.QuoteMeta(shardref.CheckTypeSQL),
+		mock.MakeQueryResult([]string{"typtype", "relkind"}, [][]any{{"c", "c"}}))
+	m.AddQueryPattern(backendVpidCheckPattern, mock.MakeQueryResult([]string{"coalesce"}, [][]any{{true}}))
+	m.AddQueryPattern(probeGrantPattern, mock.MakeQueryResult(nil, nil))
+	m.AddQueryPattern(catalogDefinitionReadPattern,
+		mock.MakeQueryResult([]string{"format_version", "definition_hash"}, [][]any{{latestCatalogFormat(), catalogDefinitionHash}}))
+}
+
 // probeGrantPattern matches grantHeartbeatToProbe's statement.
 const probeGrantPattern = "GRANT SELECT ON TABLE multigres.heartbeat TO multigres_probe"
 
@@ -188,6 +239,8 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
+				addBackendVpidMissing(m)
+				addCatalogFullEnsure(m)
 				addFreshCatalogEnsure(m)
 				addShardRefEnsure(m, nil)
 				addMigrationTableCreate(m)
@@ -276,9 +329,11 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
 				addShardRefEnsure(m, nil)
 				addMigrationTableCreate(m)
+				addBackendVpidMissing(m)
 				m.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce(probeGrantPattern, mock.MakeQueryResult(nil, nil))
-				m.AddQueryPatternOnce("pg_advisory_xact_lock", mock.MakeQueryResult(nil, nil))
+				addCatalogDefinitionMissing(m)
+				addCatalogLock(m)
 				m.AddQueryPatternOnce(catalogStatePresentPattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{false}}))
 				m.AddQueryPatternOnceWithError("^DROP TABLE IF EXISTS multigres.shard", errors.New("drop failed"))
 			},
@@ -297,6 +352,8 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
+				addBackendVpidMissing(m)
+				addCatalogDefinitionMissing(m)
 				addFreshCatalogEnsure(m)
 				addShardRefEnsure(m, nil)
 				addMigrationTableCreate(m)
@@ -317,6 +374,7 @@ func TestCreateSidecarSchema(t *testing.T) {
 				m.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 				m.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
+				addBackendVpidMissing(m)
 				addShardRefEnsure(m, nil)
 				addMigrationTableCreate(m)
 			},
@@ -380,6 +438,7 @@ func TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard(t *testing.T) {
 			var queries []string
 			record := func(q string) { queries = append(queries, q) }
 			addShardRefEnsure(mockQueryService, record)
+			addCatalogDefinitionMissing(mockQueryService)
 			mockQueryService.AddQueryPatternWithCallback(catalogStatePresentPattern,
 				mock.MakeQueryResult([]string{"exists"}, [][]any{{false}}), record)
 			mockQueryService.AddQueryPatternWithCallback(connectionsProbePattern,
@@ -428,13 +487,17 @@ func TestCreateSidecarSchema_CatalogTablesOnlyOnCatalogShard(t *testing.T) {
 			require.GreaterOrEqual(t, commit, 0, "catalog ensure must commit")
 			assert.Greater(t, fkey, commit, "foreign key must be added after the catalog: %v", queries)
 			assert.Greater(t, view, fkey, "stat_migration must be created after the foreign key: %v", queries)
-			assert.Equal(t, migration.GrantStatMigrationSQL, queries[len(queries)-1])
+			// The definition hash is recorded last, once everything it covers
+			// is in place.
+			assert.Equal(t, migration.GrantStatMigrationSQL, queries[len(queries)-2])
+			assert.Equal(t, recordCatalogDefinitionSQL, queries[len(queries)-1])
 		})
 	}
 }
 
 func TestCreateBackendVpidTableDDL(t *testing.T) {
 	pm, mockQueryService := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+	addBackendVpidMissing(mockQueryService)
 
 	seen := false
 	mockQueryService.AddQueryPatternWithCallback("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil), func(q string) {
@@ -463,6 +526,7 @@ func TestEnsureSidecarSchemas_ProbeGrantFailureDoesNotBlock(t *testing.T) {
 	var queries []string
 	record := func(q string) { queries = append(queries, q) }
 	addShardRefEnsure(mockQueryService, record)
+	addCatalogDefinitionMissing(mockQueryService)
 	mockQueryService.AddQueryPatternOnceWithError(probeGrantPattern, errors.New("grant failed"))
 	mockQueryService.AddQueryPatternWithCallback(catalogStatePresentPattern,
 		mock.MakeQueryResult([]string{"exists"}, [][]any{{false}}), record)
@@ -470,26 +534,42 @@ func TestEnsureSidecarSchemas_ProbeGrantFailureDoesNotBlock(t *testing.T) {
 		mock.MakeQueryResult([]string{"exists"}, [][]any{{true}}), record)
 	mockQueryService.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), record)
 
-	require.NoError(t, pm.ensureSidecarSchemas(context.Background()))
+	require.NoError(t, pm.ensureSidecarSchemas(context.Background(), nil))
 	require.NoError(t, mockQueryService.ExpectationsWereMet(), "the grant should have been attempted")
 	assert.Contains(t, queries, migration.GrantStatMigrationSQL, "the catalog ensure should run after a failed grant")
 }
 
-// TestCreateBackendVpidTable_IdempotentAcrossRepeatedCalls guards the
-// assumption openLocked's "ensure backend_vpid exists on every open/resume"
-// check relies on: createBackendVpidTable uses CREATE TABLE IF NOT EXISTS, so
-// calling it repeatedly (once per Pause/resume cycle: pg_rewind,
-// restart-as-standby, stale-primary demote, in addition to process restart)
-// is harmless and never errors just because the table is already there.
-func TestCreateBackendVpidTable_IdempotentAcrossRepeatedCalls(t *testing.T) {
-	pm, mockQueryService := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
-
-	calls := 0
-	mockQueryService.AddQueryPatternWithCallback("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid",
-		mock.MakeQueryResult(nil, nil), func(string) { calls++ })
-
-	for range 3 {
-		assert.NoError(t, pm.createBackendVpidTable(context.Background()))
+// TestCreateBackendVpidTable_WritesOnlyWhenNotInPlace checks that
+// createBackendVpidTable, which runs on every transition to serving primary,
+// writes only when the table is missing or lacks the storage options or grant
+// it gives it: its ALTER, REVOKE and GRANT rewrite the table's catalog row even
+// when they change nothing.
+func TestCreateBackendVpidTable_WritesOnlyWhenNotInPlace(t *testing.T) {
+	tests := []struct {
+		name      string
+		rows      [][]any
+		wantWrite bool
+	}{
+		{name: "missing", rows: nil, wantWrite: true},
+		{name: "without the options or grant", rows: [][]any{{false}}, wantWrite: true},
+		{name: "in place", rows: [][]any{{true}}, wantWrite: false},
 	}
-	assert.Equal(t, 3, calls, "repeated calls across Open/resume cycles must all succeed, not just the first")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pm, mockQueryService := newTestManagerWithMock(t, constants.DefaultTableGroup, constants.DefaultShard)
+			mockQueryService.AddQueryPattern(backendVpidCheckPattern, mock.MakeQueryResult([]string{"coalesce"}, tt.rows))
+			calls := 0
+			mockQueryService.AddQueryPatternWithCallback("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid",
+				mock.MakeQueryResult(nil, nil), func(string) { calls++ })
+
+			for range 3 {
+				require.NoError(t, pm.createBackendVpidTable(context.Background()))
+			}
+			if tt.wantWrite {
+				assert.Equal(t, 3, calls)
+			} else {
+				assert.Zero(t, calls)
+			}
+		})
+	}
 }

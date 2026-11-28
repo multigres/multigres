@@ -89,11 +89,7 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 	if _, err := shardref.Ensure(ctx, s.qs); err != nil {
 		return fmt.Errorf("ensure migration schema: %w", err)
 	}
-	sqlList := []string{
-		CreateMigrationSQL, CreateMigrationTablesSQL, CreateMigrationJournalSQL,
-		MigrationNameUniqueIndexSQL, MigrationJournalMigrationIndexSQL,
-	}
-	for _, sql := range sqlList {
+	for _, sql := range schemaTableSQL {
 		if _, err := s.qs.QueryAdmin(ctx, sql); err != nil {
 			return fmt.Errorf("ensure migration schema: %w", err)
 		}
@@ -109,16 +105,39 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 	if !haveConnections {
 		return ErrNoConnectionsTable
 	}
-	if _, err := s.qs.QueryAdmin(ctx, AddConnectionForeignKeySQL); err != nil {
-		return fmt.Errorf("ensure migration schema: add foreign key to connections: %w", err)
-	}
-	if _, err := s.qs.QueryAdmin(ctx, CreateStatMigrationViewSQL); err != nil {
-		return fmt.Errorf("ensure migration schema: create stat_migration view: %w", err)
-	}
-	if _, err := s.qs.QueryAdmin(ctx, GrantStatMigrationSQL); err != nil {
-		return fmt.Errorf("ensure migration schema: grant stat_migration: %w", err)
+	for _, stmt := range schemaConnectionsSQL {
+		if _, err := s.qs.QueryAdmin(ctx, stmt.sql); err != nil {
+			return fmt.Errorf("ensure migration schema: %s: %w", stmt.label, err)
+		}
 	}
 	return nil
+}
+
+// schemaTableSQL is what EnsureSchema runs on every shard, after the
+// shard_ref type, and schemaConnectionsSQL what it runs after them where
+// multigres.connections exists.
+var (
+	schemaTableSQL = []string{
+		CreateMigrationSQL, CreateMigrationTablesSQL, CreateMigrationJournalSQL,
+		MigrationNameUniqueIndexSQL, MigrationJournalMigrationIndexSQL,
+	}
+	schemaConnectionsSQL = []struct{ label, sql string }{
+		{"add foreign key to connections", AddConnectionForeignKeySQL},
+		{"create stat_migration view", CreateStatMigrationViewSQL},
+		{"grant stat_migration", GrantStatMigrationSQL},
+	}
+)
+
+// SchemaSQL returns every statement EnsureSchema can run, in order,
+// including the shard_ref type it ensures first. A caller that skips
+// EnsureSchema when the schema it last ensured is unchanged compares these.
+func SchemaSQL() []string {
+	out := []string{shardref.CreateTypeSQL}
+	out = append(out, schemaTableSQL...)
+	for _, s := range schemaConnectionsSQL {
+		out = append(out, s.sql)
+	}
+	return out
 }
 
 // connectionsPresentSQL probes for multigres.connections, which exists on the

@@ -104,7 +104,7 @@ func newFenceTestEnv(t *testing.T, tableGroupID int64) *fenceTestEnv {
 		ShardRef:     &clustermetadatapb.ShardRef{Database: testTableGroupDB, TableGroup: "commerce", Shard: "0-80"},
 		TablegroupId: tableGroupID,
 	})
-	env.qsc = poolerserver.NewQueryPoolerServer(slog.New(slog.DiscardHandler), nil, testPoolerID, "commerce", "0-80", nil, time.Second, false)
+	env.qsc = poolerserver.NewQueryPoolerServer(slog.New(slog.DiscardHandler), nil, testPoolerID, "commerce", "0-80", nil, time.Second, false, true)
 	env.qsc.EnableFenceGate()
 	env.setRole(t, servingstate.RoutingRolePrimary)
 	env.pm.qsc = env.qsc
@@ -336,7 +336,7 @@ func (c catalogGateController) InternalQueryService() executor.InternalQueryServ
 func TestRefreshFences_TheCatalogPrimaryReadsItsOwnCatalog(t *testing.T) {
 	newCatalogFenceEnv := func(t *testing.T) (*tableGroupTestEnv, *poolerserver.QueryPoolerServer) {
 		env := newCatalogTestEnv(t)
-		qsc := poolerserver.NewQueryPoolerServer(slog.New(slog.DiscardHandler), nil, testPoolerID, constants.DefaultTableGroup, constants.DefaultShard, nil, time.Second, false)
+		qsc := poolerserver.NewQueryPoolerServer(slog.New(slog.DiscardHandler), nil, testPoolerID, constants.DefaultTableGroup, constants.DefaultShard, nil, time.Second, false, true)
 		qsc.EnableFenceGate()
 		require.NoError(t, qsc.OnStateChange(t.Context(), servingstate.State{
 			Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING,

@@ -607,7 +607,14 @@ func (s *poolerService) copyBidiExecuteToStdout(
 			SessionSettings:      req.Options.GetSessionSettings(),
 			ReservedConnectionId: reservedState.GetReservedConnectionId(),
 		}
-		_, _ = exec.CopyAbort(ctx, req.Target, "failed to send READY response", copyOptions)
+		// CopyAbort would send CopyFail, which only ends a COPY FROM STDIN: PG
+		// is sending in copy-out mode and does not read it. CopyOutStream
+		// abandons a copy-out stream correctly, by cancelling the statement
+		// and destroying the socket; an already-cancelled context makes it do
+		// that before reading anything.
+		abandonCtx, cancel := context.WithCancel(ctx)
+		cancel()
+		_, _, _ = exec.CopyOutStream(abandonCtx, req.Target, copyOptions, nil)
 		return status.Errorf(codes.Internal, "failed to send READY response: %v", err)
 	}
 

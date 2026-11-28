@@ -32,7 +32,7 @@ Total failover window (gateway buffers requests for this long)
 ├── Pooler drain time (--connpool-drain-grace-period bounds this)
 │   │
 │   ├── Reserved connections finish naturally  (the graceful case)
-│   └── Reserved connections force-closed      (grace period exceeded)
+│   └── Lent connections terminated            (grace period exceeded)
 │
 └── New-primary election + topology propagation + first health-stream signal
 ```
@@ -78,12 +78,12 @@ trigger several planned failovers to populate the histograms.
 
 ### Pooler side
 
-| Metric                                  | Type      | Question it answers                               |
-| --------------------------------------- | --------- | ------------------------------------------------- |
-| `mg.pooler.drain.duration`              | Histogram | How long did the drain phase take?                |
-| `mg.pooler.drain.outcome`               | Counter   | Was the drain graceful or force-closed? (by attr) |
-| `mg.pooler.drain.force_closed`          | Counter   | How many reserved connections got force-closed?   |
-| `mg.pooler.reserved.active_connections` | Gauge     | How many reserved connections at drain time?      |
+| Metric                                  | Type      | Question it answers                                       |
+| --------------------------------------- | --------- | --------------------------------------------------------- |
+| `mg.pooler.drain.duration`              | Histogram | How long did the drain phase take?                        |
+| `mg.pooler.drain.outcome`               | Counter   | Was the drain graceful, force-closed or failed? (by attr) |
+| `mg.pooler.drain.force_closed`          | Counter   | How many lent connections got terminated?                 |
+| `mg.pooler.reserved.active_connections` | Gauge     | How many reserved connections at drain time?              |
 
 The drain metrics also count the drains of admission fences, which have their
 own timeout (see [routing rules](../sharding/routing_rules.md)); their

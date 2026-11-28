@@ -140,6 +140,13 @@ type managerMetrics struct {
 	// change and on their backstop poll, so a newly promoted catalog primary
 	// reports it without waiting for a rule change.
 	routingRules metric.Int64Gauge
+
+	// servingPrimaryEnsures counts the sidecar schema ensures that run before
+	// this pooler serves as the primary, labelled by status (success/failure).
+	// A pooler whose ensure fails does not serve as the primary and retries on
+	// every monitor tick, so a failure count that keeps rising is a primary
+	// refusing to serve.
+	servingPrimaryEnsures metric.Int64Counter
 }
 
 const (
@@ -256,6 +263,12 @@ func newManagerMetrics() (*managerMetrics, error) {
 		metric.WithUnit("{rule}"),
 	)
 
+	ensures, ensuresErr := meter.Int64Counter(
+		"mg.pooler.serving_primary.sidecar_ensure",
+		metric.WithDescription("Sidecar schema ensures run before the pooler serves as the primary, labelled by status; a failed one keeps it from serving as the primary"),
+		metric.WithUnit("{ensure}"),
+	)
+
 	m := &managerMetrics{
 		rewindCheckpointWait:        wait,
 		rewindExecutionDuration:     exec,
@@ -263,8 +276,9 @@ func newManagerMetrics() (*managerMetrics, error) {
 		logicalFailoverCount:        failoverCount,
 		logicalFailoverSlotsDropped: slotsDropped,
 		routingRules:                routingRules,
+		servingPrimaryEnsures:       ensures,
 	}
-	errs := []error{waitErr, execErr, failoverDurationErr, failoverCountErr, slotsDroppedErr, routingRulesErr}
+	errs := []error{waitErr, execErr, failoverDurationErr, failoverCountErr, slotsDroppedErr, routingRulesErr, ensuresErr}
 
 	// Steady-state failover-slot readiness, labelled by status (ready/unready),
 	// so an operator can see whether a node is failover-ready before it is ever
@@ -404,4 +418,17 @@ func (m *managerMetrics) recordRoutingRules(ctx context.Context, database string
 		return
 	}
 	m.routingRules.Record(ctx, int64(n), metric.WithAttributes(attribute.String("db.namespace", database)))
+}
+
+// recordServingPrimaryEnsure counts a sidecar schema ensure run before serving
+// as the primary, by whether err is nil. Nil-receiver safe.
+func (m *managerMetrics) recordServingPrimaryEnsure(ctx context.Context, err error) {
+	if m == nil || m.servingPrimaryEnsures == nil {
+		return
+	}
+	status := "success"
+	if err != nil {
+		status = "failure"
+	}
+	m.servingPrimaryEnsures.Add(ctx, 1, metric.WithAttributes(attribute.String("status", status)))
 }

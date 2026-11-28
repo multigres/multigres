@@ -22,8 +22,10 @@ import (
 	"github.com/multigres/multigres/go/common/mterrors"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
+	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/heartbeat"
 	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 	"github.com/multigres/multigres/go/services/multipooler/internal/shardref"
 )
 
@@ -68,14 +70,20 @@ func (pm *MultipoolerManager) createSidecarSchema(ctx context.Context, policy *c
 	// just the catalog shard: a migration can target any shard.
 	createFuncs = append(createFuncs, pm.createMigrationTable)
 	// ensureSidecarSchemas goes last, deliberately: it also runs alone
-	// (without the rest of createSidecarSchema) from openLocked's
-	// version-skew catch-up on an already-bootstrapped shard, so nothing
+	// (without the rest of createSidecarSchema) each time a pooler becomes
+	// the serving primary of an already-bootstrapped shard, so nothing
 	// created here may ever depend on a table it creates. Keeping it last
 	// turns a violation of that into an ordering failure here - a step
 	// above it trying to depend on backend_vpid (or a future sidecar
 	// table added here) would fail since ensureSidecarSchemas hasn't run
 	// yet - rather than a convention someone has to remember.
-	createFuncs = append(createFuncs, pm.ensureSidecarSchemas)
+	//
+	// It passes no rule: the rule only labels a catalog version publish, and
+	// bootstrap publishes none, since it creates catalog_state at the latest
+	// format.
+	createFuncs = append(createFuncs, func(ctx context.Context) error {
+		return pm.ensureSidecarSchemas(ctx, nil)
+	})
 
 	for _, createFunc := range createFuncs {
 		if err := createFunc(ctx); err != nil {
@@ -105,22 +113,32 @@ func (pm *MultipoolerManager) isCatalogShard() bool {
 //   - createSidecarSchema, so a freshly bootstrapping primary already has every
 //     such table before the first backup.
 //
-//   - openLocked, so every process start and pause-resume cycle re-ensures these
-//     tables on an already-bootstrapped shard too, not just genuine bootstrap or
-//     promotion).
+//   - beforeServingPrimary, the StateManager hook that runs on every
+//     transition to serving primary (open, resume, promotion, the release of a
+//     serving hold), so a pooler never serves as the primary of a shard that
+//     lacks them. A failure keeps it from serving as the primary until a later
+//     transition succeeds.
 //
 // Every table created here must use CREATE TABLE IF NOT EXISTS (or equivalent):
 // unlike createSidecarSchema's other steps, this one is expected to run
-// repeatedly against an already-initialized schema.
+// repeatedly against an already-initialized schema. Because it gates serving,
+// it must also write nothing when everything is already in place: a write
+// assigns a transaction id, and under synchronous replication its commit
+// waits for a standby. Each step checks before it writes.
+//
+// rule is the consensus rule this pooler is the primary under (see
+// ensureCatalogSchema). It comes from the serving transition that calls this,
+// which has not yet made this pooler the primary in the StateManager.
 //
 // Currently this is the shared multigres.shard_ref type, backend_vpid and the
 // heartbeat table's newer columns and the probe role's read grant on it on every
 // shard, plus, on the catalog shard, the versioned sharding catalog
 // (ensureCatalogSchema, which is idempotent via its format version rather than
 // IF NOT EXISTS) and the migrator's schema that depends on it
-// (ensureCatalogMigrationSchema); add future late-added sidecar tables here as
-// they arise.
-func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context) error {
+// (ensureCatalogMigrationSchema), both skipped by ensureCatalogShard when
+// catalog_state records that this binary already applied them; add future
+// late-added sidecar tables here as they arise.
+func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context, rule *clustermetadatapb.RuleNumber) error {
 	// shard_ref goes first: ensuring it renames a legacy multigres.shard_key
 	// composite, which must happen before the catalog ensure creates its
 	// multigres.shard_key table on the catalog shard.
@@ -138,19 +156,15 @@ func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context) error {
 	// pg_heartbeat_schema.go).
 	pm.ensureHeartbeatSchema(ctx)
 
-	// The probe role can be created after bootstrap, so grant on every open.
-	// The probe is optional, so a failure must not stop the steps below.
+	// The probe role can be created after bootstrap, so grant on every
+	// ensure. The probe is optional, so a failure must not stop the steps
+	// below.
 	if err := pm.grantHeartbeatToProbe(ctx); err != nil {
 		pm.logger.WarnContext(ctx, "failed to grant heartbeat read access to the probe role", "error", err)
 	}
 
 	if pm.isCatalogShard() {
-		if err := pm.ensureCatalogSchema(ctx); err != nil {
-			return err
-		}
-		// The migrator's schema needs multigres.connections, so it goes after
-		// the catalog.
-		if err := pm.ensureCatalogMigrationSchema(ctx); err != nil {
+		if err := pm.ensureCatalogShard(ctx, rule); err != nil {
 			return err
 		}
 	}
@@ -158,10 +172,27 @@ func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context) error {
 	return nil
 }
 
+// beforeServingPrimary is the StateManager's hook for a transition to serving
+// primary (see StateManager.SetBeforeServingPrimary): it ensures the sidecar
+// schemas under the rule the pooler is about to serve as the primary under,
+// so a pooler never serves as the primary of a shard that lacks them. An
+// unmanaged pooler fronts an external postgres whose schema is not ours to
+// keep, so it does nothing there.
+func (pm *MultipoolerManager) beforeServingPrimary(ctx context.Context, target servingstate.State) error {
+	if pm.IsUnmanaged() {
+		return nil
+	}
+	err := pm.ensureSidecarSchemas(ctx, target.Routing.Rule)
+	pm.metrics.recordServingPrimaryEnsure(ctx, err)
+	return err
+}
+
 // ensureCatalogMigrationSchema runs the migration store's EnsureSchema on the
 // catalog shard, which adds the foreign key from multigres.migration into
-// multigres.connections and the stat_migration view. Running it at bootstrap
-// puts both in the first backup, which the bootstrapping pooler restores from.
+// multigres.connections and the stat_migration view. ensureCatalogShard runs
+// it after the catalog, at bootstrap, which puts both in the first backup the
+// bootstrapping pooler restores from, and on serving transitions whose
+// catalog definition hash differs.
 func (pm *MultipoolerManager) ensureCatalogMigrationSchema(ctx context.Context) error {
 	queryService := pm.internalQueryService()
 	if queryService == nil {
@@ -224,8 +255,22 @@ func (pm *MultipoolerManager) grantHeartbeatToProbe(ctx context.Context) error {
 	return nil
 }
 
+// backendVpidInPlaceSQL reports whether multigres.backend_vpid exists with the
+// storage options and the PUBLIC grant createBackendVpidTable gives it, and
+// returns no row when the table is missing. A table created by an older
+// binary, without them, reads false.
+const backendVpidInPlaceSQL = `SELECT coalesce(
+	c.reloptions @> ARRAY['autovacuum_vacuum_scale_factor=0', 'autovacuum_vacuum_threshold=100',
+		'autovacuum_analyze_scale_factor=0', 'autovacuum_analyze_threshold=100']
+	AND (SELECT array_agg(a.privilege_type ORDER BY a.privilege_type)
+		FROM aclexplode(c.relacl) a WHERE a.grantee = 0) = ARRAY['SELECT'],
+	false)
+FROM pg_class c WHERE c.oid = to_regclass('multigres.backend_vpid')`
+
 // createBackendVpidTable creates multigres.backend_vpid (the gateway-vpid →
-// backend-pid mapping read by lock-wait probes).
+// backend-pid mapping read by lock-wait probes). It reads first and writes
+// nothing when the table is already in place: the ALTER, REVOKE and GRANT
+// below rewrite the table's catalog row even when they change nothing.
 func (pm *MultipoolerManager) createBackendVpidTable(ctx context.Context) error {
 	queryService := pm.internalQueryService()
 	if queryService == nil {
@@ -233,6 +278,19 @@ func (pm *MultipoolerManager) createBackendVpidTable(ctx context.Context) error 
 	}
 	execCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 	defer cancel()
+	res, err := queryService.QueryAdmin(execCtx, backendVpidInPlaceSQL)
+	if err != nil {
+		return mterrors.Wrap(err, "failed to check the backend_vpid table")
+	}
+	if res != nil && len(res.Rows) > 0 {
+		var inPlace bool
+		if err := executor.ScanSingleRow(res, &inPlace); err != nil {
+			return mterrors.Wrap(err, "failed to check the backend_vpid table")
+		}
+		if inPlace {
+			return nil
+		}
+	}
 	// backend_vpid is the one sidecar table customer roles may read: writes go
 	// through the admin pool, so PUBLIC gets only SELECT (USAGE on the schema is
 	// granted in createSchema). The REVOKE ALL first line is belt-and-suspenders

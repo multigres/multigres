@@ -173,7 +173,7 @@ func (f *fakeReplPoolManager) NewLogicalReplicationConn(context.Context, string,
 // to SERVING so StartRequest admits the replication stream.
 func servingPooler(t *testing.T, pm connpoolmanager.PoolManager) *poolerserver.QueryPoolerServer {
 	t.Helper()
-	p := poolerserver.NewQueryPoolerServer(slog.Default(), pm, nil, "", "", nil, 0, false)
+	p := poolerserver.NewQueryPoolerServer(slog.Default(), pm, nil, "", "", nil, 0, false, true)
 	// SERVING so the pooler admits the stream. These replication requests carry a
 	// nil Target, so admission skips the routing-role gate and keys only off the
 	// serving status; the routing role is therefore immaterial here.
@@ -187,7 +187,7 @@ func servingPooler(t *testing.T, pm connpoolmanager.PoolManager) *poolerserver.Q
 // is not serving.
 func TestStreamReplication_StartRequestRejectedWhenNotServing(t *testing.T) {
 	// Default state is NOT_SERVING.
-	p := poolerserver.NewQueryPoolerServer(slog.Default(), nil, nil, "", "", nil, 0, false)
+	p := poolerserver.NewQueryPoolerServer(slog.Default(), nil, nil, "", "", nil, 0, false, true)
 	s := &poolerService{pooler: p}
 	f := newFakeReplStream(t.Context())
 	f.recvCh <- replRecv{req: initReq(multipoolerpb.ReplicationMode_REPLICATION_MODE_DATABASE)}

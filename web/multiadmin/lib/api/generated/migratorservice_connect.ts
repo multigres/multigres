@@ -17,7 +17,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import { CreateConnectionRequest, CreateConnectionResponse, CreateMigrationRequest, CreateMigrationResponse, DropConnectionRequest, DropConnectionResponse, DropMigrationRequest, DropMigrationResponse, GetConnectionRequest, GetConnectionResponse, GetMigrationJournalRequest, GetMigrationJournalResponse, GetMigrationRequest, GetMigrationResponse, ListConnectionsRequest, ListConnectionsResponse, ListMigrationsRequest, ListMigrationsResponse, SetMigrationDirectionRequest, SetMigrationDirectionResponse } from "./migratorservice_pb";
+import { CreateConnectionRequest, CreateConnectionResponse, CreateMigrationRequest, CreateMigrationResponse, DropConnectionRequest, DropConnectionResponse, DropMigrationRequest, DropMigrationResponse, GetConnectionRequest, GetConnectionResponse, GetMigrationJournalRequest, GetMigrationJournalResponse, GetMigrationRequest, GetMigrationResponse, ListConnectionsRequest, ListConnectionsResponse, ListMigrationsRequest, ListMigrationsResponse, ReseedReverseLinkRequest, ReseedReverseLinkResponse, SetMigrationDirectionRequest, SetMigrationDirectionResponse } from "./migratorservice_pb";
 import { MethodKind } from "@bufbuild/protobuf";
 
 /**
@@ -101,6 +101,18 @@ export const Migrator = {
       name: "DropMigration",
       I: DropMigrationRequest,
       O: DropMigrationResponse,
+      kind: MethodKind.Unary,
+    },
+    /**
+     * ReseedReverseLink repairs a degraded EXPORT reverse link: an explicit,
+     * operator-triggered full-copy reseed, addressed by ref (id or name).
+     *
+     * @generated from rpc migrator.Migrator.ReseedReverseLink
+     */
+    reseedReverseLink: {
+      name: "ReseedReverseLink",
+      I: ReseedReverseLinkRequest,
+      O: ReseedReverseLinkResponse,
       kind: MethodKind.Unary,
     },
     /**

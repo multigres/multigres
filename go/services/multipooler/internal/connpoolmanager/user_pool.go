@@ -333,12 +333,27 @@ func (p *UserPool) GetReservedConn(connID int64) (*reserved.Conn, bool) {
 	return p.reservedPool.Get(connID)
 }
 
-// CloseReservedConnections force-closes active reserved connections when a
-// not-serving transition's drain grace period expires. Logical-replication
-// streaming tunnels are preserved: a read-only walsender must not be severed
-// by the write-serving gate.
-func (p *UserPool) CloseReservedConnections(ctx context.Context) int {
-	return p.reservedPool.KillAllForDrain(ctx)
+// Seal stops both pools from lending connections until Unseal (see
+// connpool.Pool.Seal).
+func (p *UserPool) Seal(err error) {
+	p.regularPool.Seal(err)
+	p.reservedPool.Seal(err)
+}
+
+// Unseal lets both pools lend connections again.
+func (p *UserPool) Unseal() {
+	p.regularPool.Unseal()
+	p.reservedPool.Unseal()
+}
+
+// KillLent terminates the backends of the connections still lent, reserved
+// and regular, except logical-replication tunnels, and confirms each kill (see
+// reserved.Pool.KillAllForDrain and regular.Pool.KillOpen). Meant for a sealed
+// pool, whose open regular connections are the lent ones.
+func (p *UserPool) KillLent(ctx context.Context, timeout time.Duration) (int, error) {
+	reservedKilled, reservedErr := p.reservedPool.KillAllForDrain(ctx, timeout)
+	regularKilled, regularErr := p.regularPool.KillOpen(ctx, timeout)
+	return reservedKilled + regularKilled, errors.Join(reservedErr, regularErr)
 }
 
 // Close closes both regular and reserved pools.

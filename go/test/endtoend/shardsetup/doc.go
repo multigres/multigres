@@ -81,10 +81,8 @@
 //
 // # Replication
 //
-// By default, standbys are created in recovery mode but NOT actively replicating.
-// To configure replication during a test:
-//
-//	setup.ConfigureReplication(t, "standby")
-//
-// This allows tests to set up replication from scratch if needed.
+// Standbys replicate from the primary from bootstrap on, and the poolers keep
+// that replication configured from the consensus rule. Tests can pause WAL
+// replay with WithPausedReplication, or stop a standby's WAL receiver with the
+// StopReplication RPC, which the pooler respects until StartReplication.
 package shardsetup

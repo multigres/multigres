@@ -173,21 +173,75 @@ can be such an answer. The operation's refresh at the fence's version is the
 backstop: it must treat a listed pooler it can't refresh as blocking the fence.
 
 When a refresh fences a primary, the pooler drains before the call returns,
+the way every drain of the pooler runs (see
+[ending a drain at its timeout](../query_serving/graceful_drain_design.md#ending-a-drain-at-its-timeout)),
 with a phase of its own, independent of the not-serving drain of a failover:
 first new reservations are refused while single queries continue and open
 transactions finish; then single queries are refused too and the in-flight
-ones finish. Each stage of either drain also waits for the requests admitted
-before it that don't hold a connection yet, so a `BEGIN` admitted just before
-the fence can't get its connection after the drain has finished. At
-`drain_timeout` (at most 10 minutes; when unset, the pooler's drain grace
-period, or 30 seconds when that is zero), the remaining reserved connections
-are force-closed and their transactions get `40001`. A refresh that finds a
-drain running waits for it, bounded by its own deadline, and succeeds when it
-ends, so success always means drained. A read that finds no fence, or the
-pooler losing or regaining the primary role, cancels a running drain, which
-then force-closes nothing; its callers read the fences again. The drain
-metrics (`mg.pooler.drain.*`) carry `reason=fence`, or `reason=failover` for
-the not-serving drain; a cancelled fence drain has `outcome=cancelled`.
+ones finish. Each stage also waits for the requests admitted before it that
+don't hold a connection yet. At `drain_timeout` (at most 10 minutes; when
+unset, the pooler's drain grace period, or 30 seconds when that is zero),
+the drain ends the work left: it seals the pools, so no connection is lent
+and every request waiting for one, or asking for one later, is refused with
+`MTF02`; it terminates the backends of the connections still lent, reserved
+and regular (their transactions get `40001`), and confirms each one exited;
+and it waits until nothing admitted is left, then unseals the pools. An
+unmanaged pooler kills nothing and only waits.
+
+The gate's states, as the refresh sees them:
+
+- **Draining:** a drain is running. The gate refuses all new work, except
+  single queries during the first stage. A refresh that finds it draining
+  waits for that drain, bounded by its own deadline.
+- **Closed:** the drain ended the fence's work. A closed gate is a drained
+  one, so a refresh that finds it closed succeeds at once, and success always
+  means drained: nothing admitted before the fence still runs or can start.
+- **Draining, with no drain running:** the last drain failed (below).
+
+**A drain that fails.** If a kill isn't confirmed, or work is still lent or
+admitted at the settle bound, the drain fails and the refresh fails with
+`UNAVAILABLE`, and every refresh waiting on that drain gets the same error.
+The failure is reported, but the pooler does not roll back: the fence is
+still in the catalog, and the pooler could not show that the scope is
+drained. So the gate stays draining, refusing all new work, and the pools
+stay sealed, because a request admitted before the fence may still be on its
+way to the pool. The pooler's own fence reader keeps re-reading: every 30
+seconds, and with backoff (up to 10 seconds) after a read of its own fails.
+
+The pools are sealed for as long as some drain holds the seal, and the
+failed drain is over, so the gate keeps its hold (`failedSeal`) until
+another drain takes it over or the fence is lifted:
+
+- **The next refresh, or the pooler's re-read, that finds the fence** starts
+  a new drain. The new drain takes over the failed drain's hold rather than
+  taking a new one, starts by refusing everything, and waits again. If it
+  ends the work this time, it releases the hold, the pools unseal, and the
+  gate closes. If it fails too, the hold goes back to the gate.
+- **A read that finds no fence** opens the gate and releases the hold: the
+  operation lifted the fence, so there is no work left to stop.
+- **The pooler losing or regaining the primary role** releases the hold
+  too: the gate is reset, or not consulted on a replica.
+
+```text
+t0  RefreshFences(drain_timeout=5s): the drain starts, the gate is draining
+t5  timeout: the pools are sealed, what is lent is killed
+    one backend does not exit in time: the drain fails
+    the gate stays draining, the pools stay sealed, the gate keeps the hold
+    RefreshFences returns UNAVAILABLE: the operation does not move data
+t6  RefreshFences again: a new drain takes over the hold and waits
+    the backend has exited, nothing is left: the drain succeeds
+    the hold is released, the pools unseal, the gate is closed
+    RefreshFences succeeds: the operation moves the data
+```
+
+**Cancellation.** A read that finds no fence, or the pooler losing or
+regaining the primary role, cancels a running drain. It stops, past any kill
+already under way, and releases its own hold; refreshes waiting on it get
+`ABORTED` and read the fences again.
+
+The drain metrics (`mg.pooler.drain.*`) carry `reason=fence`, or
+`reason=failover` for the not-serving drain. A fence drain's outcome is
+`graceful`, `force_close` (it ended the work left), `failed` or `cancelled`.
 
 A fence closes only the poolers of its own scope. A rule `A → B` sends
 traffic planned for `A` to `B`'s poolers, so while it is in effect a fence on

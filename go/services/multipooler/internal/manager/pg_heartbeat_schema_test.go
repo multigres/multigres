@@ -35,6 +35,7 @@ import (
 	multipoolermanagerdatapb "github.com/multigres/multigres/go/pb/multipoolermanagerdata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor/mock"
 	"github.com/multigres/multigres/go/services/multipooler/internal/heartbeat"
+	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
 	"github.com/multigres/multigres/go/tools/pgutil"
 	"github.com/multigres/multigres/go/tools/telemetry"
 )
@@ -181,6 +182,16 @@ func TestMaybeRefreshHeartbeatSchema(t *testing.T) {
 	), func(string) { checks++ })
 	queryService.AddQueryPattern("SELECT EXISTS", mock.MakeQueryResult([]string{"exists"}, [][]any{{"t"}}))
 	ctx := t.Context()
+
+	// No verdict yet: a primary got its first one from the sidecar ensure that gates
+	// serving, but a standby never runs that, so it checks on the first tick.
+	setHealthStreamerRole(t, pm, servingstate.RoutingRolePrimary)
+	pm.maybeRefreshHeartbeatSchema(ctx)
+	assert.Zero(t, checks, "a primary with no verdict yet is left to the serving ensure")
+	setHealthStreamerRole(t, pm, servingstate.RoutingRoleReplica)
+	pm.maybeRefreshHeartbeatSchema(ctx)
+	assert.Equal(t, 1, checks, "a standby with no verdict yet checks")
+	checks = 0
 
 	pm.heartbeatSchema.Store(compatibleHeartbeatSchema)
 	pm.maybeRefreshHeartbeatSchema(ctx)
@@ -403,10 +414,13 @@ func TestCreateSidecarSchemaNeverFailsOnHeartbeatSchema(t *testing.T) {
 			queryService.AddQueryPatternOnce("CREATE SCHEMA multigres", mock.MakeQueryResult(nil, nil))
 			queryService.AddQueryPatternOnce("CREATE TABLE multigres.heartbeat", mock.MakeQueryResult(nil, nil))
 			queryService.AddQueryPatternOnce("CREATE UNLOGGED TABLE IF NOT EXISTS multigres.backend_vpid", mock.MakeQueryResult(nil, nil))
+			queryService.AddQueryPatternOnce(probeGrantPattern, mock.MakeQueryResult(nil, nil))
 			queryService.AddQueryPatternOnce("CREATE TABLE IF NOT EXISTS multigres.pgbackrest_repos", mock.MakeQueryResult(nil, nil))
 			queryService.AddQueryPatternOnce("CREATE TABLE multigres.current_rule", mock.MakeQueryResult(nil, nil))
 			queryService.AddQueryPatternOnce("INSERT INTO multigres.current_rule", mock.MakeQueryResult(nil, nil))
 			queryService.AddQueryPatternOnce("CREATE TABLE multigres.rule_history", mock.MakeQueryResult(nil, nil))
+			addBackendVpidMissing(queryService)
+			addCatalogFullEnsure(queryService)
 			addFreshCatalogEnsure(queryService)
 			addShardRefEnsure(queryService, nil)
 			addMigrationTableCreate(queryService)

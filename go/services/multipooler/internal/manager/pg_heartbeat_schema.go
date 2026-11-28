@@ -18,6 +18,7 @@ import (
 	"context"
 	"time"
 
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/heartbeat"
 )
 
@@ -27,9 +28,9 @@ import (
 // cannot.
 //
 // Upgrade: the primary adds any missing newer columns (heartbeat.EnsureSchema) on every
-// open and after every promotion. Standbys get the change through replication. Anything
-// beyond missing newer columns (a renamed or retyped column, an extra NOT NULL column) is
-// never repaired automatically; it is reported.
+// transition to serving primary (ensureSidecarSchemas). Standbys get the change through
+// replication. Anything beyond missing newer columns (a renamed or retyped column, an
+// extra NOT NULL column) is never repaired automatically; it is reported.
 //
 // Health: the result is kept in heartbeatSchema, exported as the
 // mg.pooler.heartbeat.schema.compatible gauge and logged at ERROR, and the heartbeat
@@ -122,14 +123,25 @@ func (pm *MultipoolerManager) heartbeatSchemaErrorCount() int64 {
 	return pm.replTracker.HeartbeatWriter().WriteSchemaErrors() + pm.replTracker.HeartbeatReader().ReadSchemaErrors()
 }
 
+// routedAsPrimary reports whether the health state currently routes this pooler as the
+// primary.
+func (pm *MultipoolerManager) routedAsPrimary() bool {
+	return pm.healthStreamer != nil &&
+		pm.healthStreamer.getState().RoutingState.GetRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY
+}
+
 // maybeRefreshHeartbeatSchema re-checks the table when something suggests the last verdict
-// is out of date: the heartbeat writer or reader hit a schema error since the last check
-// (the table changed under us), or the last verdict was "incompatible" (an operator may
-// have repaired it). A healthy steady state costs nothing.
+// is out of date: no check has run yet (a standby never runs the sidecar ensure that
+// checks a primary), the heartbeat writer or reader hit a schema error since the last
+// check (the table changed under us), or the last verdict was "incompatible" (an operator
+// may have repaired it). A healthy steady state costs nothing.
 func (pm *MultipoolerManager) maybeRefreshHeartbeatSchema(ctx context.Context) {
 	count := pm.heartbeatSchemaErrorCount()
 	last := pm.heartbeatSchema.Load()
-	if count == pm.heartbeatSchemaErrorsSeen.Load() && (last == nil || last.Compatible()) {
+	// A pooler routed as the primary got its first verdict from the sidecar ensure that
+	// gates serving, so only a standby with no verdict yet needs the first check.
+	unchecked := last == nil && !pm.routedAsPrimary()
+	if count == pm.heartbeatSchemaErrorsSeen.Load() && !unchecked && (last == nil || last.Compatible()) {
 		return
 	}
 	pm.heartbeatSchemaErrorsSeen.Store(count)

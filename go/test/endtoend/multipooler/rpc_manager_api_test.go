@@ -41,7 +41,7 @@ func TestManagerStatus_NodeIdentityAndConsensus(t *testing.T) {
 	setup := getSharedTestSetup(t)
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 	waitForManagerReady(t, setup, setup.StandbyMultipooler)
-	setupPoolerTest(t, setup, WithoutReplication())
+	setupPoolerTest(t, setup)
 
 	primaryClient, err := shardsetup.NewMultipoolerClient(setup.PrimaryMultipooler.GrpcPort)
 	require.NoError(t, err)
@@ -81,7 +81,7 @@ func TestManagerReloadConfig(t *testing.T) {
 	}
 
 	setup := getSharedTestSetup(t)
-	setupPoolerTest(t, setup, WithoutReplication())
+	setupPoolerTest(t, setup)
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 
 	primaryClient, err := shardsetup.NewMultipoolerClient(setup.PrimaryMultipooler.GrpcPort)
@@ -107,7 +107,7 @@ func TestMultipoolerPrimaryLSN(t *testing.T) {
 	}
 
 	setup := getSharedTestSetup(t)
-	setupPoolerTest(t, setup, WithoutReplication())
+	setupPoolerTest(t, setup)
 	waitForManagerReady(t, setup, setup.PrimaryMultipooler)
 
 	primaryClient, err := shardsetup.NewMultipoolerClient(setup.PrimaryMultipooler.GrpcPort)

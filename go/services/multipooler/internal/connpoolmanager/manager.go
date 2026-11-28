@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
@@ -113,6 +114,10 @@ type Manager struct {
 	// This enables lock-free reads on the hot path (existing users).
 	// The map is replaced atomically via copy-on-write when new users are added.
 	userPoolsSnapshot atomic.Pointer[map[string]*UserPool]
+
+	// sealErr is set while the user pools are sealed (SealPools): a user pool
+	// created meanwhile starts sealed with it. Written under createMu.
+	sealErr atomic.Pointer[error]
 
 	// createMu serializes user pool creation (cold path only).
 	// This mutex is only acquired when a new user pool needs to be created.
@@ -567,6 +572,11 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create user pool for %q: %w", user, err)
+	}
+
+	// A pool created while the pools are sealed starts sealed.
+	if sealErr := m.sealErr.Load(); sealErr != nil {
+		pool.Seal(*sealErr)
 	}
 
 	// Copy-on-write: create new map with the new pool
@@ -1125,20 +1135,58 @@ func (m *Manager) WaitForReservedDrain(ctx context.Context) error {
 	}
 }
 
-// CloseReservedConnections kills all active reserved connections across all user pools.
-// Used after drain grace period expires to prevent reserved connections from being
-// used in a non-serving state.
-func (m *Manager) CloseReservedConnections(ctx context.Context) int {
+// SealPools seals every user pool, and every user pool created until
+// UnsealPools: each lends nothing and refuses requests with err (see
+// connpool.Pool.Seal). It holds createMu, as user pool creation does, so a
+// pool created meanwhile is sealed too.
+func (m *Manager) SealPools(err error) {
+	m.createMu.Lock()
+	defer m.createMu.Unlock()
+	m.sealErr.Store(&err)
+	if pools := m.userPoolsSnapshot.Load(); pools != nil {
+		for _, pool := range *pools {
+			pool.Seal(err)
+		}
+	}
+}
+
+// UnsealPools lets every user pool lend connections again.
+func (m *Manager) UnsealPools() {
+	m.createMu.Lock()
+	defer m.createMu.Unlock()
+	m.sealErr.Store(nil)
+	if pools := m.userPoolsSnapshot.Load(); pools != nil {
+		for _, pool := range *pools {
+			pool.Unseal()
+		}
+	}
+}
+
+// KillLent terminates the backends of the connections the user pools still
+// lend, except logical-replication tunnels, and waits up to timeout for each
+// to exit. It returns how many it terminated, and an error if any backend may
+// still be running or ctx ended first. Meant for sealed pools (SealPools),
+// which lend nothing new while it runs. The admin pool, which the manager's
+// own queries use, is not touched.
+func (m *Manager) KillLent(ctx context.Context, timeout time.Duration) (int, error) {
 	pools := m.userPoolsSnapshot.Load()
 	if pools == nil {
-		return 0
+		return 0, nil
 	}
-
 	total := 0
+	var errs []error
 	for _, pool := range *pools {
-		total += pool.CloseReservedConnections(ctx)
+		if err := ctx.Err(); err != nil {
+			errs = append(errs, err)
+			break
+		}
+		killed, err := pool.KillLent(ctx, timeout)
+		total += killed
+		if err != nil {
+			errs = append(errs, err)
+		}
 	}
-	return total
+	return total, errors.Join(errs...)
 }
 
 // IsClosed reports whether the manager is terminally closed. It returns false

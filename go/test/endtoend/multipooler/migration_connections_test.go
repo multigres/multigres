@@ -98,6 +98,7 @@ DROP VIEW IF EXISTS multigres.stat_migration;
 DROP TABLE IF EXISTS multigres.migration_journal, multigres.migration_tables, multigres.migration;
 DROP TABLE multigres.connections;`)
 	require.NoError(t, err)
+	forgetCatalogDefinition(t, primaryDB)
 
 	restartMultipooler(t, primary)
 	require.Eventually(t, func() bool {

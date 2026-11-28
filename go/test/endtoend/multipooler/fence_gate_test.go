@@ -247,6 +247,39 @@ func TestFenceGate(t *testing.T) {
 		require.NoError(t, write(ctx))
 	})
 
+	t.Run("a single query still running at the drain timeout is killed", func(t *testing.T) {
+		const marker = "fence-drain-sleep"
+		queryDone := make(chan error, 1)
+		go func() {
+			_, err := gw.ExecContext(ctx, `SELECT pg_sleep(60), '`+marker+`'`)
+			queryDone <- err
+		}()
+		running := func() int {
+			var n int
+			require.NoError(t, direct.QueryRowContext(ctx,
+				`SELECT count(*) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND state = 'active' AND query LIKE '%`+marker+`%'`).Scan(&n))
+			return n
+		}
+		require.Eventually(t, func() bool { return running() == 1 }, 10*time.Second, 50*time.Millisecond,
+			"the single query is running")
+
+		fence(t)
+		start := time.Now()
+		assert.True(t, pc.refresh(t, fencedAt, time.Second).GetFenced())
+		assert.GreaterOrEqual(t, time.Since(start), 900*time.Millisecond, "the drain waited for its timeout")
+		assert.Zero(t, running(), "the query's backend is gone when the refresh reports drained")
+		select {
+		case err := <-queryDone:
+			require.Error(t, err, "the killed query fails")
+		case <-time.After(10 * time.Second):
+			t.Fatal("the killed query did not return")
+		}
+
+		version := unfence(t, pc)
+		pc.refresh(t, version, 10*time.Second)
+		require.NoError(t, write(ctx), "the pooler admits writes again once the fence is lifted")
+	})
+
 	t.Run("a transaction still open at the drain timeout gets 40001", func(t *testing.T) {
 		tx, err := gw.BeginTx(ctx, nil)
 		require.NoError(t, err)

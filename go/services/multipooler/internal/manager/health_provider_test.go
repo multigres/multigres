@@ -396,7 +396,7 @@ func TestHealthStreamer_WaitsForQueryServerOnServing(t *testing.T) {
 	hs := newHealthStreamer(logger, nil, "tg1", "0")
 
 	// Create a real QueryPoolerServer to use as the gate.
-	qps := poolerserver.NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false)
+	qps := poolerserver.NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false, true)
 	hs.SetQueryServer(qps)
 
 	// Subscribe to health updates.
@@ -444,7 +444,7 @@ func TestHealthStreamer_DoesNotWaitOnNotServing(t *testing.T) {
 	hs := newHealthStreamer(logger, nil, "tg1", "0")
 
 	// Create a query server that is PRIMARY/SERVING.
-	qps := poolerserver.NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false)
+	qps := poolerserver.NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false, true)
 	require.NoError(t, qps.OnStateChange(t.Context(), servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_SERVING}))
 	hs.SetQueryServer(qps)
 

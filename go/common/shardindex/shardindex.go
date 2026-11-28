@@ -85,11 +85,26 @@ type TypeChecking interface {
 // and must accept a nil Executor unless they use it.
 type Executor any
 
-// Value is one column value handed to a shard index.
+// Value is one column value handed to a shard index. The caller coerces the
+// value to the type of the shard key column first: an index maps by Type, and
+// the same bytes map differently as different types.
 type Value struct {
 	// Type is the PostgreSQL type OID of the value.
 	Type pgoid.Oid
 	// Datum is the value. It is meaningless when IsNull is set.
+	//
+	// A by-value type is stored as its DatumGet accessor reads it: an
+	// integer with datum.Int16GetDatum, Int32GetDatum or Int64GetDatum.
+	//
+	// A by-reference type is its payload with no varlena header, built with
+	// datum.BytesGetDatum and read with datum.DatumGetBytes. An empty
+	// payload is the zero Datum:
+	//
+	//   - text, varchar, bpchar: the characters' bytes in the database's
+	//     server encoding, not the client's. bpchar includes its padding.
+	//   - bytea: the raw bytes.
+	//   - uuid: the 16 bytes in network order, which are the hex digits of
+	//     the canonical text form in order.
 	Datum datum.Datum
 	// IsNull marks SQL NULL.
 	IsNull bool

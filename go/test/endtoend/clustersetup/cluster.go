@@ -105,21 +105,12 @@ func GenerateMultigatewayTLSCerts(t *testing.T, certDir string) *MultigatewayTLS
 
 // SetupTestConfig holds configuration for SetupTest.
 type SetupTestConfig struct {
-	NoReplication    bool     // Don't configure replication
 	PauseReplication bool     // Configure replication but pause WAL replay
 	GucsToReset      []string // GUCs to save before test and restore after
 }
 
 // SetupTestOption is a function that configures SetupTest behavior.
 type SetupTestOption func(*SetupTestConfig)
-
-// WithoutReplication returns an option that actively breaks replication.
-// Clears primary_conninfo and synchronous_standby_names, so tests can set up replication from scratch.
-func WithoutReplication() SetupTestOption {
-	return func(c *SetupTestConfig) {
-		c.NoReplication = true
-	}
-}
 
 // WithPausedReplication returns an option that pauses WAL replay on standbys.
 // Replication is already configured from bootstrap; this just pauses WAL application.

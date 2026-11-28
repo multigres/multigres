@@ -927,9 +927,13 @@ type PoolManager interface {
     GetReservedConn(connID int64, user string) (*reserved.Conn, bool)
 
     // Drain (see graceful_drain_design.md)
+    AddAdmitted(reservation bool)
+    RemoveAdmitted(reservation bool)
     WaitForDrain(ctx context.Context) error
     WaitForReservedDrain(ctx context.Context) error
-    CloseReservedConnections(ctx context.Context) int
+    SealPools(err error)
+    UnsealPools()
+    KillLent(ctx context.Context, timeout time.Duration) (int, error)
 
     Stats() ManagerStats
     CredentialQueryRecorder() CredentialQueryRecorder
