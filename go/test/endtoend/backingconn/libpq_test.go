@@ -30,7 +30,6 @@
 package backingconn
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -47,7 +46,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/multigres/multigres/go/common/backingconn"
-	"github.com/multigres/multigres/go/test/utils"
+	"github.com/multigres/multigres/go/test/endtoend/pgbuilder"
 	"github.com/multigres/multigres/go/tools/executil"
 )
 
@@ -336,44 +335,21 @@ func startPostgres(t *testing.T, password string, env ...string) int {
 // pg_hba.conf, such as scram-sha-256, md5, password or trust.
 func startPostgresAuth(t *testing.T, method, password string, env ...string) int {
 	t.Helper()
-	port := utils.GetFreePort(t)
-	root := t.TempDir()
-	dataDir := filepath.Join(root, "data")
-	pwFile := filepath.Join(root, "pwfile")
-	require.NoError(t, os.WriteFile(pwFile, []byte(password), 0o600))
-
-	initdb := executil.Command(t.Context(), "initdb", "-D", dataDir, "-U", "postgres", "--pwfile="+pwFile,
-		"--encoding=UTF8", "--locale=C", "--auth-local=trust", "--auth-host=scram-sha-256")
-	initdb.SetEnv(utils.BaseTestEnv())
-	if out, err := initdb.CombinedOutput(); err != nil {
-		t.Fatalf("initdb failed: %v\n%s", err, out)
-	}
-	hba := "local all all trust\nhost all all 127.0.0.1/32 " + method + "\nhost replication all 127.0.0.1/32 " + method + "\n"
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "pg_hba.conf"), []byte(hba), 0o600))
-
-	logFile, err := os.Create(filepath.Join(root, "postgres.log"))
+	server, err := pgbuilder.StartInstalledStandalone(t, t.Context(), password, pgbuilder.StandaloneOptions{
+		Settings:  pgbuilder.LogicalReplicationSettings,
+		HBAMethod: method,
+		Env:       append([]string{"LC_ALL=en_US.UTF-8"}, env...),
+	})
 	require.NoError(t, err)
-	pg := executil.Command(context.Background(), "postgres", "-D", dataDir, "-p", strconv.Itoa(port),
-		"-c", "listen_addresses=127.0.0.1", "-c", "unix_socket_directories=", "-c", "wal_level=logical",
-		"-c", "max_wal_senders=10", "-c", "max_replication_slots=10", "-c", "fsync=off").WithProcessGroup()
-	pg.SetEnv(append(utils.BaseTestEnv(), "LC_ALL=en_US.UTF-8"))
-	pg.AddEnv(env...)
-	pg.SetStdout(logFile)
-	pg.SetStderr(logFile)
-	require.NoError(t, pg.Start())
 	t.Cleanup(func() {
-		_, _ = pg.Stop(context.Background())
-		_ = logFile.Close()
+		_ = server.Stop()
 		if t.Failed() {
-			if data, err := os.ReadFile(logFile.Name()); err == nil {
+			if data, err := os.ReadFile(server.LogPath); err == nil {
 				t.Logf("postgres log:\n%s", data)
 			}
 		}
 	})
-	require.Eventually(t, func() bool {
-		return executil.Command(t.Context(), "pg_isready", "-h", "127.0.0.1", "-p", strconv.Itoa(port), "-U", "postgres", "-q").Run() == nil
-	}, 30*time.Second, 200*time.Millisecond, "postgres must become ready")
-	return port
+	return server.Port
 }
 
 // psql runs a statement against a server and returns its output.

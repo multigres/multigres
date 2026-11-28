@@ -21,6 +21,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -53,6 +54,24 @@ type Standalone struct {
 	cmd    *executil.Cmd
 }
 
+// LogicalReplicationSettings are the StandaloneOptions.Settings of a server
+// that publishes to logical replication subscribers.
+var LogicalReplicationSettings = []string{"wal_level=logical", "max_wal_senders=10", "max_replication_slots=10"}
+
+// StandaloneOptions are the settings of an installed standalone server that
+// differ from its defaults.
+type StandaloneOptions struct {
+	// Settings are extra server settings, each "name=value", passed to
+	// postgres as -c after the defaults, which they override.
+	Settings []string
+	// HBAMethod is the pg_hba.conf method of TCP connections, such as md5,
+	// password or trust. The password is stored as scram-sha-256 whatever the
+	// method; empty means scram-sha-256.
+	HBAMethod string
+	// Env is added to the environment of the postgres process.
+	Env []string
+}
+
 // StartStandalone runs initdb into a fresh data directory under builder.OutputDir
 // and launches a postgres server on a free port. The returned Standalone
 // exposes connection parameters and a Stop method.
@@ -60,6 +79,25 @@ type Standalone struct {
 // Callers should defer Stop. The server logs are written to LogPath and left
 // on disk after Stop to aid debugging.
 func StartStandalone(t *testing.T, ctx context.Context, builder *Builder, password string) (*Standalone, error) {
+	t.Helper()
+	return startStandalone(t, ctx, builder.BinDir(), filepath.Join(builder.OutputDir, "standalone"), "md5", password, StandaloneOptions{})
+}
+
+// StartInstalledStandalone is StartStandalone with the PostgreSQL binaries
+// found on PATH instead of built ones, the data directory under t.TempDir(),
+// which the test removes when it ends, and scram-sha-256 authentication, the
+// only password method multigres's own client (pgprotocol/client) speaks,
+// changed by opts.
+func StartInstalledStandalone(t *testing.T, ctx context.Context, password string, opts StandaloneOptions) (*Standalone, error) {
+	t.Helper()
+	return startStandalone(t, ctx, "", t.TempDir(), "scram-sha-256", password, opts)
+}
+
+// startStandalone starts the server from the binaries in binDir, or on PATH
+// when binDir is empty, with its files under rootDir and the password stored
+// for authMethod (md5 or scram-sha-256), which also authenticates TCP
+// connections unless opts.HBAMethod is set.
+func startStandalone(t *testing.T, ctx context.Context, binDir, rootDir, authMethod, password string, opts StandaloneOptions) (*Standalone, error) {
 	t.Helper()
 
 	if password == "" {
@@ -71,7 +109,6 @@ func StartStandalone(t *testing.T, ctx context.Context, builder *Builder, passwo
 		return nil, fmt.Errorf("pick free port: %w", err)
 	}
 
-	rootDir := filepath.Join(builder.OutputDir, "standalone")
 	dataDir := filepath.Join(rootDir, "data")
 	logPath := filepath.Join(rootDir, "postgres.log")
 	pwFile := filepath.Join(rootDir, "pwfile")
@@ -90,21 +127,25 @@ func StartStandalone(t *testing.T, ctx context.Context, builder *Builder, passwo
 		User:     "postgres",
 		Password: password,
 		Database: "postgres",
-		binDir:   builder.BinDir(),
+		binDir:   binDir,
 	}
 
-	if err := si.runInitdb(ctx, pwFile); err != nil {
+	if err := si.runInitdb(ctx, pwFile, authMethod); err != nil {
 		return nil, err
 	}
 
-	// Loopback-only, md5 auth so psql/pgx connecting with PGPASSWORD works and
-	// nothing outside the host can reach the server.
-	hba := "host all all 127.0.0.1/32 md5\nhost all all ::1/128 md5\n"
+	// Loopback-only, password auth so psql/pgx connecting with PGPASSWORD works
+	// and nothing outside the host can reach the server.
+	hbaMethod := authMethod
+	if opts.HBAMethod != "" {
+		hbaMethod = opts.HBAMethod
+	}
+	hba := fmt.Sprintf("host all all 127.0.0.1/32 %[1]s\nhost all all ::1/128 %[1]s\n", hbaMethod)
 	if err := os.WriteFile(filepath.Join(dataDir, "pg_hba.conf"), []byte(hba), 0o600); err != nil {
 		return nil, fmt.Errorf("write pg_hba.conf: %w", err)
 	}
 
-	if err := si.launch(); err != nil {
+	if err := si.launch(opts); err != nil {
 		return nil, err
 	}
 
@@ -117,7 +158,7 @@ func StartStandalone(t *testing.T, ctx context.Context, builder *Builder, passwo
 	return si, nil
 }
 
-func (s *Standalone) runInitdb(ctx context.Context, pwFile string) error {
+func (s *Standalone) runInitdb(ctx context.Context, pwFile, authMethod string) error {
 	cmd := executil.Command(ctx, filepath.Join(s.binDir, "initdb"),
 		"-D", s.DataDir,
 		"-U", s.User,
@@ -125,7 +166,7 @@ func (s *Standalone) runInitdb(ctx context.Context, pwFile string) error {
 		"--encoding=UTF8",
 		"--locale=C",
 		"--auth-local=trust",
-		"--auth-host=md5",
+		"--auth-host="+authMethod,
 	)
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -136,13 +177,13 @@ func (s *Standalone) runInitdb(ctx context.Context, pwFile string) error {
 	return nil
 }
 
-func (s *Standalone) launch() error {
+func (s *Standalone) launch(opts StandaloneOptions) error {
 	logFile, err := os.Create(s.LogPath)
 	if err != nil {
 		return fmt.Errorf("create log file: %w", err)
 	}
 
-	s.cmd = executil.Command(context.Background(), filepath.Join(s.binDir, "postgres"),
+	args := []string{
 		"-D", s.DataDir,
 		"-p", strconv.Itoa(s.Port),
 		"-c", "listen_addresses=127.0.0.1",
@@ -150,7 +191,16 @@ func (s *Standalone) launch() error {
 		"-c", "fsync=off",
 		"-c", "synchronous_commit=off",
 		"-c", "full_page_writes=off",
-	).WithProcessGroup()
+	}
+	for _, setting := range opts.Settings {
+		args = append(args, "-c", setting)
+	}
+	s.cmd = executil.Command(context.Background(), filepath.Join(s.binDir, "postgres"), args...).WithProcessGroup()
+	if runtime.GOOS == "darwin" {
+		// Avoids "postmaster became multithreaded during startup" on macOS.
+		s.cmd.AddEnv("LC_ALL=en_US.UTF-8")
+	}
+	s.cmd.AddEnv(opts.Env...)
 	s.cmd.Stdout = logFile
 	s.cmd.Stderr = logFile
 

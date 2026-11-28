@@ -21,8 +21,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -37,9 +35,8 @@ import (
 	"github.com/multigres/multigres/go/common/topoclient"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	migratorpb "github.com/multigres/multigres/go/pb/migrator"
+	"github.com/multigres/multigres/go/test/endtoend/pgbuilder"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
-	"github.com/multigres/multigres/go/test/utils"
-	"github.com/multigres/multigres/go/tools/executil"
 )
 
 const sourcePassword = "srcpass"
@@ -181,60 +178,16 @@ func requireSynchronousSubscription(t *testing.T, ctx context.Context, conn *cli
 	require.Equal(t, "on", string(res[0].Rows[0].Values[0]), "migration subscription must honor synchronous commit policy")
 }
 
-// startStandaloneSource initdb's and launches a throwaway postgres with
-// wal_level=logical on a free port, returning that port. Torn down via cleanup.
+// startStandaloneSource launches a throwaway postgres with wal_level=logical
+// on a free port, returning that port. Torn down via cleanup.
 func startStandaloneSource(t *testing.T) int {
 	t.Helper()
-	port := utils.GetFreePort(t)
-	root := t.TempDir()
-	dataDir := filepath.Join(root, "data")
-	pwFile := filepath.Join(root, "pwfile")
-	require.NoError(t, os.WriteFile(pwFile, []byte(sourcePassword), 0o600))
-
-	initCmd := executil.Command(t.Context(), "initdb",
-		"-D", dataDir, "-U", "postgres", "--pwfile="+pwFile,
-		"--encoding=UTF8", "--locale=C",
-		"--auth-local=trust", "--auth-host=scram-sha-256")
-	initCmd.SetEnv(utils.BaseTestEnv())
-	if out, err := initCmd.CombinedOutput(); err != nil {
-		t.Fatalf("initdb failed: %v\n%s", err, out)
-	}
-
-	hba := "local all all trust\nhost all all 127.0.0.1/32 scram-sha-256\nhost all all ::1/128 scram-sha-256\n"
-	require.NoError(t, os.WriteFile(filepath.Join(dataDir, "pg_hba.conf"), []byte(hba), 0o600))
-
-	logFile, err := os.Create(filepath.Join(root, "postgres.log"))
-	require.NoError(t, err)
-
-	pg := executil.Command(context.Background(), "postgres",
-		"-D", dataDir,
-		"-p", strconv.Itoa(port),
-		"-c", "listen_addresses=127.0.0.1",
-		"-c", "unix_socket_directories=",
-		"-c", "wal_level=logical",
-		"-c", "max_wal_senders=10",
-		"-c", "max_replication_slots=10",
-		"-c", "fsync=off",
-		"-c", "synchronous_commit=off",
-		"-c", "full_page_writes=off",
-	).WithProcessGroup()
-	pg.SetEnv(utils.BaseTestEnv())
-	if runtime.GOOS == "darwin" {
-		pg.AddEnv("LC_ALL=en_US.UTF-8") // avoid "postmaster became multithreaded" on macOS
-	}
-	pg.SetStdout(logFile)
-	pg.SetStderr(logFile)
-	require.NoError(t, pg.Start())
-	t.Cleanup(func() {
-		_, _ = pg.Stop(context.Background())
-		_ = logFile.Close()
+	server, err := pgbuilder.StartInstalledStandalone(t, t.Context(), sourcePassword, pgbuilder.StandaloneOptions{
+		Settings: pgbuilder.LogicalReplicationSettings,
 	})
-
-	require.Eventually(t, func() bool {
-		c := executil.Command(t.Context(), "pg_isready", "-h", "127.0.0.1", "-p", strconv.Itoa(port), "-U", "postgres", "-q")
-		return c.Run() == nil
-	}, 30*time.Second, 200*time.Millisecond, "source postgres must become ready")
-	return port
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = server.Stop() })
+	return server.Port
 }
 
 // sourceDSN returns a libpq conninfo (scram) for the standalone source.
