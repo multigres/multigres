@@ -506,6 +506,21 @@ func TestPoolerRecord_RegisterAndUnregister(t *testing.T) {
 	assert.Equal(t, clustermetadatapb.PoolerServingStatus_DISABLED, seen.ServingStatus)
 }
 
+// TestPoolerRecord_Unregister_NeverRegistered: a pooler that shuts down before it registers, which
+// is when the process stops before its server serves, writes nothing to the topology and does not
+// apply the shutdown state.
+func TestPoolerRecord_Unregister_NeverRegistered(t *testing.T) {
+	ts := &fakeTopoStore{}
+	r := mustNewPoolerRecord(t, ts, newTestPoolerProto(clustermetadatapb.PoolerType_PRIMARY, clustermetadatapb.PoolerServingStatus_SERVING))
+
+	finalized := false
+	r.Unregister(t.Context(), func(*MutablePoolerRecordState) { finalized = true })
+
+	assert.False(t, finalized, "the shutdown state is not applied to a record that was never registered")
+	assert.Zero(t, ts.attempts.Load(), "nothing is written to the topology")
+	assert.Equal(t, clustermetadatapb.PoolerServingStatus_SERVING, r.ServingStatus())
+}
+
 // TestPoolerRecord_Unregister_NoFinalize verifies that Unregister with a nil
 // finalize callback still cancels the publisher and toporeg goroutines and
 // publishes any state the caller wrote via Mutate beforehand.

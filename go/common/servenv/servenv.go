@@ -97,6 +97,8 @@ type ServEnv struct {
 	onTermSyncHooks event.Hooks
 	onRunHooks      event.Hooks
 	onRunEHooks     event.ErrorHooks
+	onServingHooks  event.Hooks
+	onServingEHooks event.ErrorHooks
 
 	// State
 	mu           sync.Mutex
@@ -413,6 +415,29 @@ func (se *ServEnv) OnRun(f func()) {
 // If the function returns an error, it will be collected and returned by FireRunHooks.
 func (se *ServEnv) OnRunE(f func() error) {
 	se.onRunEHooks.Add(f)
+}
+
+// OnServing registers f to be run once the gRPC servers serve, which Run does
+// after the OnRun hooks: the listeners are bound, and the services registered
+// from OnRun answer, only from then on. It is for what makes the process
+// reachable to others, such as registering it in a topology, which has to
+// wait for it. f does not run if a server fails to serve.
+func (se *ServEnv) OnServing(f func()) {
+	se.onServingHooks.Add(f)
+}
+
+// OnServingE registers an error-returning function to be run once the gRPC
+// servers serve, like OnServing. If the function returns an error, it will be
+// collected and returned by FireServingHooks.
+func (se *ServEnv) OnServingE(f func() error) {
+	se.onServingEHooks.Add(f)
+}
+
+// FireServingHooks fires the hooks registered by OnServing and OnServingE.
+// Returns an error if any OnServingE hooks fail (combined with errors.Join).
+func (se *ServEnv) FireServingHooks() error {
+	se.onServingHooks.Fire()
+	return se.onServingEHooks.Fire()
 }
 
 // LameduckPeriod is --lameduck-period: how long the process keeps serving
