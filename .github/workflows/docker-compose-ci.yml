@@ -164,31 +164,6 @@ jobs:
         if: failure()
         run: docker compose logs --no-color
 
-      - name: Notify Slack on main failure
-        if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-        run: |
-          if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
-
-          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          sha_short="${GITHUB_SHA:0:7}"
-
-          payload=$(jq -n \
-            --arg url "$run_url" \
-            --arg sha "$sha_short" \
-            '{
-              blocks: [
-                {type: "header", text: {type: "plain_text", text: ":rotating_light: docker-compose cluster smoke test failed on main"}},
-                {type: "section", text: {type: "mrkdwn", text: ("The Multigres docker-compose cluster smoke test failed on `main` (commit `" + $sha + "`). The cluster image build, bootstrap, or compatibility queries may be broken.")}},
-                {type: "section", text: {type: "mrkdwn", text: ("<" + $url + "|View CI run>")}}
-              ]
-            }')
-
-          curl -sf -X POST -H 'Content-type: application/json' \
-            --data "$payload" \
-            "$SLACK_WEBHOOK_URL"
-
       - name: Tear down the cluster
         if: always()
         run: docker compose down -v --remove-orphans

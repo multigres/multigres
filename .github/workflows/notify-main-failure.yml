@@ -1,0 +1,101 @@
+# Copyright 2026 Supabase, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Send a Slack alert (#team-multigres) when any workflow run on the main
+# branch fails or times out, for any reason. This includes runner crashes,
+# skipped jobs and startup failures, which a step inside the workflow cannot
+# report.
+#
+# Notes:
+# - "*" covers every workflow, including new ones. This workflow is excluded
+#   by name, so it cannot trigger itself.
+# - The pgregress, sqllogictest and pgproto workflows are excluded by name.
+#   They already post their own alerts to Slack. If you rename one of them,
+#   update the list below.
+# - Cancelled runs do not alert. Superseded runs cancel often.
+# - This workflow runs with secrets. It must never check out or run code from
+#   the triggering run. It only reads the event payload.
+# - It runs only from the default branch, so test it after it is merged.
+
+name: Notify Main Failure
+
+# zizmor flags every workflow_run workflow, because it runs with secrets. This
+# one is safe: it never checks out code, downloads artifacts or runs anything
+# from the triggering run. It only reads event fields, through env.
+# yamllint disable-line rule:truthy
+on: # zizmor: ignore[dangerous-triggers]
+  workflow_run:
+    workflows: ["*"]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  notify:
+    name: Notify Slack
+    runs-on: ubuntu-24.04
+    environment:
+      name: ci
+      deployment: false
+    if: >-
+      github.event.workflow_run.name != 'Notify Main Failure' &&
+      !contains(fromJSON('["PostgreSQL Compatibility Tests", "SQLLogicTest Differential Suite", "pgproto Wire-Protocol Conformance Suite"]'), github.event.workflow_run.name) &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.event != 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      contains(fromJSON('["failure", "timed_out"]'), github.event.workflow_run.conclusion)
+    steps:
+      - name: Post failure to Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          TRIGGER_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          COMMIT_TITLE: ${{ github.event.workflow_run.head_commit.message }}
+        run: |
+          if [[ -z "$SLACK_WEBHOOK_URL" ]]; then echo "No webhook configured, skipping"; exit 0; fi
+
+          sha_short="${HEAD_SHA:0:7}"
+          # Use only the first line of the commit message. It is not trusted
+          # (for example, a PR title), so the jq filter escapes the Slack
+          # control characters before it goes into the mrkdwn block.
+          title="${COMMIT_TITLE%%$'\n'*}"
+
+          case "$CONCLUSION" in
+            timed_out) verb="timed out" ;;
+            *) verb="failed" ;;
+          esac
+
+          payload=$(jq -n \
+            --arg name "$WORKFLOW_NAME" \
+            --arg verb "$verb" \
+            --arg event "$TRIGGER_EVENT" \
+            --arg url "$RUN_URL" \
+            --arg attempt "$RUN_ATTEMPT" \
+            --arg sha "$sha_short" \
+            --arg title "$title" \
+            '{
+              blocks: [
+                {type: "header", text: {type: "plain_text", text: (":rotating_light: " + $name + " " + $verb + " on main")}},
+                {type: "section", text: {type: "mrkdwn", text: ("Trigger: `" + $event + "`, commit `" + $sha + "`, attempt " + $attempt + "\n" + ($title | gsub("&"; "&amp;") | gsub("<"; "&lt;") | gsub(">"; "&gt;")))}},
+                {type: "section", text: {type: "mrkdwn", text: ("<" + $url + "|View CI run>")}}
+              ]
+            }')
+
+          curl -sf -X POST -H 'Content-type: application/json' \
+            --data "$payload" \
+            "$SLACK_WEBHOOK_URL"
