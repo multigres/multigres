@@ -330,7 +330,7 @@ type RPCError struct {
 	Message string                 `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
 	Code    Code                   `protobuf:"varint,2,opt,name=code,proto3,enum=mtrpc.Code" json:"code,omitempty"`
 	// pg_diagnostic contains the full PostgreSQL diagnostic information when the error
-	// originated from PostgreSQL. This allows preserving all 14 PostgreSQL error fields
+	// originated from PostgreSQL. This allows preserving all PostgreSQL error fields
 	// (SQLSTATE, position, hint, detail, etc.) through gRPC serialization, enabling
 	// proper PostgreSQL-format error display to clients.
 	// When present, this should be used to format the error response to the client.

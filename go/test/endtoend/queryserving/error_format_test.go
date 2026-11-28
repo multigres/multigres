@@ -732,3 +732,44 @@ func TestErrorFormat_ParserDiagnostics(t *testing.T) {
 		})
 	}
 }
+
+// TestErrorFormat_SourceLocationFields tests that the File, Line, and Routine
+// diagnostic fields ('F', 'L', 'R') reported by PostgreSQL are preserved.
+//
+// Each subtest runs against both direct PostgreSQL and multigateway to ensure
+// the proxy behavior matches native PostgreSQL exactly.
+func TestErrorFormat_SourceLocationFields(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping error format test in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("PostgreSQL binaries not found, skipping error format tests")
+	}
+
+	setup := getSharedSetup(t)
+	setup.SetupTest(t)
+	ctx := utils.WithTimeout(t, 30*time.Second)
+
+	for _, target := range setup.GetComparisonTargets(t) {
+		t.Run(target.Name, func(t *testing.T) {
+			connStr := shardsetup.GetTestUserDSN("localhost", target.Port, "sslmode=disable")
+			conn, err := pgx.Connect(ctx, connStr)
+			require.NoError(t, err)
+			defer conn.Close(ctx)
+
+			_, err = conn.Exec(ctx, "SELECT 1/0")
+			require.Error(t, err)
+
+			var pgErr *pgconn.PgError
+			require.True(t, errors.As(err, &pgErr), "expected pgconn.PgError, got %T", err)
+
+			// 22012 = division_by_zero, raised by PostgreSQL itself, so the
+			// source-location triple must be present on both targets.
+			assert.Equal(t, "22012", pgErr.Code)
+			assert.NotEmpty(t, pgErr.File, "File ('F') field should be preserved")
+			assert.Greater(t, pgErr.Line, int32(0), "Line ('L') field should be preserved")
+			assert.NotEmpty(t, pgErr.Routine, "Routine ('R') field should be preserved")
+			t.Logf("Source location: %s:%d in %s", pgErr.File, pgErr.Line, pgErr.Routine)
+		})
+	}
+}
