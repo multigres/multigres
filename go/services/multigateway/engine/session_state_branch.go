@@ -110,13 +110,11 @@ func NewSessionStateBranch(tableGroup, shard, sql string, pinned, unpinned Primi
 
 // choose picks the pinned branch when the set_config will land on a
 // session-affine backend: the session is already pinned, OR this statement
-// reserves its own backend (see StatementReservesBackend), OR reservesBackend
-// is set by the caller for a path that reserves at runtime (a row-limited
-// portal — the multipooler reserves any maxRows>0 portal for possible
-// resumption). The unpinned branch (revert) is correct only when the set_config
-// truly lands on a pooled backend that returns to the pool.
-func (b *SessionStateBranch) choose(conn *server.Conn, state *handler.MultigatewayConnectionState, info PlanExecInfo, reservesBackend bool) Primitive {
-	if reservesBackend || SessionPinned(conn, state, b.TableGroup, b.Shard) || StatementReservesBackend(info) {
+// reserves its own backend (see StatementReservesBackend). The unpinned branch
+// (revert) is correct only when the set_config truly lands on a pooled backend
+// that returns to the pool.
+func (b *SessionStateBranch) choose(conn *server.Conn, state *handler.MultigatewayConnectionState, info PlanExecInfo) Primitive {
+	if SessionPinned(conn, state, b.TableGroup, b.Shard) || StatementReservesBackend(info) {
 		return b.Pinned
 	}
 	return b.Unpinned
@@ -134,13 +132,13 @@ func (b *SessionStateBranch) StreamExecute(
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return b.choose(conn, state, info, false).StreamExecute(ctx, exec, conn, state, bindVars, info, callback)
+	return b.choose(conn, state, info).StreamExecute(ctx, exec, conn, state, bindVars, info, callback)
 }
 
 // PortalStreamExecute dispatches to the pinned or unpinned child for the
-// extended-protocol path. A row-limited portal (maxRows > 0) is reserved by the
-// multipooler for possible resumption, so its set_config lands on a reserved
-// backend and must persist for real — treat it as pinned.
+// extended-protocol path. The multipooler keeps a suspended portal's backend
+// only inside a transaction, which already pins the session, so a row-limited
+// portal follows the same rule as a simple query.
 func (b *SessionStateBranch) PortalStreamExecute(
 	ctx context.Context,
 	exec IExecute,
@@ -152,7 +150,7 @@ func (b *SessionStateBranch) PortalStreamExecute(
 	info PlanExecInfo,
 	callback func(context.Context, *sqltypes.Result) error,
 ) error {
-	return b.choose(conn, state, info, maxRows > 0).PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, includeDescribe, info, callback)
+	return b.choose(conn, state, info).PortalStreamExecute(ctx, exec, conn, state, portalInfo, maxRows, includeDescribe, info, callback)
 }
 
 // GetTableGroup returns the branch's routing target.

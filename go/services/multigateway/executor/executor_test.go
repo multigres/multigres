@@ -814,6 +814,21 @@ func TestPortalStreamExecute_RunsCacheableSequencePlan(t *testing.T) {
 		"the portal must be forwarded to the backend before silent tracking")
 }
 
+// TestPortalStreamExecute_RowLimitedSetConfigReverts checks that a row-limited
+// portal on an unpinned session also gets its set_config rewritten to
+// is_local := true. Outside a transaction the multipooler does not keep its
+// backend, so a persisting set_config would stay on a pooled backend.
+func TestPortalStreamExecute_RowLimitedSetConfigReverts(t *testing.T) {
+	mock := &mockExec{}
+	exec := newTestExecutor(mock)
+	defer exec.planCache.Close()
+
+	portal := makePortalInfo(t, "SELECT set_config('work_mem', '256MB', false)")
+	_, err := exec.PortalStreamExecute(context.Background(), testConn(), handler.NewMultigatewayConnectionState(), portal, 1, false, noopCallback)
+	require.NoError(t, err)
+	assert.Equal(t, "SELECT set_config('work_mem', '256MB', TRUE)", mock.lastPortalStreamExecuteQS.Load())
+}
+
 // TestStreamExecute_SetConfigWithSiblingLiteral covers the simple-protocol
 // shape `SELECT set_config(literal, literal, false), <other-literal>`. The
 // normalizer skips the set_config subtree but still parameterizes the
