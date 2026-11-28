@@ -97,6 +97,7 @@ type migrationSource interface {
 	checkQuiesceRoles(roles []string) error
 	CurrentLSN() (string, error)
 	ReplicationLag(slot string) (lagBytes uint64, lagSeconds float64, present bool, err error)
+	SubscriptionStatus(name string) (*SubscriptionStatus, error)
 	SubscriptionExists(name string) (bool, error)
 	PublicationExists(name string) (bool, error)
 	WaitSlotConfirmed(slot, targetLSN string) error

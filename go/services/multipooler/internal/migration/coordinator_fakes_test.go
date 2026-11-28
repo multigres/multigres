@@ -454,14 +454,18 @@ type fakeSource struct {
 	dumpSchema string
 	dumpErr    error
 
-	createPubErr    error
-	dropPubErr      error
-	createSubErr    error
-	dropSubErr      error
-	setROErr        error
-	setSessionROErr error
-	currentLSNErr   error
-	currentLSN      string
+	createPubErr error
+	dropPubErr   error
+	createSubErr error
+	// createSubCopyData captures the copyData argument of the last
+	// CreateSubscription call, so tests can assert the coordinator chose the
+	// correct full-copy-vs-resume behavior.
+	createSubCopyData bool
+	dropSubErr        error
+	setROErr          error
+	setSessionROErr   error
+	currentLSNErr     error
+	currentLSN        string
 
 	lag        uint64
 	lagSeconds float64
@@ -471,6 +475,13 @@ type fakeSource struct {
 	// for a change that lands while SetMigrationDirection's readiness wait is
 	// unlocked (e.g. simulating the connection's ownership changing mid-wait).
 	onReplicationLag func()
+
+	// status, when nil, defaults to caught up: most tests exercising the EXPORT
+	// reverse link care only about subscription/slot existence, not the
+	// source-side copy-readiness gate (see TestReseedReverseLink_* and
+	// TestEnsureReverseExportLink_* for the tests that set this explicitly).
+	status    *SubscriptionStatus
+	statusErr error
 
 	subExists    bool
 	subExistsErr error
@@ -554,8 +565,9 @@ func (s *fakeSource) DropPublication(string) error {
 	return s.dropPubErr
 }
 
-func (s *fakeSource) CreateSubscription(string, string, string, bool, string) error {
+func (s *fakeSource) CreateSubscription(_, _, _ string, copyData bool, _ string) error {
 	s.record("CreateSubscription")
+	s.createSubCopyData = copyData
 	return s.createSubErr
 }
 
@@ -629,6 +641,18 @@ func (s *fakeSource) ReplicationLag(string) (uint64, float64, bool, error) {
 		s.onReplicationLag()
 	}
 	return s.lag, s.lagSeconds, s.lagPresent, s.lagErr
+}
+
+func (s *fakeSource) SubscriptionStatus(string) (*SubscriptionStatus, error) {
+	if s.statusErr != nil {
+		return nil, s.statusErr
+	}
+	if s.status == nil {
+		return &SubscriptionStatus{TotalRelations: 1, ReadyRelations: 1, CaughtUp: true}, nil
+	}
+	st := s.status
+	st.CaughtUp = st.TotalRelations > 0 && st.ReadyRelations == st.TotalRelations
+	return st, nil
 }
 
 func (s *fakeSource) SubscriptionExists(string) (bool, error) {

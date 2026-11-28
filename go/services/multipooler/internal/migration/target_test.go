@@ -27,6 +27,25 @@ import (
 	"github.com/multigres/multigres/go/common/sqltypes"
 )
 
+func TestSubscriptionStatus_DeriveCaughtUp(t *testing.T) {
+	cases := []struct {
+		name           string
+		totalRelations int64
+		readyRelations int64
+		want           bool
+	}{
+		{"no relations yet", 0, 0, false},
+		{"some ready, not all", 3, 2, false},
+		{"all ready", 3, 3, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &SubscriptionStatus{TotalRelations: tc.totalRelations, ReadyRelations: tc.readyRelations}
+			require.Equal(t, tc.want, st.deriveCaughtUp())
+		})
+	}
+}
+
 func TestTablesValuesClause(t *testing.T) {
 	require.Equal(t, "(VALUES ('public.orders')) AS t(tbl)", tablesValuesClause([]string{"public.orders"}))
 	require.Equal(t, "(VALUES ('public.orders'), ('app.items')) AS t(tbl)",

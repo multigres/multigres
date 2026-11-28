@@ -1443,11 +1443,18 @@ func TestEnsureReverseExportLink_UnquiescesBeforeAttaching(t *testing.T) {
 // stale subscription must be dropped, the slot recreated fresh, and the
 // subscription resubscribed with a full copy (copy_data=true), since there is
 // no safe way to resume into a slot that lost its position in the failover.
+//
+// It also covers the fix for the premature-clear bug: CREATE SUBSCRIPTION
+// succeeding says nothing about whether the asynchronous tablesync copy that
+// follows it has actually finished, so the degraded marker must stay set
+// until a later reconcile tick (ensureReverseExportLink) observes the source
+// report every relation ready.
 func TestReseedReverseLink_RepairsDegradedLink(t *testing.T) {
 	tc := newTestCoord(t)
 	m := tc.seed(&Migration{Phase: PhaseExporting, ReverseLinkError: "reverse export subscription exists but its slot is missing or unusable"})
 	tc.src.subExists = true
 	tc.tgt.slotReady = false
+	tc.src.status = &SubscriptionStatus{TotalRelations: 1, ReadyRelations: 0} // copy still running
 
 	_, err := tc.c.ReseedReverseLink(context.Background(), Ref{ID: m.ID})
 	require.NoError(t, err)
@@ -1457,9 +1464,65 @@ func TestReseedReverseLink_RepairsDegradedLink(t *testing.T) {
 	require.Contains(t, tc.log, "target.CreateLogicalSlot", "the slot must be recreated fresh")
 	require.Contains(t, tc.log, "source.CreateSubscription", "the subscription must be recreated")
 
-	require.Empty(t, tc.store.migs[m.ID].ReverseLinkError, "a successful reseed must clear the degraded marker")
+	require.NotEmpty(t, tc.store.migs[m.ID].ReverseLinkError,
+		"the marker must stay set until a tick confirms the copy actually finished")
 	events := tc.store.journalEvents(m.ID)
 	require.Contains(t, events, JournalEventReseed, "the repair must be recorded for audit visibility")
+
+	// A later reconcile tick finds the slot now ready (the reseed just
+	// recreated it) and the source reporting the copy caught up.
+	tc.tgt.slotReady = true
+	tc.src.status = &SubscriptionStatus{TotalRelations: 1, ReadyRelations: 1}
+	require.NoError(t, tc.c.ensureReverseExportLink(context.Background(), m))
+	require.Empty(t, tc.store.migs[m.ID].ReverseLinkError, "the tick must clear the marker once the copy is confirmed caught up")
+}
+
+// TestReseedReverseLink_SetsPendingMarkerWhenEmpty covers a reseed that runs
+// while ReverseLinkError is still empty (e.g. an operator-triggered repair
+// racing ahead of the reconcile tick that would otherwise have recorded the
+// link as degraded): refreshReverseLinkMarker only re-checks source status
+// while a marker is set, so without one here the fresh copy would never be
+// re-verified by any later tick. ReseedReverseLink must set its own pending
+// marker in that case.
+func TestReseedReverseLink_SetsPendingMarkerWhenEmpty(t *testing.T) {
+	tc := newTestCoord(t)
+	m := tc.seed(&Migration{Phase: PhaseExporting})
+	tc.src.subExists = false
+	tc.tgt.slotReady = false
+	tc.src.status = &SubscriptionStatus{TotalRelations: 1, ReadyRelations: 0} // copy still running
+
+	_, err := tc.c.ReseedReverseLink(context.Background(), Ref{ID: m.ID})
+	require.NoError(t, err)
+
+	require.NotEmpty(t, tc.store.migs[m.ID].ReverseLinkError,
+		"a pending marker must be set so a later tick keeps re-checking the fresh copy")
+
+	// A later reconcile tick finds the subscription attached, the slot ready
+	// (the reseed just recreated it), and the source reporting caught up.
+	tc.src.subExists = true
+	tc.tgt.slotReady = true
+	tc.src.status = &SubscriptionStatus{TotalRelations: 1, ReadyRelations: 1}
+	require.NoError(t, tc.c.ensureReverseExportLink(context.Background(), m))
+	require.Empty(t, tc.store.migs[m.ID].ReverseLinkError, "the tick must clear the marker once the copy is confirmed caught up")
+}
+
+// TestReseedReverseLink_PendingMarkerPersistErrorFailsRPC covers a failure
+// persisting the pending marker itself, before anything is mutated: the
+// marker must be durable before the destructive drop/recreate/resubscribe
+// sequence runs, so a failure here must surface and abort before any of
+// that happens — nothing has changed yet, so retrying is always safe.
+func TestReseedReverseLink_PendingMarkerPersistErrorFailsRPC(t *testing.T) {
+	tc := newTestCoord(t)
+	m := tc.seed(&Migration{Phase: PhaseExporting})
+	tc.src.subExists = false
+	tc.tgt.slotReady = false
+	tc.src.status = &SubscriptionStatus{TotalRelations: 1, ReadyRelations: 0} // copy still running
+	tc.store.updateErr = errors.New("store unavailable")
+
+	_, err := tc.c.ReseedReverseLink(context.Background(), Ref{ID: m.ID})
+	require.ErrorContains(t, err, "store unavailable")
+
+	require.NotContains(t, tc.log, "source.CreateSubscription", "the repair must not run until the marker has durably persisted")
 }
 
 // TestReseedReverseLink_RecreatesWhenNothingExists covers the case where no
@@ -1498,6 +1561,123 @@ func TestReseedReverseLink_AlreadyHealthyIsNoOp(t *testing.T) {
 	require.NotContains(t, tc.log, "target.CreateLogicalSlot")
 	require.NotContains(t, tc.log, "source.CreateSubscription")
 	require.Empty(t, tc.store.migs[m.ID].ReverseLinkError, "a stale marker must still be cleared")
+}
+
+// TestReseedReverseLink_AlreadyHealthy_StatusCheckError covers the no-op
+// path's error return: with a degraded marker actually set, a failure reading
+// the source's copy status must surface instead of being swallowed, same as
+// every other source call in this method.
+func TestReseedReverseLink_AlreadyHealthy_StatusCheckError(t *testing.T) {
+	tc := newTestCoord(t)
+	m := tc.seed(&Migration{Phase: PhaseExporting, ReverseLinkError: "stale"})
+	tc.src.subExists = true
+	tc.tgt.slotReady = true
+	tc.src.statusErr = errors.New("connection reset")
+
+	_, err := tc.c.ReseedReverseLink(context.Background(), Ref{ID: m.ID})
+	require.ErrorContains(t, err, "connection reset")
+}
+
+// TestReseedReverseLink_RepairSucceeds_StatusCheckErrorAfter covers the
+// trailing copy-status check after a real repair: because the destructive
+// repair (drop, recreate slot, resubscribe) has already committed and been
+// journaled, a failure in that trailing check must not be reported as the
+// RPC's failure — it is only logged, and a later reconcile tick re-checks it.
+func TestReseedReverseLink_RepairSucceeds_StatusCheckErrorAfter(t *testing.T) {
+	tc := newTestCoord(t)
+	m := tc.seed(&Migration{Phase: PhaseExporting, ReverseLinkError: "stale"})
+	tc.src.subExists = false
+	tc.tgt.slotReady = false
+	tc.src.statusErr = errors.New("connection reset")
+
+	_, err := tc.c.ReseedReverseLink(context.Background(), Ref{ID: m.ID})
+	require.NoError(t, err, "a trailing status-check failure must not mask the repair's success")
+
+	require.Contains(t, tc.log, "target.CreateLogicalSlot", "the repair itself must still run")
+	require.Contains(t, tc.log, "source.CreateSubscription", "the repair itself must still run")
+}
+
+// TestEnsureReverseExportLink_CopyStatusError covers ensureReverseExportLink
+// propagating a source copy-status read failure once the subscription and
+// slot are both attached and a degraded marker is actually set.
+func TestEnsureReverseExportLink_CopyStatusError(t *testing.T) {
+	tc := newTestCoord(t)
+	m := tc.seed(&Migration{Phase: PhaseExporting, ReverseLinkError: "stale"})
+	tc.src.subExists = true
+	tc.tgt.slotReady = true
+	tc.src.statusErr = errors.New("connection reset")
+
+	err := tc.c.ensureReverseExportLink(context.Background(), m)
+	require.ErrorContains(t, err, "connection reset")
+}
+
+// TestRefreshReverseLinkMarker_PersistError covers the marker-clear persist
+// failure: the source confirming the copy caught up is not enough if the
+// coordinator can't durably record it, so the error must surface rather than
+// the caller believing the marker was cleared.
+func TestRefreshReverseLinkMarker_PersistError(t *testing.T) {
+	tc := newTestCoord(t)
+	m := tc.seed(&Migration{Phase: PhaseExporting, ReverseLinkError: "stale"})
+	tc.src.subExists = true
+	tc.tgt.slotReady = true
+	tc.src.status = &SubscriptionStatus{TotalRelations: 1, ReadyRelations: 1}
+	tc.store.updateErr = errors.New("store unavailable")
+
+	err := tc.c.ensureReverseExportLink(context.Background(), m)
+	require.ErrorContains(t, err, "store unavailable")
+}
+
+// TestEnsureReverseExportLink_ResumeHonorsReseedIntent covers crash recovery
+// mid-reseed: ReseedReverseLink recreates the slot fresh and persists a
+// pending marker before resubscribing, so if it crashes (or is retried) after
+// the slot becomes ready but before CreateSubscription runs, a later
+// ensureReverseExportLink tick must still see the pending marker and
+// resubscribe with copy_data=true — not assume the slot is the original
+// switch barrier's and silently skip the copy with copy_data=false.
+func TestEnsureReverseExportLink_ResumeHonorsReseedIntent(t *testing.T) {
+	tc := newTestCoord(t)
+	m := tc.seed(&Migration{Phase: PhaseExporting, ReverseLinkError: "reseed in progress"})
+	tc.src.subExists = false
+	tc.tgt.slotReady = true
+
+	require.NoError(t, tc.c.ensureReverseExportLink(context.Background(), m))
+
+	require.Contains(t, tc.log, "source.CreateSubscription")
+	require.True(t, tc.src.createSubCopyData, "a slot readied by an in-progress reseed needs a fresh full copy, not a resume")
+}
+
+// TestEnsureReverseExportLink_FreshSwitchUsesResume covers the ordinary path
+// this guards against false-positiving on: right after a fresh ACTIVATE/
+// DEACTIVATE switch, ReverseLinkError is empty and the barrier already made
+// both sides identical at the slot's LSN, so attaching must still resume
+// (copy_data=false) rather than pay for an unnecessary full copy.
+func TestEnsureReverseExportLink_FreshSwitchUsesResume(t *testing.T) {
+	tc := newTestCoord(t)
+	m := tc.seed(&Migration{Phase: PhaseExporting})
+	tc.src.subExists = false
+	tc.tgt.slotReady = true
+
+	require.NoError(t, tc.c.ensureReverseExportLink(context.Background(), m))
+
+	require.Contains(t, tc.log, "source.CreateSubscription")
+	require.False(t, tc.src.createSubCopyData, "a fresh switch's barrier already aligned both sides, so no copy is needed")
+}
+
+// TestSetMigrationDirection_DeactivateBlocksOnIncompleteReverseCopy covers the
+// gap drainCurrent's own barrier leaves: waiting for the reverse subscription's
+// main slot to confirm past a captured LSN says nothing about whether its
+// separate per-relation tablesync workers have finished their initial copy, so
+// SetMigrationDirection must check copy readiness itself and refuse to persist
+// the switch while it is still running.
+func TestSetMigrationDirection_DeactivateBlocksOnIncompleteReverseCopy(t *testing.T) {
+	tc := newTestCoord(t)
+	m := tc.seed(&Migration{Phase: PhaseExporting})
+	tc.src.status = &SubscriptionStatus{TotalRelations: 2, ReadyRelations: 1} // one table still copying
+
+	_, err := tc.c.SetMigrationDirection(context.Background(), Ref{ID: m.ID}, DirectionImport, ActivateOptions{})
+	require.ErrorIs(t, err, ErrNotReady)
+
+	require.Equal(t, PhaseExporting, tc.store.migs[m.ID].Phase, "the switch intent must not be persisted while the copy is incomplete")
 }
 
 // TestReseedReverseLink_RejectsNonExportingPhase covers the guard: this is a

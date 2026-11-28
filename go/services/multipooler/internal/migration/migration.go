@@ -247,10 +247,13 @@ type Migration struct {
 	LastError string
 
 	// ReverseLinkError is set when ensureReverseExportLink finds the EXPORT
-	// reverse link unusable (missing, still temporary, or invalidated slot) and
-	// cleared once Coordinator.ReseedReverseLink repairs it. Empty means the
-	// link is healthy (or the migration has never been EXPORTING). Distinct
-	// from LastError/PhaseFailed: a degraded reverse link does not fail the
+	// reverse link unusable (missing, still temporary, or invalidated slot), or
+	// by Coordinator.ReseedReverseLink itself as a pending marker while a
+	// repair's fresh copy is still running. Cleared only once a source-side
+	// check confirms the copy has actually caught up (see
+	// Coordinator.refreshReverseLinkMarker). Empty means the link is healthy
+	// (or the migration has never been EXPORTING). Distinct from
+	// LastError/PhaseFailed: a degraded reverse link does not fail the
 	// migration — it is still EXPORTING and serving, only its rollback path is
 	// broken — so this must never drive a phase transition.
 	ReverseLinkError string
