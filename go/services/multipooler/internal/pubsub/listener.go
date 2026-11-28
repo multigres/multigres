@@ -274,7 +274,7 @@ func (l *Listener) run(ctx context.Context, requests chan request, stopped chan 
 		var err error
 		conn, err = l.poolManager.NewReservedConn(ctx, nil, l.poolManager.PgUser(), nil, nil)
 		if err != nil {
-			l.logger.ErrorContext(ctx, "pubsub: failed to acquire reserved connection", "error", err)
+			l.logger.WarnContext(ctx, "pubsub: failed to acquire reserved connection", "error", err)
 			conn = nil
 			return
 		}
@@ -293,7 +293,7 @@ func (l *Listener) run(ctx context.Context, requests chan request, stopped chan 
 		for ch := range channels {
 			_, err := conn.Query(ctx, "LISTEN "+ast.QuoteIdentifier(ch))
 			if err != nil {
-				l.logger.ErrorContext(ctx, "pubsub: failed to re-LISTEN", "channel", ch, "error", err)
+				l.logger.WarnContext(ctx, "pubsub: failed to re-LISTEN", "channel", ch, "error", err)
 				releaseConn()
 				return
 			}
@@ -343,7 +343,7 @@ func (l *Listener) run(ctx context.Context, requests chan request, stopped chan 
 				if oldCount == 0 && conn != nil {
 					// First subscriber for this channel — issue LISTEN on the live connection.
 					if err := conn.SendQuery("LISTEN " + ast.QuoteIdentifier(req.channel)); err != nil {
-						l.logger.ErrorContext(ctx, "pubsub: failed to send LISTEN",
+						l.logger.WarnContext(ctx, "pubsub: failed to send LISTEN",
 							"channel", req.channel, "error", err)
 						// Connection is broken, schedule reconnect.
 						releaseConn()
@@ -370,7 +370,7 @@ func (l *Listener) run(ctx context.Context, requests chan request, stopped chan 
 				}
 				if result.needsUnlisten && conn != nil {
 					if err := conn.SendQuery("UNLISTEN " + ast.QuoteIdentifier(req.channel)); err != nil {
-						l.logger.ErrorContext(ctx, "pubsub: failed to send UNLISTEN",
+						l.logger.WarnContext(ctx, "pubsub: failed to send UNLISTEN",
 							"channel", req.channel, "error", err)
 						releaseConn()
 						reconnectTimer.Reset(2 * time.Second)
@@ -401,7 +401,7 @@ func (l *Listener) run(ctx context.Context, requests chan request, stopped chan 
 				if conn != nil {
 					for _, ch := range toUnlisten {
 						if err := conn.SendQuery("UNLISTEN " + ast.QuoteIdentifier(ch)); err != nil {
-							l.logger.ErrorContext(ctx, "pubsub: failed to send UNLISTEN",
+							l.logger.WarnContext(ctx, "pubsub: failed to send UNLISTEN",
 								"channel", ch, "error", err)
 							releaseConn()
 							reconnectTimer.Reset(2 * time.Second)
@@ -443,7 +443,7 @@ func (l *Listener) run(ctx context.Context, requests chan request, stopped chan 
 
 		case msg := <-readerCh:
 			if msg.err != nil {
-				l.logger.ErrorContext(ctx, "pubsub: reader error, will reconnect", "error", msg.err)
+				l.logger.WarnContext(ctx, "pubsub: reader error, will reconnect", "error", msg.err)
 				releaseConn()
 				l.metrics.Reconnect(ctx)
 				reconnectTimer.Reset(2 * time.Second)
@@ -502,7 +502,7 @@ func (l *Listener) drainCommands(
 			return
 		case msg := <-readerCh:
 			if msg.err != nil {
-				l.logger.ErrorContext(ctx, "pubsub: reader error during command wait, will reconnect",
+				l.logger.WarnContext(ctx, "pubsub: reader error during command wait, will reconnect",
 					"error", msg.err)
 				if *conn != nil {
 					(*conn).Release(reserved.ReleaseError, nil)

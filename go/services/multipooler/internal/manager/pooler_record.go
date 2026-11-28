@@ -461,7 +461,7 @@ func (r *poolerRecord) publishIfNeeded(ctx context.Context) {
 	defer cancel()
 
 	if err := r.topoClient.RegisterMultipooler(publishCtx, pub, true); err != nil {
-		r.logger.ErrorContext(ctx, "failed to publish multipooler state to topology; will retry",
+		r.logger.WarnContext(ctx, "failed to publish multipooler state to topology; will retry",
 			"error", err,
 			"routing_role", pub.GetRoutingState().GetRole().String(),
 			"serving_status", pub.ServingStatus.String())

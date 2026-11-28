@@ -1712,7 +1712,7 @@ func (e *Executor) CopySendData(
 
 	// Write CopyData to PostgreSQL
 	if err := conn.WriteCopyData(data); err != nil {
-		e.logger.ErrorContext(ctx, "failed to write COPY data",
+		e.logger.WarnContext(ctx, "failed to write COPY data",
 			"error", err,
 			"data_size", len(data))
 		_, rerr := e.reservedConnError(reservedConn, "failed to write COPY data", err)
@@ -1755,7 +1755,7 @@ func (e *Executor) CopyFinalize(
 	// Send any remaining data first
 	if len(finalData) > 0 {
 		if err := conn.WriteCopyData(finalData); err != nil {
-			e.logger.ErrorContext(ctx, "failed to write final COPY data", "error", err)
+			e.logger.WarnContext(ctx, "failed to write final COPY data", "error", err)
 			// Connection is in bad state - close it instead of recycling
 			reservedConn.Release(reserved.ReleaseError, nil)
 			return nil, nil, fmt.Errorf("failed to write final COPY data: %w", err)
@@ -1765,7 +1765,7 @@ func (e *Executor) CopyFinalize(
 
 	// Send CopyDone to signal completion
 	if err := conn.WriteCopyDone(); err != nil {
-		e.logger.ErrorContext(ctx, "failed to write CopyDone", "error", err)
+		e.logger.WarnContext(ctx, "failed to write CopyDone", "error", err)
 		// Connection is in bad state - close it instead of recycling
 		reservedConn.Release(reserved.ReleaseError, nil)
 		return nil, nil, fmt.Errorf("failed to write CopyDone: %w", err)
