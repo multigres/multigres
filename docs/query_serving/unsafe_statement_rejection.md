@@ -407,6 +407,11 @@ Reverts are allowed because they can only restore the cluster-managed value.
 The rejection is a `feature_not_supported` (`0A000`) error pointing users at
 `RESET`.
 
+`UPDATE pg_settings` is refused whatever the GUC: PostgreSQL's `pg_settings_u`
+rule applies it as `set_config(name, setting, false)`, a session-level change
+the gateway never sees, so it would stay on the pooled backend for the next
+client. Users are pointed at `SET` / `set_config()` instead.
+
 **Where it runs.** In `checkRestrictedGUCChange`, called from
 `analyzeStatement` alongside the Tier 2 and expression-level checks, so
 it covers both query protocols and is short-circuited by the plan cache. The
