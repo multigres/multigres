@@ -30,6 +30,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 	"github.com/multigres/multigres/go/services/multipooler/internal/switcher"
 	"github.com/multigres/multigres/go/tools/pgutil"
+	"github.com/multigres/multigres/go/tools/telemetry"
 	"github.com/multigres/multigres/go/tools/timer"
 )
 
@@ -91,7 +92,7 @@ func NewReader(queryService executor.InternalQueryService, logger *slog.Logger, 
 
 // newReader creates a heartbeat reader with a configurable interval.
 func newReader(queryService executor.InternalQueryService, logger *slog.Logger, shardID []byte, interval time.Duration) *Reader {
-	runner := timer.NewPeriodicRunner(context.TODO(), interval)
+	runner := timer.NewPeriodicRunner(telemetry.WithTask(context.TODO(), "heartbeat-reader"), interval)
 	return &Reader{
 		queryService: queryService,
 		logger:       logger,
@@ -153,7 +154,7 @@ func (r *Reader) readHeartbeat(ctx context.Context) {
 
 	tsNano, receiveLSN, haveReceiveLSN, quorumCommitLSN, haveQuorumCommitLSN, quorumCommitTs, haveQuorumCommitTs, err := r.fetchMostRecentHeartbeat(readCtx)
 	if err != nil {
-		r.recordError(err)
+		r.recordError(ctx, err)
 		return
 	}
 	// Read the clock once so lag and the advance timestamps reflect the same instant.
@@ -277,11 +278,11 @@ func (r *Reader) QuorumCommitTs() (time.Time, bool) {
 }
 
 // recordError keeps track of the lastKnown error for reporting to Status().
-func (r *Reader) recordError(err error) {
+func (r *Reader) recordError(ctx context.Context, err error) {
 	r.lagMu.Lock()
 	r.lastKnownError = err
 	r.lagMu.Unlock()
-	r.logger.Error("failed to read heartbeat", "error", err)
+	r.logger.ErrorContext(ctx, "failed to read heartbeat", "error", err)
 	r.readErrors.Add(1)
 }
 

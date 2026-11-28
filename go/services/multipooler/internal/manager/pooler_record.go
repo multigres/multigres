@@ -29,6 +29,7 @@ import (
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multipooler/internal/manager/actionlock"
 	"github.com/multigres/multigres/go/tools/retry"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 const (
@@ -333,10 +334,10 @@ func (r *poolerRecord) Register(parent context.Context, alarm func(string)) {
 		r.publisherCancel = cancel
 		r.publisherMu.Unlock()
 		r.publisherWG.Go(func() {
-			r.runPublisher(ctx)
+			r.runPublisher(telemetry.WithTask(ctx, "topo-publisher"))
 		})
 		r.publisherWG.Go(func() {
-			r.recoveryLoop(ctx)
+			r.recoveryLoop(telemetry.WithTask(ctx, "topo-recovery"))
 		})
 
 		// Kick off initial registration retry loop. The unregister callback

@@ -299,5 +299,8 @@ func TestGrpcServerCreate_HTTPOnlyAuthSkipsGRPCInterceptor(t *testing.T) {
 	_, err = verifier.VerifyToken(validToken)
 	assert.NoError(t, err)
 
-	assert.Empty(t, g.interceptors(), "gRPC interceptor must not be attached when SetHTTPOnlyAuth(true)")
+	authInterceptors := &serverInterceptorBuilder{}
+	g.addAuthInterceptors(authInterceptors)
+	assert.Empty(t, authInterceptors.unaryInterceptors, "gRPC auth interceptor must not be attached when SetHTTPOnlyAuth(true)")
+	assert.Empty(t, authInterceptors.streamInterceptors, "gRPC auth interceptor must not be attached when SetHTTPOnlyAuth(true)")
 }

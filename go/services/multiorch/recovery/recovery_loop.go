@@ -331,6 +331,7 @@ func (re *Engine) recordPreempted(ctx context.Context, problem types.Problem) {
 func (re *Engine) attemptRecovery(ctx context.Context, problem types.Problem) {
 	entityID := problem.EntityID()
 	actionName := problem.RecoveryAction.Metadata().Name
+	ctx = telemetry.WithStep(ctx, actionName)
 
 	if actionName == actions.AlertOnlyActionName {
 		// Marker action, not a real recovery attempt - nothing to run or record.

@@ -335,7 +335,50 @@ const (
 	// started, so the pooler is quarantined to be replaced from backup. See
 	// rewind_sentinel.go.
 	remedialActionQuarantineTaintedRewind
+
+	// numRemedialActions must stay last; tests use it to cover every action.
+	numRemedialActions
 )
+
+// String names the action for logs (the monitor's step).
+func (a remedialAction) String() string {
+	switch a {
+	case remedialActionNone:
+		return "none"
+	case remedialActionStartPostgres:
+		return "start-postgres"
+	case remedialActionRestoreFromBackup:
+		return "restore-from-backup"
+	case remedialActionCreateFirstBackup:
+		return "create-first-backup"
+	case remedialActionReconcileGUC:
+		return "reconcile-guc"
+	case remedialActionFixPrimaryConnInfo:
+		return "fix-primary-conninfo"
+	case remedialActionDemoteStalePrimary:
+		return "demote-stale-primary"
+	case remedialActionReconcileState:
+		return "reconcile-state"
+	case remedialActionResignLeadership:
+		return "resign-leadership"
+	case remedialActionPromoteStaticLeader:
+		return "promote-static-leader"
+	case remedialActionMarkRewindReady:
+		return "mark-rewind-ready"
+	case remedialActionRewindToLeader:
+		return "rewind-to-leader"
+	case remedialActionDisableRestoreCommand:
+		return "disable-restore-command"
+	case remedialActionMarkStandbyDiverged:
+		return "mark-standby-diverged"
+	case remedialActionMarkRewindInterrupted:
+		return "mark-rewind-interrupted"
+	case remedialActionQuarantineTaintedRewind:
+		return "quarantine-tainted-rewind"
+	default:
+		return fmt.Sprintf("unknown-%d", int(a))
+	}
+}
 
 // standbyStuckDivergenceThreshold is the default for how long a standby must stay
 // unable to stream from its correctly-recorded (and reachable) leader before the
@@ -377,7 +420,7 @@ func (pm *MultipoolerManager) monitorPostgresIteration(noTimeoutCtx context.Cont
 	// defaultRemedialActionTimeout. Kept alive (not re-derived) across the
 	// post-lock re-check below, so detection and redetection share one 30s
 	// budget rather than getting 30s each.
-	discoverCtx, cancel := context.WithTimeout(noTimeoutCtx, defaultRemedialActionTimeout)
+	discoverCtx, cancel := context.WithTimeout(telemetry.WithStep(noTimeoutCtx, "determine-action"), defaultRemedialActionTimeout)
 	defer cancel()
 	currentState, err := pm.discoverPostgresState(discoverCtx)
 	if err != nil {
@@ -457,7 +500,8 @@ func (pm *MultipoolerManager) monitorPostgresIteration(noTimeoutCtx context.Cont
 	// takeRemedialAction's implementation later forgets to. Actions needing
 	// more than the default get it via remedialActionTimeout/
 	// remedialActionTimeouts, not by reaching past this bound.
-	actionCtx, actionCancel := context.WithTimeout(lockCtx, remedialActionTimeout(action))
+	stepCtx := telemetry.WithStep(lockCtx, action.String())
+	actionCtx, actionCancel := context.WithTimeout(stepCtx, remedialActionTimeout(action))
 	actionErr := pm.takeRemedialAction(actionCtx, action, currentState)
 	actionCancel()
 
@@ -467,7 +511,7 @@ func (pm *MultipoolerManager) monitorPostgresIteration(noTimeoutCtx context.Cont
 	// so the quarantine record write is serialised with the rest of the tick.
 	// Bounded like the rest of this tick: its own writes (record.Mutate,
 	// SetCohortEligibility) are real etcd calls with no bound of their own.
-	trackCtx, trackCancel := context.WithTimeout(lockCtx, defaultRemedialActionTimeout)
+	trackCtx, trackCancel := context.WithTimeout(stepCtx, defaultRemedialActionTimeout)
 	pm.trackRecoveryOutcome(trackCtx, action, currentState, actionErr)
 	trackCancel()
 

@@ -34,6 +34,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/regular"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 	"github.com/multigres/multigres/go/services/multipooler/internal/servingstate"
+	"github.com/multigres/multigres/go/tools/telemetry"
 )
 
 const (
@@ -272,7 +273,7 @@ func (m *Manager) Open(ctx context.Context, connConfig *ConnectionConfig) {
 	m.reservedAllocator = NewFairShareAllocator(reservedCapacity, reservedMinPerUser)
 
 	// Start the rebalancer goroutine
-	m.rebalancerCtx, m.rebalancerCancel = context.WithCancel(ctx)
+	m.rebalancerCtx, m.rebalancerCancel = context.WithCancel(telemetry.WithTask(ctx, "connpool-rebalancer"))
 	m.startRebalancer()
 
 	// Register observable metric callbacks for pool statistics.

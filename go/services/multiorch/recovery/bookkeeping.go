@@ -15,6 +15,7 @@
 package recovery
 
 import (
+	"context"
 	"time"
 
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -38,12 +39,12 @@ const shutdownEtcdCleanupAge = 24 * time.Hour
 // handles the one task the cache can't: hard-deleting topology entries
 // for poolers that have been in SHUTDOWN long enough that no operator
 // is reclaiming them.
-func (re *Engine) runBookkeeping() {
-	re.logger.Debug("running bookkeeping tasks")
+func (re *Engine) runBookkeeping(ctx context.Context) {
+	re.logger.DebugContext(ctx, "running bookkeeping tasks")
 
 	go re.reloadConfigs()
 
-	re.cleanupOldShutdownEntries()
+	re.cleanupOldShutdownEntries(ctx)
 }
 
 // cleanupOldShutdownEntries iterates the cache's tombstone set (poolers observed
@@ -51,14 +52,14 @@ func (re *Engine) runBookkeeping() {
 // etcd any that have been tombstones longer than shutdownEtcdCleanupAge. The
 // resulting NoNode event flows back through the cache's watch, which drops
 // the tombstone from the set.
-func (re *Engine) cleanupOldShutdownEntries() {
+func (re *Engine) cleanupOldShutdownEntries(ctx context.Context) {
 	cutoff := time.Now().Add(-shutdownEtcdCleanupAge)
 	for _, g := range re.poolerCache.Tombstones() {
 		if !g.ShutdownAt.Before(cutoff) {
 			continue
 		}
 		if err := re.ts.UnregisterMultipooler(re.shutdownCtx, g.ID); err != nil {
-			re.logger.Warn("failed to hard-delete shutdown pooler from topology",
+			re.logger.WarnContext(ctx, "failed to hard-delete shutdown pooler from topology",
 				"pooler_id", topoclient.ComponentIDString(g.ID),
 				"shutdown_at", g.ShutdownAt,
 				"error", err,

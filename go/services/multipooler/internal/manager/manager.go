@@ -420,7 +420,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 	monitorRetryInterval := 5 * time.Second
 	monitorRunner := ov.pgMonitor
 	if monitorRunner == nil {
-		monitorRunner = timer.NewPeriodicRunner(ctx, monitorRetryInterval)
+		monitorRunner = timer.NewPeriodicRunner(telemetry.WithTask(ctx, "postgres-monitor"), monitorRetryInterval)
 	}
 
 	metrics, metricsErr := newManagerMetrics()
@@ -713,9 +713,9 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	// and Mutates the record. The publisher (if running, started by
 	// StartTopoRegistration) picks it up and writes to etcd. Only the serving
 	// status changes here; the role is left as the record already holds it.
-	go pm.runHealthHeartbeat(pm.ctx, timeouts.DefaultHealthHeartbeatInterval)
+	go pm.runHealthHeartbeat(telemetry.WithTask(pm.ctx, "health-heartbeat"), timeouts.DefaultHealthHeartbeatInterval)
 	if pm.isCatalogShard() {
-		go pm.runCatalogVersionRefresh(pm.ctx, catalogVersionRefreshInterval)
+		go pm.runCatalogVersionRefresh(telemetry.WithTask(pm.ctx, "catalog-version-refresh"), catalogVersionRefreshInterval)
 	}
 	if err := pm.stateManager.Mutate(ctx, func(s *servingStateMutation) {
 		s.ServingStatus = reconciledServingStatus(targetServingStatus, pm.migrationServingHold())
@@ -1254,7 +1254,7 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 		return
 	}
 
-	timeoutCtx, timeoutCancel := context.WithTimeout(pm.ctx, pm.loadTimeout)
+	timeoutCtx, timeoutCancel := context.WithTimeout(telemetry.WithTask(pm.ctx, "shard-config-load"), pm.loadTimeout)
 	defer timeoutCancel()
 
 	r := retry.New(100*time.Millisecond, 30*time.Second)
@@ -1282,12 +1282,12 @@ func (pm *MultipoolerManager) loadShardConfigFromGlobalTopo() {
 			// copy of the record instead.
 			cached, cacheErr := pm.loadDatabaseCache()
 			if cacheErr != nil {
-				pm.logger.Warn("cannot use the copy of the database record", "error", cacheErr)
+				pm.logger.WarnContext(timeoutCtx, "cannot use the copy of the database record", "error", cacheErr)
 			}
 			if cached == nil {
 				continue // Will retry with backoff
 			}
-			pm.logger.Warn("database record unavailable from topology; using the copy kept by this static leader", "database", database, "error", err)
+			pm.logger.WarnContext(timeoutCtx, "database record unavailable from topology; using the copy kept by this static leader", "database", database, "error", err)
 			db = cached
 		}
 
@@ -1728,7 +1728,7 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// (the atomic term check skips it if a newer term has since replaced the
 	// record); the postgres monitor is the backstop that marks within ~100ms once
 	// it observes the completed checkpoint.
-	checkpointCtx := pm.ctx
+	checkpointCtx := telemetry.WithTask(pm.ctx, "post-promotion-checkpoint")
 	go func() {
 		if err := pm.adminExec(checkpointCtx, "CHECKPOINT"); err != nil {
 			pm.logger.WarnContext(checkpointCtx, "async post-promotion checkpoint failed; rewind-readiness will be delayed until Postgres's own checkpoint completes", "error", err)
@@ -1773,7 +1773,7 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 	// that RPC returns. With the request ctx the DROPs race RPC completion and
 	// fail with "context canceled", leaving the unlogged tables in place.
 	// Mirrors the async checkpoint above.
-	sweepCtx := pm.ctx
+	sweepCtx := telemetry.WithTask(pm.ctx, "unlogged-table-sweep")
 	go func() {
 		// After a failover PostgreSQL resets user-created unlogged tables to empty.
 		// Best-effort drop them asynchronously so clients get a clear "relation does
@@ -2011,12 +2011,13 @@ func (pm *MultipoolerManager) StartBackupHealth() {
 // launch) and from openLocked on every reopen when backupHealthEnabled is set.
 func (pm *MultipoolerManager) startBackupHealthPollerLocked() {
 	ctx := pm.ctx
-	go pm.backup.RunHealthPoller(ctx, 0)
+	go pm.backup.RunHealthPoller(telemetry.WithTask(ctx, "backup-health-poller"), 0)
+	refreshCtx := telemetry.WithTask(ctx, "backup-health-initial-refresh")
 	go func() {
-		if err := pm.WaitUntilReady(ctx); err != nil {
+		if err := pm.WaitUntilReady(refreshCtx); err != nil {
 			return // ctx cancelled before ready (shutdown); nothing to refresh
 		}
-		pm.backup.RefreshHealthNow(ctx)
+		pm.backup.RefreshHealthNow(refreshCtx)
 	}()
 }
 
