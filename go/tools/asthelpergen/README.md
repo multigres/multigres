@@ -18,6 +18,11 @@ and automatically generates:
    - Recursive deep copy
    - Handles pointers, slices, and interfaces correctly
 
+3. **Equals Methods** (`ast_equals.go`): Deep equality for all AST types
+   - Structural: every field is compared, source positions included
+   - Values of different concrete types are never equal
+   - A nil slice equals an empty one
+
 ## Why Code Generation?
 
 With 200+ AST node types in Multigres, manually writing and maintaining
@@ -39,7 +44,7 @@ Code generation solves this by:
 - **Type Introspection**: `golang.org/x/tools/go/packages` to analyze Go types
 - **Code Generation**: `github.com/dave/jennifer/jen` to generate clean,
   idiomatic Go code
-- **Plugin Architecture**: Separate generators for rewrite, clone, and future extensions
+- **Plugin Architecture**: Separate generators for rewrite, clone, and equals
 
 ### Components
 
@@ -57,6 +62,11 @@ Code generation solves this by:
   - Generates deep cloning methods
   - Handles recursive structures
   - Creates public `CloneNode()` API
+
+- `equals_gen.go`: Equals generator
+  - Generates deep equality functions
+  - Uses a type's own `Equal(T) bool` method when it has one
+  - Creates public `EqualsNode()` API
 
 - `main/main.go`: CLI entry point
   - Parses command-line flags
@@ -101,7 +111,12 @@ The generator creates the following files in `go/common/parser/ast/`:
    - One `CloneRefOf<Type>()` per concrete type
    - Slice and interface handling
 
-3. **rewriter_api.go** (~200 lines)
+3. **ast_equals.go** (~8500 lines)
+   - `EqualsNode()` main dispatcher function
+   - One `EqualsRefOf<Type>()` per concrete type
+   - Slice and interface handling
+
+4. **rewriter_api.go** (~200 lines)
    - Public `Rewrite()` function
    - `Cursor` type with `Node()`, `Parent()`, `Replace()` methods
    - `ApplyFunc` callback type definition
@@ -110,7 +125,7 @@ The generator creates the following files in `go/common/parser/ast/`:
 
 ### Adding New Generators
 
-To add a new generator (e.g., for equality checking):
+To add a new generator:
 
 1. Create `<feature>_gen.go` implementing the `generator` interface
 2. Register it in `asthelpergen.go`

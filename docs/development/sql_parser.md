@@ -120,8 +120,12 @@ it needs.
   The API is in `ast/rewriter_api.go`.
 - `ast.CloneNode(n)` and the per-type `CloneRefOf<Type>` functions deep-copy a
   tree.
+- `ast.EqualsNode(a, b)` and the per-type `EqualsRefOf<Type>` functions compare
+  two trees field by field. The comparison is structural: callers that need
+  semantic equality must normalize both trees first.
 
-The traversal in `ast_rewrite.go` and the copies in `ast_clone.go` are generated
+The traversal in `ast_rewrite.go`, the copies in `ast_clone.go` and the
+comparisons in `ast_equals.go` are generated
 by `asthelpergen` (see `go/tools/asthelpergen/README.md`). It finds every type
 that implements `ast.Node`, so a new node type needs no registration, but the
 generated files must be regenerated and committed.

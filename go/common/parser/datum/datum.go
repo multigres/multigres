@@ -71,6 +71,7 @@
 package datum
 
 import (
+	"bytes"
 	"math"
 	"unsafe"
 
@@ -280,4 +281,18 @@ func DatumGetBytes(x Datum) []byte {
 		return nil
 	}
 	return unsafe.Slice((*byte)(x.ptr), int(x.val))
+}
+
+// Equal reports whether x and y hold the same value. It plays the role of
+// datumIsEqual (postgres/src/backend/utils/adt/datum.c) without needing the
+// type's typbyval/typlen, because the representation carries that itself:
+// by-value Datums compare their scalar bits, and by-reference Datums built by
+// BytesGetDatum compare their payload bytes. A Datum built by PointerGetDatum
+// has no length, so its payload cannot be read and it equals only a Datum
+// holding the same pointer.
+func (x Datum) Equal(y Datum) bool {
+	if x.ptr == nil || y.ptr == nil || x.val == 0 || y.val == 0 {
+		return x == y
+	}
+	return bytes.Equal(DatumGetBytes(x), DatumGetBytes(y))
 }

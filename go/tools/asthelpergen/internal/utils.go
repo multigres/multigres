@@ -121,7 +121,7 @@ func CheckErrors(loaded []*packages.Package) error {
 // isGeneratedFile returns true if the filename is a generated file
 func isGeneratedFile(filename string) bool {
 	switch filename {
-	case "ast_rewrite.go", "ast_clone.go", "rewriter_api.go":
+	case "ast_rewrite.go", "ast_clone.go", "ast_equals.go", "rewriter_api.go":
 		return true
 	default:
 		return false

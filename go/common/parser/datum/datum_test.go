@@ -227,3 +227,36 @@ func TestNullableDatum(t *testing.T) {
 	null := NullableDatum{IsNull: true}
 	assert.True(t, null.IsNull)
 }
+
+// TestDatumEqual covers Equal for by-value scalars, by-reference payloads
+// (compared by content, not address) and length-less pointer Datums (compared
+// by address).
+func TestDatumEqual(t *testing.T) {
+	a := []byte("hello")
+	b := []byte("hello")
+	require.NotSame(t, &a[0], &b[0])
+
+	x, y := 1, 1
+	tests := []struct {
+		name  string
+		x, y  Datum
+		equal bool
+	}{
+		{"zero", Datum{}, Datum{}, true},
+		{"same scalar", Int64GetDatum(42), Int64GetDatum(42), true},
+		{"different scalar", Int64GetDatum(42), Int64GetDatum(43), false},
+		{"same bytes, different arrays", BytesGetDatum(a), BytesGetDatum(b), true},
+		{"different bytes", BytesGetDatum(a), BytesGetDatum([]byte("world")), false},
+		{"prefix", BytesGetDatum(a), BytesGetDatum([]byte("hell")), false},
+		{"bytes vs scalar of its length", BytesGetDatum(a), Int64GetDatum(5), false},
+		{"empty bytes vs zero", BytesGetDatum(nil), Datum{}, true},
+		{"same pointer", PointerGetDatum(unsafe.Pointer(&x)), PointerGetDatum(unsafe.Pointer(&x)), true},
+		{"different pointers", PointerGetDatum(unsafe.Pointer(&x)), PointerGetDatum(unsafe.Pointer(&y)), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.equal, tt.x.Equal(tt.y))
+			assert.Equal(t, tt.equal, tt.y.Equal(tt.x))
+		})
+	}
+}
