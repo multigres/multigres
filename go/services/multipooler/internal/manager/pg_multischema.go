@@ -131,8 +131,8 @@ func (pm *MultipoolerManager) isCatalogShard() bool {
 // which has not yet made this pooler the primary in the StateManager.
 //
 // Currently this is the shared multigres.shard_ref type, backend_vpid and the
-// probe role's read grant on the heartbeat table on every shard, plus, on the
-// catalog shard, the versioned sharding catalog
+// heartbeat table's newer columns and the probe role's read grant on it on every
+// shard, plus, on the catalog shard, the versioned sharding catalog
 // (ensureCatalogSchema, which is idempotent via its format version rather than
 // IF NOT EXISTS) and the migrator's schema that depends on it
 // (ensureCatalogMigrationSchema), both skipped by ensureCatalogShard when
@@ -150,6 +150,11 @@ func (pm *MultipoolerManager) ensureSidecarSchemas(ctx context.Context, rule *cl
 	if err := pm.createBackendVpidTable(ctx); err != nil {
 		return err
 	}
+
+	// The heartbeat table is created once at bootstrap; add any columns this release
+	// needs that an older one did not create. Reports rather than fails (see
+	// pg_heartbeat_schema.go).
+	pm.ensureHeartbeatSchema(ctx)
 
 	// The probe role can be created after bootstrap, so grant on every
 	// ensure. The probe is optional, so a failure must not stop the steps

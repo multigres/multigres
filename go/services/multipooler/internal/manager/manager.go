@@ -84,10 +84,16 @@ type MultipoolerManager struct {
 	serviceID       *clustermetadatapb.ID
 	servicePoolerID consensus.ReplicaID
 	replTracker     *heartbeat.ReplTracker
-	pubsubListener  *pubsub.Listener
-	replStats       *replicationstats.Tracker
-	schemaTracker   *schematracker.Tracker
-	pgctldClient    pgctldpb.PgCtldClient
+
+	// heartbeatSchema is the latest check of multigres.heartbeat against this release (nil
+	// until the first check); see pg_heartbeat_schema.go. heartbeatSchemaErrorsSeen is the
+	// schema-error count at the last check, so a later error triggers a re-check.
+	heartbeatSchema           atomic.Pointer[heartbeat.SchemaReport]
+	heartbeatSchemaErrorsSeen atomic.Int64
+	pubsubListener            *pubsub.Listener
+	replStats                 *replicationstats.Tracker
+	schemaTracker             *schematracker.Tracker
+	pgctldClient              pgctldpb.PgCtldClient
 
 	// connPoolMgr manages all connection pools (admin, regular, reserved)
 	connPoolMgr connpoolmanager.PoolManager
