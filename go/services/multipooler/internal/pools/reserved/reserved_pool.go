@@ -338,7 +338,7 @@ func (p *Pool) KillConnection(ctx context.Context, connID int64) error {
 	// Release after Kill causes it to fail.
 	rc.Release(ReleaseKill, nil)
 
-	p.logger.InfoContext(ctx, "connection killed",
+	p.logger.DebugContext(ctx, "connection killed",
 		"conn_id", connID,
 		"process_id", rc.ProcessID())
 

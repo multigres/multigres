@@ -191,10 +191,6 @@ func NewUserPool(ctx context.Context, config *UserPoolConfig) (*UserPool, error)
 		}
 	}
 
-	logger.InfoContext(ctx, "user pool created",
-		"regular_capacity", config.RegularPoolConfig.Capacity,
-		"reserved_capacity", config.ReservedPoolConfig.Capacity)
-
 	up := &UserPool{
 		username:              config.ClientConfig.User,
 		regularPool:           regularPool,
@@ -425,7 +421,7 @@ func (p *UserPool) SetCapacity(ctx context.Context, regularCap, reservedCap int6
 	}
 
 	if regularCap != p.lastLoggedRegularCap || reservedCap != p.lastLoggedReservedCap {
-		p.logger.InfoContext(ctx, "user pool capacity updated",
+		p.logger.DebugContext(ctx, "user pool capacity updated",
 			"regular_capacity", regularCap,
 			"reserved_capacity", reservedCap)
 		p.lastLoggedRegularCap = regularCap

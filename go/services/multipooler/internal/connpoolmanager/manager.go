@@ -586,7 +586,11 @@ func (m *Manager) createUserPoolSlow(ctx context.Context, user string, clientKey
 
 	// Atomic publish
 	m.userPoolsSnapshot.Store(&newPools)
-	m.logger.InfoContext(ctx, "created user pool", "user", user, "total_users", len(newPools))
+	m.logger.InfoContext(ctx, "created user pool",
+		"user", user,
+		"total_users", len(newPools),
+		"regular_capacity", initialRegularCap,
+		"reserved_capacity", initialReservedCap)
 
 	return pool, nil
 }

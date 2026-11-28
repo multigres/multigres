@@ -118,7 +118,7 @@ func (m *Manager) splitClassCapacity(ctx context.Context, regularDemands, reserv
 	minCap := int64(len(regularDemands))
 	regularCap, reservedCap := splitClassCapacity(m.globalCapacity.Load(), m.config.ReservedRatio(), regularDemand, reservedDemand, minCap)
 	if regularCap != m.regularAllocator.Capacity() || reservedCap != m.reservedAllocator.Capacity() {
-		m.logger.InfoContext(ctx, "class capacity split updated",
+		m.logger.DebugContext(ctx, "class capacity split updated",
 			"regular_demand", regularDemand,
 			"reserved_demand", reservedDemand,
 			"regular_capacity", regularCap,
@@ -204,9 +204,7 @@ func (m *Manager) garbageCollectInactivePools(ctx context.Context) {
 		pool.Close()
 		m.logger.InfoContext(ctx, "garbage collected inactive user pool",
 			"user", pool.Username(),
-			"inactive_duration", time.Duration(now-pool.LastActivity()))
+			"inactive_duration", time.Duration(now-pool.LastActivity()),
+			"remaining_pools", len(newPools))
 	}
-	m.logger.InfoContext(ctx, "garbage collection complete",
-		"removed_pools", len(removed),
-		"remaining_pools", len(newPools))
 }
