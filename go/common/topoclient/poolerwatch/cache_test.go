@@ -363,6 +363,30 @@ func TestCache_GetByShardAndCellExcludeShutdownPoolers(t *testing.T) {
 	assert.Equal(t, "alive", shard[0].Pooler.Id.Name)
 }
 
+// TestCache_HasDatabaseTracksShardIndex covers the read used to tell an unknown
+// database from a known one whose poolers are unroutable. It follows the same
+// read-visibility rule as GetByShard: a SHUTDOWN pooler leaves the index, and
+// with it the database it was the last member of.
+func TestCache_HasDatabaseTracksShardIndex(t *testing.T) {
+	clk := newFakeClock()
+	c, _ := newTestCache(t, clk, time.Hour, time.Hour)
+	defer c.Shutdown()
+
+	assert.False(t, c.HasDatabase("db"), "an empty cache knows no database")
+
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	assert.True(t, c.HasDatabase("db"))
+	assert.False(t, c.HasDatabase("other_db"))
+
+	// A second shard of the same database keeps it known once the first goes.
+	c.applyUpsert(pool("zone1", "p2", "db", "tg", "1", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_ACTIVE))
+	c.applyUpsert(pool("zone1", "p1", "db", "tg", "0", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
+	assert.True(t, c.HasDatabase("db"), "the database still has a shard with a live pooler")
+
+	c.applyUpsert(pool("zone1", "p2", "db", "tg", "1", clustermetadatapb.PoolerLifecycleStatus_LIFECYCLE_SHUTDOWN))
+	assert.False(t, c.HasDatabase("db"), "the last read-visible pooler left the database")
+}
+
 func TestCache_ShutdownDisposesEverythingRemaining(t *testing.T) {
 	clk := newFakeClock()
 	c, rec := newTestCache(t, clk, time.Hour, time.Hour)

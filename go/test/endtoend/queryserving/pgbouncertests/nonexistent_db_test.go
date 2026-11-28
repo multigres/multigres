@@ -40,28 +40,26 @@ import (
 // GetComparisonTargets). The two cases are connecting to a nonexistent database
 // and the auth-vs-database error ordering.
 //
-// **Known divergence**: the multigateway rejects a nonexistent connection
-// database with 57P03 (cannot_connect_now) instead of 3D000 / "no such
-// database", which is what both PostgreSQL and pgbouncer return. See
-// TestNonexistentDatabaseConnectBehavior; the eventual fix is to align with
-// pgbouncer.
+// The multigateway agrees with both on the SQLSTATE for a nonexistent database
+// (3D000) and diverges only on ordering: it rejects the unknown database
+// before checking the password, where PostgreSQL checks the password first.
+// See TestAuthAndDatabaseErrorPrecedence.
 
 // nonexistentDB is a database name that is not registered in the test topology
 // nor created in postgres.
 const nonexistentDB = "no_such_db_xyz"
 
-// TestNonexistentDatabaseConnectBehavior documents how the two targets reject a
-// nonexistent connection database with different SQLSTATEs:
+// TestNonexistentDatabaseConnectBehavior pins both targets to the same
+// SQLSTATE for a nonexistent connection database:
 //   - Direct PostgreSQL validates the catalog during startup and returns 3D000
 //     (invalid_catalog_name) at connect time.
-//   - The multigateway routes the credential lookup to the requested database;
-//     no pooler is registered for an unknown database, so the credential
-//     provider's error path surfaces as 57P03 (cannot_connect_now) at connect
-//     time.
+//   - The multigateway routes the credential lookup to the requested database
+//     and finds no pooler registered for it anywhere, which it reports as the
+//     same 3D000 rather than a routing failure.
 //
-// The multigateway still diverges from PostgreSQL and pgbouncer, but does not
-// misreport the routing failure as bad credentials. The eventual fix is to
-// translate "no pooler for database" into 3D000.
+// The SQLSTATE is what matters to clients here: 57P03 (the multigateway's
+// previous answer) is conventionally retryable, so a connection to a database
+// that will never exist retried forever.
 func TestNonexistentDatabaseConnectBehavior(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping in short mode")
@@ -82,21 +80,23 @@ func TestNonexistentDatabaseConnectBehavior(t *testing.T) {
 	assert.Equal(t, "3D000", code, "direct postgres should reject a nonexistent database with invalid_catalog_name")
 	assert.Equal(t, "connect", stage, "direct postgres rejects the database at connect time")
 
-	// Multigateway (DIVERGENCE): the credential lookup is routed to the
-	// requested database and fails because no pooler is registered for it.
-	// The lookup fails before credentials can be inspected, so the gateway
-	// reports 57P03. A future change can translate an unknown database to 3D000.
+	// Multigateway: the credential lookup is routed to the requested database,
+	// which has no pooler registered anywhere in the topology. That is
+	// reported as an unknown database, not as an unavailable credential
+	// source.
 	code, stage, err = probeConnect(t, ctx, targetPort(t, targets, "multigateway"), nonexistentDB, shardsetup.TestPostgresPassword)
 	require.Error(t, err, "multigateway must reject a nonexistent database")
 	t.Logf("multigateway: failed at %s stage with SQLSTATE %q", stage, code)
-	assert.Equal(t, "57P03", code,
-		"multigateway should report that the credential source is unavailable")
+	assert.Equal(t, "3D000", code,
+		"multigateway should reject a nonexistent database with invalid_catalog_name")
 	assert.Equal(t, "connect", stage, "multigateway rejects the database at connect time")
 }
 
 // TestAuthAndDatabaseErrorPrecedence documents how each target handles a wrong
-// password for a nonexistent database. PostgreSQL checks the password first;
-// multigateway cannot route the credential lookup and never inspects it.
+// password for a nonexistent database. The targets agree the connection must
+// fail and disagree on which reason wins: PostgreSQL checks the password first
+// (28P01), while multigateway rejects the unknown database (3D000) before it
+// has anywhere to send the credential lookup.
 func TestAuthAndDatabaseErrorPrecedence(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping in short mode")
@@ -115,7 +115,7 @@ func TestAuthAndDatabaseErrorPrecedence(t *testing.T) {
 			t.Logf("%s: failed at %s stage with SQLSTATE %q", target.Name, stage, code)
 			expectedCode := "28P01"
 			if target.Name == "multigateway" {
-				expectedCode = "57P03"
+				expectedCode = "3D000"
 			}
 			assert.Equal(t, expectedCode, code)
 			assert.Equalf(t, "connect", stage,
