@@ -1088,3 +1088,30 @@ message RefreshFencesResponse {
   // fenced reports whether the snapshot fences the pooler's scope.
   bool fenced = 2;
 }
+
+// FenceAck records that one shard's primary was drained for one admission
+// fence.
+message FenceAck {
+  // fence_id is the catalog id of the fence (Fence.fence_id).
+  int64 fence_id = 1;
+  // shard_id is the catalog id of the drained shard: the fence's own shard,
+  // or, for a fence on a whole tablegroup, a shard of that tablegroup.
+  int64 shard_id = 2;
+  // pooler_id is the sender's component id, for observability only.
+  string pooler_id = 3;
+  // consensus_rule is the routing rule the sender was primary under, as
+  // "coordinator_term.leader_subterm"; empty for an unmanaged pooler, which
+  // has none. For observability only.
+  string consensus_rule = 4;
+}
+
+// AckFencesRequest records that the sender's shard is drained for each fence.
+message AckFencesRequest {
+  // acks are the fences to acknowledge: at least one.
+  repeated FenceAck acks = 1;
+}
+
+// AckFencesResponse is empty: success means every ack of a fence that still
+// exists is recorded.
+message AckFencesResponse {
+}

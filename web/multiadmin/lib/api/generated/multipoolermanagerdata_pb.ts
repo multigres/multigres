@@ -4187,3 +4187,147 @@ export class RefreshFencesResponse extends Message<RefreshFencesResponse> {
   }
 }
 
+/**
+ * FenceAck records that one shard's primary was drained for one admission
+ * fence.
+ *
+ * @generated from message multipoolermanagerdata.FenceAck
+ */
+export class FenceAck extends Message<FenceAck> {
+  /**
+   * fence_id is the catalog id of the fence (Fence.fence_id).
+   *
+   * @generated from field: int64 fence_id = 1;
+   */
+  fenceId = protoInt64.zero;
+
+  /**
+   * shard_id is the catalog id of the drained shard: the fence's own shard,
+   * or, for a fence on a whole tablegroup, a shard of that tablegroup.
+   *
+   * @generated from field: int64 shard_id = 2;
+   */
+  shardId = protoInt64.zero;
+
+  /**
+   * pooler_id is the sender's component id, for observability only.
+   *
+   * @generated from field: string pooler_id = 3;
+   */
+  poolerId = "";
+
+  /**
+   * consensus_rule is the routing rule the sender was primary under, as
+   * "coordinator_term.leader_subterm"; empty for an unmanaged pooler, which
+   * has none. For observability only.
+   *
+   * @generated from field: string consensus_rule = 4;
+   */
+  consensusRule = "";
+
+  constructor(data?: PartialMessage<FenceAck>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.FenceAck";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "fence_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 2, name: "shard_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
+    { no: 3, name: "pooler_id", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+    { no: 4, name: "consensus_rule", kind: "scalar", T: 9 /* ScalarType.STRING */ },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): FenceAck {
+    return new FenceAck().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): FenceAck {
+    return new FenceAck().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): FenceAck {
+    return new FenceAck().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: FenceAck | PlainMessage<FenceAck> | undefined, b: FenceAck | PlainMessage<FenceAck> | undefined): boolean {
+    return proto3.util.equals(FenceAck, a, b);
+  }
+}
+
+/**
+ * AckFencesRequest records that the sender's shard is drained for each fence.
+ *
+ * @generated from message multipoolermanagerdata.AckFencesRequest
+ */
+export class AckFencesRequest extends Message<AckFencesRequest> {
+  /**
+   * acks are the fences to acknowledge: at least one.
+   *
+   * @generated from field: repeated multipoolermanagerdata.FenceAck acks = 1;
+   */
+  acks: FenceAck[] = [];
+
+  constructor(data?: PartialMessage<AckFencesRequest>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.AckFencesRequest";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+    { no: 1, name: "acks", kind: "message", T: FenceAck, repeated: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): AckFencesRequest {
+    return new AckFencesRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): AckFencesRequest {
+    return new AckFencesRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): AckFencesRequest {
+    return new AckFencesRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: AckFencesRequest | PlainMessage<AckFencesRequest> | undefined, b: AckFencesRequest | PlainMessage<AckFencesRequest> | undefined): boolean {
+    return proto3.util.equals(AckFencesRequest, a, b);
+  }
+}
+
+/**
+ * AckFencesResponse is empty: success means every ack of a fence that still
+ * exists is recorded.
+ *
+ * @generated from message multipoolermanagerdata.AckFencesResponse
+ */
+export class AckFencesResponse extends Message<AckFencesResponse> {
+  constructor(data?: PartialMessage<AckFencesResponse>) {
+    super();
+    proto3.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto3 = proto3;
+  static readonly typeName = "multipoolermanagerdata.AckFencesResponse";
+  static readonly fields: FieldList = proto3.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): AckFencesResponse {
+    return new AckFencesResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): AckFencesResponse {
+    return new AckFencesResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): AckFencesResponse {
+    return new AckFencesResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: AckFencesResponse | PlainMessage<AckFencesResponse> | undefined, b: AckFencesResponse | PlainMessage<AckFencesResponse> | undefined): boolean {
+    return proto3.util.equals(AckFencesResponse, a, b);
+  }
+}
+

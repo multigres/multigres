@@ -376,6 +376,19 @@ func (c *Client) RefreshFences(ctx context.Context, pooler *clustermetadatapb.Mu
 	return conn.managerClient.RefreshFences(ctx, request)
 }
 
+// AckFences records on the catalog primary pooler that the sender's shard is drained for each fence.
+func (c *Client) AckFences(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.AckFencesRequest) (*multipoolermanagerdatapb.AckFencesResponse, error) {
+	conn, closer, err := c.dialPersistent(ctx, pooler)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = closer()
+	}()
+
+	return conn.managerClient.AckFences(ctx, request)
+}
+
 //
 // Manager Service Methods - PostgreSQL Configuration Reload
 //

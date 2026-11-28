@@ -15,6 +15,7 @@
 package manager
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/common/constants"
@@ -350,13 +352,20 @@ func TestRefreshFences_TheCatalogPrimaryReadsItsOwnCatalog(t *testing.T) {
 		env, qsc := newCatalogFenceEnv(t)
 		env.expectPrimary()
 		env.expectSnapshotRead(9, 2)
-		env.expectCatalogRows() // fences the whole default tablegroup
+		env.expectCatalogRows() // fences the whole default tablegroup: fence 50
+		// Drained, it acknowledges the fence for its shard (0-inf, id 1) in
+		// its own catalog.
+		env.expect(lockAckedFencePattern, []string{"in_scope"}, [][]any{{true}})
+		env.expect(upsertFenceAckPattern, nil, nil)
+		env.expectCommit()
 		resp, err := env.pm.RefreshFences(t.Context(), &multipoolermanagerdatapb.RefreshFencesRequest{MinRoutingVersion: 9})
 		require.NoError(t, err)
 		assert.True(t, resp.GetFenced())
 		assert.Equal(t, int64(9), resp.GetRoutingVersion())
 		err = admit(qsc.StartRequest(nil, poolerserver.RequestSingleQuery))
 		assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF02.ID), "got %v", err)
+		assert.Len(t, env.queriesMatching("INSERT INTO multigres.admission_fence_ack"), 1)
+		assert.Len(t, env.queriesMatching("COMMIT"), 1)
 	})
 	t.Run("no catalog on this primary", func(t *testing.T) {
 		env, qsc := newCatalogFenceEnv(t)
@@ -450,4 +459,221 @@ func TestFenceReads_PromotionAndMissedUnfence(t *testing.T) {
 	// The fence is lifted with no refresh: the periodic re-read lifts it.
 	env.serve(fenceTestSnapshot(5))
 	env.waitAdmits(t)
+}
+
+// fencedBy is a FENCED testFence.
+func fencedBy(id, tablegroup int64, shard *int64) *shardingcatalogpb.Fence {
+	return testFence(id, tablegroup, shard, shardingcatalogpb.FenceState_FENCE_STATE_FENCED)
+}
+
+// acks returns the acks of every AckFences call the pooler made, one slice
+// per call.
+func (env *fenceTestEnv) acks() [][]*multipoolermanagerdatapb.FenceAck {
+	var out [][]*multipoolermanagerdatapb.FenceAck
+	for _, req := range env.client.GetAckFencesRequests() {
+		out = append(out, req.GetAcks())
+	}
+	return out
+}
+
+// ackOf is the ack the test pooler, of commerce/0-80, sends for a fence.
+func (env *fenceTestEnv) ackOf(fenceID int64) *multipoolermanagerdatapb.FenceAck {
+	return &multipoolermanagerdatapb.FenceAck{
+		FenceId: fenceID, ShardId: fenceTestShard0080,
+		PoolerId: string(topoclient.ComponentIDString(testPoolerID)), ConsensusRule: "1.0",
+	}
+}
+
+func requireAcks(t *testing.T, want, got [][]*multipoolermanagerdatapb.FenceAck) {
+	t.Helper()
+	text := func(calls [][]*multipoolermanagerdatapb.FenceAck) [][]string {
+		out := make([][]string, 0, len(calls))
+		for _, call := range calls {
+			acks := make([]string, 0, len(call))
+			for _, a := range call {
+				acks = append(acks, prototext.Format(a))
+			}
+			out = append(out, acks)
+		}
+		return out
+	}
+	require.Equal(t, text(want), text(got), "AckFences calls")
+}
+
+// A drained primary acknowledges every fence covering its shard, the whole
+// tablegroup's and its shard's, once per fence in a gate epoch, and again
+// after a promotion.
+func TestRefreshFences_AcksEveryCoveringFence(t *testing.T) {
+	env := newFenceTestEnv(t, fenceTestCommerceID)
+	whole := fencedBy(9, fenceTestCommerceID, nil)
+	own := fencedBy(10, fenceTestCommerceID, new(fenceTestShard0080))
+	other := fencedBy(11, fenceTestCommerceID, new(fenceTestShard80Inf))
+	env.serve(fenceTestSnapshot(6, whole, own, other))
+	_, err := env.refresh(t, 6)
+	require.NoError(t, err)
+	want := [][]*multipoolermanagerdatapb.FenceAck{{env.ackOf(9), env.ackOf(10)}}
+	requireAcks(t, want, env.acks())
+
+	// Already acknowledged in this epoch: nothing is sent again.
+	_, err = env.refresh(t, 6)
+	require.NoError(t, err)
+	requireAcks(t, want, env.acks())
+
+	// A fence rewritten in place (a newer version, the same id) is the same
+	// fence: nothing is sent. A new fence is acknowledged on its own.
+	rewritten := fencedBy(10, fenceTestCommerceID, new(fenceTestShard0080))
+	rewritten.Version = 8
+	env.serve(fenceTestSnapshot(8, whole, rewritten))
+	_, err = env.refresh(t, 8)
+	require.NoError(t, err)
+	requireAcks(t, want, env.acks())
+	env.serve(fenceTestSnapshot(9, whole, fencedBy(12, fenceTestCommerceID, new(fenceTestShard0080))))
+	_, err = env.refresh(t, 9)
+	require.NoError(t, err)
+	want = append(want, []*multipoolermanagerdatapb.FenceAck{env.ackOf(12)})
+	requireAcks(t, want, env.acks())
+
+	// A promotion starts a new epoch: everything is acknowledged again.
+	env.setRole(t, servingstate.RoutingRoleReplica)
+	env.setRole(t, servingstate.RoutingRolePrimary)
+	_, err = env.refresh(t, 9)
+	require.NoError(t, err)
+	want = append(want, []*multipoolermanagerdatapb.FenceAck{env.ackOf(9), env.ackOf(12)})
+	requireAcks(t, want, env.acks())
+}
+
+// Only a drained primary acknowledges: not an unfenced pooler, not a replica,
+// and not a pooler whose shard the snapshot does not hold.
+func TestRefreshFences_AcksOnlyWhenDrainedAsPrimary(t *testing.T) {
+	fenced := fenceTestSnapshot(4, fencedBy(9, fenceTestCommerceID, nil))
+
+	t.Run("unfenced", func(t *testing.T) {
+		env := newFenceTestEnv(t, fenceTestCommerceID)
+		env.serve(fenceTestSnapshot(4, fencedBy(9, fenceTestCommerceID, new(fenceTestShard80Inf))))
+		resp, err := env.refresh(t, 0)
+		require.NoError(t, err)
+		require.False(t, resp.GetFenced())
+		assert.Empty(t, env.acks())
+	})
+	t.Run("a replica", func(t *testing.T) {
+		env := newFenceTestEnv(t, fenceTestCommerceID)
+		env.setRole(t, servingstate.RoutingRoleReplica)
+		env.serve(fenced)
+		resp, err := env.refresh(t, 0)
+		require.NoError(t, err)
+		require.True(t, resp.GetFenced())
+		assert.Empty(t, env.acks())
+	})
+	t.Run("a shard the snapshot does not hold", func(t *testing.T) {
+		env := newFenceTestEnv(t, fenceTestCommerceID)
+		env.pm.record = newRecordFromProto(&clustermetadatapb.Multipooler{
+			ShardRef:     &clustermetadatapb.ShardRef{Database: testTableGroupDB, TableGroup: "commerce", Shard: "0-40"},
+			TablegroupId: fenceTestCommerceID,
+		})
+		env.serve(fenced)
+		resp, err := env.refresh(t, 0)
+		require.NoError(t, err)
+		require.True(t, resp.GetFenced(), "a fence on the whole tablegroup fences it")
+		env.requireFenced(t)
+		assert.Empty(t, env.acks(), "it has no shard id to acknowledge for")
+	})
+	t.Run("a pooler with no consensus rule (unmanaged) sends none", func(t *testing.T) {
+		env := newFenceTestEnv(t, fenceTestCommerceID)
+		env.pm.stateManager = nil
+		env.serve(fenced)
+		_, err := env.refresh(t, 0)
+		require.NoError(t, err)
+		ack := env.ackOf(9)
+		ack.ConsensusRule = ""
+		requireAcks(t, [][]*multipoolermanagerdatapb.FenceAck{{ack}}, env.acks())
+	})
+}
+
+// hookedGate is the fence-test query server with ApplyFence wrapped.
+type hookedGate struct {
+	*poolerserver.QueryPoolerServer
+	apply func(ctx context.Context, read poolerserver.FenceRead, drainTimeout time.Duration) error
+}
+
+func (g hookedGate) ApplyFence(ctx context.Context, read poolerserver.FenceRead, drainTimeout time.Duration) error {
+	return g.apply(ctx, read, drainTimeout)
+}
+
+// A drain that fails, and a read whose epoch ended under it, acknowledge
+// nothing.
+func TestRefreshFences_NoAckUnlessClosedInTheReadsEpoch(t *testing.T) {
+	t.Run("a failed drain", func(t *testing.T) {
+		env := newFenceTestEnv(t, fenceTestCommerceID)
+		env.pm.qsc = hookedGate{env.qsc, func(context.Context, poolerserver.FenceRead, time.Duration) error {
+			return mterrors.WithCode(poolerserver.ErrDrainIncomplete, mtrpcpb.Code_UNAVAILABLE)
+		}}
+		env.serve(fenceTestSnapshot(4, fencedBy(9, fenceTestCommerceID, nil)))
+		_, err := env.refresh(t, 0)
+		assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "%v", err)
+		assert.Empty(t, env.acks())
+	})
+	t.Run("a promotion after the drain", func(t *testing.T) {
+		env := newFenceTestEnv(t, fenceTestCommerceID)
+		env.pm.qsc = hookedGate{env.qsc, func(ctx context.Context, read poolerserver.FenceRead, d time.Duration) error {
+			if err := env.qsc.ApplyFence(ctx, read, d); err != nil {
+				return err
+			}
+			// The pooler loses and regains the primary role before the
+			// read returns: its gate is unread, in a new epoch.
+			env.setRole(t, servingstate.RoutingRoleReplica)
+			env.setRole(t, servingstate.RoutingRolePrimary)
+			return nil
+		}}
+		env.serve(fenceTestSnapshot(4, fencedBy(9, fenceTestCommerceID, nil)))
+		_, err := env.refresh(t, 0)
+		require.NoError(t, err)
+		assert.Empty(t, env.acks())
+		env.requireFenced(t) // unread
+	})
+}
+
+// RefreshFences succeeds only once its acks are recorded: a failed ack fails
+// it, with the gate left closed.
+func TestRefreshFences_AFailedAckFailsTheRefresh(t *testing.T) {
+	env := newFenceTestEnv(t, fenceTestCommerceID)
+	env.serve(fenceTestSnapshot(4, fencedBy(9, fenceTestCommerceID, nil)))
+	env.client.SetAckFencesError(status.Error(codes.Unavailable, "connection refused"))
+	_, err := env.refresh(t, 4)
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err), "%v", err)
+	env.requireFenced(t)
+
+	env.client.SetAckFencesError(nil)
+	resp, err := env.refresh(t, 4)
+	require.NoError(t, err)
+	assert.True(t, resp.GetFenced())
+	assert.Len(t, env.acks(), 2, "the failed ack is sent again")
+}
+
+// The background reader retries a failed ack, and once it is recorded does
+// not send it again on every recheck.
+func TestFenceReads_RetryAFailedAck(t *testing.T) {
+	savedRecheck, savedRetry := fenceRecheckInterval, fenceReadRetryMax
+	fenceRecheckInterval, fenceReadRetryMax = 20*time.Millisecond, 20*time.Millisecond
+	t.Cleanup(func() { fenceRecheckInterval, fenceReadRetryMax = savedRecheck, savedRetry })
+
+	env := newFenceTestEnv(t, fenceTestCommerceID)
+	env.serve(fenceTestSnapshot(4, fencedBy(9, fenceTestCommerceID, nil)))
+	env.client.SetAckFencesError(errors.New("connection refused"))
+	// The reader must stop before the intervals are restored.
+	ctx, cancel := context.WithCancel(t.Context())
+	stopped := make(chan struct{})
+	t.Cleanup(func() { cancel(); <-stopped })
+	env.pm.record.registeredOnce.Do(func() { close(env.pm.record.registered) })
+	go func() { defer close(stopped); env.pm.runFenceReads(ctx) }()
+	require.Eventually(t, func() bool { return len(env.acks()) >= 2 }, 5*time.Second, 10*time.Millisecond, "the reader retries the ack")
+	env.requireFenced(t)
+
+	env.client.SetAckFencesError(nil)
+	require.Eventually(t, func() bool {
+		return env.snapshotReads() > 0 && !strings.HasPrefix(env.client.GetCallLog()[len(env.client.GetCallLog())-1], "AckFences(")
+	}, 5*time.Second, 10*time.Millisecond, "the reader goes on rechecking once the ack is recorded")
+	sent := len(env.acks())
+	reads := env.snapshotReads()
+	require.Eventually(t, func() bool { return env.snapshotReads() >= reads+3 }, 5*time.Second, 10*time.Millisecond, "the reader rechecks")
+	assert.Equal(t, sent, len(env.acks()), "a recorded ack is not sent again in the same epoch")
 }

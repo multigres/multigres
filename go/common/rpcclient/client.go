@@ -244,6 +244,10 @@ type MultipoolerClient interface {
 	// when it has just become fenced. Served by every pooler.
 	RefreshFences(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.RefreshFencesRequest) (*multipoolermanagerdatapb.RefreshFencesResponse, error)
 
+	// AckFences records on the catalog primary pooler that the sender's shard
+	// is drained for each fence.
+	AckFences(ctx context.Context, pooler *clustermetadatapb.Multipooler, request *multipoolermanagerdatapb.AckFencesRequest) (*multipoolermanagerdatapb.AckFencesResponse, error)
+
 	//
 	// Manager Service Methods - Tablegroup operations (catalog primary only)
 	//

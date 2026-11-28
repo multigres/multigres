@@ -82,7 +82,10 @@ import (
 // has ended the fence's work, so a closed gate is a drained one. A drain that
 // could not (a kill not confirmed, or work still left at its bound) leaves the
 // gate draining with no drain running: it refuses all new work, the pools stay
-// sealed, and the next read that finds the fence drains again.
+// sealed, and the next read that finds the fence drains again. Because a
+// closed gate on a primary is a drained one, it is what the manager records
+// in the catalog as an ack of the fence (FenceClosedOnPrimary; manager
+// fence_refresh.go); a draining gate, or a replica's closed one, is not.
 //
 // Transitions, each under s.mu:
 //
@@ -351,6 +354,20 @@ func (s *QueryPoolerServer) FenceReadState() (unread, closed bool) {
 	}
 	return s.fence.state == fenceGateUnread,
 		s.fence.state == fenceGateDraining || s.fence.state == fenceGateClosed
+}
+
+// FenceClosedOnPrimary reports whether the pooler is routing primary with its
+// gate closed in epoch: a primary's gate closes only once its drain has ended
+// the fence's work, and every promotion advances the epoch, so it means the
+// pooler was drained as primary for the fences read in epoch. That is when
+// the manager may acknowledge them. A replica's gate closes with no drain, a
+// draining gate (a failed drain included) has not ended the work, and a
+// changed epoch means the pooler became primary again since the read, so all
+// report false. A demotion right after the check does not undo the drain.
+func (s *QueryPoolerServer) FenceClosedOnPrimary(epoch uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.routingRole == servingstate.RoutingRolePrimary && s.fence.state == fenceGateClosed && s.fence.epoch == epoch
 }
 
 // FenceRead is one read of the fences on the pooler's scope, for ApplyFence.

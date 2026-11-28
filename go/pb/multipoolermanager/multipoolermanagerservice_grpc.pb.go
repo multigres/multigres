@@ -51,6 +51,7 @@ const (
 	MultipoolerManager_FenceScopes_FullMethodName                = "/multipoolermanager.MultipoolerManager/FenceScopes"
 	MultipoolerManager_UnfenceScopes_FullMethodName              = "/multipoolermanager.MultipoolerManager/UnfenceScopes"
 	MultipoolerManager_RefreshFences_FullMethodName              = "/multipoolermanager.MultipoolerManager/RefreshFences"
+	MultipoolerManager_AckFences_FullMethodName                  = "/multipoolermanager.MultipoolerManager/AckFences"
 	MultipoolerManager_ReloadConfig_FullMethodName               = "/multipoolermanager.MultipoolerManager/ReloadConfig"
 	MultipoolerManager_CreateTableGroup_FullMethodName           = "/multipoolermanager.MultipoolerManager/CreateTableGroup"
 	MultipoolerManager_GetOperation_FullMethodName               = "/multipoolermanager.MultipoolerManager/GetOperation"
@@ -183,7 +184,25 @@ type MultipoolerManagerClient interface {
 	// snapshot below min_routing_version returns FAILED_PRECONDITION. A drain
 	// that is cancelled by a concurrent unfence or a change of the pooler's
 	// role is followed by a new read, whose result is returned.
+	//
+	// A primary pooler whose gate the call closed, or found closed, records
+	// that it is drained for each fence on its scope (AckFences) before it
+	// returns; if the catalog primary cannot record it, the call fails with
+	// UNAVAILABLE and the gate stays closed, for the caller to retry. Replicas
+	// record no ack.
 	RefreshFences(ctx context.Context, in *multipoolermanagerdata.RefreshFencesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.RefreshFencesResponse, error)
+	// AckFences records that the sender's shard is drained for each fence: the
+	// sender is a routing-primary pooler whose fence gate closed after a drain,
+	// in the gate epoch in which it read the fences (see RefreshFences).
+	// Served only by the catalog primary; a pooler of the catalog shard that is
+	// not its elected primary answers UNAVAILABLE, for the sender to find the
+	// primary and ask again, and a pooler off the catalog shard answers
+	// FAILED_PRECONDITION.
+	//
+	// An ack replaces the one recorded for the same fence and shard. An ack of a
+	// fence that no longer exists is skipped. An ack whose shard is not in the
+	// fence's scope fails the call with FAILED_PRECONDITION.
+	AckFences(ctx context.Context, in *multipoolermanagerdata.AckFencesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.AckFencesResponse, error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
@@ -418,6 +437,16 @@ func (c *multipoolerManagerClient) RefreshFences(ctx context.Context, in *multip
 	return out, nil
 }
 
+func (c *multipoolerManagerClient) AckFences(ctx context.Context, in *multipoolermanagerdata.AckFencesRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.AckFencesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(multipoolermanagerdata.AckFencesResponse)
+	err := c.cc.Invoke(ctx, MultipoolerManager_AckFences_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *multipoolerManagerClient) ReloadConfig(ctx context.Context, in *multipoolermanagerdata.ReloadConfigRequest, opts ...grpc.CallOption) (*multipoolermanagerdata.ReloadConfigResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(multipoolermanagerdata.ReloadConfigResponse)
@@ -614,7 +643,25 @@ type MultipoolerManagerServer interface {
 	// snapshot below min_routing_version returns FAILED_PRECONDITION. A drain
 	// that is cancelled by a concurrent unfence or a change of the pooler's
 	// role is followed by a new read, whose result is returned.
+	//
+	// A primary pooler whose gate the call closed, or found closed, records
+	// that it is drained for each fence on its scope (AckFences) before it
+	// returns; if the catalog primary cannot record it, the call fails with
+	// UNAVAILABLE and the gate stays closed, for the caller to retry. Replicas
+	// record no ack.
 	RefreshFences(context.Context, *multipoolermanagerdata.RefreshFencesRequest) (*multipoolermanagerdata.RefreshFencesResponse, error)
+	// AckFences records that the sender's shard is drained for each fence: the
+	// sender is a routing-primary pooler whose fence gate closed after a drain,
+	// in the gate epoch in which it read the fences (see RefreshFences).
+	// Served only by the catalog primary; a pooler of the catalog shard that is
+	// not its elected primary answers UNAVAILABLE, for the sender to find the
+	// primary and ask again, and a pooler off the catalog shard answers
+	// FAILED_PRECONDITION.
+	//
+	// An ack replaces the one recorded for the same fence and shard. An ack of a
+	// fence that no longer exists is skipped. An ack whose shard is not in the
+	// fence's scope fails the call with FAILED_PRECONDITION.
+	AckFences(context.Context, *multipoolermanagerdata.AckFencesRequest) (*multipoolermanagerdata.AckFencesResponse, error)
 	// ReloadConfig triggers a PostgreSQL configuration reload (SIGHUP via pgctld)
 	// on this multipooler's local PostgreSQL and confirms it took effect by
 	// waiting for pg_conf_load_time() to advance. The returned config_load_time
@@ -729,6 +776,9 @@ func (UnimplementedMultipoolerManagerServer) UnfenceScopes(context.Context, *mul
 }
 func (UnimplementedMultipoolerManagerServer) RefreshFences(context.Context, *multipoolermanagerdata.RefreshFencesRequest) (*multipoolermanagerdata.RefreshFencesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RefreshFences not implemented")
+}
+func (UnimplementedMultipoolerManagerServer) AckFences(context.Context, *multipoolermanagerdata.AckFencesRequest) (*multipoolermanagerdata.AckFencesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AckFences not implemented")
 }
 func (UnimplementedMultipoolerManagerServer) ReloadConfig(context.Context, *multipoolermanagerdata.ReloadConfigRequest) (*multipoolermanagerdata.ReloadConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReloadConfig not implemented")
@@ -1078,6 +1128,24 @@ func _MultipoolerManager_RefreshFences_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _MultipoolerManager_AckFences_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(multipoolermanagerdata.AckFencesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MultipoolerManagerServer).AckFences(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: MultipoolerManager_AckFences_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MultipoolerManagerServer).AckFences(ctx, req.(*multipoolermanagerdata.AckFencesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _MultipoolerManager_ReloadConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(multipoolermanagerdata.ReloadConfigRequest)
 	if err := dec(in); err != nil {
@@ -1267,6 +1335,10 @@ var MultipoolerManager_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RefreshFences",
 			Handler:    _MultipoolerManager_RefreshFences_Handler,
+		},
+		{
+			MethodName: "AckFences",
+			Handler:    _MultipoolerManager_AckFences_Handler,
 		},
 		{
 			MethodName: "ReloadConfig",

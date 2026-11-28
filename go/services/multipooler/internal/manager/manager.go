@@ -276,6 +276,9 @@ type MultipoolerManager struct {
 	fenceGateEnabled bool
 	// fenceReadsOnce starts the background fence reader once.
 	fenceReadsOnce sync.Once
+	// fenceAcks is what this pooler has acknowledged in its current fence
+	// gate epoch (fence_refresh.go).
+	fenceAcks fenceAckSet
 
 	// migrationImportHold is the migration serving gate, stored as a
 	// migrationHoldState: held when an active migration on this shard is in

@@ -95,6 +95,11 @@ type PoolerController interface {
 	// missed unfence. Both are false on a replica.
 	FenceReadState() (unread, closed bool)
 
+	// FenceClosedOnPrimary reports whether the pooler is routing primary and
+	// its fence gate closed, drained, in epoch: when the fences read in epoch
+	// may be acknowledged.
+	FenceClosedOnPrimary(epoch uint64) bool
+
 	// AwaitStateChange blocks until the pooler's routing role and serving status
 	// match the given targets, or ctx is cancelled. Used by the health streamer to
 	// ensure the query server is ready before broadcasting the new state.

@@ -35,10 +35,11 @@ import (
 // Sharding Catalog Schema (catalog shard only)
 //
 // The sharding catalog (tablegroups, shards, tables, shard indexes and keys,
-// operations, named connections, routing rules, admission fences) lives in the
-// multigres schema on the catalog shard (see constants.IsCatalogShard).
-// ensureCatalogShard keeps it current each time a pooler becomes the serving
-// primary (see ensureSidecarSchemas), from three lists:
+// operations, named connections, routing rules, admission fences and their
+// acks) lives in the multigres schema on the catalog shard (see
+// constants.IsCatalogShard). ensureCatalogShard keeps it current each time a
+// pooler becomes the serving primary (see ensureSidecarSchemas), from three
+// lists:
 //
 //   - catalogMigrations: breaking changes (drop or rename a table or column,
 //     change a type or constraint, backfill or delete data), numbered and
@@ -339,6 +340,17 @@ var catalogTables = []string{
 	// definition_hash is the catalogDefinitionHash of the binary that last
 	// completed a full ensure of this catalog, NULL until one has.
 	`ALTER TABLE multigres.catalog_state ADD COLUMN IF NOT EXISTS definition_hash text`,
+	// An admission fence ack records that a shard's primary was drained for
+	// a fence: one row per fence and shard, so a tablegroup fence gets one
+	// per shard (fence_acks.go). Deleting a fence deletes its acks.
+	`CREATE TABLE IF NOT EXISTS multigres.admission_fence_ack (
+	fence_id       bigint NOT NULL REFERENCES multigres.admission_fence (fence_id) ON DELETE CASCADE,
+	shard_id       bigint NOT NULL REFERENCES multigres.shard (shard_id),
+	pooler_id      text   NOT NULL,
+	consensus_rule text   NOT NULL,
+	acked_at       timestamptz NOT NULL DEFAULT now(),
+	PRIMARY KEY (fence_id, shard_id)
+)`,
 }
 
 // catalogSeed inserts the catalog's initial rows. Every insert is idempotent

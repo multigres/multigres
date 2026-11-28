@@ -69,6 +69,10 @@ import (
 // later change raises a list as FENCING, refreshes and drains every pooler of
 // every scope, and only then writes FENCED; if that fails, it deletes the rows
 // it inserted.
+//
+// A primary pooler drained for a fence records an ack of it in
+// multigres.admission_fence_ack (fence_acks.go), which deleting the fence
+// deletes in the same transaction. Nothing reads the acks yet.
 // ============================================================================
 
 // Fence states, as stored in multigres.admission_fence.state.

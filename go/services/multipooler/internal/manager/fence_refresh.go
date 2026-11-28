@@ -16,6 +16,7 @@ package manager
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	commonconsensus "github.com/multigres/multigres/go/common/consensus"
@@ -61,6 +62,25 @@ import (
 // never created answers NOT_FOUND, which reads as no fences: every fence lives
 // in the catalog. The catalog primary reads its own catalog in process, so its
 // own start-up never waits on itself.
+//
+// Acknowledging fences
+//
+// Once a read is applied and the gate of a routing primary is closed in the
+// epoch the read was taken in (poolerserver QueryPoolerServer.
+// FenceClosedOnPrimary), the pooler is drained for every fence covering its
+// shard, and it records that on the catalog primary (AckFences, fence_acks.go):
+// one ack per fence, naming its shard's catalog id.
+// A replica, a gate that is open, unread or still draining (a failed drain),
+// and a read whose epoch has passed (a promotion reset the gate) ack nothing.
+// A pooler whose shard the snapshot does not hold has no shard to ack for.
+//
+// The read succeeds only once its acks are recorded: a failed ack fails
+// RefreshFences, with the gate left closed, and the background reader, which
+// re-reads a closed gate every fenceRecheckInterval and a failed read with
+// backoff, sends it again. So that a recheck does not write the catalog each
+// time, the pooler remembers what it acknowledged in the current epoch
+// (fenceAckSet) and sends only what is new; a restart or a promotion starts a
+// new epoch and acknowledges again, which only refreshes the recorded row.
 
 // fenceRecheckInterval is how often a fenced primary re-reads the fences. It
 // bounds how long an unfence the pooler was not refreshed for (it was
@@ -104,64 +124,92 @@ func (pm *MultipoolerManager) RefreshFences(ctx context.Context, req *multipoole
 
 // refreshFences reads the catalog snapshot, checks it is at minRoutingVersion
 // or later, and applies whether it fences this pooler's scope, draining the
-// pooler when it has just become fenced. It returns the snapshot's routing
-// version and whether the scope is fenced. Reads may run concurrently; the
-// gate orders them (poolerserver fence_gate.go). A read the gate refuses
-// because a promotion reset it, or because the drain it ran or joined was
-// cancelled, is read again; one it refuses as older than a snapshot already
-// applied fails with UNAVAILABLE.
+// pooler when it has just become fenced. When that leaves a primary's gate
+// closed in the read's epoch, it acknowledges the fences covering the
+// pooler's shard (see the file comment) and fails if it cannot. It returns
+// the snapshot's routing version and whether the scope is fenced. Reads may
+// run concurrently; the gate orders them (poolerserver fence_gate.go). A read
+// the gate refuses because a promotion reset it, or because the drain it ran
+// or joined was cancelled, is read again; one it refuses as older than a
+// snapshot already applied fails with UNAVAILABLE.
 func (pm *MultipoolerManager) refreshFences(ctx context.Context, minRoutingVersion int64, drainTimeout time.Duration) (int64, bool, error) {
 	for {
 		epoch := pm.qsc.FenceEpoch()
-		pos, fenced, err := pm.readFences(ctx)
+		read, err := pm.readFences(ctx)
 		if err != nil {
 			return 0, false, err
 		}
-		if pos.RoutingVersion < minRoutingVersion {
+		if read.pos.RoutingVersion < minRoutingVersion {
 			return 0, false, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
-				"the catalog primary's routing version is %d, below the requested %d", pos.RoutingVersion, minRoutingVersion)
+				"the catalog primary's routing version is %d, below the requested %d", read.pos.RoutingVersion, minRoutingVersion)
 		}
-		err = pm.qsc.ApplyFence(ctx, poolerserver.FenceRead{Epoch: epoch, Position: pos, Fenced: fenced}, drainTimeout)
+		err = pm.qsc.ApplyFence(ctx, poolerserver.FenceRead{Epoch: epoch, Position: read.pos, Fenced: read.fenced}, drainTimeout)
 		if mterrors.Code(err) == mtrpcpb.Code_ABORTED && ctx.Err() == nil {
 			continue
 		}
 		if err != nil {
 			return 0, false, err
 		}
-		return pos.RoutingVersion, fenced, nil
+		if read.fenced && pm.qsc.FenceClosedOnPrimary(epoch) {
+			if err := pm.ackFences(ctx, epoch, read); err != nil {
+				return 0, false, err
+			}
+		}
+		return read.pos.RoutingVersion, read.fenced, nil
 	}
 }
 
-// readFences reads the catalog snapshot and returns its position and whether
-// a fence applies to this pooler's scope. A database with no catalog yet reads
-// as the zero position with no fences.
-func (pm *MultipoolerManager) readFences(ctx context.Context) (shardingcatalog.Position, bool, error) {
+// fenceRead is what one read of the catalog snapshot found for this pooler.
+type fenceRead struct {
+	// pos is the snapshot's position: the zero Position when the database has
+	// no catalog yet.
+	pos shardingcatalog.Position
+	// fenced reports whether a fence applies to the pooler's scope (see
+	// scopeFences).
+	fenced bool
+	// shardID is the catalog id of the pooler's shard, 0 when the snapshot
+	// does not hold it.
+	shardID int64
+	// fences are the fences covering that shard, which an ack names: the
+	// whole-tablegroup fence, then the shard's own. Empty when shardID is 0.
+	fences []*shardingcatalog.Fence
+}
+
+// readFences reads the catalog snapshot and returns what it holds for this
+// pooler's scope. A database with no catalog yet reads as the zero position
+// with no fences.
+func (pm *MultipoolerManager) readFences(ctx context.Context) (fenceRead, error) {
 	ctx, cancel := context.WithTimeout(ctx, fenceReadTimeout)
 	defer cancel()
 	resp, err := pm.readCatalogSnapshot(ctx)
 	if mterrors.Code(err) == mtrpcpb.Code_NOT_FOUND {
-		return shardingcatalog.Position{}, false, nil
+		return fenceRead{}, nil
 	}
 	if err != nil {
-		return shardingcatalog.Position{}, false, err
+		return fenceRead{}, err
 	}
 	snap, err := shardingcatalog.New(resp.GetSnapshot())
 	if err != nil {
-		return shardingcatalog.Position{}, false, mterrors.WithCode(mterrors.Wrap(err, "the catalog primary served an invalid routing snapshot"), mtrpcpb.Code_UNAVAILABLE)
+		return fenceRead{}, mterrors.WithCode(mterrors.Wrap(err, "the catalog primary served an invalid routing snapshot"), mtrpcpb.Code_UNAVAILABLE)
 	}
-	pos := shardingcatalog.Position{Rule: resp.GetConsensusRule(), RoutingVersion: snap.RoutingVersion()}
-	return pos, pm.scopeFenced(snap), nil
+	read := pm.scopeFences(snap)
+	read.pos = shardingcatalog.Position{Rule: resp.GetConsensusRule(), RoutingVersion: snap.RoutingVersion()}
+	return read, nil
 }
 
-// scopeFenced reports whether snap fences this pooler's scope: its whole
-// tablegroup or its shard, by the definition gateways use
+// scopeFences returns whether snap fences this pooler's scope, its shard's
+// catalog id and the fences covering that shard. Fenced means its whole
+// tablegroup or its shard is fenced, by the definition gateways use
 // (shardingcatalog.TableGroup.Fenced). The tablegroup is matched by catalog id
 // when the pooler has one, which pins the incarnation it was provisioned for,
 // and otherwise by name. The default tablegroup's poolers, and poolers of a
 // tablegroup configured outside the catalog, have no id; the default
 // tablegroup's name is permanent and never reused, so its name is as exact as
-// an id. A tablegroup the snapshot does not hold has no fences.
-func (pm *MultipoolerManager) scopeFenced(snap *shardingcatalog.Snapshot) bool {
+// an id. The shard is matched by name within the tablegroup. A tablegroup the
+// snapshot does not hold has no fences; a shard it does not hold has no id
+// and no fences to acknowledge, though a fence on its whole tablegroup still
+// fences it.
+func (pm *MultipoolerManager) scopeFences(snap *shardingcatalog.Snapshot) fenceRead {
 	ref := pm.record.ShardRef()
 	var g *shardingcatalog.TableGroup
 	var ok bool
@@ -170,7 +218,112 @@ func (pm *MultipoolerManager) scopeFenced(snap *shardingcatalog.Snapshot) bool {
 	} else {
 		g, ok = snap.TableGroupByName(ref.GetTableGroup())
 	}
-	return ok && g.Fenced(ref.GetShard())
+	if !ok {
+		return fenceRead{}
+	}
+	read := fenceRead{fenced: g.Fenced(ref.GetShard())}
+	for _, sh := range g.Shards() {
+		if sh.Name() != ref.GetShard() {
+			continue
+		}
+		read.shardID = sh.ID()
+		read.fences = g.FencesFor(sh)
+		break
+	}
+	return read
+}
+
+// ackFences acknowledges, on the catalog primary, every fence of read that
+// this pooler has not acknowledged in epoch yet (see the file comment), and
+// remembers them once recorded. It fails with UNAVAILABLE when the catalog
+// primary cannot record them.
+func (pm *MultipoolerManager) ackFences(ctx context.Context, epoch uint64, read fenceRead) error {
+	fences := pm.fenceAcks.unacked(epoch, read.fences)
+	if len(fences) == 0 {
+		return nil
+	}
+	poolerID := string(topoclient.ComponentIDString(pm.serviceID))
+	// An unmanaged pooler routes under no consensus rule, and sends none.
+	var rule string
+	if pm.stateManager != nil {
+		if r := pm.stateManager.RoutingState().GetRule(); r != nil {
+			rule = commonconsensus.FormatRuleNumber(r)
+		}
+	}
+	req := &multipoolermanagerdatapb.AckFencesRequest{}
+	for _, f := range fences {
+		req.Acks = append(req.Acks, &multipoolermanagerdatapb.FenceAck{
+			FenceId: f.ID(), ShardId: read.shardID, PoolerId: poolerID, ConsensusRule: rule,
+		})
+	}
+	ctx, cancel := context.WithTimeout(ctx, fenceReadTimeout)
+	defer cancel()
+	if err := pm.sendFenceAcks(ctx, req); err != nil {
+		return mterrors.WithCode(mterrors.Wrap(err, "failed to record the fence acks on the catalog primary"), mtrpcpb.Code_UNAVAILABLE)
+	}
+	pm.fenceAcks.record(epoch, fences)
+	pm.logger.InfoContext(ctx, "acknowledged admission fences", "shard_id", read.shardID, "fences", len(fences))
+	return nil
+}
+
+// sendFenceAcks sends req to the catalog primary, the way readCatalogSnapshot
+// reads it: the catalog primary records its own acks in process.
+func (pm *MultipoolerManager) sendFenceAcks(ctx context.Context, req *multipoolermanagerdatapb.AckFencesRequest) error {
+	if pm.isCatalogPrimaryRole() {
+		_, err := pm.AckFences(ctx, req)
+		return err
+	}
+	primary, err := pm.findCatalogPrimary(ctx)
+	if err != nil {
+		return err
+	}
+	if _, err := pm.config.ManagerClient.AckFences(ctx, primary, req); err != nil {
+		return mterrors.Wrapf(mterrors.FromGRPC(err), "catalog primary %s", topoclient.ComponentIDString(primary.GetId()))
+	}
+	return nil
+}
+
+// fenceAckSet is the fence ids a pooler has acknowledged in one fence gate
+// epoch. Only the newest epoch is kept. The fence id alone names the ack: a
+// fence belongs to one tablegroup and its id is never reused, and the pooler's
+// shard in that tablegroup is fixed.
+type fenceAckSet struct {
+	mu    sync.Mutex
+	epoch uint64
+	acked map[int64]bool
+}
+
+// unacked returns the fences not acknowledged in epoch.
+func (s *fenceAckSet) unacked(epoch uint64, fences []*shardingcatalog.Fence) []*shardingcatalog.Fence {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.epoch != epoch {
+		return fences
+	}
+	var out []*shardingcatalog.Fence
+	for _, f := range fences {
+		if !s.acked[f.ID()] {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// record remembers that fences were acknowledged in epoch. A newer epoch
+// forgets the older one's acks; an older epoch is ignored.
+func (s *fenceAckSet) record(epoch uint64, fences []*shardingcatalog.Fence) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if epoch < s.epoch {
+		return
+	}
+	if epoch > s.epoch {
+		s.epoch = epoch
+		s.acked = make(map[int64]bool)
+	}
+	for _, f := range fences {
+		s.acked[f.ID()] = true
+	}
 }
 
 // readCatalogSnapshot reads the full catalog snapshot from the catalog
@@ -179,15 +332,10 @@ func (pm *MultipoolerManager) scopeFenced(snap *shardingcatalog.Snapshot) bool {
 // catalog primary on which the catalog was never created answers NOT_FOUND; a
 // catalog primary that cannot be found or reached fails with UNAVAILABLE.
 func (pm *MultipoolerManager) readCatalogSnapshot(ctx context.Context) (*multipoolermanagerdatapb.GetRoutingSnapshotResponse, error) {
-	if pm.isCatalogShard() && pm.stateManager.RoutingState().GetRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
+	if pm.isCatalogPrimaryRole() {
 		return pm.GetRoutingSnapshot(ctx, &multipoolermanagerdatapb.GetRoutingSnapshotRequest{})
 	}
-	if pm.config.ManagerClient == nil {
-		return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "this pooler has no client to read the catalog primary with")
-	}
-	primary, err := commonconsensus.FindRoutingPrimary(ctx, pm.topoClient, &clustermetadatapb.ShardRef{
-		Database: pm.record.ShardRef().GetDatabase(), TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard,
-	})
+	primary, err := pm.findCatalogPrimary(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -201,6 +349,23 @@ func (pm *MultipoolerManager) readCatalogSnapshot(ctx context.Context) (*multipo
 			topoclient.ComponentIDString(primary.GetId())), mtrpcpb.Code_UNAVAILABLE)
 	}
 	return resp, nil
+}
+
+// isCatalogPrimaryRole reports whether this pooler serves the catalog shard
+// with the routing role PRIMARY, so it serves the catalog itself.
+func (pm *MultipoolerManager) isCatalogPrimaryRole() bool {
+	return pm.isCatalogShard() && pm.stateManager.RoutingState().GetRole() == clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY
+}
+
+// findCatalogPrimary finds this database's catalog primary in the topology. It
+// fails with UNAVAILABLE when there is none, or no client to reach it with.
+func (pm *MultipoolerManager) findCatalogPrimary(ctx context.Context) (*clustermetadatapb.Multipooler, error) {
+	if pm.config.ManagerClient == nil {
+		return nil, mterrors.New(mtrpcpb.Code_UNAVAILABLE, "this pooler has no client to reach the catalog primary with")
+	}
+	return commonconsensus.FindRoutingPrimary(ctx, pm.topoClient, &clustermetadatapb.ShardRef{
+		Database: pm.record.ShardRef().GetDatabase(), TableGroup: constants.DefaultTableGroup, Shard: constants.DefaultShard,
+	})
 }
 
 // startFenceReads starts the background fence reader once, on the manager's
