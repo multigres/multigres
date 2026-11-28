@@ -39,15 +39,18 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 )
 
-// Tablegroup operations: the catalog side of CREATE TABLEGROUP.
+// Tablegroup operations: the catalog side of CREATE and DROP TABLEGROUP.
 //
 // The sharding catalog on the catalog shard (default tablegroup, 0-inf) is the
 // single source of truth for which tablegroups should exist. This file holds
-// the three operations the catalog primary serves for it; tablegroup_loop.go
-// holds the loop that completes them:
+// the operations the catalog primary serves for it; tablegroup_loop.go holds
+// the loop that completes them:
 //
 //   - CreateTableGroup records the intent in one transaction: a tablegroup row
 //     in state creating, its shards in state preparing, and an operation row.
+//   - DropTableGroup records the intent to drop: an active tablegroup moves to
+//     dropping with a drop operation; a creating one has its creation
+//     cancelled.
 //   - GetOperation reports an operation's state, with progress read from
 //     topology while a creation is in flight.
 //   - ListTableGroups is what the provisioner reads to learn which tablegroups
@@ -60,7 +63,9 @@ import (
 // Every catalog write runs through writeCatalog (routing_snapshot.go), which
 // locks multigres.catalog_state first and advances its routing_version when
 // the write changes a snapshot's contents. A CREATE that finds the name taken
-// changes nothing and leaves the version alone.
+// changes nothing and leaves the version alone, as does a write that touches
+// only operation rows (cancelling a creation, recording a drop of a tablegroup
+// already dropping).
 //
 // Only the catalog primary writes these tables, through the admin pool, which
 // is the same single-writer arrangement ensureCatalogSchema relies on. A
@@ -142,15 +147,15 @@ func validateTableGroupName(name string) error {
 	return nil
 }
 
-// createTableGroupRequest is the JSON stored in multigres.operation.request
-// for a create_tablegroup operation. It is everything needed to report and
-// complete the operation without joining other tables, so an operation stays
-// inspectable even after its tablegroup rows are gone (a failed creation
-// deletes them).
-type createTableGroupRequest struct {
+// tableGroupOperationRequest is the JSON stored in multigres.operation.request
+// for a tablegroup operation: everything needed to report and complete the
+// operation without joining other tables, so an operation stays inspectable
+// after its tablegroup's rows are gone. A drop_tablegroup operation stores the
+// same shape without shards.
+type tableGroupOperationRequest struct {
 	TableGroupID int64    `json:"tablegroup_id"`
 	Name         string   `json:"name"`
-	Shards       []string `json:"shards"`
+	Shards       []string `json:"shards,omitempty"`
 }
 
 // checkCatalogShard rejects callers on a pooler that does not serve the
@@ -296,15 +301,10 @@ func createTableGroupTx(ctx context.Context, tx executor.InternalTx, req *multip
 			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to insert shard")
 		}
 	}
-	opID := uuid.NewString()
-	request, err := json.Marshal(createTableGroupRequest{TableGroupID: id, Name: req.GetName(), Shards: layout})
+	opID, err := recordOperation(ctx, tx, operationKindCreateTableGroup, operationStateCreating,
+		tableGroupOperationRequest{TableGroupID: id, Name: req.GetName(), Shards: layout})
 	if err != nil {
-		return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to encode operation request")
-	}
-	if _, err := tx.QueryArgs(ctx,
-		"INSERT INTO multigres.operation (operation_id, kind, state, request) VALUES ($1, $2, $3, $4::jsonb)",
-		opID, operationKindCreateTableGroup, operationStateCreating, string(request)); err != nil {
-		return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to insert operation")
+		return nil, catalogNoSnapshotChange, err
 	}
 	return &multipoolermanagerdatapb.CreateTableGroupResponse{OperationId: opID, TablegroupId: id}, catalogRoutingChange, nil
 }
@@ -390,7 +390,7 @@ type operationRow struct {
 	id              string
 	kind            string
 	state           string
-	request         createTableGroupRequest
+	request         tableGroupOperationRequest
 	cancelRequested bool
 	lastError       string
 	createdAt       time.Time
@@ -411,7 +411,8 @@ func scanOperationRow(row *sqltypes.Row) (operationRow, error) {
 	}
 	op.createdAt = time.UnixMicro(createdAt).UTC()
 	op.updatedAt = time.UnixMicro(updatedAt).UTC()
-	if op.kind == operationKindCreateTableGroup {
+	switch op.kind {
+	case operationKindCreateTableGroup, operationKindDropTableGroup:
 		if err := json.Unmarshal([]byte(request), &op.request); err != nil {
 			return op, fmt.Errorf("operation %s has an unreadable request: %w", op.id, err)
 		}
@@ -461,13 +462,27 @@ func (pm *MultipoolerManager) GetOperation(ctx context.Context, operationID stri
 		return nil, mterrors.Wrap(err, "failed to read operation row")
 	}
 	out := op.toProto()
-	if op.kind == operationKindCreateTableGroup && op.state != operationStateDone {
+	switch {
+	case op.kind == operationKindCreateTableGroup && op.state != operationStateDone:
 		serving, err := pm.tableGroupShardsServing(ctx, op.request)
 		if err != nil {
 			// Progress is best effort; the state is still accurate.
 			pm.logger.WarnContext(ctx, "failed to read tablegroup readiness from topology", "operation_id", op.id, "error", err)
 		}
 		out.ShardsServing = int32(serving)
+	case op.kind == operationKindDropTableGroup && op.state != operationStateDone:
+		records, err := pm.tableGroupPoolerRecords(ctx, op.request.Name)
+		if err != nil {
+			pm.logger.WarnContext(ctx, "failed to read tablegroup poolers from topology", "operation_id", op.id, "error", err)
+		}
+		out.PoolersRegistered = int32(poolersRegistered(records, op.request.TableGroupID))
+		// Left unset when the claim cannot be read: the loop records that
+		// error on the operation, which says more than a guessed value.
+		if held, err := pm.tableGroupClaimHeld(ctx, op.request.TableGroupID); err != nil {
+			pm.logger.WarnContext(ctx, "failed to read the tablegroup's provision claim", "operation_id", op.id, "error", err)
+		} else {
+			out.ClaimHeld = held
+		}
 	}
 	return out, nil
 }
@@ -482,15 +497,212 @@ func (op operationRow) toProto() *multipoolermanagerdatapb.Operation {
 		CreatedAt:       timestamppb.New(op.createdAt),
 		UpdatedAt:       timestamppb.New(op.updatedAt),
 	}
-	if op.kind == operationKindCreateTableGroup {
+	switch op.kind {
+	case operationKindCreateTableGroup:
 		out.TablegroupId = op.request.TableGroupID
 		out.TablegroupName = op.request.Name
 		out.ShardsDesired = int32(len(op.request.Shards))
 		if op.state == operationStateDone {
 			out.ShardsServing = out.ShardsDesired
 		}
+	case operationKindDropTableGroup:
+		out.TablegroupId = op.request.TableGroupID
+		out.TablegroupName = op.request.Name
 	}
 	return out
+}
+
+// DropTableGroup records the intent to drop a tablegroup. See the RPC's proto
+// comment for the contract. An active tablegroup moves to dropping with a
+// drop_tablegroup operation, which the completion loop finishes once nothing
+// holds the tablegroup any more (tablegroup_loop.go). A tablegroup still being
+// created has its creation cancelled instead, and the caller follows that
+// operation. A dropping tablegroup returns its drop operation, recording one
+// if it has none, which is the case after a failed creation. With tablegroup_id
+// set, a tablegroup of the name under another id counts as missing. An active
+// tablegroup is refused while it contains tables or a routing rule names it
+// as source or target.
+func (pm *MultipoolerManager) DropTableGroup(ctx context.Context, req *multipoolermanagerdatapb.DropTableGroupRequest) (*multipoolermanagerdatapb.DropTableGroupResponse, error) {
+	if err := pm.checkReady(); err != nil {
+		return nil, err
+	}
+	if err := pm.checkCatalogShard(); err != nil {
+		return nil, err
+	}
+	if err := pm.checkCatalogPrimary(ctx); err != nil {
+		return nil, err
+	}
+	if req.GetName() == constants.DefaultTableGroup {
+		return nil, mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION, "the default tablegroup cannot be dropped")
+	}
+	var resp *multipoolermanagerdatapb.DropTableGroupResponse
+	versions, err := pm.writeCatalog(ctx, func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {
+		var change catalogChange
+		var err error
+		resp, change, err = dropTableGroupTx(ctx, tx, req)
+		return change, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case resp.GetCancelledCreation():
+		pm.logger.InfoContext(ctx, "requested cancellation of tablegroup creation", "tablegroup", req.GetName(),
+			"tablegroup_id", resp.GetTablegroupId(), "operation_id", resp.GetOperationId())
+	case resp.GetOperationId() != "":
+		pm.logger.InfoContext(ctx, "tablegroup drop recorded", "tablegroup", req.GetName(), "tablegroup_id", resp.GetTablegroupId(),
+			"operation_id", resp.GetOperationId(), "routing_version", versions.routingVersion)
+	}
+	return resp, nil
+}
+
+// dropTableGroupTx is DropTableGroup's catalog transaction. Only moving an
+// active tablegroup to dropping changes a snapshot; cancelling a creation or
+// recording a drop operation touches operation rows alone.
+func dropTableGroupTx(ctx context.Context, tx executor.InternalTx, req *multipoolermanagerdatapb.DropTableGroupRequest) (*multipoolermanagerdatapb.DropTableGroupResponse, catalogChange, error) {
+	res, err := tx.QueryArgs(ctx,
+		"SELECT tablegroup_id, state FROM multigres.tablegroup WHERE name = $1 FOR UPDATE", req.GetName())
+	if err != nil {
+		return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to look up tablegroup")
+	}
+	var id int64
+	var state string
+	if len(res.Rows) > 0 {
+		if err := executor.ScanRow(res.Rows[0], &id, &state); err != nil {
+			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to read tablegroup row")
+		}
+	}
+	// No row, or a row of another incarnation when the caller pinned one: the
+	// tablegroup the caller means is gone.
+	if len(res.Rows) == 0 || (req.GetTablegroupId() != 0 && id != req.GetTablegroupId()) {
+		if req.GetIfExists() {
+			return &multipoolermanagerdatapb.DropTableGroupResponse{NotFound: true}, catalogNoSnapshotChange, nil
+		}
+		return nil, catalogNoSnapshotChange, mterrors.Errorf(mtrpcpb.Code_NOT_FOUND, "tablegroup %q does not exist", req.GetName())
+	}
+
+	switch state {
+	case tableGroupStateCreating:
+		// Cancel the creation; the completion loop fails it and the
+		// provisioner tears down whatever it built. The caller follows that
+		// operation.
+		res, err := tx.QueryArgs(ctx,
+			"UPDATE multigres.operation SET cancel_requested = true, updated_at = now() "+
+				"WHERE kind = $1 AND state = $2 AND (request->>'tablegroup_id')::bigint = $3 RETURNING operation_id",
+			operationKindCreateTableGroup, operationStateCreating, id)
+		if err != nil {
+			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to cancel tablegroup creation")
+		}
+		if len(res.Rows) != 1 {
+			return nil, catalogNoSnapshotChange, mterrors.Errorf(mtrpcpb.Code_INTERNAL, "tablegroup %q is creating with %d pending operations, want 1", req.GetName(), len(res.Rows))
+		}
+		var opID string
+		if err := executor.ScanRow(res.Rows[0], &opID); err != nil {
+			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to read tablegroup operation")
+		}
+		return &multipoolermanagerdatapb.DropTableGroupResponse{OperationId: opID, TablegroupId: id, CancelledCreation: true}, catalogNoSnapshotChange, nil
+
+	case tableGroupStateActive:
+		// Whatever assigns tables to a tablegroup must check state = active
+		// under the row lock taken above, or a table could be assigned to a
+		// tablegroup that is already dropping, which the foreign key would
+		// then keep from being deleted.
+		res, err := tx.QueryArgs(ctx, "SELECT count(*) FROM multigres.tablegroup_table WHERE tablegroup_id = $1", id)
+		if err != nil {
+			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to count the tablegroup's tables")
+		}
+		var tables int64
+		if err := executor.ScanSingleRow(res, &tables); err != nil {
+			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to read the tablegroup's table count")
+		}
+		if tables > 0 {
+			return nil, catalogNoSnapshotChange, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION, "tablegroup %q contains %d table(s)", req.GetName(), tables)
+		}
+		// A routing rule sends traffic from or to the tablegroup for as long
+		// as its operation has it. Dropping under one would tear down shards
+		// that traffic is still routed to, and the rule's foreign keys would
+		// then keep the rows from ever being deleted. Whoever owns the rules
+		// removes them first (DeleteRoutingRules). Rule writes hold the same
+		// catalog_state lock and refuse a dropping tablegroup
+		// (checkNewRules), so none can appear once this commits. A tablegroup
+		// that becomes dropping from creating is not checked here: until its
+		// creation finishes, only that creation could write a rule on it, and
+		// a creation writes none.
+		res, err = tx.QueryArgs(ctx,
+			"SELECT count(*) FROM multigres.routing_rule WHERE from_tablegroup_id = $1 OR to_tablegroup_id = $1", id)
+		if err != nil {
+			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to count the tablegroup's routing rules")
+		}
+		var rules int64
+		if err := executor.ScanSingleRow(res, &rules); err != nil {
+			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to read the tablegroup's routing rule count")
+		}
+		if rules > 0 {
+			return nil, catalogNoSnapshotChange, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+				"tablegroup %q is the source or target of %d routing rule(s)", req.GetName(), rules)
+		}
+		if _, err := tx.QueryArgs(ctx,
+			"UPDATE multigres.tablegroup SET state = $2 WHERE tablegroup_id = $1 AND state = $3",
+			id, tableGroupStateDropping, tableGroupStateActive); err != nil {
+			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to mark tablegroup dropping")
+		}
+		opID, err := recordDropOperation(ctx, tx, id, req.GetName())
+		if err != nil {
+			return nil, catalogNoSnapshotChange, err
+		}
+		return &multipoolermanagerdatapb.DropTableGroupResponse{OperationId: opID, TablegroupId: id}, catalogRoutingChange, nil
+
+	case tableGroupStateDropping:
+		res, err := tx.QueryArgs(ctx,
+			"SELECT operation_id FROM multigres.operation WHERE kind = $1 AND state = $2 AND (request->>'tablegroup_id')::bigint = $3",
+			operationKindDropTableGroup, operationStateDropping, id)
+		if err != nil {
+			return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to look up tablegroup operation")
+		}
+		switch len(res.Rows) {
+		case 0:
+			// Dropping with no drop operation: a failed creation. Record one
+			// so the caller has something to wait on.
+			opID, err := recordDropOperation(ctx, tx, id, req.GetName())
+			if err != nil {
+				return nil, catalogNoSnapshotChange, err
+			}
+			return &multipoolermanagerdatapb.DropTableGroupResponse{OperationId: opID, TablegroupId: id}, catalogNoSnapshotChange, nil
+		case 1:
+			var opID string
+			if err := executor.ScanRow(res.Rows[0], &opID); err != nil {
+				return nil, catalogNoSnapshotChange, mterrors.Wrap(err, "failed to read tablegroup operation")
+			}
+			return &multipoolermanagerdatapb.DropTableGroupResponse{OperationId: opID, TablegroupId: id}, catalogNoSnapshotChange, nil
+		default:
+			return nil, catalogNoSnapshotChange, mterrors.Errorf(mtrpcpb.Code_INTERNAL, "tablegroup %q is dropping with %d pending operations, want 1", req.GetName(), len(res.Rows))
+		}
+
+	default:
+		return nil, catalogNoSnapshotChange, mterrors.Errorf(mtrpcpb.Code_INTERNAL, "tablegroup %q has unknown state %q", req.GetName(), state)
+	}
+}
+
+// recordDropOperation inserts a drop_tablegroup operation in state dropping
+// for a tablegroup, inside the caller's transaction, and returns its id.
+func recordDropOperation(ctx context.Context, tx executor.InternalTx, id int64, name string) (string, error) {
+	return recordOperation(ctx, tx, operationKindDropTableGroup, operationStateDropping, tableGroupOperationRequest{TableGroupID: id, Name: name})
+}
+
+// recordOperation inserts an operation with a fresh id inside the caller's
+// transaction and returns the id.
+func recordOperation(ctx context.Context, tx executor.InternalTx, kind, state string, request tableGroupOperationRequest) (string, error) {
+	opID := uuid.NewString()
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		return "", mterrors.Wrap(err, "failed to encode operation request")
+	}
+	if _, err := tx.QueryArgs(ctx,
+		"INSERT INTO multigres.operation (operation_id, kind, state, request) VALUES ($1, $2, $3, $4::jsonb)",
+		opID, kind, state, string(encoded)); err != nil {
+		return "", mterrors.Wrap(err, "failed to insert operation")
+	}
+	return opID, nil
 }
 
 // ListTableGroups returns every non-default tablegroup, with its shard layout,
@@ -574,14 +786,14 @@ func (pm *MultipoolerManager) tableGroupPoolerRecords(ctx context.Context, table
 
 // tableGroupShardsServing counts the shards in req's layout that have a
 // serving primary registered in topology for this tablegroup incarnation.
-func (pm *MultipoolerManager) tableGroupShardsServing(ctx context.Context, req createTableGroupRequest) (int, error) {
+func (pm *MultipoolerManager) tableGroupShardsServing(ctx context.Context, req tableGroupOperationRequest) (int, error) {
 	records, err := pm.tableGroupPoolerRecords(ctx, req.Name)
 	return shardsServing(records, req), err
 }
 
 // shardsServing counts the shards in req's layout that have a serving primary
 // among records (see poolerIsServingPrimaryOf).
-func shardsServing(records []*clustermetadatapb.Multipooler, req createTableGroupRequest) int {
+func shardsServing(records []*clustermetadatapb.Multipooler, req tableGroupOperationRequest) int {
 	serving := make(map[string]bool, len(req.Shards))
 	for _, mp := range records {
 		if poolerIsServingPrimaryOf(mp, req.TableGroupID) {

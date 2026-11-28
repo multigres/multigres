@@ -858,6 +858,11 @@ message Operation {
   // provisioner has released its claim (TableGroupProvisionClaim). Zero for a
   // creation.
   int32 poolers_registered = 12;
+  // claim_held is, for a drop that is not done, whether a provisioner still
+  // holds its claim on the tablegroup (TableGroupProvisionClaim), read at call
+  // time. A drop with no pooler records and the claim held is waiting for the
+  // provisioner to finish removing what it provisioned. False for a creation.
+  bool claim_held = 13;
 }
 
 // DropTableGroupRequest records the intent to drop a tablegroup.
@@ -867,6 +872,12 @@ message DropTableGroupRequest {
   // if_exists makes a missing tablegroup a no-op (not_found is set on the
   // response) instead of an error.
   bool if_exists = 2;
+  // tablegroup_id, when set, pins the drop to that incarnation of the name:
+  // a tablegroup of the name with another id is treated as missing. A caller
+  // repeating a drop (the gateway after cancelling a creation) sets it from
+  // the first response, so it never acts on a tablegroup another session
+  // created under the same name in between.
+  int64 tablegroup_id = 3;
 }
 
 // DropTableGroupResponse identifies the operation to wait on.

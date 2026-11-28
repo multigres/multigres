@@ -3113,6 +3113,16 @@ export class Operation extends Message<Operation> {
    */
   poolersRegistered = 0;
 
+  /**
+   * claim_held is, for a drop that is not done, whether a provisioner still
+   * holds its claim on the tablegroup (TableGroupProvisionClaim), read at call
+   * time. A drop with no pooler records and the claim held is waiting for the
+   * provisioner to finish removing what it provisioned. False for a creation.
+   *
+   * @generated from field: bool claim_held = 13;
+   */
+  claimHeld = false;
+
   constructor(data?: PartialMessage<Operation>) {
     super();
     proto3.util.initPartial(data, this);
@@ -3133,6 +3143,7 @@ export class Operation extends Message<Operation> {
     { no: 10, name: "created_at", kind: "message", T: Timestamp },
     { no: 11, name: "updated_at", kind: "message", T: Timestamp },
     { no: 12, name: "poolers_registered", kind: "scalar", T: 5 /* ScalarType.INT32 */ },
+    { no: 13, name: "claim_held", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): Operation {
@@ -3173,6 +3184,17 @@ export class DropTableGroupRequest extends Message<DropTableGroupRequest> {
    */
   ifExists = false;
 
+  /**
+   * tablegroup_id, when set, pins the drop to that incarnation of the name:
+   * a tablegroup of the name with another id is treated as missing. A caller
+   * repeating a drop (the gateway after cancelling a creation) sets it from
+   * the first response, so it never acts on a tablegroup another session
+   * created under the same name in between.
+   *
+   * @generated from field: int64 tablegroup_id = 3;
+   */
+  tablegroupId = protoInt64.zero;
+
   constructor(data?: PartialMessage<DropTableGroupRequest>) {
     super();
     proto3.util.initPartial(data, this);
@@ -3183,6 +3205,7 @@ export class DropTableGroupRequest extends Message<DropTableGroupRequest> {
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */ },
     { no: 2, name: "if_exists", kind: "scalar", T: 8 /* ScalarType.BOOL */ },
+    { no: 3, name: "tablegroup_id", kind: "scalar", T: 3 /* ScalarType.INT64 */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DropTableGroupRequest {

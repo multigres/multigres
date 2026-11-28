@@ -276,6 +276,12 @@ type Store interface {
 	BootstrapInProgress(ctx context.Context, shardRef *clustermetadatapb.ShardRef) (bool, error)
 	ClearBootstrapMarker(ctx context.Context, shardRef *clustermetadatapb.ShardRef) error
 
+	// DeleteShardInitClaim removes a shard's initialization claim so a later
+	// shard of that name bootstraps afresh. The catalog primary calls it for
+	// each shard of a dropped tablegroup once it has deleted the tablegroup's
+	// rows. A missing claim is not an error.
+	DeleteShardInitClaim(ctx context.Context, shardRef *clustermetadatapb.ShardRef) error
+
 	// RevokeBackup forcefully removes the backup lock for the specified shard.
 	// See backup_lock.go for full documentation.
 	RevokeBackup(ctx context.Context, shardRef *clustermetadatapb.ShardRef) error
