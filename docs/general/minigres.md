@@ -206,8 +206,11 @@ binaries pass none and use every pooler in the topology.
 - **Credentials, health and notifications are direct calls too.** The gateway
   looks up a role's credentials with the same code the pooler's gRPC handler
   runs, and subscribes to the pooler's health in-process: the same messages as
-  the gRPC health stream, read by the same loop, with the same staleness
-  timeout and retry. Each client session's LISTEN/NOTIFY stream runs the
+  the gRPC health stream, read by the same loop, with the same retry, but
+  with no staleness timeout: the timeout looks for a network partition or a
+  dead pooler process, which an in-process subscription cannot have, and
+  firing would only drop a healthy pooler as primary until the gateway
+  resubscribes. Each client session's LISTEN/NOTIFY stream runs the
   pooler's notification loop in-process, joined to the gateway by Go channels,
   so ordering, the wait for LISTEN to be active and reconnecting work as over
   gRPC. At shutdown the pooler ends health subscriptions and notification

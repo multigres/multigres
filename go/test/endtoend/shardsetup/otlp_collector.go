@@ -92,6 +92,20 @@ func (c *TestOTLPCollector) GetSpans() []*tracepb.ResourceSpans {
 	return append([]*tracepb.ResourceSpans(nil), c.spans...)
 }
 
+// AllSpans returns every collected span, from every process.
+func (c *TestOTLPCollector) AllSpans() []*tracepb.Span {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var result []*tracepb.Span
+	for _, rs := range c.spans {
+		for _, ss := range rs.GetScopeSpans() {
+			result = append(result, ss.GetSpans()...)
+		}
+	}
+	return result
+}
+
 // WaitForSpans polls until at least count spans with the given name are
 // collected, or the timeout expires.
 func (c *TestOTLPCollector) WaitForSpans(t *testing.T, spanName string, count int, timeout time.Duration) []*tracepb.Span {

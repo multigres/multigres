@@ -19,13 +19,17 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/multigres/multigres/go/common/callerid"
 	"github.com/multigres/multigres/go/common/pgprotocol/client"
+	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
+	"github.com/multigres/multigres/go/test/endtoend/minigressetup"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/utils"
 )
@@ -45,6 +49,53 @@ func connectToMultigateway(ctx context.Context, t *testing.T, setup shardsetup.C
 	return conn
 }
 
+// newObservabilityCluster starts a cluster owned by the test, on the topology
+// chosen by MULTIGRES_E2E_TOPOLOGY, whose gateway and pooler export their
+// traces to collector. It is cleaned up when the test ends.
+func newObservabilityCluster(t *testing.T, collector *shardsetup.TestOTLPCollector) shardsetup.Cluster {
+	t.Helper()
+	if clustersetup.IsMinigres() {
+		setup, cleanup := minigressetup.NewIsolated(t, minigressetup.WithOTelExport(collector.Endpoint()))
+		t.Cleanup(cleanup)
+		return setup
+	}
+	setup, cleanup := shardsetup.NewIsolated(t,
+		shardsetup.WithMultipoolerCount(2),
+		shardsetup.WithOTelExport(collector.Endpoint()),
+	)
+	t.Cleanup(cleanup)
+	return setup
+}
+
+// poolerQueryChain finds a span the pooler made for a statement it ran on
+// PostgreSQL ("<operation> postgresql") that has the gateway's shard.execute
+// span among its ancestors. It returns that span and its ancestors up to
+// shard.execute, or nil when there is none.
+func poolerQueryChain(spans []*shardsetup.SpanProto) []*shardsetup.SpanProto {
+	byID := make(map[string]*shardsetup.SpanProto, len(spans))
+	for _, s := range spans {
+		byID[string(s.GetSpanId())] = s
+	}
+	for _, s := range spans {
+		if !strings.HasSuffix(s.GetName(), " postgresql") {
+			continue
+		}
+		chain := []*shardsetup.SpanProto{s}
+		for cur := s; len(cur.GetParentSpanId()) > 0; {
+			parent, ok := byID[string(cur.GetParentSpanId())]
+			if !ok {
+				break
+			}
+			chain = append(chain, parent)
+			if parent.GetName() == "shard.execute" {
+				return chain
+			}
+			cur = parent
+		}
+	}
+	return nil
+}
+
 // TestGatewayQuerySpanAttributes verifies that multigateway emits
 // gateway.query spans with correct db.plan.type and db.tables_used
 // attributes for different query types through the full path:
@@ -58,11 +109,7 @@ func TestGatewayQuerySpanAttributes(t *testing.T) {
 	}
 
 	collector := shardsetup.NewTestOTLPCollector(t)
-
-	setup := shardsetup.New(t,
-		shardsetup.WithMultipoolerCount(2),
-		shardsetup.WithOTelExport(collector.Endpoint()),
-	)
+	setup := newObservabilityCluster(t, collector)
 	setup.SetupTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -214,6 +261,30 @@ func TestGatewayQuerySpanAttributes(t *testing.T) {
 		assert.True(t, found, "extended protocol span should have db.tables_used")
 		assert.Contains(t, tables, "otel_test_table")
 	})
+
+	// The pooler's spans are in the gateway's trace: the pooler's span for a
+	// statement it runs on PostgreSQL is under the gateway's shard.execute
+	// span, through the gRPC client and server spans in Multigres and directly
+	// in Minigres. The caller's identity is on the way, on the pooler's gRPC
+	// server span in Multigres and on shard.execute in Minigres.
+	t.Run("PoolerSpansInGatewayTrace", func(t *testing.T) {
+		var chain []*shardsetup.SpanProto
+		require.Eventually(t, func() bool {
+			chain = poolerQueryChain(collector.AllSpans())
+			return chain != nil
+		}, 20*time.Second, 200*time.Millisecond,
+			"expected a pooler PostgreSQL span under a gateway shard.execute span")
+
+		var user string
+		for _, s := range chain {
+			if u, ok := shardsetup.FindSpanAttribute(s, callerid.KeyAuthenticatedUser); ok {
+				user = u
+				break
+			}
+		}
+		assert.Equal(t, shardsetup.DefaultTestUser, user,
+			"%s on the spans between shard.execute and the pooler's PostgreSQL span", callerid.KeyAuthenticatedUser)
+	})
 }
 
 // queryLogEntry represents a parsed "query completed" log line from the multigateway.
@@ -261,14 +332,10 @@ func TestGatewayQueryLogFields(t *testing.T) {
 		t.Skip("skipping: PostgreSQL binaries not found")
 	}
 
-	// OTel export not needed for log verification, but we use it to share
-	// the same setup pattern. A no-op collector is fine.
+	// OTel export is not needed for log verification, but it shares the
+	// cluster setup of TestGatewayQuerySpanAttributes. Nothing reads the spans.
 	collector := shardsetup.NewTestOTLPCollector(t)
-
-	setup := shardsetup.New(t,
-		shardsetup.WithMultipoolerCount(2),
-		shardsetup.WithOTelExport(collector.Endpoint()),
-	)
+	setup := newObservabilityCluster(t, collector)
 	setup.SetupTest(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

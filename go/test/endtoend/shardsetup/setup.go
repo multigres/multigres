@@ -307,8 +307,9 @@ func WithLogLevel(level string) SetupOption {
 	}
 }
 
-// WithOTelExport configures the multigateway to export traces to the given
-// OTLP HTTP endpoint. Use with NewTestOTLPCollector to capture spans in tests.
+// WithOTelExport configures the multigateway and the multipoolers to export
+// traces to the given OTLP HTTP endpoint, so a query's trace includes the
+// pooler's spans. Use with NewTestOTLPCollector to capture spans in tests.
 // Implies WithMultigateway().
 func WithOTelExport(endpoint string) SetupOption {
 	return func(c *SetupConfig) {
@@ -588,6 +589,12 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 			}
 		}
 
+		// Configure OTel trace export on multipooler if an endpoint was provided.
+		if config.OTelCollectorEndpoint != "" {
+			inst.Multipooler.Environment = append(inst.Multipooler.Environment,
+				clustersetup.OTLPTraceEnv(config.OTelCollectorEndpoint)...)
+		}
+
 		// Configure Prometheus metrics export on multipooler if enabled.
 		if config.EnableMetricsExport {
 			metricsPort := utils.GetFreePort(t)
@@ -644,11 +651,7 @@ func New(t *testing.T, opts ...SetupOption) *ShardSetup {
 		// Configure OTel trace export if an endpoint was provided.
 		if config.OTelCollectorEndpoint != "" {
 			mgw.Environment = append(mgw.Environment,
-				"OTEL_TRACES_EXPORTER=otlp",
-				"OTEL_EXPORTER_OTLP_ENDPOINT="+config.OTelCollectorEndpoint,
-				"OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf",
-				"OTEL_TRACES_SAMPLER=always_on",
-			)
+				clustersetup.OTLPTraceEnv(config.OTelCollectorEndpoint)...)
 		}
 
 		// Configure Prometheus metrics export if enabled.

@@ -18,11 +18,13 @@ import (
 	"context"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/multigres/multigres/go/common/queryservice"
 	"github.com/multigres/multigres/go/common/topoclient"
@@ -81,6 +83,52 @@ func TestLocalPooler_CalledDirectly(t *testing.T) {
 	client, err := conn.ManagerClient()
 	require.Error(t, err, "the local pooler has no manager service to call")
 	assert.Nil(t, client)
+}
+
+// silentAfterFirstPooler stands in for the local pooler: its health
+// subscription sends one SERVING message advertising a short staleness
+// timeout, then nothing until ctx ends.
+type silentAfterFirstPooler struct {
+	queryservice.Pooler
+}
+
+func (silentAfterFirstPooler) SubscribeHealth(ctx context.Context) (func() (*multipoolerservice.StreamPoolerHealthResponse, error), error) {
+	sent := false
+	return func() (*multipoolerservice.StreamPoolerHealthResponse, error) {
+		if !sent {
+			sent = true
+			resp := makeHealthResponse(clustermetadatapb.PoolerServingStatus_SERVING)
+			resp.RecommendedStalenessTimeout = durationpb.New(50 * time.Millisecond)
+			return resp, nil
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}, nil
+}
+
+// TestLocalPooler_NoStalenessTimeout checks that a local pooler's health
+// subscription does not time out when it goes quiet: the timeout looks for a
+// network partition or a dead pooler process, which an in-process
+// subscription cannot have. Over gRPC the same silence times the stream out
+// (TestPoolerConnection_StreamHealth_StalenessTimeout).
+func TestLocalPooler_NoStalenessTimeout(t *testing.T) {
+	pooler := unreachablePooler("zone1", "pooler-1")
+	local := &LocalPooler{ID: func() *clustermetadatapb.ID { return pooler.Id }, Service: silentAfterFirstPooler{}}
+	conn, err := newPoolerConnection(t.Context(), pooler, slog.New(slog.DiscardHandler),
+		grpc.WithTransportCredentials(insecure.NewCredentials()), local, nil)
+	require.NoError(t, err)
+	defer func() { _ = conn.Shutdown() }()
+
+	require.Eventually(t, func() bool {
+		return conn.Health().isServing()
+	}, 2*time.Second, 10*time.Millisecond)
+
+	// Many times the advertised staleness timeout.
+	time.Sleep(500 * time.Millisecond)
+	h := conn.Health()
+	assert.True(t, h.isServing(), "a quiet local pooler stays serving")
+	assert.NoError(t, h.LastError)
+	assert.False(t, conn.healthTimedOut.Load())
 }
 
 // TestLocalPooler_RecordFindsPoolerWithoutTopology discovers the local pooler
