@@ -375,46 +375,6 @@ func buildProposalCore(
 	return proposal, nil
 }
 
-// discoverOutgoingRulePosition returns every recruit that holds the outgoing
-// rule position (the highest RulePosition among recruitedStatuses), followed
-// by that position itself. Decision takes precedence; an undecided proposal
-// only breaks ties among recruits sharing the same decision (see
-// CompareRulePosition) — a recruit's own undecided proposal never outranks
-// another recruit's higher decision.
-//
-// Returns an error if the recruits recording the position disagree on its
-// content (decision or proposal) — different nodes agreeing on a rule
-// number but disagreeing on cohort members or durability policy signals a
-// data inconsistency the caller cannot safely proceed past.
-func discoverOutgoingRulePosition(
-	recruitedStatuses []*clustermetadatapb.ConsensusStatus,
-) ([]*clustermetadatapb.ConsensusStatus, *clustermetadatapb.RulePosition, error) {
-	var outgoingPosition *clustermetadatapb.RulePosition
-	var recruitsRecordingRule []*clustermetadatapb.ConsensusStatus
-	for _, cs := range recruitedStatuses {
-		position := cs.GetCurrentPosition().GetPosition()
-		switch {
-		case outgoingPosition == nil || CompareRulePosition(position, outgoingPosition) > 0:
-			outgoingPosition = position
-			recruitsRecordingRule = []*clustermetadatapb.ConsensusStatus{cs}
-		case CompareRulePosition(position, outgoingPosition) == 0:
-			recruitsRecordingRule = append(recruitsRecordingRule, cs)
-		}
-	}
-	if len(recruitsRecordingRule) == 0 {
-		return recruitsRecordingRule, nil, nil
-	}
-	for _, cs := range recruitsRecordingRule[1:] {
-		if !proto.Equal(cs.GetCurrentPosition().GetPosition(), outgoingPosition) {
-			return nil, nil, fmt.Errorf(
-				"recruits %s and %s agree on rule number but disagree on content; inconsistent discovery result",
-				topoclient.ClusterIDString(recruitsRecordingRule[0].GetId()), topoclient.ClusterIDString(cs.GetId()),
-			)
-		}
-	}
-	return recruitsRecordingRule, outgoingPosition, nil
-}
-
 // validateProposal checks structural validity and cohort quorum for the proposal.
 // The proposed leader must be among the eligible leaders, the proposed rule and
 // durability policy must be valid, and the cohort must satisfy achievability and
@@ -440,14 +400,14 @@ func validateProposal(
 		return errors.New("proposal has no leader ID")
 	}
 	leaderKey := topoclient.ClusterIDString(leaderID)
-	foundLeader := false
+	eligible := false
 	for _, cs := range result.EligibleLeaders {
 		if topoclient.ClusterIDString(cs.GetId()) == leaderKey {
-			foundLeader = true
+			eligible = true
 			break
 		}
 	}
-	if !foundLeader {
+	if !eligible {
 		eligibleKeys := make([]string, len(result.EligibleLeaders))
 		for i, cs := range result.EligibleLeaders {
 			eligibleKeys[i] = topoclient.ClusterIDString(cs.GetId())
@@ -583,7 +543,7 @@ func deduplicateStatuses(statuses []*clustermetadatapb.ConsensusStatus) []*clust
 			continue
 		}
 		key := topoclient.ClusterIDString(cs.GetId())
-		if prev, exists := best[key]; !exists || ComparePoolerPosition(cs.GetCurrentPosition(), prev.GetCurrentPosition()) > 0 {
+		if prev, exists := best[key]; !exists || CompareWALProgress(cs.GetCurrentPosition(), prev.GetCurrentPosition()) > 0 {
 			best[key] = cs
 		}
 	}

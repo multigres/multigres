@@ -391,7 +391,7 @@ func statusReplicationPrimary(pos *clustermetadatapb.PoolerPosition, replication
 	// Whichever position wins is republished whole (decision and proposal
 	// together), not flattened to a single merged rule.
 	position := ruleStorePosition
-	if consensus.CompareRulePosition(highestKnownPosition, ruleStorePosition) >= 0 {
+	if consensus.CompareAuthority(highestKnownPosition, ruleStorePosition) >= 0 {
 		// RPC-delivered position leads or ties the rule store — use it.
 		position = highestKnownPosition
 	}
@@ -697,7 +697,8 @@ func ruleNamesCohortMember(rule *clustermetadatapb.ShardRule, selfID *clustermet
 // recruitPositionFloorIfOutstanding returns the recorded recruit-position
 // floor (see ConsensusPromises.GetRecruitBlockedUntil) if pos hasn't caught
 // up to it yet, or nil if there's no floor or it's satisfied. Ordered by
-// consensus.CompareLsnPositions; fails closed on a parse error. No explicit clearing —
+// consensus.CompareLsnPositions (latest rule, then LSN; what the node knows is
+// decided plays no part); fails closed on a parse error. No explicit clearing —
 // omitted from ConsensusStatus once satisfied.
 func (cm *ConsensusManager) recruitPositionFloorIfOutstanding(pos *clustermetadatapb.PoolerPosition) *clustermetadatapb.LsnPosition {
 	floor := cm.promises.GetRecruitBlockedUntil()
