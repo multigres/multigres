@@ -35,7 +35,8 @@ const catalogSchemaLockKey int64 = 0x6d756c7469677273
 // catalogFormat1Columns are the catalog tables format 1 creates, each with its
 // columns in declaration order.
 var catalogFormat1Columns = map[string][]string{
-	"catalog_state":    {"singleton", "format_version", "routing_version", "plan_epoch"},
+	// definition_hash is an additive column, not part of format 1.
+	"catalog_state":    {"singleton", "format_version", "routing_version", "plan_epoch", "definition_hash"},
 	"tablegroup":       {"tablegroup_id", "name", "state", "created_at"},
 	"shard":            {"shard_id", "tablegroup_id", "shard_name", "range_start", "range_end", "state"},
 	"tablegroup_table": {"table_id", "schema_name", "table_name", "tablegroup_id"},
@@ -179,7 +180,7 @@ func requireCurrentCatalog(t *testing.T, db *sql.DB) {
 
 // requireMigrationForeignKey waits until multigres.migration has exactly one foreign key,
 // to multigres.connections(connection_id). The migrator's schema ensure adds it right after
-// the catalog ensure: at bootstrap, before the first backup, and on every pooler open. It
+// the catalog ensure: at bootstrap, before the first backup, and on every full ensure. It
 // waits because a standby gets it by replication, and after a restart the pooler adds it
 // when it opens.
 func requireMigrationForeignKey(t *testing.T, db *sql.DB) {
@@ -210,6 +211,29 @@ func waitForCatalogFormat(t *testing.T, db *sql.DB, want int, msg string) {
 		}
 		return version == want
 	}, 30*time.Second, 200*time.Millisecond, msg)
+}
+
+// waitForCatalogDefinition waits until db's catalog_state records a
+// definition hash, which the pooler writes once a full catalog ensure, the
+// migrator's schema included, has finished.
+func waitForCatalogDefinition(t *testing.T, db *sql.DB, msg string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		var recorded bool
+		err := db.QueryRow(`SELECT definition_hash IS NOT NULL FROM multigres.catalog_state`).Scan(&recorded)
+		return err == nil && recorded
+	}, 30*time.Second, 200*time.Millisecond, msg)
+}
+
+// forgetCatalogDefinition clears the definition hash catalog_state records,
+// as on a catalog an older binary last ensured. Without it, a pooler that
+// becomes the serving primary finds its own hash and skips the full ensure, so
+// a test that changes the catalog by hand must clear it for the pooler to
+// repair the change.
+func forgetCatalogDefinition(t *testing.T, db *sql.DB) {
+	t.Helper()
+	_, err := db.Exec(`UPDATE multigres.catalog_state SET definition_hash = NULL`)
+	require.NoError(t, err)
 }
 
 // killMultipooler SIGKILLs inst's multipooler process. Unlike a graceful
@@ -315,16 +339,20 @@ func TestCatalogSchema_UpgradeFromLegacy(t *testing.T) {
 	require.NoError(t, primaryDB.QueryRow(`SELECT type FROM multigres.tablegroup WHERE name = 'default'`).Scan(&legacyType))
 	require.Equal(t, "unsharded", legacyType)
 
-	// Reopening the primary pooler runs openLocked, which upgrades the catalog.
+	// The reopened primary pooler upgrades the catalog before it serves as the
+	// primary.
 	restartMultipooler(t, primary)
 	waitForCatalogFormat(t, primaryDB, currentCatalogFormat, "primary catalog should be upgraded to the current format on open")
+	waitForCatalogDefinition(t, primaryDB, "the full ensure should record its definition hash")
 	requireCurrentCatalog(t, primaryDB)
 	upgraded := catalogSnapshot(t, primaryDB)
 	identityValues := catalogIdentityValues(t, primaryDB)
 
-	// Running the ensure again leaves the catalog unchanged. Hold the catalog
-	// lock across the restart so the test observes the reopened pooler's
-	// ensure actually run (it blocks on the lock) before comparing.
+	// Running the full ensure again leaves the catalog unchanged. Forget the
+	// hash so the reopened pooler runs it, and hold the catalog lock across the
+	// restart so the test observes it actually run (it blocks on the lock)
+	// before comparing.
+	forgetCatalogDefinition(t, primaryDB)
 	lockConn, err := primaryDB.Conn(t.Context())
 	require.NoError(t, err)
 	defer lockConn.Close()
@@ -352,8 +380,9 @@ func TestCatalogSchema_UpgradeFromLegacy(t *testing.T) {
 			  AND ((classid::bigint << 32) | objid::bigint) = $1`, catalogSchemaLockKey).Scan(&held)
 		return err == nil && held == 0
 	}, 30*time.Second, 100*time.Millisecond, "catalog ensure should finish")
+	waitForCatalogDefinition(t, primaryDB, "the second full ensure should record its definition hash")
 	assert.Equal(t, upgraded, catalogSnapshot(t, primaryDB), "a second ensure must not change the catalog")
-	// The seed re-runs on every open; its existing rows must not consume ids.
+	// The seed re-runs on every full ensure; its existing rows must not consume ids.
 	assert.Equal(t, identityValues, catalogIdentityValues(t, primaryDB), "a second ensure must not consume identity values")
 	requireCurrentCatalog(t, primaryDB)
 
@@ -364,16 +393,19 @@ func TestCatalogSchema_UpgradeFromLegacy(t *testing.T) {
 	}, 30*time.Second, 200*time.Millisecond, "standby catalog should match the upgraded primary's")
 	requireCurrentCatalog(t, standbyDB)
 
-	// A catalog table missing from an existing catalog is recreated on the next
-	// open, with no format change. routing_rule has no dependents.
+	// A catalog table missing from an existing catalog, last ensured by an
+	// older binary (no hash), is recreated on the next open, with no format
+	// change. routing_rule has no dependents.
 	_, err = primaryDB.Exec(`DROP TABLE multigres.routing_rule`)
 	require.NoError(t, err)
+	forgetCatalogDefinition(t, primaryDB)
 	restartMultipooler(t, primary)
 	require.Eventually(t, func() bool {
 		var exists bool
 		err := primaryDB.QueryRow(`SELECT to_regclass('multigres.routing_rule') IS NOT NULL`).Scan(&exists)
 		return err == nil && exists
 	}, 30*time.Second, 200*time.Millisecond, "open should recreate the missing routing_rule table")
+	waitForCatalogDefinition(t, primaryDB, "the ensure should record its definition hash again")
 	assert.Equal(t, currentCatalogFormat, catalogFormatVersion(t, primaryDB), "recreating a table must not change the format")
 	assert.Equal(t, upgraded, catalogSnapshot(t, primaryDB), "recreating a table must not touch the seeded rows")
 	requireCurrentCatalog(t, primaryDB)

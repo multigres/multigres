@@ -243,9 +243,12 @@ func (pm *MultipoolerManager) ackFences(ctx context.Context, epoch uint64, read 
 		return nil
 	}
 	poolerID := string(topoclient.ComponentIDString(pm.serviceID))
+	// An unmanaged pooler routes under no consensus rule, and sends none.
 	var rule string
-	if r := pm.routingRule(); r != nil {
-		rule = commonconsensus.FormatRuleNumber(r)
+	if pm.stateManager != nil {
+		if r := pm.stateManager.RoutingState().GetRule(); r != nil {
+			rule = commonconsensus.FormatRuleNumber(r)
+		}
 	}
 	req := &multipoolermanagerdatapb.AckFencesRequest{}
 	for _, f := range fences {

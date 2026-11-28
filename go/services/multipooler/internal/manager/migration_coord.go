@@ -172,16 +172,16 @@ func (pm *MultipoolerManager) forgetMigrationState() {
 // ensureMigrationSchema runs EnsureSchema at most once per primary tenure
 // (forgetMigrationState resets it on promotion). The schema is normally
 // created at shard bootstrap and replicated in, and on the catalog shard
-// ensureSidecarSchemas re-ensures it on every open (see
-// ensureCatalogMigrationSchema); this covers shards bootstrapped before a table
-// existed. Primary-only, since the caller has already passed primary
-// guardrails.
+// ensureSidecarSchemas re-ensures it before the pooler serves as the primary
+// (see ensureCatalogMigrationSchema); this covers the other shards bootstrapped
+// before a table existed. Primary-only, since the caller has already passed
+// primary guardrails.
 //
 // EnsureSchema reports ErrNoConnectionsTable when multigres.connections is
 // absent. Off the catalog shard that is the normal state, and the schema is
-// ensured. On the catalog shard it means the catalog ensure has not completed
-// (it failed or timed out when the pooler opened), so it is retried on the next
-// call rather than leaving stat_migration uncreated until a restart.
+// ensured. On the catalog shard it means the catalog ensure has not completed,
+// so it is retried on the next call rather than leaving stat_migration
+// uncreated.
 func (pm *MultipoolerManager) ensureMigrationSchema(ctx context.Context, coord *migration.Coordinator) {
 	pm.mu.Lock()
 	ensured := pm.migrationSchemaEnsured

@@ -124,6 +124,8 @@ CREATE TABLE IF NOT EXISTS multigres.admission_fence (
 	version       bigint NOT NULL
 )
 == table
+ALTER TABLE multigres.catalog_state ADD COLUMN IF NOT EXISTS definition_hash text
+== table
 CREATE TABLE IF NOT EXISTS multigres.admission_fence_ack (
 	fence_id       bigint NOT NULL REFERENCES multigres.admission_fence (fence_id) ON DELETE CASCADE,
 	shard_id       bigint NOT NULL REFERENCES multigres.shard (shard_id),

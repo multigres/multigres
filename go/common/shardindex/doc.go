@@ -34,7 +34,8 @@
 // shipped, its mapping from value to routing identifier must never change: not
 // for a bug fix, not for a new PostgreSQL version. A different mapping needs a
 // new type name. Every implementation should pin its mapping with golden
-// vectors, as hash does in testdata/hash_golden.json.
+// vectors, as hash does in testdata/hash_golden.json and
+// testdata/hash_golden_bytes.json.
 //
 // # Capabilities
 //
