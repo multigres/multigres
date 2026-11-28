@@ -22,6 +22,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/multigres/multigres/go/test/endtoend/clustersetup"
+	"github.com/multigres/multigres/go/test/endtoend/minigressetup"
 	"github.com/multigres/multigres/go/test/endtoend/shardsetup"
 	"github.com/multigres/multigres/go/test/endtoend/suiteutil"
 )
@@ -175,39 +177,54 @@ func generatedVaultGetKeyConfPath() string {
 	return confPath
 }
 
-// setupManager manages the shared test setup for tests in this package.
-var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardsetup.ShardSetup {
-	opts := []shardsetup.SetupOption{
-		shardsetup.WithMultipoolerCount(2), // primary + standby
-		shardsetup.WithMultigateway(),      // enable multigateway for PostgreSQL connections
-		// pg_regress drives long transactions that create functions the gateway
-		// refuses (feature_not_supported). Keep those transactions open on a
-		// gateway rejection instead of aborting, so a single refused statement
-		// doesn't cascade into "current transaction is aborted" across the rest of
-		// the script. Clients get PostgreSQL's default (abort on any error); this
-		// opt-in is scoped to the compatibility suites.
-		shardsetup.WithMultigatewayExtraArgs("--keep-transaction-on-gateway-rejection"),
-		// Generated PostgreSQL allows 60 connections. Keep pooled capacity below
-		// that ceiling so admin and monitoring connections retain headroom.
-		shardsetup.WithMultipoolerExtraArgs("--connpool-global-capacity=50"),
-		// Force C locale on initdb so locale-sensitive expected outputs
-		// (char/varchar collation, to_char 'L' currency symbol, etc.) reproduce
-		// upstream PostgreSQL behavior. Keep UTF8 encoding so the unicode /
-		// collate.utf8 / json_encoding tests still see a real multibyte
-		// codec — pg_regress upstream runs initdb with just --no-locale
-		// (locale=C) and inherits the default encoding (UTF8 on modern
-		// installs); --encoding=SQL_ASCII would break those tests.
-		shardsetup.WithPgInitdbArgs("--no-locale --encoding=UTF8"),
-		// The pgctld postgresql.conf template hard-codes en_US.UTF-8 for the
-		// locale GUCs, which overrides initdb's --no-locale. Append a snippet
-		// that resets lc_* to 'C' so currency/number/time/message formatting
-		// matches upstream expected fixtures.
-		shardsetup.WithPgInitdbExtraConfFiles(regressionOverridesConfPath()),
-	}
-	if pgregressIsolationStartsFirst() {
-		opts = append(opts, shardsetup.WithMultipoolerExtraArgs(backendVpidTrackingFlag))
-	}
+// regressCluster is the cluster the compatibility suites run against: a
+// Multigres shard, or a single Minigres process when MULTIGRES_E2E_TOPOLOGY is
+// "minigres". Both harnesses implement it.
+type regressCluster interface {
+	clustersetup.Cluster
+	// AddMultipoolerExtraArgs and RemoveMultipoolerExtraArgs change the pooler
+	// flags, and AddPgInitdbExtraConfFiles the postgresql.conf snippets, for the
+	// next ReinitializeCluster.
+	AddMultipoolerExtraArgs(args ...string)
+	RemoveMultipoolerExtraArgs(args ...string)
+	AddPgInitdbExtraConfFiles(paths ...string)
+	// ReinitializeCluster restarts the cluster on a fresh data directory.
+	ReinitializeCluster(t *testing.T)
+}
 
+var (
+	_ regressCluster = (*shardsetup.ShardSetup)(nil)
+	_ regressCluster = (*minigressetup.Setup)(nil)
+)
+
+// setupManager manages the shared test setup for tests in this package.
+var setupManager = clustersetup.NewSharedSetupManager(func(t *testing.T) regressCluster {
+	// pg_regress drives long transactions that create functions the gateway
+	// refuses (feature_not_supported). Keep those transactions open on a
+	// gateway rejection instead of aborting, so a single refused statement
+	// doesn't cascade into "current transaction is aborted" across the rest of
+	// the script. Clients get PostgreSQL's default (abort on any error); this
+	// opt-in is scoped to the compatibility suites.
+	gatewayArgs := []string{"--keep-transaction-on-gateway-rejection"}
+	// Generated PostgreSQL allows 60 connections. Keep pooled capacity below
+	// that ceiling so admin and monitoring connections retain headroom.
+	poolerArgs := []string{"--connpool-global-capacity=50"}
+	if pgregressIsolationStartsFirst() {
+		poolerArgs = append(poolerArgs, backendVpidTrackingFlag)
+	}
+	// Force C locale on initdb so locale-sensitive expected outputs
+	// (char/varchar collation, to_char 'L' currency symbol, etc.) reproduce
+	// upstream PostgreSQL behavior. Keep UTF8 encoding so the unicode /
+	// collate.utf8 / json_encoding tests still see a real multibyte
+	// codec — pg_regress upstream runs initdb with just --no-locale
+	// (locale=C) and inherits the default encoding (UTF8 on modern
+	// installs); --encoding=SQL_ASCII would break those tests.
+	const initdbArgs = "--no-locale --encoding=UTF8"
+	// The pgctld postgresql.conf template hard-codes en_US.UTF-8 for the
+	// locale GUCs, which overrides initdb's --no-locale. Append a snippet
+	// that resets lc_* to 'C' so currency/number/time/message formatting
+	// matches upstream expected fixtures.
+	confFiles := []string{regressionOverridesConfPath()}
 	// Some external extensions need server-level config the pooled query path
 	// can't set (pg_cron's background worker needs shared_preload_libraries).
 	// Apply their snippets at initial setup ONLY when the external suite is the
@@ -216,11 +233,26 @@ var setupManager = shardsetup.NewSharedSetupManager(func(t *testing.T) *shardset
 	// the reinitialization that precedes the external phase instead. See
 	// externalServerConfPaths.
 	if externalOnlySuite() {
-		if confs := externalServerConfPaths(); len(confs) > 0 {
-			opts = append(opts, shardsetup.WithPgInitdbExtraConfFiles(confs...))
-		}
+		confFiles = append(confFiles, externalServerConfPaths()...)
 	}
-	return shardsetup.New(t, opts...)
+
+	if clustersetup.IsMinigres() {
+		// One process serves the gateway and the pooler, so it takes both
+		// sets of flags.
+		return minigressetup.New(t,
+			minigressetup.WithExtraArgs(append(gatewayArgs, poolerArgs...)...),
+			minigressetup.WithPgInitdbArgs(initdbArgs),
+			minigressetup.WithPgInitdbExtraConfFiles(confFiles...),
+		)
+	}
+	return shardsetup.New(t,
+		shardsetup.WithMultipoolerCount(2), // primary + standby
+		shardsetup.WithMultigateway(),      // enable multigateway for PostgreSQL connections
+		shardsetup.WithMultigatewayExtraArgs(gatewayArgs...),
+		shardsetup.WithMultipoolerExtraArgs(poolerArgs...),
+		shardsetup.WithPgInitdbArgs(initdbArgs),
+		shardsetup.WithPgInitdbExtraConfFiles(confFiles...),
+	)
 })
 
 // TestMain sets the path and cleans up after all tests.
@@ -234,7 +266,7 @@ func TestMain(m *testing.M) {
 }
 
 // getSharedSetup returns the shared setup for tests.
-func getSharedSetup(t *testing.T) *shardsetup.ShardSetup {
+func getSharedSetup(t *testing.T) regressCluster {
 	t.Helper()
 	return setupManager.Get(t)
 }

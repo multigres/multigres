@@ -23,8 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-
+	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/mterrors"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
 )
@@ -43,7 +42,7 @@ type Coordinator struct {
 	// newSource opens the external source side over the operator-supplied DSN. It is
 	// a field (defaulted to the real newSource in NewCoordinator) so unit tests can
 	// substitute a fake source without a live Postgres — see ports.go.
-	newSource func(ctx context.Context, dsn string) (migrationSource, error)
+	newSource func(ctx context.Context, src *backingconn.Conn) (migrationSource, error)
 
 	// targetConnInfo builds a libpq conninfo the external source can use to reach
 	// this (target) Postgres, for the reverse subscription in EXPORT direction.
@@ -83,7 +82,7 @@ func NewCoordinator(qs executor.InternalQueryService, logger *slog.Logger, targe
 	return &Coordinator{
 		store:            NewStore(qs),
 		target:           newTarget(qs),
-		newSource:        func(ctx context.Context, dsn string) (migrationSource, error) { return newSource(ctx, dsn) },
+		newSource:        func(ctx context.Context, src *backingconn.Conn) (migrationSource, error) { return newSource(ctx, src) },
 		logger:           logger,
 		targetConnInfo:   targetConnInfo,
 		drainForImport:   drainForImport,
@@ -92,31 +91,42 @@ func NewCoordinator(qs executor.InternalQueryService, logger *slog.Logger, targe
 	}
 }
 
+// ForgetCachedMigrations drops the store's in-memory copy of the migration
+// table, so the next read loads it from postgres. That copy is only right for
+// one continuous primary tenure of this node: while it is a standby another
+// primary may create, advance or drop migrations, and before bootstrap its
+// postgres runs briefly out of recovery with no migrations at all. Its manager
+// calls this on every promotion. It takes no lock, c.mu included, so a
+// promotion never waits behind a migration operation or a slow load.
+func (c *Coordinator) ForgetCachedMigrations() {
+	c.store.Forget()
+}
+
 // EnsureSchema creates the migration table if absent (covers shards bootstrapped
 // before the table existed). Safe to call on every coordinator start.
 func (c *Coordinator) EnsureSchema(ctx context.Context) error {
 	return c.store.EnsureSchema(ctx)
 }
 
-// resolveSourceDSN returns m's current source DSN: a fresh (uncached) lookup of
-// the connection m.ConnectionID references, rather than trusting any cached
-// value — the live-reference semantics documented on Migration.ConnectionID.
-func (c *Coordinator) resolveSourceDSN(ctx context.Context, m *Migration) (string, error) {
-	conn, err := c.store.GetConnectionByRef(ctx, Ref{ID: m.ConnectionID})
-	if err != nil {
-		return "", err
-	}
-	return conn.DSN, nil
-}
-
-// openSource resolves m's current source DSN and opens a connection to it.
-// The caller releases it with close.
-func (c *Coordinator) openSource(ctx context.Context, m *Migration) (migrationSource, error) {
-	dsn, err := c.resolveSourceDSN(ctx, m)
+// resolveSourceConn returns m's current source connection, validated: a fresh (uncached) lookup
+// of the connection m.ConnectionID references (the live-reference semantics documented on
+// Migration.ConnectionID). Every client of it is dialed with a string rendered from it.
+func (c *Coordinator) resolveSourceConn(ctx context.Context, m *Migration) (*backingconn.Conn, error) {
+	stored, err := c.store.GetConnectionByRef(ctx, Ref{ID: m.ConnectionID})
 	if err != nil {
 		return nil, err
 	}
-	return c.newSource(ctx, dsn)
+	return stored.Conn()
+}
+
+// openSource resolves m's current source connection and opens a connection to it.
+// The caller releases it with close.
+func (c *Coordinator) openSource(ctx context.Context, m *Migration) (migrationSource, error) {
+	src, err := c.resolveSourceConn(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	return c.newSource(ctx, src)
 }
 
 // CreateConnection stores a new named connection. conn.ID is assigned here,
@@ -124,6 +134,15 @@ func (c *Coordinator) openSource(ctx context.Context, m *Migration) (migrationSo
 // there is no in-place update, only create/drop. Takes c.mu, the same lock
 // every other coordinator method that mutates migration/connection state
 // holds.
+//
+// The dsn is checked here, once, with the strict libpq parser (backingconn.FromDSN): a connection
+// libpq would refuse, or read differently from what was meant, is refused now and not found out by
+// a migration or a pooler later. The connection is made self-contained (Conn.Complete, and
+// Validate requires host, user and password), so that no client takes them from its environment.
+// The checked structure is stored as the conninfo, which every consumer renders
+// its client's string from; the dsn column is its canonical rendering. Whether a pooler can front
+// the connection is not asked here, since one for the migrator may carry parameters a pooler
+// cannot: Conn.ForPooler is applied where one is served.
 func (c *Coordinator) CreateConnection(ctx context.Context, conn *Connection) error {
 	if conn.Name == "" {
 		return errors.New("connection name is required")
@@ -131,6 +150,13 @@ func (c *Coordinator) CreateConnection(ctx context.Context, conn *Connection) er
 	if conn.DSN == "" {
 		return errors.New("connection dsn is required")
 	}
+	conninfo, err := backingconn.FromDSN(conn.DSN)
+	if err != nil {
+		return fmt.Errorf("%w: connection %q: %w", ErrInvalidConnection, conn.Name, err)
+	}
+	conninfo.Name = ""
+	conn.ConnInfo = conninfo
+	conn.DSN = conninfo.DSN()
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -188,6 +214,9 @@ func (c *Coordinator) GetConnection(ctx context.Context, ref Ref, callerRole str
 	if err := c.checkConnectionOwnership(ctx, conn, callerRole, ErrConnectionNotFound); err != nil {
 		return nil, err
 	}
+	if err := conn.Unreadable(); err != nil {
+		return nil, err
+	}
 	return conn, nil
 }
 
@@ -198,6 +227,9 @@ func (c *Coordinator) GetConnection(ctx context.Context, ref Ref, callerRole str
 // omitted) rather than a rejection. Left empty on the CLI/multiadmin path:
 // every connection is returned unfiltered, unchanged from before this
 // parameter existed.
+//
+// A connection that cannot be read is listed like any other the caller may see, and reports it
+// with Unreadable: one bad connection does not keep its owner from listing the rest.
 //
 // Checks every distinct OwnerRole in one batched DeniedConnectionOwners call
 // rather than one CheckConnectionOwnership round trip per connection, so this
@@ -210,30 +242,30 @@ func (c *Coordinator) ListConnections(ctx context.Context, callerRole string) ([
 	if err != nil {
 		return nil, err
 	}
-	if callerRole == "" {
-		return conns, nil
-	}
-	ownerSet := make(map[string]bool)
-	for _, conn := range conns {
-		if conn.OwnerRole != "" {
-			ownerSet[conn.OwnerRole] = true
+	visible := conns
+	if callerRole != "" {
+		ownerSet := make(map[string]bool)
+		for _, conn := range conns {
+			if conn.OwnerRole != "" {
+				ownerSet[conn.OwnerRole] = true
+			}
+		}
+		owners := make([]string, 0, len(ownerSet))
+		for r := range ownerSet {
+			owners = append(owners, r)
+		}
+		denied, err := c.target.DeniedConnectionOwners(ctx, callerRole, owners)
+		if err != nil {
+			return nil, err
+		}
+		visible = make([]*Connection, 0, len(conns))
+		for _, conn := range conns {
+			if conn.OwnerRole == "" || !denied[conn.OwnerRole] {
+				visible = append(visible, conn)
+			}
 		}
 	}
-	owners := make([]string, 0, len(ownerSet))
-	for r := range ownerSet {
-		owners = append(owners, r)
-	}
-	denied, err := c.target.DeniedConnectionOwners(ctx, callerRole, owners)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]*Connection, 0, len(conns))
-	for _, conn := range conns {
-		if conn.OwnerRole == "" || !denied[conn.OwnerRole] {
-			out = append(out, conn)
-		}
-	}
-	return out, nil
+	return visible, nil
 }
 
 // checkConnectionOwnership verifies that callerRole could use conn, under
@@ -324,6 +356,10 @@ type CreateParams struct {
 	// SkipSchemaCopy skips the pg_dump --schema-only step.
 	SkipSchemaCopy bool
 	SequenceMargin int64
+	// QuiesceRoles are the optional application role names whose CONNECT on the
+	// source is revoked during the ACTIVATE cutover, so they cannot write once
+	// the source becomes a subscriber. Validated at create time.
+	QuiesceRoles []string
 	// CallerRole is the PostgreSQL role the gateway's SCRAM-authenticated SQL
 	// client is connected as. Set only on the gateway SQL path (CREATE
 	// MIGRATION); gates the connection-ownership check below — see
@@ -369,10 +405,21 @@ func (c *Coordinator) CreateMigration(ctx context.Context, p CreateParams) (*Pro
 	if err := c.checkConnectionOwnership(ctx, conn, p.CallerRole, fmt.Errorf("connection %q does not exist", p.ConnectionName)); err != nil {
 		return nil, err
 	}
+	// Only a caller who may use the connection is told it cannot be read.
+	if err := conn.Unreadable(); err != nil {
+		return nil, err
+	}
+
+	// A connection that is not valid, a passwordless one included, is refused before anything
+	// is created.
+	srcConn, err := conn.Conn()
+	if err != nil {
+		return nil, err
+	}
 
 	// Validate the source read-only before recording anything (no DB changes).
 	// Validate also resolves "*"/"schema.*" wildcards to the concrete owned tables.
-	src, err := c.newSource(ctx, conn.DSN)
+	src, err := c.newSource(ctx, srcConn)
 	if err != nil {
 		return nil, err
 	}
@@ -383,6 +430,11 @@ func (c *Coordinator) CreateMigration(ctx context.Context, p CreateParams) (*Pro
 	}
 	for _, w := range warnings {
 		c.logger.WarnContext(ctx, "migration source validation warning", "warning", w)
+	}
+	// Validate quiesce roles up front so a bad role fails at create time
+	// rather than mid-cutover.
+	if err := src.checkQuiesceRoles(p.QuiesceRoles); err != nil {
+		return nil, err
 	}
 	// EXPORT makes the source a subscriber; if it cannot create subscriptions
 	// (PG<16 without superuser), warn now so the operator knows fail-back is
@@ -431,6 +483,12 @@ func (c *Coordinator) CreateMigration(ctx context.Context, p CreateParams) (*Pro
 		CopyData:         p.CopyData,
 		SkipSchemaCopy:   p.SkipSchemaCopy,
 		SequenceMargin:   p.SequenceMargin,
+		QuiesceRoles:     p.QuiesceRoles,
+		OwnerRole:        p.CallerRole,
+		// Default state for a migration that never reaches a hard quiesce; the
+		// hard quiesce overwrites this with the source's actual PUBLIC CONNECT
+		// state before revoking it.
+		PublicHadConnect: true,
 	}
 	if err := c.store.Insert(ctx, m); err != nil {
 		return nil, err
@@ -442,13 +500,13 @@ func (c *Coordinator) CreateMigration(ctx context.Context, p CreateParams) (*Pro
 // runSetup runs VALIDATING -> SCHEMA_COPY -> CREATE_PUBLICATION -> COPYING.
 // callerRole is ActivateOptions.CallerRole, threaded through to gate DropTables.
 func (c *Coordinator) runSetup(ctx context.Context, m *Migration, callerRole string) error {
-	dsn, err := c.resolveSourceDSN(ctx, m)
+	srcConn, err := c.resolveSourceConn(ctx, m)
 	if err != nil {
 		return err
 	}
 	// One source connection drives the whole setup (validate, publication);
 	// DumpSchema still shells out to pg_dump separately.
-	src, err := c.newSource(ctx, dsn)
+	src, err := c.newSource(ctx, srcConn)
 	if err != nil {
 		return err
 	}
@@ -573,7 +631,7 @@ func (c *Coordinator) runSetup(ctx context.Context, m *Migration, callerRole str
 	// record COPYING, so the migration table reflects COPYING once the copy has
 	// actually started (not before, where a failed CreateSubscription would leave
 	// the row wrongly claiming COPYING).
-	if err := c.target.CreateSubscription(ctx, m.SubscriptionName(), dsn, m.PublicationName(), m.CopyData); err != nil {
+	if err := c.target.CreateSubscription(ctx, m.SubscriptionName(), srcConn.LibpqString(), m.PublicationName(), m.CopyData); err != nil {
 		return err
 	}
 	return c.advancePhase(ctx, m, PhaseCopying)
@@ -712,9 +770,8 @@ func (c *Coordinator) DropMigration(ctx context.Context, ref Ref, opts DropOptio
 	}
 
 	// A row already in COMPLETING is a drop that committed the phase but did not
-	// finish (a crash/restart, or a drain that failed after the phase was
-	// persisted). Finish it idempotently from the persisted direction — regardless
-	// of force/wait — rather than re-running the drain from a non-streaming phase.
+	// finish. Finish it idempotently from the persisted direction, regardless
+	// of force/wait, rather than re-running the drain from a non-streaming phase.
 	if m.Phase == PhaseCompleting {
 		c.teardown(ctx, m, m.effectiveDirection())
 		c.journal(ctx, m, JournalEventDrop, "")
@@ -834,11 +891,18 @@ func (c *Coordinator) waitStreamingLocked(ctx context.Context, m *Migration) err
 // the active direction, passed in because a drop may have already moved the phase
 // to PhaseCompleting (which carries no direction).
 //
-// For the IMPORT publisher (the external source), quiescing is read-only-only: it
-// flips default_transaction_read_only, blocking new transactions, and relies on
-// that plus the later un-quiesce at teardown/rollback. It does not terminate
-// existing client backends or fence any role's CONNECT — a client already
-// mid-transaction when the barrier flips could still commit that one transaction.
+// hard selects a HARD quiesce of the IMPORT publisher: it revokes PUBLIC's
+// CONNECT and the opt-in quiesce roles', terminates every remaining client
+// backend, then captures the LSN, so nothing can commit past the barrier. Only
+// the named-role fencing is opt-in; the PUBLIC revoke and the termination are
+// part of the barrier and apply to every ACTIVATE cutover, whether or not
+// QuiesceRoles is set. It is set only for the ACTIVATE
+// cutover, since the source is about to become a subscriber. The barrier is
+// best effort: unnamed roles that can still connect, superusers, the migrator's
+// own role and non-client writers are not blocked (see the migrator design doc).
+// A graceful drop
+// passes hard=false and only sets read-only, since the source stays the
+// application's primary. hard has no effect in the EXPORT branch.
 //
 // DefaultDrainWaitTimeout bounds the drain regardless of the caller's own
 // deadline (context.WithTimeout only ever shortens one): a drain that never
@@ -849,7 +913,7 @@ func (c *Coordinator) waitStreamingLocked(ctx context.Context, m *Migration) err
 // waiting out the default.
 var DefaultDrainWaitTimeout = 30 * time.Second
 
-func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration, dir Direction) (string, error) {
+func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration, dir Direction, hard bool) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultDrainWaitTimeout)
 	defer cancel()
 	if dir == DirectionImport {
@@ -858,15 +922,57 @@ func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration, dir Direct
 			return "", err
 		}
 		defer src.close()
-		if err := src.SetReadOnly(true); err != nil {
+		// fenced is set once a revoke may have reached the source. A failure from
+		// then on would leave the application locked out of a source whose cutover
+		// never completed, so abort un-fences it before returning the error.
+		fenced := false
+		abort := func(err error) (string, error) {
+			if fenced {
+				c.unfenceFailedQuiesce(ctx, m)
+			}
 			return "", err
+		}
+		if hard {
+			// Capture and persist the pre-revoke state only once. A crash-resumed
+			// switch re-enters here after the revoke already ran, when the live state
+			// is the already-revoked one and would overwrite the correct record.
+			// RevokeConnect below is idempotent, so it still runs on every pass.
+			if !m.QuiesceApplied {
+				if err := c.captureQuiesceState(ctx, m, src); err != nil {
+					return "", err
+				}
+			}
+			// Fence PUBLIC and the named app roles first, while this session is still
+			// writable: REVOKE is a catalog write and would be rejected once
+			// SetReadOnly flips the session read-only. Revoking before read-only also
+			// means a client the next step terminates cannot reconnect and slip a
+			// write in. A resumed switch opens a fresh connection after the earlier pass
+			// already set the cluster-wide read-only default, so this session needs its
+			// own writable override for the REVOKE; SetReadOnly below restores it.
+			if err := src.setSessionReadOnly(false); err != nil {
+				return "", err
+			}
+			fenced = true
+			if err := src.RevokeConnect(m.QuiesceRoles); err != nil {
+				return abort(err)
+			}
+		}
+		if err := src.SetReadOnly(true); err != nil {
+			return abort(err)
+		}
+		if hard {
+			// Cut every remaining live client backend before capturing the LSN, so the
+			// barrier point is airtight and nothing in flight can still commit.
+			if err := src.TerminateClientBackends(); err != nil {
+				return abort(err)
+			}
 		}
 		lsn, err := src.CurrentLSN()
 		if err != nil {
-			return "", err
+			return abort(err)
 		}
 		if err := src.WaitSlotConfirmed(m.SubscriptionName(), lsn); err != nil {
-			return "", err
+			return abort(err)
 		}
 		return lsn, nil
 	}
@@ -893,12 +999,122 @@ func (c *Coordinator) drainCurrent(ctx context.Context, m *Migration, dir Direct
 	return lsn, nil
 }
 
+// captureQuiesceState re-validates the quiesce roles, records the source's
+// pre-revoke CONNECT state on m, and persists it before the revoke changes
+// anything live. Called once per migration (guarded by QuiesceApplied).
+func (c *Coordinator) captureQuiesceState(ctx context.Context, m *Migration, src migrationSource) error {
+	// The roles were validated at create time, but may since have been dropped,
+	// renamed, or made superusers (which REVOKE CONNECT and CONNECTION LIMIT
+	// cannot fence). Fail now, before anything is revoked, instead of mid-cutover
+	// with the source partially fenced.
+	if err := src.checkQuiesceRoles(m.QuiesceRoles); err != nil {
+		return err
+	}
+	// Record whether PUBLIC currently has CONNECT, before revoking it, so the
+	// later restore does not re-grant it to an operator who had already locked
+	// PUBLIC out. RevokeConnect always revokes PUBLIC's CONNECT, since read-only
+	// alone cannot stop a reconnecting client from issuing BEGIN READ WRITE, so
+	// this is captured regardless of QuiesceRoles.
+	hasPublic, err := src.PublicHasConnect()
+	if err != nil {
+		return err
+	}
+	m.PublicHadConnect = hasPublic
+	if len(m.QuiesceRoles) > 0 {
+		// Same idea, per role: RevokeConnect also caps each quiesce role's
+		// CONNECTION LIMIT to 0, closing the inheritance gap plain REVOKE CONNECT
+		// cannot. Record each role's current limit so the restore sets it back
+		// instead of discarding an operator-set custom limit.
+		limits, err := src.RoleConnLimits(m.QuiesceRoles)
+		if err != nil {
+			return err
+		}
+		m.QuiesceRoleConnLimits = limits
+		// Record whether each quiesce role held its own direct CONNECT grant, since
+		// a role may only have been reachable via PUBLIC's grant. The restore only
+		// re-grants roles this map marks true.
+		hadConnect, err := src.RolesHadConnect(m.QuiesceRoles)
+		if err != nil {
+			return err
+		}
+		m.QuiesceRolesHadConnect = hadConnect
+	}
+	// QuiesceApplied marks that this migration's hard quiesce ran, so
+	// teardown/rollback must attempt a GrantConnect restore. QuiesceRoleConnLimits
+	// alone cannot prove this, since it stays empty when QuiesceRoles is empty
+	// even though PUBLIC was still revoked.
+	m.QuiesceApplied = true
+	// Persist before the revoke: a crash between the two must not lose the record
+	// of what to restore.
+	return c.store.Update(ctx, m)
+}
+
+// restoreSourceConnect undoes the hard quiesce's CONNECT revoke. Failure is
+// non-fatal to the caller (the switch or drop it belongs to has already done
+// its real work), so it is logged and appended to the migration journal, which
+// outlives the migration row, leaving a durable record that some role may still
+// be fenced and need a manual GRANT.
+//
+// A successful restore clears QuiesceApplied, so the next cutover captures a
+// fresh snapshot and re-validates the roles instead of reusing this one, and a
+// later teardown does not restore it again. The caller persists the cleared
+// flag with the completed switch. Until then, and after a failed restore, the
+// flag stays set, so a retry of the same cutover keeps its snapshot.
+func (c *Coordinator) restoreSourceConnect(ctx context.Context, m *Migration, src migrationSource) {
+	err := src.GrantConnect(m.quiesceRolesToRestoreConnect(), m.PublicHadConnect, m.QuiesceRoleConnLimits)
+	if err == nil {
+		m.QuiesceApplied = false
+		return
+	}
+	c.recordRestoreFailure(ctx, m, err)
+}
+
+// recordRestoreFailure logs a failed CONNECT restore and appends it to the
+// migration journal.
+func (c *Coordinator) recordRestoreFailure(ctx context.Context, m *Migration, err error) {
+	c.logger.WarnContext(ctx, "restore source connect failed", "migration", m.ID, "error", err)
+	c.journal(ctx, m, JournalEventQuiesceRestoreFailed, err.Error())
+}
+
+// unfenceFailedQuiesce puts the source back the way it was after a hard
+// quiesce failed past the revoke (the barrier could not be reached, a write
+// privilege was missing, the subscriber never caught up), so a failed ACTIVATE
+// does not leave the application locked out until the migration is dropped.
+// It restores CONNECT and the connection limits, then lifts the read-only
+// default. Best effort: a failure is journaled and QuiesceApplied stays set, so
+// the teardown of a forced drop retries the restore. It runs on a fresh
+// connection and a detached context, since the drain's own context may be the
+// thing that expired.
+func (c *Coordinator) unfenceFailedQuiesce(ctx context.Context, m *Migration) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	src, err := c.openSource(ctx, m)
+	if err != nil {
+		c.recordRestoreFailure(ctx, m, fmt.Errorf("reconnect to the source to un-fence it: %w", err))
+		return
+	}
+	defer src.close()
+	// The cluster-wide default may already be read-only, and the restore is a
+	// catalog write, so this session needs its own writable override first.
+	if err := src.setSessionReadOnly(false); err != nil {
+		c.recordRestoreFailure(ctx, m, err)
+		return
+	}
+	c.restoreSourceConnect(ctx, m, src)
+	if err := src.SetReadOnly(false); err != nil {
+		c.logger.WarnContext(ctx, "lift source read-only after a failed quiesce", "migration", m.ID, "error", err)
+	}
+}
+
 // drainAndAdvance runs the drain barrier and advances the surviving writer's
 // sequences (the target in IMPORT, the source in EXPORT). dir is the active
 // direction (see drainCurrent). It returns the drained-to (quiesce) LSN captured
 // by the barrier, for the drop's journal entry.
 func (c *Coordinator) drainAndAdvance(ctx context.Context, m *Migration, dir Direction) (string, error) {
-	drainedLSN, err := c.drainCurrent(ctx, m, dir)
+	// A graceful drop leaves the current publisher in place as a standalone
+	// database, so a soft, read-only quiesce is enough; no need to terminate or
+	// fence its client backends.
+	drainedLSN, err := c.drainCurrent(ctx, m, dir, false)
 	if err != nil {
 		return "", err
 	}
@@ -1211,6 +1427,18 @@ func (c *Coordinator) SetMigrationDirection(ctx context.Context, ref Ref, target
 	return c.applySwitch(ctx, m, target)
 }
 
+// failSwitch marks a switch FAILED. A switch to EXPORT that already ran its hard
+// quiesce (QuiesceApplied is set, also on a crash-resumed switch whose drain was
+// skipped) is un-fenced first, so a failure after the drain, say while advancing
+// sequences, does not leave the application locked out of the source until a
+// forced drop. The drain's own failures un-fence inside drainCurrent.
+func (c *Coordinator) failSwitch(ctx context.Context, m *Migration, target Direction, err error) {
+	if target == DirectionExport && m.QuiesceApplied {
+		c.unfenceFailedQuiesce(ctx, m)
+	}
+	c.fail(ctx, m, err)
+}
+
 // applySwitch performs — or, after a crash, resumes — the switch recorded by
 // m.Phase toward target. It is idempotent: the drain barrier runs only while the
 // current-direction subscription still exists (once the switch has dropped it,
@@ -1234,7 +1462,7 @@ func (c *Coordinator) applySwitch(ctx context.Context, m *Migration, target Dire
 	}
 	live, err := c.currentLinkLive(ctx, m)
 	if err != nil {
-		c.fail(ctx, m, err)
+		c.failSwitch(ctx, m, target, err)
 		return nil, err
 	}
 	// drainedLSN is the quiesce point on the old writer (the "drained-to" LSN),
@@ -1245,8 +1473,10 @@ func (c *Coordinator) applySwitch(ctx context.Context, m *Migration, target Dire
 	if live {
 		// A switching phase still carries the current (pre-switch) direction, so
 		// derive it from the phase: SWITCHING_TO_EXPORT drains the import publisher,
-		// SWITCHING_TO_IMPORT drains the export publisher.
-		drainedLSN, err = c.drainCurrent(ctx, m, directionOf(m.Phase))
+		// SWITCHING_TO_IMPORT drains the export publisher. Switching to export makes
+		// the source a subscriber, so it is drained hard; switching back to import
+		// drains the target and does not touch the source.
+		drainedLSN, err = c.drainCurrent(ctx, m, directionOf(m.Phase), target == DirectionExport)
 		if err != nil {
 			c.fail(ctx, m, err)
 			return nil, err
@@ -1256,7 +1486,7 @@ func (c *Coordinator) applySwitch(ctx context.Context, m *Migration, target Dire
 	// switch (the handoff point past the switch's own catalog WAL).
 	newWriterLSN, err := c.switchTo(ctx, m, target)
 	if err != nil {
-		c.fail(ctx, m, err)
+		c.failSwitch(ctx, m, target, err)
 		return nil, err
 	}
 	// Durable handoff record: append the switch's handoff LSNs BEFORE committing
@@ -1443,10 +1673,9 @@ func (c *Coordinator) markReverseLinkDegraded(ctx context.Context, m *Migration,
 // else already fixed it, or the detection was transient), it is a no-op
 // beyond clearing a stale degraded marker.
 //
-// Currently has no caller: the gRPC/CLI/multiadmin exposure of this RPC has
-// been pulled out of the migrator stack pending a design decision (see PR
-// #1535 review discussion) and will land as its own commit later. Remove
-// this method too if that exposure ends up not coming back.
+// Exposed as an operator-only RPC through grpcmigrationservice, multiadmin,
+// and the CLI (reseed-reverse-link), mirroring the other ref-addressed
+// migration RPCs.
 func (c *Coordinator) ReseedReverseLink(ctx context.Context, ref Ref) (*Projection, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1539,10 +1768,12 @@ func (c *Coordinator) clearReverseLinkDegraded(ctx context.Context, m *Migration
 // before CreateSubscription attaches the reverse subscription, the first
 // point the source's own writes become safe (the target-side slot this
 // attaches to already exists and is anchored at the correct LSN, so nothing
-// written from here on is lost). Terminating here, unconditionally, is what
-// closes the residual race: a stale client is free to reconnect the instant
-// the barrier lifts and must be cut again before it can commit anything the
-// reverse stream would never capture.
+// written from here on is lost). PUBLIC's CONNECT stays revoked throughout,
+// so a role holding only PUBLIC's grant cannot reconnect here. Terminating
+// unconditionally instead closes the narrower case of a role with its own
+// direct CONNECT grant that the operator did not list in QuiesceRoles: it
+// could still reconnect the instant the barrier lifts and must be cut again
+// before it can commit a write the reverse stream would never capture.
 func unquiesceForReverseSubscription(src migrationSource) error {
 	if err := src.SetReadOnly(false); err != nil {
 		return err
@@ -1584,11 +1815,11 @@ func (c *Coordinator) currentLinkLive(ctx context.Context, m *Migration) (bool, 
 // the start LSN on the side that becomes the writer after the switch (the handoff
 // point, past the switch's own catalog WAL) for the handoff journal entry.
 func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Direction) (string, error) {
-	dsn, err := c.resolveSourceDSN(ctx, m)
+	srcConn, err := c.resolveSourceConn(ctx, m)
 	if err != nil {
 		return "", err
 	}
-	src, err := c.newSource(ctx, dsn)
+	src, err := c.newSource(ctx, srcConn)
 	if err != nil {
 		return "", err
 	}
@@ -1598,7 +1829,7 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 	if target == DirectionExport {
 		// IMPORT -> EXPORT: the target (Multigres) becomes publisher/writer, and
 		// the old source becomes a subscriber. The source must stay cluster-wide
-		// read-only (set by drainCurrent) until the reverse subscription
+		// read-only, set by the hard quiesce, until the reverse subscription
 		// actually attaches — ensureReverseExportLink, called once EXPORTING
 		// commits and the gateway serves, is what un-quiesces it. Lifting the
 		// barrier here, before that link exists, would let a stale client
@@ -1696,10 +1927,19 @@ func (c *Coordinator) switchTo(ctx context.Context, m *Migration, target Directi
 	if exists, err := c.target.SubscriptionExists(ctx, sub); err != nil {
 		return "", err
 	} else if !exists {
-		if err := c.target.CreateSubscription(ctx, sub, dsn, pub, false); err != nil {
+		if err := c.target.CreateSubscription(ctx, sub, srcConn.LibpqString(), pub, false); err != nil {
 			return "", err
 		}
 	}
+	// Only now restore the CONNECT privilege the ACTIVATE cutover revoked: the
+	// forward subscription and its slot already exist, so a reconnecting
+	// client's write is captured by replication. Granting it earlier, before the
+	// slot exists, could lose a write made before replication could capture it.
+	// The source is already writable from the earlier reverse-subscription
+	// un-quiesce, so no read-only flip is needed here. Replication is already
+	// reconfigured at this point, so a restore failure must roll forward rather
+	// than fail the switch; restoreSourceConnect journals it instead.
+	c.restoreSourceConnect(ctx, m, src)
 	return newWriterLSN, nil
 }
 
@@ -1719,9 +1959,9 @@ func (c *Coordinator) teardown(ctx context.Context, m *Migration, dir Direction)
 	// The source may be unreachable during an abort; still tear down the target
 	// side. Source-side drops run only if we could resolve a DSN and connect.
 	var src migrationSource
-	if dsn, err := c.resolveSourceDSN(ctx, m); err != nil {
+	if srcConn, err := c.resolveSourceConn(ctx, m); err != nil {
 		logErr("resolve source connection", err)
-	} else if s, err := c.newSource(ctx, dsn); err != nil {
+	} else if s, err := c.newSource(ctx, srcConn); err != nil {
 		logErr("connect source", err)
 	} else {
 		src = s
@@ -1738,6 +1978,16 @@ func (c *Coordinator) teardown(ctx context.Context, m *Migration, dir Direction)
 			// source writable again (the migration is being torn down). No-op on a
 			// force drop that never quiesced.
 			logErr("un-quiesce source", src.SetReadOnly(false))
+			// A hard quiesce can fail partway through, after REVOKE CONNECT already
+			// succeeded but before a later step such as SetReadOnly fails and marks the
+			// migration FAILED. Without this, the app roles and PUBLIC would stay
+			// locked out, since the EXPORT-direction restore below only runs once
+			// ACTIVATE fully succeeds. QuiesceApplied is the only reliable proof a
+			// revoke was attempted, since QuiesceRoleConnLimits stays empty whenever
+			// QuiesceRoles is empty even though PUBLIC was still revoked.
+			if m.QuiesceApplied {
+				c.restoreSourceConnect(ctx, m, src)
+			}
 			logErr("drop source publication", src.DropPublication(m.PublicationName()))
 		}
 		return
@@ -1745,6 +1995,9 @@ func (c *Coordinator) teardown(ctx context.Context, m *Migration, dir Direction)
 	// EXPORT: subscription (apply) on the source, publication (capture) on the target.
 	if src != nil {
 		logErr("drop source subscription", src.DropSubscription(m.SubscriptionName()))
+		// The ACTIVATE cutover revoked CONNECT from the app roles; the migration is
+		// being torn down, so restore their access to the now-standalone source.
+		c.restoreSourceConnect(ctx, m, src)
 	}
 	logErr("drop target publication", c.target.DropPublication(ctx, m.PublicationName()))
 	// The reverse slot was pre-created on the target (create_slot=false), so the
@@ -1989,14 +2242,14 @@ type Projection struct {
 
 // project builds the redacted projection, merging optional live status. It
 // resolves the migration's current connection fresh (not cached) for Source/
-// ConnectionName, same as resolveSourceDSN — a connection lookup failure (e.g.
+// ConnectionName, same as resolveSourceConn — a connection lookup failure (e.g.
 // a race with a concurrent drop, which the FK normally prevents) degrades
 // those two fields to empty rather than failing the whole projection, since a
 // status read should not fail outright over a display-only field.
 func (c *Coordinator) project(ctx context.Context, m *Migration, status *SubscriptionStatus) *Projection {
 	var source, connectionName string
-	if conn, err := c.store.GetConnectionByRef(ctx, Ref{ID: m.ConnectionID}); err == nil {
-		source = redactDSN(conn.DSN)
+	if conn, err := c.store.GetConnectionByRef(ctx, Ref{ID: m.ConnectionID}); err == nil && conn.Unreadable() == nil {
+		source = redactConn(conn)
 		connectionName = conn.Name
 	}
 	p := &Projection{
@@ -2030,15 +2283,12 @@ func (c *Coordinator) project(ctx context.Context, m *Migration, status *Subscri
 	return p
 }
 
-// redactDSN returns host[:port]/db from a DSN, dropping user and password. On a
-// parse failure it returns empty rather than risk leaking credentials.
-func redactDSN(dsn string) string {
-	cfg, err := pgx.ParseConfig(dsn)
+// redactConn returns host:port/db of a connection, without user or password; empty for one that
+// cannot be read, rather than risk leaking credentials.
+func redactConn(stored *Connection) string {
+	conn, err := stored.Conn()
 	if err != nil {
 		return ""
 	}
-	if cfg.Port != 0 {
-		return fmt.Sprintf("%s:%d/%s", cfg.Host, cfg.Port, cfg.Database)
-	}
-	return cfg.Host + "/" + cfg.Database
+	return fmt.Sprintf("%s:%d/%s", conn.Host(), conn.Port(), conn.Database)
 }

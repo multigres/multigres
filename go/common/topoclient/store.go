@@ -100,6 +100,8 @@ const (
 	PoolerFile         = "Pooler"
 	OrchFile           = "Orch"
 	ShardInitClaimFile = "ShardInitClaim"
+	// BootstrapMarkerFile marks a shard whose first-backup bootstrap has not completed.
+	BootstrapMarkerFile = "BootstrapInProgress"
 	// TableGroupClaimsDir holds a database's TableGroupProvisionClaim nodes,
 	// one per catalog id. It sits beside the database's tablegroup
 	// directories; the capitals keep it clear of any tablegroup name, which
@@ -266,6 +268,13 @@ type Store interface {
 	// committed cohort is returned so the caller reuses the same members.
 	// Returns won=false if a different coordinator already owns the claim.
 	ClaimShardInitialization(ctx context.Context, shardRef *clustermetadatapb.ShardRef, claimerID *clustermetadatapb.ID, proposedCohort []*clustermetadatapb.ID) (won bool, committedCohort []*clustermetadatapb.ID, err error)
+
+	// MarkBootstrapInProgress, BootstrapInProgress and ClearBootstrapMarker manage
+	// the marker that holds a shard's first-backup bootstrap open until a complete
+	// backup exists. See bootstrap_marker.go.
+	MarkBootstrapInProgress(ctx context.Context, shardRef *clustermetadatapb.ShardRef, holder string) error
+	BootstrapInProgress(ctx context.Context, shardRef *clustermetadatapb.ShardRef) (bool, error)
+	ClearBootstrapMarker(ctx context.Context, shardRef *clustermetadatapb.ShardRef) error
 
 	// DeleteShardInitClaim removes a shard's initialization claim so a later
 	// shard of that name bootstraps afresh. The catalog primary calls it for

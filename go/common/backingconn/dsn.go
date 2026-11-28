@@ -17,86 +17,46 @@ package backingconn
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/multigres/multigres/go/tools/pgutil"
 )
 
-// Conn is a libpq connection string decoded into the parts a backing connection carries. The
-// host and the port are lists, as in libpq's host=a,b port=1,2; whether more than one server is
-// served is decided by the caller (Endpoint), not by the decoding.
-type Conn struct {
-	Hosts          []string
-	Ports          []int
-	Database       string
-	User           string
-	Password       string
-	SSLMode        string
-	SSLRootCert    string
-	SSLNegotiation string
-}
-
-// carriedParams are the libpq parameters a backing connection carries: where the server is, who
-// to connect as, and the TLS settings the pooler honors. Any other parameter is refused rather
-// than dropped, since dropping one can weaken the connection (channel_binding=require, sslcert
-// and sslkey, options) or send it to a different server (hostaddr, target_session_attrs,
-// load_balance_hosts).
-var carriedParams = map[string]bool{
-	"host": true, "port": true, "dbname": true, "user": true, "password": true,
-	"sslmode": true, "sslrootcert": true, "sslnegotiation": true,
-}
-
-// libpqParams are the connection parameters libpq knows, which are the only names an error
-// message may repeat. A name outside this list may be a fragment of a password (an unquoted
-// "password=ab cd=ef" has a parameter "cd"), so it is never echoed.
-var libpqParams = map[string]bool{
-	"application_name": true, "channel_binding": true, "client_encoding": true,
-	"connect_timeout": true, "dbname": true, "fallback_application_name": true,
-	"gssdelegation": true, "gssencmode": true, "gsslib": true, "host": true, "hostaddr": true,
-	"keepalives": true, "keepalives_count": true, "keepalives_idle": true,
-	"keepalives_interval": true, "krbsrvname": true, "load_balance_hosts": true,
-	"max_protocol_version": true, "min_protocol_version": true, "options": true,
-	"passfile": true, "password": true, "port": true, "replication": true,
-	"requirepeer": true, "requiressl": true, "scram_client_key": true,
-	"scram_server_key": true, "service": true, "ssl_max_protocol_version": true,
-	"ssl_min_protocol_version": true, "sslcert": true, "sslcertmode": true,
-	"sslcompression": true, "sslcrl": true, "sslcrldir": true, "sslkey": true,
-	"sslmode": true, "sslnegotiation": true, "sslpassword": true, "sslrootcert": true,
-	"sslsni": true, "target_session_attrs": true, "tcp_user_timeout": true, "user": true,
-}
-
-// paramName renders a parameter name for an error message: only a libpq parameter name is
-// shown, never text of the string that merely looks like one.
-func paramName(key string) string {
-	if libpqParams[key] {
-		return key
-	}
-	return "(unrecognized)"
-}
-
-// ParseDSN decodes a libpq connection string, in either form:
+// ParseDSN decodes a libpq connection string, a URI
 //
-//	postgres://user:password@host:port/dbname?sslmode=...&sslrootcert=...&sslnegotiation=...
-//	host=... port=... dbname=... user=... password=... sslmode=...
+//	postgres://user:password@host:port/dbname?sslmode=...
 //
-// It is stricter than libpq, never looser, so that whatever it accepts libpq reads the same way:
+// or keyword=value pairs. It is stricter than libpq, never looser, so that whatever it accepts
+// libpq reads the same way. It refuses:
 //
-//   - parameter names are exactly libpq's, in lower case, in both forms: HOST and SslMode are
-//     refused, not folded;
-//   - a parameter given twice is refused, in both forms, where libpq takes the last;
-//   - a keyword-form token without "=" is refused, where a lenient tokenizer drops it and the
-//     rest of the string with it (password=abc def is the password abc and a dropped "def");
-//   - a URI containing "#" is refused: libpq gives it no meaning in a URI, and a URL parser
-//     would cut the string there and drop the query;
-//   - a URI query parameter without "=" is refused;
-//   - a parameter the connection does not carry is refused, not dropped.
+//   - a parameter name that is not exactly libpq's (HOST, SslMode), and a parameter given twice,
+//     where libpq takes the last;
+//   - a keyword-form token without "=", which a lenient tokenizer drops along with the rest of the
+//     string (password=abc def is the password abc and a dropped "def");
+//   - a keyword-form value that does not start directly after "=": libpq skips the white space
+//     and reads the next token as the value (password= sslmode=require is the password
+//     "sslmode=require"), so an empty value is written ”;
+//   - in a URI, "#" (libpq gives it no meaning, a URL parser would cut the query there), a query
+//     parameter without "=" or whose value has a raw "=" or white space (libpq: "extra key/value
+//     separator" and "unexpected spaces"; write %3D and %20), and %00;
+//   - a value that is not valid UTF-8 without NUL, where libpq stops reading at a NUL;
+//   - an empty sslmode or sslnegotiation, which a lenient parser would drop.
 //
-// Nothing is read from the environment or a password file: the connection is exactly what the
-// string says. An error never carries any part of the string, which holds the password; at most
-// it names a libpq parameter.
+// A libpq parameter that a backing connection does not carry (sslcert, options, hostaddr, ...) is
+// kept in Conn.Params, not dropped: dropping one could weaken the connection or send it to
+// another server. Whether a connection that has any is usable is for the caller to decide
+// (Conn.ForPooler refuses it; the migrator passes it on to its own client).
+//
+// Nothing is read from the environment or a password file. An error never carries any part of
+// the string, which holds the password; at most it names a libpq parameter.
 func ParseDSN(dsn string) (*Conn, error) {
+	if !validText(dsn) {
+		return nil, errText
+	}
 	var (
 		params map[string]string
 		err    error
@@ -116,31 +76,52 @@ func ParseDSN(dsn string) (*Conn, error) {
 }
 
 func connFromParams(params map[string]string) (*Conn, error) {
-	for key := range params {
-		if !carriedParams[key] {
-			return nil, fmt.Errorf("parameter %s is not supported; a backing connection carries only host, port, dbname, user, password, sslmode, sslrootcert and sslnegotiation", paramName(key))
+	conn := &Conn{}
+	for _, key := range slices.Sorted(maps.Keys(params)) {
+		value := params[key]
+		switch key {
+		case "host":
+			if value != "" {
+				conn.Hosts = strings.Split(value, ",")
+			}
+		case "port":
+			if value == "" {
+				continue
+			}
+			for p := range strings.SplitSeq(value, ",") {
+				port, err := strconv.ParseUint(p, 10, 16)
+				if err != nil {
+					return nil, errors.New("port is not a valid port number")
+				}
+				conn.Ports = append(conn.Ports, int(port))
+			}
+		case "dbname":
+			conn.Database = value
+		case "user":
+			conn.User = value
+		case "password":
+			conn.Password = value
+		case "sslmode":
+			if value == "" {
+				return nil, errors.New("sslmode is empty")
+			}
+			conn.SSLMode = value
+		case "sslrootcert":
+			conn.SSLRootCert = value
+		case "sslnegotiation":
+			if value == "" {
+				return nil, errors.New("sslnegotiation is empty")
+			}
+			conn.SSLNegotiation = value
+		default:
+			if !IsParam(key) {
+				return nil, errUnrecognized
+			}
+			if conn.Params == nil {
+				conn.Params = map[string]string{}
+			}
+			conn.Params[key] = value
 		}
-	}
-	if params["port"] == "" {
-		return nil, errors.New("port is required")
-	}
-	conn := &Conn{
-		Database:       params["dbname"],
-		User:           params["user"],
-		Password:       params["password"],
-		SSLMode:        params["sslmode"],
-		SSLRootCert:    params["sslrootcert"],
-		SSLNegotiation: params["sslnegotiation"],
-	}
-	if host, ok := params["host"]; ok {
-		conn.Hosts = strings.Split(host, ",")
-	}
-	for p := range strings.SplitSeq(params["port"], ",") {
-		port, err := strconv.ParseUint(p, 10, 16)
-		if err != nil {
-			return nil, errors.New("port is not a single valid port number")
-		}
-		conn.Ports = append(conn.Ports, int(port))
 	}
 	return conn, nil
 }
@@ -156,7 +137,7 @@ func isSpace(b byte) bool {
 
 // parseKeywordValue tokenizes keyword=value pairs as libpq does (conninfo_parse): a value is a
 // run of non-space characters or a '...' quoted string, a backslash makes the next character
-// literal in both, and whitespace may surround "=". It differs from libpq only by refusing what
+// literal in both, and whitespace may precede "=". It differs from libpq only by refusing what
 // libpq would accept with a surprising result (see ParseDSN) or silently drop.
 func parseKeywordValue(s string) (map[string]string, error) {
 	params := map[string]string{}
@@ -180,12 +161,15 @@ func parseKeywordValue(s string) (map[string]string, error) {
 			return nil, errors.New(`a parameter has no "="`)
 		}
 		i++
-		for i < len(s) && isSpace(s[i]) {
-			i++
+		if i < len(s) && isSpace(s[i]) {
+			return nil, errors.New(`a value must start directly after "=": libpq skips white space there and reads the next word as the value; write an empty value as ''`)
 		}
 
 		var value strings.Builder
 		quoted := i < len(s) && s[i] == '\''
+		if !quoted && i == len(s) {
+			return nil, errors.New(`a value is empty; write an empty value as ''`)
+		}
 		if quoted {
 			i++
 		}
@@ -225,35 +209,71 @@ func parseKeywordValue(s string) (map[string]string, error) {
 // parseURI maps a postgres:// URI to the parameters it sets. The authority and path give host,
 // port, user, password and dbname; a query parameter that sets one of them again is ambiguous
 // and refused, as is a parameter given twice.
+//
+// It does not use net/url, which reads the authority as one host: given a list of servers it
+// keeps the last and drops the rest without saying so. The URI is split here as libpq splits it,
+// and %XX is decoded in each part.
 func parseURI(raw string) (map[string]string, error) {
 	if strings.Contains(raw, "#") {
 		return nil, errors.New("the URI contains '#', which libpq does not treat as a fragment; write it as %23")
 	}
 	main, query, hasQuery := strings.Cut(raw, "?")
-	u, err := url.Parse(main)
-	if err != nil {
-		// url.Parse's error quotes the URL, which holds the password.
-		return nil, errors.New("the URI is not valid (for example, its port is not a number)")
+	_, rest, _ := strings.Cut(main, "://")
+	authority, path, _ := strings.Cut(rest, "/")
+
+	errEncoding := errors.New("the URI has an invalid percent-encoding")
+	unescape := func(part string) (string, error) {
+		value, err := url.PathUnescape(part)
+		if err != nil || !validText(value) {
+			return "", errEncoding
+		}
+		return value, nil
 	}
 	params := map[string]string{}
-	if strings.Contains(u.Host, ",") {
-		return nil, ErrMultipleHosts
+	if strings.Count(authority, "@") > 1 {
+		return nil, errors.New("the URI has more than one '@' before the host; write an '@' in the user name or password as %40")
 	}
-	if h := u.Hostname(); h != "" {
-		params["host"] = h
-	}
-	if p := u.Port(); p != "" {
-		params["port"] = p
-	}
-	if u.User != nil {
-		if name := u.User.Username(); name != "" {
-			params["user"] = name
+	hostPart := authority
+	if userinfo, after, ok := strings.Cut(authority, "@"); ok {
+		hostPart = after
+		user, password, hasPassword := strings.Cut(userinfo, ":")
+		user, err := unescape(user)
+		if err != nil {
+			return nil, errEncoding
 		}
-		if pw, ok := u.User.Password(); ok {
-			params["password"] = pw
+		if user != "" {
+			params["user"] = user
+		}
+		if hasPassword {
+			password, err := unescape(password)
+			if err != nil {
+				return nil, errEncoding
+			}
+			params["password"] = password
 		}
 	}
-	if db := strings.TrimPrefix(u.Path, "/"); db != "" {
+	if hostPart != "" {
+		hosts, ports, err := splitAuthority(hostPart)
+		if err != nil {
+			return nil, err
+		}
+		for i, h := range hosts {
+			if hosts[i], err = unescape(h); err != nil {
+				return nil, errEncoding
+			}
+		}
+		if len(hosts) > 0 {
+			params["host"] = strings.Join(hosts, ",")
+		}
+		if len(ports) > 0 {
+			params["port"] = strings.Join(ports, ",")
+		}
+	}
+	db, err := unescape(path)
+	if err != nil {
+		return nil, errEncoding
+	}
+	if db != "" {
 		params["dbname"] = db
 	}
 	if !hasQuery || query == "" {
@@ -268,11 +288,17 @@ func parseURI(raw string) (map[string]string, error) {
 		if !ok {
 			return nil, errors.New(`a URI query parameter has no "="`)
 		}
-		key, err := url.PathUnescape(rawKey)
+		if strings.Contains(rawValue, "=") {
+			return nil, errors.New(`a URI query value has a raw "=": libpq refuses it as an extra key/value separator; write it %3D`)
+		}
+		if strings.ContainsFunc(rawValue, func(r rune) bool { return r < 0x80 && isSpace(byte(r)) }) {
+			return nil, errors.New("a URI query value has white space in it: libpq refuses it; write a space %20")
+		}
+		key, err := unescape(rawKey)
 		if err != nil {
 			return nil, errors.New("the URI has an invalid percent-encoding in its query")
 		}
-		value, err := url.PathUnescape(rawValue)
+		value, err := unescape(rawValue)
 		if err != nil {
 			return nil, errors.New("the URI has an invalid percent-encoding in its query")
 		}
@@ -286,4 +312,51 @@ func parseURI(raw string) (map[string]string, error) {
 		params[key] = value
 	}
 	return params, nil
+}
+
+// splitAuthority splits the host part of a URI, which libpq reads as a comma-separated list of
+// host[:port] (an IPv6 address in brackets), into its hosts and ports. Every host has a port or
+// none does; libpq would give the others a default, which a list of ports cannot say.
+func splitAuthority(authority string) (hosts, ports []string, err error) {
+	elems := strings.Split(authority, ",")
+	for _, elem := range elems {
+		host, port, err := splitHostPort(elem)
+		if err != nil {
+			return nil, nil, err
+		}
+		hosts = append(hosts, host)
+		if port != "" {
+			ports = append(ports, port)
+		}
+	}
+	if len(ports) != 0 && len(ports) != len(elems) {
+		return nil, nil, errors.New("in a URI, every host has a port or none does")
+	}
+	if len(hosts) == 1 && hosts[0] == "" {
+		hosts = nil
+	}
+	return hosts, ports, nil
+}
+
+func splitHostPort(elem string) (host, port string, err error) {
+	errBad := errors.New("the URI is not valid (for example, its port is not a number)")
+	if rest, ok := strings.CutPrefix(elem, "["); ok {
+		host, after, found := strings.Cut(rest, "]")
+		if !found {
+			return "", "", errBad
+		}
+		if after == "" {
+			return host, "", nil
+		}
+		port, ok := strings.CutPrefix(after, ":")
+		if !ok {
+			return "", "", errBad
+		}
+		return host, port, nil
+	}
+	host, port, hasPort := strings.Cut(elem, ":")
+	if hasPort && strings.Contains(port, ":") {
+		return "", "", errBad
+	}
+	return host, port, nil
 }

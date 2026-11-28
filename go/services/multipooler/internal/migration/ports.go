@@ -39,6 +39,7 @@ type migrationStore interface {
 	DeleteConnection(ctx context.Context, id int64) error
 	GetConnectionByRef(ctx context.Context, ref Ref) (*Connection, error)
 	ListConnections(ctx context.Context) ([]*Connection, error)
+	Forget()
 }
 
 // migrationTarget is the subset of *target the Coordinator uses: the local
@@ -88,6 +89,12 @@ type migrationSource interface {
 	SetReadOnly(ro bool) error
 	setSessionReadOnly(ro bool) error
 	TerminateClientBackends() error
+	RevokeConnect(roles []string) error
+	GrantConnect(roles []string, restorePublic bool, connLimits map[string]int32) error
+	PublicHasConnect() (bool, error)
+	RolesHadConnect(roles []string) (map[string]bool, error)
+	RoleConnLimits(roles []string) (map[string]int32, error)
+	checkQuiesceRoles(roles []string) error
 	CurrentLSN() (string, error)
 	ReplicationLag(slot string) (lagBytes uint64, lagSeconds float64, present bool, err error)
 	SubscriptionExists(name string) (bool, error)

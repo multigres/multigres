@@ -17,6 +17,8 @@ package multiadmin
 import (
 	"context"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -40,6 +42,7 @@ type fakeMigratorServer struct {
 	journal    *migratorpb.GetMigrationJournalRequest
 	list       *migratorpb.ListMigrationsRequest
 	drop       *migratorpb.DropMigrationRequest
+	reseed     *migratorpb.ReseedReverseLinkRequest
 	createConn *migratorpb.CreateConnectionRequest
 	getConn    *migratorpb.GetConnectionRequest
 	listConn   *migratorpb.ListConnectionsRequest
@@ -74,6 +77,11 @@ func (f *fakeMigratorServer) ListMigrations(_ context.Context, in *migratorpb.Li
 func (f *fakeMigratorServer) DropMigration(_ context.Context, in *migratorpb.DropMigrationRequest) (*migratorpb.DropMigrationResponse, error) {
 	f.drop = in
 	return &migratorpb.DropMigrationResponse{Migration: &migratorpb.MigrationRecord{Id: in.GetRef().GetId()}}, nil
+}
+
+func (f *fakeMigratorServer) ReseedReverseLink(_ context.Context, in *migratorpb.ReseedReverseLinkRequest) (*migratorpb.ReseedReverseLinkResponse, error) {
+	f.reseed = in
+	return &migratorpb.ReseedReverseLinkResponse{Migration: &migratorpb.MigrationRecord{Id: in.GetRef().GetId()}}, nil
 }
 
 func (f *fakeMigratorServer) CreateConnection(_ context.Context, in *migratorpb.CreateConnectionRequest) (*migratorpb.CreateConnectionResponse, error) {
@@ -169,6 +177,11 @@ func TestMultiadminMigrationForwarders(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), fake.drop.GetRef().GetId())
 	})
+	t.Run("ReseedReverseLink", func(t *testing.T) {
+		_, err := server.ReseedReverseLink(ctx, &migratorpb.ReseedReverseLinkRequest{Ref: idRef(1)})
+		require.NoError(t, err)
+		assert.Equal(t, int64(1), fake.reseed.GetRef().GetId())
+	})
 	t.Run("CreateConnection", func(t *testing.T) {
 		resp, err := server.CreateConnection(ctx, &migratorpb.CreateConnectionRequest{Connection: &migratorpb.Connection{Name: "c1"}})
 		require.NoError(t, err)
@@ -235,9 +248,13 @@ func TestRedactConnectionDSN(t *testing.T) {
 		redactConnectionDSN(nil)
 	})
 	t.Run("empty DSN is left alone", func(t *testing.T) {
-		c := &migratorpb.Connection{}
+		// A listing's way of saying the stored connection cannot be read.
+		c := &migratorpb.Connection{Id: 2, Name: "bad", OwnerRole: "bob"}
 		redactConnectionDSN(c)
 		assert.Empty(t, c.GetDsn())
+		assert.Equal(t, "bad", c.GetName())
+		assert.Equal(t, int64(2), c.GetId())
+		assert.Equal(t, "bob", c.GetOwnerRole())
 	})
 	t.Run("password stripped, other fields kept", func(t *testing.T) {
 		c := &migratorpb.Connection{Dsn: fakeConnectionDSN}
@@ -245,6 +262,13 @@ func TestRedactConnectionDSN(t *testing.T) {
 		assert.NotContains(t, c.GetDsn(), "supersecret")
 		assert.Contains(t, c.GetDsn(), "src.example.com")
 		assert.Contains(t, c.GetDsn(), "postgres")
+	})
+	t.Run("a service file the DSN names is not read", func(t *testing.T) {
+		file := filepath.Join(t.TempDir(), "services")
+		require.NoError(t, os.WriteFile(file, []byte("[s]\nhost=elsewhere.example.com\nuser=other\n"), 0o600))
+		c := &migratorpb.Connection{Dsn: "host=src.example.com port=5432 user=postgres dbname=postgres service=s servicefile=" + file}
+		redactConnectionDSN(c)
+		assert.Equal(t, "host=src.example.com port=5432 dbname=postgres user=postgres", c.GetDsn())
 	})
 	t.Run("unparseable DSN is blanked rather than passed through", func(t *testing.T) {
 		c := &migratorpb.Connection{Dsn: "not a valid conninfo \x00"}
@@ -273,6 +297,7 @@ func callAllForwarders(ctx context.Context, s *MultiadminServer) []error {
 		firstErr(s.GetMigrationJournal(ctx, &migratorpb.GetMigrationJournalRequest{Id: 1})),
 		firstErr(s.ListMigrations(ctx, &migratorpb.ListMigrationsRequest{})),
 		firstErr(s.DropMigration(ctx, &migratorpb.DropMigrationRequest{Ref: idRef(1)})),
+		firstErr(s.ReseedReverseLink(ctx, &migratorpb.ReseedReverseLinkRequest{Ref: idRef(1)})),
 		firstErr(s.CreateConnection(ctx, &migratorpb.CreateConnectionRequest{Connection: &migratorpb.Connection{Name: "c1"}})),
 		firstErr(s.GetConnection(ctx, &migratorpb.GetConnectionRequest{Ref: connIDRef(1)})),
 		firstErr(s.ListConnections(ctx, &migratorpb.ListConnectionsRequest{})),

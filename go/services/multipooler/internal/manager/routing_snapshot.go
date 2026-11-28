@@ -105,6 +105,10 @@ var (
 		routingScopeTablegroup: shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLEGROUP,
 		routingScopeTable:      shardingcatalogpb.RoutingRuleScope_ROUTING_RULE_SCOPE_TABLE,
 	}
+	snapshotFenceStates = map[string]shardingcatalogpb.FenceState{
+		fenceStateFencing: shardingcatalogpb.FenceState_FENCE_STATE_FENCING,
+		fenceStateFenced:  shardingcatalogpb.FenceState_FENCE_STATE_FENCED,
+	}
 )
 
 // catalogVersionRefreshInterval is how often the catalog primary rereads
@@ -285,12 +289,16 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 	if err := pm.checkReady(); err != nil {
 		return nil, err
 	}
+	// A pooler off the catalog shard never serves the catalog, so the caller
+	// is wrong to ask it. One on the catalog shard that is not its elected
+	// primary is refused with UNAVAILABLE, as writeCatalog refuses it: the
+	// caller rediscovers the primary and asks again.
 	if err := pm.checkCatalogShard(); err != nil {
 		return nil, err
 	}
 	rule, err := pm.catalogPrimaryRule(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.WithCode(err, mtrpcpb.Code_UNAVAILABLE)
 	}
 	qs, err := pm.catalogQueryService()
 	if err != nil {
@@ -308,6 +316,15 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 		return nil, mterrors.Wrap(err, "failed to set catalog snapshot isolation")
 	}
 	res, err := tx.Query(execCtx, catalogVersionsQuery)
+	if mterrors.ExtractSQLSTATE(err) == mterrors.PgSSUndefinedTable {
+		// The catalog was never created on this primary. A pooler serves as
+		// the catalog primary only once its sidecar ensure has created the
+		// catalog (see beforeServingPrimary), so this is a primary from before
+		// that, or one whose catalog was dropped under it. Every fence lives in
+		// the catalog, written under the catalog_state row lock, so none
+		// exists, and a pooler reading its fences takes NOT_FOUND as no fences.
+		return nil, mterrors.Errorf(mtrpcpb.Code_NOT_FOUND, "the sharding catalog of database %q was never created on this primary", pm.record.ShardRef().GetDatabase())
+	}
 	if err != nil {
 		return nil, mterrors.Wrap(err, "failed to read catalog versions")
 	}
@@ -321,6 +338,19 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 		out.Unchanged = true
 	} else {
 		snapshot, err := loadRoutingSnapshot(execCtx, tx)
+		if mterrors.ExtractSQLSTATE(err) == mterrors.PgSSUndefinedTable {
+			// catalog_state exists but a table this binary reads does not: the
+			// catalog is behind this binary, for instance a table dropped by
+			// hand under a catalog whose recorded definition hash says it is
+			// current. Forget the hash, so the next serving transition runs the
+			// full ensure, which recreates the table. It is not NOT_FOUND, which
+			// a pooler reading its fences takes as no fences: the table may be
+			// the one that holds them.
+			pm.forgetCatalogDefinition(ctx)
+			return nil, mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE,
+				"the sharding catalog of database %q is behind this binary's catalog schema: %v",
+				pm.record.ShardRef().GetDatabase(), err)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -335,7 +365,7 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 	// read state belonging to neither, so the caller asks again.
 	after, err := pm.catalogPrimaryRule(ctx)
 	if err != nil {
-		return nil, err
+		return nil, mterrors.WithCode(err, mtrpcpb.Code_UNAVAILABLE)
 	}
 	if commonconsensus.CompareRuleNumbers(after, rule) != 0 {
 		return nil, mterrors.Errorf(mtrpcpb.Code_ABORTED,
@@ -347,7 +377,8 @@ func (pm *MultipoolerManager) GetRoutingSnapshot(ctx context.Context, req *multi
 
 // The statements loadRoutingSnapshot reads the catalog with, one per table.
 // NULL range bounds (the ends of the keyspace) read as empty text. Routing
-// rules are read with readRoutingRules, as the rule store reads them.
+// rules and admission fences are read with readRoutingRules and readFences,
+// as the rule store reads them.
 const (
 	snapshotTableGroupsQuery     = "SELECT tablegroup_id, name, state FROM multigres.tablegroup ORDER BY tablegroup_id"
 	snapshotShardsQuery          = "SELECT shard_id, tablegroup_id, shard_name, coalesce(encode(range_start, 'hex'), ''), coalesce(encode(range_end, 'hex'), ''), state FROM multigres.shard ORDER BY shard_id"
@@ -357,8 +388,8 @@ const (
 	snapshotShardKeyColumnsQuery = "SELECT shard_key_id, column_name FROM multigres.shard_key_column ORDER BY shard_key_id, position"
 )
 
-// loadRoutingSnapshot reads every catalog entity, routing rules included, in
-// the caller's transaction.
+// loadRoutingSnapshot reads every catalog entity, routing rules and admission
+// fences included, in the caller's transaction.
 // It leaves the versions for the caller to fill in.
 func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*shardingcatalogpb.Snapshot, error) {
 	s := &shardingcatalogpb.Snapshot{}
@@ -475,6 +506,21 @@ func loadRoutingSnapshot(ctx context.Context, tx executor.InternalTx) (*sharding
 			CreatedVersion:   r.createdVersion,
 		})
 	}
+
+	fences, err := readFences(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range fences {
+		s.Fences = append(s.Fences, &shardingcatalogpb.Fence{
+			FenceId:      f.fenceID,
+			OperationId:  f.operationID,
+			TablegroupId: f.scope.tablegroupID,
+			ShardId:      nullableID(f.scope.shardID),
+			State:        snapshotFenceStates[f.state],
+			Version:      f.version,
+		})
+	}
 	return s, nil
 }
 
@@ -525,6 +571,22 @@ func (pm *MultipoolerManager) runCatalogVersionRefresh(ctx context.Context, inte
 	}
 }
 
+// forgetCatalogDefinitionSQL clears the recorded catalog definition hash. It
+// matches no row once the hash is cleared, so repeating it writes nothing.
+const forgetCatalogDefinitionSQL = `UPDATE multigres.catalog_state SET definition_hash = NULL WHERE definition_hash IS NOT NULL`
+
+// forgetCatalogDefinition clears the recorded catalog definition hash, so the
+// next transition to serving primary runs the full catalog ensure instead of
+// trusting it. Best effort: a failure is logged, and the read that found the
+// catalog behind fails either way.
+func (pm *MultipoolerManager) forgetCatalogDefinition(ctx context.Context) {
+	execCtx, cancel := context.WithTimeout(ctx, tableGroupOpTimeout)
+	defer cancel()
+	if err := pm.adminExec(execCtx, forgetCatalogDefinitionSQL); err != nil {
+		pm.logger.WarnContext(ctx, "failed to clear the catalog definition hash", "error", err)
+	}
+}
+
 // publishCatalogWrite publishes the versions a catalog write committed while
 // this pooler was the primary under rule, so gateways learn of it without
 // waiting for the next refresh.
@@ -532,13 +594,4 @@ func (pm *MultipoolerManager) publishCatalogWrite(rule *clustermetadatapb.RuleNu
 	if pm.healthStreamer != nil {
 		pm.healthStreamer.observeCatalogVersions(rule, v)
 	}
-}
-
-// routingRule returns the consensus rule this pooler currently routes under,
-// nil when it has no state manager.
-func (pm *MultipoolerManager) routingRule() *clustermetadatapb.RuleNumber {
-	if pm.stateManager == nil {
-		return nil
-	}
-	return pm.stateManager.RoutingState().GetRule()
 }

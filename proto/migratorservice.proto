@@ -378,6 +378,20 @@ message DropMigrationResponse {
   MigrationStatus status = 2;
 }
 
+// ReseedReverseLinkRequest is addressed by ref (id or name). ReseedReverseLink
+// is an operator-only repair for a degraded EXPORT reverse link: unlike the
+// automatic, no-copy ensureReverseExportLink path that only detects and
+// records degradation, this drops the broken subscription, recreates the
+// slot fresh, and resubscribes with a full copy — the only
+// correctness-preserving recovery once the old slot's position is gone.
+message ReseedReverseLinkRequest {
+  MigrationRef ref = 1;
+}
+message ReseedReverseLinkResponse {
+  MigrationRecord migration = 1;
+  MigrationStatus status = 2;
+}
+
 // Connection is a stored, named source conninfo: a row of
 // multigres.connections, the catalog table the Migrator shares with the other
 // users of named connections. The table exists on the catalog shard only, so
@@ -393,9 +407,18 @@ message Connection {
   // name is the unique, required identifier used to reference this connection
   // from Migration.connection_name.
   string name = 2;
-  // dsn is a full libpq conninfo (may include TLS options). Returned as-is on
-  // read paths, which may expose a password — same trust model as
-  // Migration.connection_name's resolved source; see that field's doc comment.
+  // dsn is a libpq conninfo, as keyword=value pairs or a postgres:// URI.
+  // CreateConnection checks it strictly and stores the checked structure, so a
+  // connection is self-contained: host, user and password are required, and the
+  // port, database and sslmode default to 5432, postgres and require (verify-full
+  // with sslrootcert=system). What is refused is listed in
+  // docs/migration/migrator_sql_interface.md; a string that fails is
+  // INVALID_ARGUMENT, and the message never carries a part of it.
+  // On read paths the dsn is the canonical rendering of the stored structure,
+  // which may differ in form from what was sent, and may expose a password: same
+  // trust model as Migration.connection_name's resolved source.
+  // An empty dsn in a listing means the stored connection cannot be read: drop it and
+  // create it again.
   string dsn = 3;
   google.protobuf.Timestamp created_at = 4;
   // owner_role is the PostgreSQL role the gateway's SCRAM-authenticated SQL
@@ -525,6 +548,10 @@ service Migrator {
   // DropMigration tears down the subscription/publication/slot and removes
   // the workflow (default drains first; wait/force modify that).
   rpc DropMigration(DropMigrationRequest) returns (DropMigrationResponse);
+
+  // ReseedReverseLink repairs a degraded EXPORT reverse link: an explicit,
+  // operator-triggered full-copy reseed, addressed by ref (id or name).
+  rpc ReseedReverseLink(ReseedReverseLinkRequest) returns (ReseedReverseLinkResponse);
 
   // CreateConnection stores a named source conninfo, shard-scoped.
   rpc CreateConnection(CreateConnectionRequest) returns (CreateConnectionResponse);

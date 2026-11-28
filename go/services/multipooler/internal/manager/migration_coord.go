@@ -151,18 +151,37 @@ func (pm *MultipoolerManager) MigrationCoordinatorIfPrimary(ctx context.Context)
 	return coord, nil
 }
 
-// ensureMigrationSchema runs EnsureSchema at most once per process. The schema
-// is normally created at shard bootstrap and replicated in, and on the catalog
-// shard ensureSidecarSchemas re-ensures it on every open (see
-// ensureCatalogMigrationSchema); this covers shards bootstrapped before a table
-// existed. Primary-only, since the caller has already passed primary
-// guardrails.
+// forgetMigrationState makes the next migration call on this pooler start from
+// what postgres holds rather than from what the coordinator remembers. The
+// coordinator outlives role changes, and what it remembers is only right for
+// the primary tenure it was read in; see Coordinator.ForgetCachedMigrations.
+// Called on every promotion, before pg_promote, so nothing read on this node
+// before it became primary can survive into its tenure: the coordinator is
+// gated to a postgres that is out of recovery, so it cannot reload the cache
+// until the promotion has landed.
+func (pm *MultipoolerManager) forgetMigrationState() {
+	pm.mu.Lock()
+	coord := pm.migrationCoord
+	pm.migrationSchemaEnsured = false
+	pm.mu.Unlock()
+	if coord != nil {
+		coord.ForgetCachedMigrations()
+	}
+}
+
+// ensureMigrationSchema runs EnsureSchema at most once per primary tenure
+// (forgetMigrationState resets it on promotion). The schema is normally
+// created at shard bootstrap and replicated in, and on the catalog shard
+// ensureSidecarSchemas re-ensures it before the pooler serves as the primary
+// (see ensureCatalogMigrationSchema); this covers the other shards bootstrapped
+// before a table existed. Primary-only, since the caller has already passed
+// primary guardrails.
 //
 // EnsureSchema reports ErrNoConnectionsTable when multigres.connections is
 // absent. Off the catalog shard that is the normal state, and the schema is
-// ensured. On the catalog shard it means the catalog ensure has not completed
-// (it failed or timed out when the pooler opened), so it is retried on the next
-// call rather than leaving stat_migration uncreated until a restart.
+// ensured. On the catalog shard it means the catalog ensure has not completed,
+// so it is retried on the next call rather than leaving stat_migration
+// uncreated.
 func (pm *MultipoolerManager) ensureMigrationSchema(ctx context.Context, coord *migration.Coordinator) {
 	pm.mu.Lock()
 	ensured := pm.migrationSchemaEnsured
@@ -349,7 +368,13 @@ func (pm *MultipoolerManager) drainForMigrationImport(ctx context.Context) error
 		return err
 	}
 	defer pm.actionLock.Release(lockCtx)
-	return pm.stateManager.ForceMigrationHold(lockCtx)
+	if err := pm.stateManager.ForceMigrationHold(lockCtx); err != nil {
+		return err
+	}
+	// The drain must have ended every write admitted before it: a failed
+	// drain is retried here, and its error fails the barrier, so the
+	// coordinator retries before touching target tables.
+	return pm.qsc.EnsureDrained(lockCtx)
 }
 
 // releaseForMigrationExport is the synchronous serving flip the migration
@@ -386,10 +411,20 @@ func (pm *MultipoolerManager) runMigrationReconcile(ctx context.Context, interva
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			coord, err := pm.MigrationCoordinatorIfPrimary(ctx)
-			if err != nil {
-				continue // not primary, or query service not ready
+			if err := pm.checkPrimaryGuardrails(ctx); err != nil {
+				// A role mismatch is an expected timer skip. A failed probe
+				// must remain visible rather than looking like a standby.
+				if !isRoleMismatch(err) {
+					pm.logger.ErrorContext(ctx, "failed to check recovery status for migration reconcile",
+						"operation", "migration_reconcile", "error", err)
+				}
+				continue
 			}
+			coord := pm.migrationCoordinator()
+			if coord == nil {
+				continue // query service not ready
+			}
+			pm.ensureMigrationSchema(ctx, coord)
 			if !pm.isCatalogShard() {
 				// Migrations run on the catalog shard: their connections live in
 				// multigres.connections, which exists there only.

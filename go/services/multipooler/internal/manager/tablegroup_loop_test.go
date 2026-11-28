@@ -17,6 +17,8 @@ package manager
 import (
 	"context"
 	"errors"
+	"regexp"
+	"slices"
 	"testing"
 	"time"
 
@@ -79,6 +81,22 @@ func (env *tableGroupTestEnv) expectRoutingChange() {
 	env.expectAdvance(5)
 }
 
+// expectDropFences answers the drop's admission fence read: holders are the
+// operations still fencing the tablegroup (none by default).
+func (env *tableGroupTestEnv) expectDropFences(holders ...string) {
+	var rows [][]any
+	for _, h := range holders {
+		rows = append(rows, []any{h})
+	}
+	env.expect("^"+regexp.QuoteMeta(droppingTableGroupFenceHolderSQL)+"$", []string{"operation_id"}, rows)
+}
+
+// expectOperationFencesDeleted answers the delete of a finishing operation's
+// admission fences.
+func (env *tableGroupTestEnv) expectOperationFencesDeleted() {
+	env.expect("^"+regexp.QuoteMeta(deleteOperationFencesSQL)+"$", nil, nil)
+}
+
 const advanceRoutingVersionSQL = "UPDATE multigres.catalog_state SET routing_version = routing_version + 1 RETURNING routing_version, plan_epoch"
 
 func TestReconcileTableGroups_CompletesACreation(t *testing.T) {
@@ -88,6 +106,7 @@ func TestReconcileTableGroups_CompletesACreation(t *testing.T) {
 	env.addServingPrimary(t, "cell2", "commerce", "80-inf", testTableGroupID)
 	env.expectRoutingChange()
 	env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
+	env.expectOperationFencesDeleted()
 	env.expect("UPDATE multigres.shard SET state", nil, nil)
 	env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
 	env.expectCommit()
@@ -98,6 +117,9 @@ func TestReconcileTableGroups_CompletesACreation(t *testing.T) {
 	assert.Zero(t, pending)
 	// The write runs under writeCatalog: the catalog_state lock first, then the
 	// rows, then the snapshot check and one version advance, in one commit.
+	// The finished operation's fences are deleted in the same transaction,
+	// which therefore advances routing_version.
+	assert.Equal(t, []string{deleteOperationFencesSQL}, env.queriesMatching("DELETE FROM multigres.admission_fence"))
 	assert.Equal(t, []string{
 		"SELECT routing_version, plan_epoch FROM multigres.catalog_state FOR UPDATE",
 		"UPDATE multigres.operation SET state = $2, last_error = NULL, updated_at = now() WHERE operation_id = $1 AND state = $3 AND NOT cancel_requested RETURNING operation_id",
@@ -152,8 +174,10 @@ func TestReconcileTableGroups_FailsACancelledCreationAndDropsIt(t *testing.T) {
 	env.expectCreations(creatingOperationRow(time.Now().UnixMicro(), true))
 	env.expectRoutingChange()
 	env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
+	env.expectOperationFencesDeleted()
 	env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
 	env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
+	env.expectDropFences()
 	env.expectShardNames()
 	env.expect("DELETE FROM multigres.shard", nil, nil)
 	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
@@ -179,6 +203,7 @@ func TestReconcileTableGroups_ATimedOutCreationThatServesCompletes(t *testing.T)
 	env.addServingPrimary(t, "cell2", "commerce", "80-inf", testTableGroupID)
 	env.expectRoutingChange()
 	env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
+	env.expectOperationFencesDeleted()
 	env.expect("UPDATE multigres.shard SET state", nil, nil)
 	env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
 	env.expectDroppings()
@@ -243,6 +268,7 @@ func TestReconcileTableGroups_FailsATimedOutCreation(t *testing.T) {
 	env.expectCreations(creatingOperationRow(old, false))
 	env.expectRoutingChange()
 	env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
+	env.expectOperationFencesDeleted()
 	env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
 	env.expectDroppings()
 
@@ -250,6 +276,8 @@ func TestReconcileTableGroups_FailsATimedOutCreation(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, pending)
 	require.Len(t, env.queriesMatching("UPDATE multigres.operation"), 1)
+	assert.Equal(t, []string{deleteOperationFencesSQL}, env.queriesMatching("DELETE FROM multigres.admission_fence"), "the failed operation's fences go with it")
+	assert.Less(t, slices.Index(env.queries, deleteOperationFencesSQL), slices.Index(env.queries, advanceRoutingVersionSQL), "in the transaction that advances the version")
 }
 
 func TestReconcileTableGroups_ADroppingTableGroupWaitsForItsPoolers(t *testing.T) {
@@ -291,15 +319,18 @@ func TestReconcileTableGroups_ADroppingTableGroupWaitsForTheClaim(t *testing.T) 
 		require.True(t, won)
 	}
 	env.expectRoutingChange()
+	env.expectDropFences()
 	env.expectShardNames("0-80", "80-inf")
 	env.expect("DELETE FROM multigres.shard", nil, nil)
 	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
-	env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
+	env.expect("UPDATE multigres.operation SET state = \\$3", []string{"operation_id"}, [][]any{{testDropOpID}})
+	env.expectOperationFencesDeleted()
 	pending, err = env.pm.reconcileTableGroups(t.Context())
 	require.NoError(t, err)
 	assert.Zero(t, pending)
-	assert.Len(t, env.queriesMatching("DELETE"), 2)
-	assert.Contains(t, env.queries, "UPDATE multigres.operation SET state = $3, last_error = NULL, updated_at = now() WHERE kind = $1 AND state = $2 AND (request->>'tablegroup_id')::bigint = $4")
+	assert.Len(t, env.queriesMatching("DELETE"), 3, "its shards, its row and its drop operation's fences")
+	assert.Contains(t, env.queries, "UPDATE multigres.operation SET state = $3, last_error = NULL, updated_at = now() WHERE kind = $1 AND state = $2 AND (request->>'tablegroup_id')::bigint = $4 RETURNING operation_id::text")
+	assert.Contains(t, env.queries, deleteOperationFencesSQL, "the finished drop operation's fences go with it")
 	assert.Contains(t, env.queries, advanceRoutingVersionSQL)
 	other := &clustermetadatapb.ID{Component: clustermetadatapb.ID_MULTIORCH, Cell: "cell2", Name: "next"}
 	for _, shard := range []string{"0-80", "80-inf"} {
@@ -309,6 +340,51 @@ func TestReconcileTableGroups_ADroppingTableGroupWaitsForTheClaim(t *testing.T) 
 	}
 }
 
+func TestReconcileTableGroups_ADroppingTableGroupChecksItsFences(t *testing.T) {
+	// The fence check comes first, in the same transaction: an unfenced
+	// tablegroup has no fence row referencing it or its shards.
+	env := newCatalogTestEnv(t)
+	env.expectCreations()
+	env.expectDroppings(droppedRow(testTableGroupID, "commerce", ""))
+	env.expectRoutingChange()
+	env.expectDropFences()
+	env.expectShardNames()
+	env.expect("DELETE FROM multigres.shard", nil, nil)
+	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
+	env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
+	env.expectCommit()
+
+	pending, err := env.pm.reconcileTableGroups(t.Context())
+	require.NoError(t, err)
+	assert.Zero(t, pending)
+	assert.Equal(t, []string{
+		droppingTableGroupFenceHolderSQL,
+		"DELETE FROM multigres.shard WHERE tablegroup_id = $1 AND EXISTS (SELECT 1 FROM multigres.tablegroup WHERE tablegroup_id = $1 AND state = $2)",
+		"DELETE FROM multigres.tablegroup WHERE tablegroup_id = $1 AND state = $2 RETURNING tablegroup_id",
+	}, append(env.queriesMatching("admission_fence f\n"), env.queriesMatching("DELETE")...))
+}
+
+func TestReconcileTableGroups_AFenceOfAnUnfinishedOperationKeepsTheTableGroup(t *testing.T) {
+	// An operation still changing the tablegroup's routing holds it: nothing
+	// is deleted, the transaction rolls back, and the drop stays pending with
+	// the reason recorded on its operation.
+	env := newCatalogTestEnv(t)
+	env.expectCreations()
+	env.expectDroppings(droppedRow(testTableGroupID, "commerce", ""))
+	env.expectLock()
+	env.expectDropFences(importOp)
+	env.expect("ROLLBACK", nil, nil)
+	env.expect("UPDATE multigres.operation SET last_error = \\$2", nil, nil)
+	env.expect("^COMMIT$", nil, nil)
+
+	pending, err := env.pm.reconcileTableGroups(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 1, pending)
+	assert.Empty(t, env.queriesMatching("DELETE"))
+	assert.Len(t, env.queriesMatching("ROLLBACK"), 1)
+	assert.Len(t, env.queriesMatching("SET last_error = $2"), 1, "the fence holding the drop is recorded on the drop operation")
+}
+
 func TestReconcileTableGroups_ADeletedTableGroupIsLeftAlone(t *testing.T) {
 	// Another pass deleted the tablegroup between the listing and the delete:
 	// the conditional delete removes nothing and nothing else is written.
@@ -316,6 +392,7 @@ func TestReconcileTableGroups_ADeletedTableGroupIsLeftAlone(t *testing.T) {
 	env.expectCreations()
 	env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
 	env.expectLock()
+	env.expectDropFences()
 	env.expectShardNames("0-inf")
 	env.expect("DELETE FROM multigres.shard", nil, nil)
 	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, nil)
@@ -352,6 +429,7 @@ func TestReconcileTableGroups_AClaimThatCannotBeDeletedKeepsTheDropPending(t *te
 	env.expectCreations()
 	env.expectDroppings(droppedRow(testTableGroupID, "commerce", ""))
 	env.expectLock()
+	env.expectDropFences()
 	env.expectShardNames("0-inf")
 	env.expect("DELETE FROM multigres.shard", nil, nil)
 	env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
@@ -396,6 +474,7 @@ func TestReconcileTableGroups_ADropRolledBackAfterItsClaimsAreDeletedIsRetried(t
 		env.expectCreations()
 		env.expectDroppings(droppedRow(testTableGroupID, "commerce", ""))
 		env.expectRoutingChange()
+		env.expectDropFences()
 		env.expectShardNames("0-inf")
 		env.expect("DELETE FROM multigres.shard", nil, nil)
 		env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
@@ -431,6 +510,7 @@ func TestReconcileTableGroups_ADropErrorIsRecordedThenCleared(t *testing.T) {
 	env.expectCreations()
 	env.expectDroppings(droppedRow(testTableGroupID, "commerce", ""))
 	env.expectLock()
+	env.expectDropFences()
 	env.expectShardNames("0-inf")
 	env.qs.AddQueryPatternWithError("DELETE FROM multigres.shard", errors.New("violates foreign key constraint"))
 	env.expect("ROLLBACK", nil, nil)
@@ -526,6 +606,7 @@ func TestReconcileTableGroups_ACommitFailureKeepsTheCreationPending(t *testing.T
 	env.addServingPrimary(t, "cell2", "commerce", "80-inf", testTableGroupID)
 	env.expectRoutingChange()
 	env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
+	env.expectOperationFencesDeleted()
 	env.expect("UPDATE multigres.shard SET state", nil, nil)
 	env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
 	env.qs.AddQueryPatternWithError("COMMIT", errors.New("connection lost"))
@@ -546,6 +627,8 @@ func TestReconcileTableGroups_AStatementFailureRollsBackAndRetries(t *testing.T)
 		env.addServingPrimary(t, "cell2", "commerce", "80-inf", testTableGroupID)
 		env.expectLock()
 		env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
+		env.expectOperationFencesDeleted()
+		env.expectOperationFencesDeleted()
 		env.qs.AddQueryPatternWithError("UPDATE multigres.shard SET state", errors.New("lock timeout"))
 		env.expect("ROLLBACK", nil, nil)
 		env.expectDroppings()
@@ -561,6 +644,7 @@ func TestReconcileTableGroups_AStatementFailureRollsBackAndRetries(t *testing.T)
 		env.expectCreations()
 		env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
 		env.expectLock()
+		env.expectDropFences()
 		env.qs.AddQueryPatternWithError("DELETE FROM multigres.shard", errors.New("lock timeout"))
 		env.expect("ROLLBACK", nil, nil)
 
@@ -612,6 +696,8 @@ func TestReconcileTableGroups_EveryStatementOfATransactionIsChecked(t *testing.T
 		env.expectLock()
 		env.qs.AddQueryPatternWithError(failing, errors.New("lock timeout"))
 		env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
+		env.expectOperationFencesDeleted()
+		env.expectOperationFencesDeleted()
 		env.expect("UPDATE multigres.shard SET state", nil, nil)
 		env.expect("UPDATE multigres.tablegroup SET state", nil, nil)
 		env.expectCatalogRows()
@@ -624,6 +710,7 @@ func TestReconcileTableGroups_EveryStatementOfATransactionIsChecked(t *testing.T
 	}
 	for _, failing := range []string{
 		"UPDATE multigres.operation SET state",
+		"DELETE FROM multigres.admission_fence WHERE operation_id",
 		"UPDATE multigres.tablegroup SET state",
 		"UPDATE multigres.catalog_state SET routing_version",
 	} {
@@ -635,6 +722,8 @@ func TestReconcileTableGroups_EveryStatementOfATransactionIsChecked(t *testing.T
 		env.expectCreations(creatingOperationRow(time.Now().UnixMicro(), true))
 		env.expectLock()
 		env.expect("UPDATE multigres.operation SET state", []string{"operation_id"}, [][]any{{testOpID}})
+		env.expectOperationFencesDeleted()
+		env.expectOperationFencesDeleted()
 		env.qs.AddQueryPatternWithError("UPDATE multigres.tablegroup SET state", errors.New("lock timeout"))
 		env.expect("ROLLBACK", nil, nil)
 		env.expectDroppings()
@@ -649,10 +738,12 @@ func TestReconcileTableGroups_EveryStatementOfATransactionIsChecked(t *testing.T
 		env.expectDroppings(droppingRow(testTableGroupID, "commerce"))
 		env.expectLock()
 		env.qs.AddQueryPatternWithError(failing, errors.New("lock timeout"))
+		env.expectDropFences()
 		env.expectShardNames()
 		env.expect("DELETE FROM multigres.shard", nil, nil)
 		env.expect("DELETE FROM multigres.tablegroup", []string{"tablegroup_id"}, [][]any{{testTableGroupID}})
-		env.expect("UPDATE multigres.operation SET state = \\$3", nil, nil)
+		env.expect("UPDATE multigres.operation SET state = \\$3", []string{"operation_id"}, [][]any{{testDropOpID}})
+		env.expectOperationFencesDeleted()
 		env.expectCatalogRows()
 		env.expectAdvance(5)
 		env.expect("ROLLBACK", nil, nil)
@@ -661,6 +752,8 @@ func TestReconcileTableGroups_EveryStatementOfATransactionIsChecked(t *testing.T
 		assert.Equal(t, 1, pending, failing)
 	}
 	for _, failing := range []string{
+		"FROM multigres.admission_fence f\nJOIN",
+		"DELETE FROM multigres.admission_fence",
 		"SELECT shard_name FROM multigres.shard",
 		"DELETE FROM multigres.tablegroup",
 		"UPDATE multigres.operation SET state = \\$3",

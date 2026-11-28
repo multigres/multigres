@@ -79,6 +79,7 @@ func (pm *MultipoolerManager) changeRoutingRules(ctx context.Context, change rou
 // nothing and reports catalogNoSnapshotChange; one whose plan requires it
 // invalidates cached plans.
 func applyRoutingRuleChange(ctx context.Context, tx executor.InternalTx, current catalogVersions, next int64, change routingRuleChange) (catalogChange, error) {
+	change.operationID = canonicalOperationID(change.operationID)
 	cat, err := loadRoutingCatalog(ctx, tx, current, change.operationID)
 	if err != nil {
 		return catalogNoSnapshotChange, err
@@ -145,6 +146,9 @@ func loadRoutingCatalog(ctx context.Context, tx executor.InternalTx, current cat
 	}
 
 	if cat.rules, err = readRoutingRules(ctx, tx); err != nil {
+		return nil, err
+	}
+	if cat.fences, err = readFences(ctx, tx); err != nil {
 		return nil, err
 	}
 

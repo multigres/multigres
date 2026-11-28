@@ -121,7 +121,8 @@ The receipt-time flow is:
 Client Parse / SQL PREPARE
   -> HandleParse: fold gateway functions
   -> PrepareInTransaction
-  -> StreamExecute with prepare_only=true and force_reparse=true
+  -> StreamExecute with ExecuteOptions.eager_parse_prepared_statement
+     set (force_reparse=true on the carried PreparedStatement)
   -> reserve/reuse backend and replay deferred BEGIN if needed
   -> ensurePrepared: Close existing ppstmt if present, then Parse ppstmt
   -> register statement in gateway consolidator; acknowledge success
@@ -131,8 +132,9 @@ Later Describe / Execute on the same backend and SQL
   -> Describe / Bind+Execute without another Parse
 ```
 
-`prepare_only` is carried on `ExecuteSqlPreparedStatement`, but the pooler
-executes no SQL wrapper for such a request. The preparation happens after any
+The request is carried as `ExecuteOptions.eager_parse_prepared_statement`;
+when it is set the pooler prepares that statement (`prepareOnly` →
+`ensurePrepared`) instead of executing SQL. The preparation happens after any
 deferred `BEGIN`, including when an existing non-transaction reservation is
 promoted into a transaction. This keeps relation locks in the transaction and
 surfaces missing-relation or other semantic errors at prepare time. A backend
@@ -150,18 +152,16 @@ RPCs. Refreshing an existing named statement still requires Close followed by
 Parse. The reduction in preparation work is covered by regression tests; it
 does not establish an end-to-end latency improvement of any particular size.
 
-### Prepare-Only Protocol Compatibility
+### Eager-Parse Request
 
-`ExecuteSqlPreparedStatement.prepare_only` uses boolean field number 4,
-previously named `force_unnamed_parse`. Retaining the field number permits
-binary decoding, but the operation's semantics have changed: the gateway now
-expects the pooler to prepare and cache the named statement before returning.
-An older pooler only performs unnamed validation and does not satisfy that
-expectation, even though it can decode the request.
+`ExecuteOptions.eager_parse_prepared_statement` (field 7 in
+`proto/query.proto`) carries the `PreparedStatement` to prepare. Presence of
+the field is the request; there is no separate flag. It is only consumed by
+`StreamExecute`. The gateway sets `PreparedStatement.force_reparse` on it, so
+a statement already cached on that backend is closed and parsed again.
 
-The single-preparation contract requires both peers to implement the named
-preparation behavior. Mixed-version operation needs separate compatibility
-validation; it is not established by the same-version regression suites.
+The gateway expects the pooler to prepare and cache the consolidated named
+statement before returning.
 
 ### Query Identity and Execution-Time Rewrites
 
@@ -230,24 +230,28 @@ It has real per-client connection IDs to namespace by.
 ```go
 type Consolidator struct {
     // Map from (query, paramTypes) dedup key to canonical prepared statement
-    Stmts map[string]*PreparedStatementInfo
+    stmts map[string]*PreparedStatementInfo
 
     // Map from connection ID and statement name to prepared statement reference
-    Incoming map[uint32]map[string]*PreparedStatementInfo
+    incoming map[uint32]map[string]*PreparedStatementInfo
 
     // Reference count: number of connections using each prepared statement
-    UsageCount map[*PreparedStatementInfo]int
+    usageCount map[*PreparedStatementInfo]int
+
+    // Backend-resolved parameter type OIDs, keyed by [connID][name]
+    // (see "Parameter type resolution")
+    resolvedParams map[uint32]map[string][]uint32
 }
 ```
 
 **Algorithm** — when processing `PREPARE stmt1 AS body1` with `paramTypes`:
 
 1. **Check for existing statement**: Look up `dedupKey(body1, paramTypes)` in
-   `Stmts`
+   `stmts`
 2. **If exists**: increment usage count, store
-   `Incoming[connectionId]["stmt1"] = existingPS`
+   `incoming[connectionId]["stmt1"] = existingPS`
 3. **If not exists**: create a new canonical name (e.g., `stmt0`), store in
-   `Stmts`, initialize usage count, store incoming mapping
+   `stmts`, initialize usage count, store incoming mapping
 
 **Name translation**: clients use their own names (`stmt1`, `myquery`); the
 consolidator maps these to canonical names (`stmt0`, `stmt1`) shared across
@@ -264,14 +268,14 @@ entirely** and deduplicates purely by (query text, parameter types).
 ```go
 type PoolerConsolidator struct {
     // Map from (query, paramTypes) dedup key to canonical name
-    Stmts map[string]string
+    stmts map[string]string
 }
 ```
 
 **Algorithm** — `CanonicalName(query, paramTypes) → name`:
 
 1. Compute `dedupKey(query, paramTypes)`
-2. If key exists in `Stmts`, return the existing canonical name
+2. If key exists in `stmts`, return the existing canonical name
 3. Otherwise, generate a new name (e.g., `ppstmt0`), store it, return it
 
 The `ppstmt` prefix distinguishes pooler-level names from gateway-level names.

@@ -47,7 +47,7 @@ import (
 // cell topology, last-known leadership history, etc.) that hasn't been
 // designed yet.
 type CohortMismatchAnalyzer struct {
-	factory *RecoveryActionFactory
+	factory ActionFactory
 }
 
 func (a *CohortMismatchAnalyzer) Name() types.CheckName {

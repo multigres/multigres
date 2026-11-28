@@ -22,6 +22,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/multigres/multigres/go/common/fakepgserver"
+	"github.com/multigres/multigres/go/common/mterrors"
+	"github.com/multigres/multigres/go/services/multipooler/internal/pools/reserved"
 )
 
 func newDrainTestManager() *Manager {
@@ -223,4 +227,65 @@ func TestWaitForReservedDrain_BlocksUntilReservedZero(t *testing.T) {
 	assert.Equal(t, int64(0), m.reservedCount)
 	// Combined drain is also satisfied now.
 	require.NoError(t, m.WaitForDrain(t.Context()))
+}
+
+// An admitted request is waited for as the connection it will hold: an
+// admitted reservation by both drains, an admitted single query only by the
+// combined one.
+func TestAddAdmitted_IsWaitedForAsItsConnection(t *testing.T) {
+	m := newDrainTestManager()
+	short := func() context.Context {
+		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+		t.Cleanup(cancel)
+		return ctx
+	}
+
+	m.AddAdmitted(true)
+	require.Error(t, m.WaitForReservedDrain(short()), "an admitted reservation holds the reserved drain")
+	require.Error(t, m.WaitForDrain(short()))
+	m.RemoveAdmitted(true)
+	require.NoError(t, m.WaitForReservedDrain(short()))
+
+	m.AddAdmitted(false)
+	require.NoError(t, m.WaitForReservedDrain(short()), "an admitted single query does not hold the reserved drain")
+	require.Error(t, m.WaitForDrain(short()))
+	m.RemoveAdmitted(false)
+	require.NoError(t, m.WaitForDrain(short()))
+}
+
+// SealPools seals every user pool, including one created while sealed: no
+// regular or reserved connection is lent, and requests get the seal's error.
+// UnsealPools lends again.
+func TestSealPools(t *testing.T) {
+	server := fakepgserver.New(t)
+	defer server.Close()
+	server.SetNeverFail(true)
+	m := newTestManagerWithConfig(t, server, nil)
+	defer m.Close()
+	ctx := t.Context()
+
+	conn, err := m.GetRegularConn(ctx, "userA", nil, nil)
+	require.NoError(t, err)
+	conn.Recycle()
+
+	sealed := mterrors.MTF02.New()
+	m.SealPools(sealed)
+	_, err = m.GetRegularConn(ctx, "userA", nil, nil)
+	assert.ErrorIs(t, err, sealed)
+	_, err = m.NewReservedConn(ctx, nil, "userA", nil, nil)
+	assert.ErrorIs(t, err, sealed)
+	_, err = m.GetRegularConn(ctx, "userB", nil, nil)
+	assert.ErrorIs(t, err, sealed, "a user pool created while the pools are sealed starts sealed")
+	_, err = m.NewReservedConn(ctx, nil, "userB", nil, nil)
+	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTF02.ID), "the seal's code survives the pools' wrapping: %v", err)
+
+	m.UnsealPools()
+	for _, user := range []string{"userA", "userB"} {
+		conn, err := m.GetRegularConn(ctx, user, nil, nil)
+		require.NoError(t, err, user)
+		conn.Recycle()
+	}
+	rc, err := m.NewReservedConn(ctx, nil, "userA", nil, nil)
+	require.NoError(t, err)
+	rc.Release(reserved.ReleaseCommit, nil)
 }

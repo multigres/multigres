@@ -72,7 +72,7 @@ func TestDropTableGroup_ActiveRecordsADrop(t *testing.T) {
 		"UPDATE multigres.tablegroup SET state = $2 WHERE tablegroup_id = $1 AND state = $3",
 		"INSERT INTO multigres.operation (operation_id, kind, state, request) VALUES ($1, $2, $3, $4::jsonb)",
 		snapshotTableGroupsQuery, snapshotShardsQuery, snapshotTablesQuery,
-		snapshotShardIndicesQuery, snapshotShardKeysQuery, snapshotShardKeyColumnsQuery, selectRoutingRulesSQL,
+		snapshotShardIndicesQuery, snapshotShardKeysQuery, snapshotShardKeyColumnsQuery, selectRoutingRulesSQL, selectFencesSQL,
 		"UPDATE multigres.catalog_state SET routing_version = routing_version + 1 RETURNING routing_version, plan_epoch",
 		"COMMIT",
 	}, env.queries)

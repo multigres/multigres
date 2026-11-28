@@ -271,8 +271,7 @@ func runPgIsReady(ctx context.Context, config *pgctld.PostgresCtlConfig, timeout
 		return 0, nil
 	}
 
-	var exitErr *exec.ExitError
-	if errors.As(runErr, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](runErr); ok {
 		return exitErr.ExitCode(), nil
 	}
 

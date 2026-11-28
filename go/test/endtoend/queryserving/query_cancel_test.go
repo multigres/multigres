@@ -20,6 +20,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"path/filepath"
 	"strconv"
@@ -218,8 +219,82 @@ func TestMultigateway_QueryCancel(t *testing.T) {
 				require.NoError(t, err, "conn2 should still work after conn1's cancel")
 				assert.Equal(t, 2, result)
 			})
+
+			// PostgreSQL holds back the CopyOutResponse until the first 8 KB of
+			// data are ready or the query ends, so a COPY whose query is slow
+			// must still be cancellable before any data arrives.
+			t.Run("COPY TO STDOUT cancel", func(t *testing.T) {
+				conn, err := pgx.Connect(ctx, connStr)
+				require.NoError(t, err, "failed to connect with pgx")
+				defer conn.Close(ctx)
+
+				copyCancel(t, ctx, conn, connStr, "mul1672_copy_cancel")
+
+				var result int
+				require.NoError(t, conn.QueryRow(ctx, "SELECT 1").Scan(&result),
+					"the connection should work after the cancelled COPY")
+				assert.Equal(t, 1, result)
+			})
+
+			t.Run("COPY TO STDOUT cancel in a transaction", func(t *testing.T) {
+				conn, err := pgx.Connect(ctx, connStr)
+				require.NoError(t, err, "failed to connect with pgx")
+				defer conn.Close(ctx)
+
+				_, err = conn.Exec(ctx, "BEGIN")
+				require.NoError(t, err)
+				copyCancel(t, ctx, conn, connStr, "mul1672_copy_cancel_tx")
+
+				_, err = conn.Exec(ctx, "SELECT 1")
+				var pgErr *pgconn.PgError
+				require.ErrorAs(t, err, &pgErr, "the cancel should abort the transaction")
+				assert.Equal(t, "25P02", pgErr.Code, "should be in_failed_sql_transaction (25P02)")
+
+				_, err = conn.Exec(ctx, "ROLLBACK")
+				require.NoError(t, err)
+				var result int
+				require.NoError(t, conn.QueryRow(ctx, "SELECT 1").Scan(&result))
+				assert.Equal(t, 1, result)
+			})
 		})
 	}
+}
+
+// copyCancel runs a COPY TO STDOUT whose query sleeps for 20s on conn, sends
+// a CancelRequest 300ms in, and checks that the client gets query_canceled
+// promptly and that the backend statement stops too, not just the client's
+// wait. marker tags the statement so it can be found in pg_stat_activity.
+func copyCancel(t *testing.T, ctx context.Context, conn *pgx.Conn, connStr, marker string) {
+	t.Helper()
+	copySQL := fmt.Sprintf("COPY (SELECT '%s', pg_sleep(20)) TO STDOUT", marker)
+
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		_ = conn.PgConn().CancelRequest(ctx)
+	}()
+
+	start := time.Now()
+	_, err := conn.PgConn().CopyTo(ctx, io.Discard, copySQL)
+	elapsed := time.Since(start)
+
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr, "the COPY should be cancelled")
+	assert.Equal(t, "57014", pgErr.Code, "should be query_canceled (57014)")
+	assert.Less(t, elapsed, 5*time.Second, "cancel should return well before the 20s query completes")
+
+	// The backend must stop running the COPY as well. Matched by prefix, so
+	// this monitoring query, which also contains the marker, does not match
+	// itself.
+	monitor, err := pgx.Connect(ctx, connStr)
+	require.NoError(t, err, "failed to connect with pgx")
+	defer monitor.Close(ctx)
+	require.Eventually(t, func() bool {
+		var running int
+		err := monitor.QueryRow(ctx,
+			"SELECT count(*) FROM pg_stat_activity WHERE state = 'active' AND query LIKE $1",
+			"COPY (SELECT '"+marker+"'%").Scan(&running)
+		return err == nil && running == 0
+	}, 5*time.Second, 50*time.Millisecond, "the backend should stop running the cancelled COPY")
 }
 
 func TestMultigateway_QueryCancel_ForwardedOverGRPCTLS(t *testing.T) {

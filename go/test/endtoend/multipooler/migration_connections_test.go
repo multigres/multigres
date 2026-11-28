@@ -47,8 +47,8 @@ func TestMigrationForeignKeyIsEnforced(t *testing.T) {
 	requireMigrationForeignKey(t, primaryDB)
 
 	var connectionID int64
-	require.NoError(t, primaryDB.QueryRow(`INSERT INTO multigres.connections (name, dsn)
-		VALUES ('fk-src', 'host=h dbname=app') RETURNING connection_id`).Scan(&connectionID))
+	require.NoError(t, primaryDB.QueryRow(`INSERT INTO multigres.connections (name, dsn, conninfo)
+		VALUES ('fk-src', 'host=h dbname=app', '{"host":["h"],"port":[5432]}') RETURNING connection_id`).Scan(&connectionID))
 	// The migration is EXPORTING so the pooler does not hold serving for it.
 	_, err := primaryDB.Exec(`INSERT INTO multigres.migration (migration_id, migration_phase, migration_target, connection_id)
 		VALUES (1, 'EXPORTING', ROW('app', 'default', '0-inf')::multigres.shard_ref, $1)`, connectionID)
@@ -90,7 +90,7 @@ func TestCatalogSchema_CompletesWithoutAMigrationTable(t *testing.T) {
 	primaryDB := connectToPostgresViaSocket(t,
 		getPostgresSocketPath(primary.Pgctld.PoolerDir), primary.Pgctld.PgPort)
 	defer primaryDB.Close()
-	requireCatalogFormat1(t, primaryDB)
+	requireCurrentCatalog(t, primaryDB)
 
 	// No migrator tables, and no connections table either: the ensure creates the latter again.
 	_, err := primaryDB.Exec(`
@@ -98,6 +98,7 @@ DROP VIEW IF EXISTS multigres.stat_migration;
 DROP TABLE IF EXISTS multigres.migration_journal, multigres.migration_tables, multigres.migration;
 DROP TABLE multigres.connections;`)
 	require.NoError(t, err)
+	forgetCatalogDefinition(t, primaryDB)
 
 	restartMultipooler(t, primary)
 	require.Eventually(t, func() bool {

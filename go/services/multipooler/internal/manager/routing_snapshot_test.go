@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"regexp"
 	"sync/atomic"
 	"testing"
 
@@ -46,8 +47,9 @@ func (env *tableGroupTestEnv) expectSnapshotRead(routingVersion, planEpoch int64
 
 // expectCatalogRows registers every entity read with a catalog holding the
 // default tablegroup, a sharded commerce tablegroup, a table with a primary
-// shard key, rows in states the snapshot does not know, and an import's
-// routing rules: a shard rule from default and a table rule.
+// shard key, rows in states the snapshot does not know, an import's
+// routing rules (a shard rule from default and a table rule), and its fences:
+// one on the whole default tablegroup and one being raised on commerce's 0-80.
 func (env *tableGroupTestEnv) expectCatalogRows() {
 	env.expect("FROM multigres.tablegroup ORDER BY", []string{"tablegroup_id", "name", "state"}, [][]any{
 		{int64(1), "default", "active"},
@@ -81,6 +83,12 @@ func (env *tableGroupTestEnv) expectCatalogRows() {
 	}, [][]any{
 		{int64(40), importOp, "tablegroup", int64(1), nil, int64(7), int64(2), nil, int64(8)},
 		{int64(41), importOp, "table", int64(7), int64(10), int64(1), nil, int64(30), int64(9)},
+	})
+	env.expect("^"+regexp.QuoteMeta(selectFencesSQL)+"$", []string{
+		"fence_id", "operation_id", "tablegroup_id", "shard_id", "state", "version",
+	}, [][]any{
+		{int64(50), importOp, int64(1), nil, "FENCED", int64(7)},
+		{int64(51), importOp, int64(7), int64(2), "FENCING", int64(9)},
 	})
 }
 
@@ -151,6 +159,10 @@ func TestGetRoutingSnapshot_Full(t *testing.T) {
 				FromTablegroupId: 7, FromTableId: proto.Int64(10), ToTablegroupId: 1, ToShardKeyId: proto.Int64(30), CreatedVersion: 9,
 			},
 		},
+		Fences: []*shardingcatalogpb.Fence{
+			{FenceId: 50, OperationId: importOp, TablegroupId: 1, State: shardingcatalogpb.FenceState_FENCE_STATE_FENCED, Version: 7},
+			{FenceId: 51, OperationId: importOp, TablegroupId: 7, ShardId: proto.Int64(2), State: shardingcatalogpb.FenceState_FENCE_STATE_FENCING, Version: 9},
+		},
 	}
 	assert.True(t, proto.Equal(want, resp.GetSnapshot()), "got %v", resp.GetSnapshot())
 
@@ -168,6 +180,8 @@ func TestGetRoutingSnapshot_Full(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, orders.RoutingRule())
 	assert.Equal(t, int64(41), orders.RoutingRule().ID())
+	require.Len(t, def.FencesFor(nil), 1)
+	assert.Equal(t, int64(50), def.FencesFor(nil)[0].ID())
 
 	assert.Equal(t, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY", env.queries[1],
 		"the isolation is set before anything is read")
@@ -264,7 +278,7 @@ func TestGetRoutingSnapshot_DemotedDuringRead(t *testing.T) {
 
 	_, err := env.pm.GetRoutingSnapshot(t.Context(), sinceVersion(8))
 	require.Error(t, err)
-	assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
 	assert.Contains(t, err.Error(), "not the elected primary of the catalog shard")
 }
 
@@ -310,6 +324,30 @@ func TestGetRoutingSnapshot_ReadError(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to read tablegroups")
 }
 
+// A catalog missing a table this binary reads, such as one an older binary
+// bootstrapped, fails with UNAVAILABLE, never NOT_FOUND: a pooler reading its
+// fences would take NOT_FOUND as no fences, and the missing table may be the
+// one that holds them. It also forgets the recorded definition hash.
+func TestGetRoutingSnapshot_MissingTableIsUnavailable(t *testing.T) {
+	env := newCatalogTestEnv(t)
+	env.expectPrimary()
+	env.expectSnapshotRead(9, 2)
+	env.qs.AddQueryPatternWithError("FROM multigres.tablegroup ORDER BY",
+		mterrors.NewPgError("ERROR", mterrors.PgSSUndefinedTable, `relation "multigres.routing_rule" does not exist`, ""))
+	// The recorded definition hash is forgotten, so the next serving
+	// transition runs the full ensure and recreates the table.
+	env.qs.AddQueryPatternOnce("^"+regexp.QuoteMeta(forgetCatalogDefinitionSQL)+"$", nil)
+
+	_, err := env.pm.GetRoutingSnapshot(t.Context(), sinceVersion(1))
+	require.Error(t, err)
+	assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
+	assert.Contains(t, err.Error(), "behind this binary's catalog schema")
+	assert.NoError(t, env.qs.ExpectationsWereMet())
+}
+
+// A pooler off the catalog shard is refused for good (FAILED_PRECONDITION);
+// one on the catalog shard that is not its elected primary is refused with
+// UNAVAILABLE, for the caller to rediscover the primary and ask again.
 func TestGetRoutingSnapshot_Rejects(t *testing.T) {
 	t.Run("not the catalog shard", func(t *testing.T) {
 		env := newTableGroupTestEnv(t, "commerce", "0-80")
@@ -323,7 +361,7 @@ func TestGetRoutingSnapshot_Rejects(t *testing.T) {
 		env.expect("SELECT pg_is_in_recovery", []string{"pg_is_in_recovery"}, [][]any{{"t"}})
 		_, err := env.pm.GetRoutingSnapshot(t.Context(), sinceVersion(1))
 		require.Error(t, err)
-		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+		assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
 		assert.Empty(t, env.queriesMatching("catalog_state"))
 	})
 	t.Run("out of recovery but not the elected primary", func(t *testing.T) {
@@ -333,7 +371,7 @@ func TestGetRoutingSnapshot_Rejects(t *testing.T) {
 		env.expectPrimary()
 		_, err := env.pm.GetRoutingSnapshot(t.Context(), sinceVersion(1))
 		require.Error(t, err)
-		assert.Equal(t, mtrpcpb.Code_FAILED_PRECONDITION, mterrors.Code(err))
+		assert.Equal(t, mtrpcpb.Code_UNAVAILABLE, mterrors.Code(err))
 		assert.Contains(t, err.Error(), "not the elected primary of the catalog shard")
 		assert.Equal(t, []string{"SELECT pg_is_in_recovery()"}, env.queries)
 	})
@@ -523,7 +561,7 @@ func TestWriteCatalog(t *testing.T) {
 			"SELECT routing_version, plan_epoch FROM multigres.catalog_state FOR UPDATE",
 			"INSERT INTO multigres.tablegroup_table VALUES (1)",
 			snapshotTableGroupsQuery, snapshotShardsQuery, snapshotTablesQuery,
-			snapshotShardIndicesQuery, snapshotShardKeysQuery, snapshotShardKeyColumnsQuery, selectRoutingRulesSQL,
+			snapshotShardIndicesQuery, snapshotShardKeysQuery, snapshotShardKeyColumnsQuery, selectRoutingRulesSQL, selectFencesSQL,
 			"UPDATE multigres.catalog_state SET routing_version = routing_version + 1 RETURNING routing_version, plan_epoch",
 			"COMMIT",
 		}, env.queries)
@@ -602,6 +640,7 @@ func TestWriteCatalog(t *testing.T) {
 		for _, table := range []string{"tablegroup_table", "shard_index", "shard_key", "shard_key_column", "routing_rule"} {
 			env.expect("FROM multigres."+table+" ORDER BY", nil, nil)
 		}
+		env.expect("^"+regexp.QuoteMeta(selectFencesSQL)+"$", nil, nil)
 		env.expectCommit()
 
 		_, err := env.pm.writeCatalog(t.Context(), func(ctx context.Context, tx executor.InternalTx, _ catalogVersions, _ int64) (catalogChange, error) {

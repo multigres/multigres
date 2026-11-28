@@ -33,7 +33,7 @@ import (
 // and no pooler in the shard has cohort members. This is a shard-level problem:
 // ShardInitAction needs to see all initialized poolers to form a quorum.
 type ShardNeedsInitializationAnalyzer struct {
-	factory *RecoveryActionFactory
+	factory ActionFactory
 }
 
 func (a *ShardNeedsInitializationAnalyzer) Name() types.CheckName {

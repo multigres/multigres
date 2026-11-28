@@ -37,8 +37,8 @@ involvement in the session, so they need no pinning.
 Three pieces, split across the gateway and the multipooler:
 
 1. **Detect + pin (gateway).** The planner inspects a statement's function calls.
-   A session-level advisory _acquire_ routes the query through an
-   `AdvisoryLockRoute`, which makes ScatterConn reserve (or promote an existing
+   A session-level advisory _acquire_ marks the plan's `PlanExecInfo`
+   (`AdvisoryLock`), which makes ScatterConn reserve (or promote an existing
    reservation to) a backend with `ReasonSessionAdvisoryLock`. The connection
    stays pinned to the session while that reason is set.
 
@@ -70,11 +70,15 @@ The planner's pre-dispatch analysis (`analyzeFunctionCalls`) walks every
   `pg_advisory_unlock_shared`, `pg_advisory_unlock_all`. Sets
   `ReleasesSessionAdvisoryLock`.
 
-A statement that acquires or releases is wrapped in `AdvisoryLockRoute` with two
-intents:
+A statement that acquires or releases is planned as an ordinary `Route` whose
+`engine.PlanExecInfo` carries two intents (`execInfoFromOpts`). There is no
+dedicated primitive; `AdvisoryLockRoute` survives only as the plan-type label
+in spans and query logs:
 
-- **pin** (acquires only) → `ReservationOptions.reasons |= SESSION_ADVISORY_LOCK`.
-- **recheck** (acquires and releases) → `ReservationOptions.recheck_advisory_locks`.
+- **pin** (acquires only): `PlanExecInfo.AdvisoryLock` →
+  `ReservationOptions.reasons |= SESSION_ADVISORY_LOCK`.
+- **recheck** (acquires and releases): `PlanExecInfo.RecheckAdvisoryLocks` →
+  `ReservationOptions.recheck_advisory_locks`.
 
 Detection is best-effort: it sees advisory calls in the statement text — the
 overwhelming common case — but not locks acquired or released indirectly (inside
@@ -86,11 +90,13 @@ a leak.
 
 ## Pinning and the recheck signal
 
-Acquire and release both flow through `AdvisoryLockRoute`, which sets one-shot
-flags on the connection state that ScatterConn turns into `ReservationOptions`:
+Acquire and release both ride on the plan's `PlanExecInfo`, a per-call value
+handed to ScatterConn with each execution (never connection state: plans are
+cached and shared across connections). ScatterConn turns it into
+`ReservationOptions`:
 
-- `PendingAdvisoryLockReservation` → adds `ReasonSessionAdvisoryLock`.
-- `PendingAdvisoryLockRecheck` → sets `recheck_advisory_locks`.
+- `AdvisoryLock` → adds `ReasonSessionAdvisoryLock`.
+- `RecheckAdvisoryLocks` → sets `recheck_advisory_locks`.
 
 This works on both the simple and extended (portal) protocols: portals carry
 `reservation_options` to the multipooler, which reserves-and-runs atomically, so
@@ -132,11 +138,14 @@ failed `try` locks, and hidden unlocks make gateway-side counting unreliable.
 ## Code map
 
 - Detection: `planner/unsafe_funccall.go`.
-- Routing: `planner/planner.go`, `engine/advisory_lock_route.go`.
+- Routing: `planner/planner.go` (`execInfoFromOpts`), `engine/engine.go`
+  (`PlanExecInfo`).
 - Reservation reason: `common/protoutil/reservation.go`,
-  `proto/multipoolerservice.proto`.
-- Gateway wiring: `scatterconn/scatter_conn.go`, `handler/connection_state.go`.
-- Probe + scrub: `executor/executor.go` (multipooler), probe SQL in
-  `common/constants/postgres.go`.
+  `proto/multipoolerservice.proto`; `recheck_advisory_locks` in
+  `proto/query.proto`.
+- Gateway wiring: `scatterconn/scatter_conn.go`.
+- Probe + scrub: `internal/executor/executor.go` (multipooler,
+  `maybeUnpinSessionAdvisoryLock` and `ReleaseReservedConnection`), probe SQL
+  (`PgLocksAdvisoryProbeSQL`) in `common/constants/postgres.go`.
 - Tests: `test/endtoend/queryserving/advisory_lock_test.go`,
   `planner/advisory_lock_test.go`, `executor/executor_test.go` (multipooler).

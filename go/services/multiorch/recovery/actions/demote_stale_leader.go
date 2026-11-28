@@ -28,7 +28,6 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/topoclient"
 	commontypes "github.com/multigres/multigres/go/common/types"
-	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 
@@ -54,26 +53,20 @@ const StaleLeaderDrainTimeout = 5 * time.Second
 // They should eventually share one underlying action — detection can stay split
 // for metrics/monitoring, but the mutation path is identical.
 type DemoteStaleLeaderAction struct {
-	config      *config.Config
 	rpcClient   rpcclient.MultipoolerClient
 	poolerStore *store.PoolerCache
-	topoStore   topoclient.Store
 	logger      *slog.Logger
 }
 
 // NewDemoteStaleLeaderAction creates a new action to demote a stale leader.
 func NewDemoteStaleLeaderAction(
-	cfg *config.Config,
 	rpcClient rpcclient.MultipoolerClient,
 	poolerStore *store.PoolerCache,
-	topoStore topoclient.Store,
 	logger *slog.Logger,
 ) *DemoteStaleLeaderAction {
 	return &DemoteStaleLeaderAction{
-		config:      cfg,
 		rpcClient:   rpcClient,
 		poolerStore: poolerStore,
-		topoStore:   topoStore,
 		logger:      logger,
 	}
 }

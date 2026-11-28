@@ -20,7 +20,7 @@ Key capabilities:
   `/*mg+ STATEMENT_TIMEOUT_MS=500 */`)
 - Context deadline propagation through gRPC to multipooler
 - PostgreSQL-compatible error codes (SQLSTATE `57014`) and `SHOW`
-  output (milliseconds)
+  output (PostgreSQL's time-unit display, e.g. `30s`)
 
 ## Timeout Priority
 
@@ -60,9 +60,10 @@ Client
 Multigateway Handler (handler.go)
   |  - getConnectionState(): initializes timeout default from
   |    startup params or --statement-timeout flag
-  |  - executeWithTimeout(): resolves effective timeout, wraps
-  |    ctx with context.WithTimeout, translates DeadlineExceeded
-  |    to SQLSTATE 57014
+  |  - statementTimeoutCtx(): resolves effective timeout, wraps
+  |    ctx with context.WithTimeout
+  |  - pgprotocol/server queryContextError(): translates
+  |    DeadlineExceeded to SQLSTATE 57014
   |
   v
 Planner (variable_set_stmt.go, variable_show_stmt.go)
@@ -74,7 +75,7 @@ Planner (variable_set_stmt.go, variable_show_stmt.go)
   v
 Engine Primitives
   |  - GatewaySessionState: stores parsed duration in connection state
-  |  - GatewayShowVariable: reads effective value, returns as milliseconds
+  |  - GatewayShowVariable: reads effective value, formats it PostgreSQL-style
   |  - ApplySessionState: RESET ALL also resets statement_timeout
   |
   v
@@ -83,8 +84,9 @@ gRPC to Multipooler (deadline in context metadata)
   v
 Multipooler (regular_conn.go)
      - execWithContextCancel: selects on ctx.Done()
-     - On cancellation: CancelBackend(pid) via admin pool
-     - Returns connection to pool or taints on error
+     - On cancellation: cancels the backend query via the admin pool,
+       then waits a bounded grace period for the operation to drain
+     - Force-closes the connection if the cancel does not take effect
 ```
 
 ## Gateway-Managed Variable Behavior
@@ -116,11 +118,17 @@ gateway intercepts this during connection initialization:
 
 - Plain integers as milliseconds: `"5000"` -> 5s (PostgreSQL's
   default unit for `statement_timeout`)
-- Go duration strings: `"30s"`, `"200ms"`, `"1m"`, `"1h"`
+- A number followed by one of PostgreSQL's time units `us`, `ms`, `s`,
+  `min`, `h`, `d`, with optional whitespace between them: `"30s"`,
+  `"200ms"`, `"1 min"`, `"1h"`
 
-`SHOW statement_timeout` always returns the value as a plain
-milliseconds integer string (e.g., `"30000"`), matching PostgreSQL's
-display format.
+The result is rounded to whole milliseconds and must lie between 0 and
+`constants.MaxStatementTimeoutMS`.
+
+`SHOW statement_timeout` formats the value the way PostgreSQL displays
+millisecond GUCs (`formatDurationPg`): `0` for no timeout, otherwise the
+largest of `h`, `min`, `s`, `ms` that divides the value evenly (e.g.
+`30s`, `1min`, `1500ms`).
 
 ## Error Behavior
 
@@ -129,13 +137,14 @@ display format.
 | Query timeout exceeded | `57014`  | `canceling statement due to statement timeout`    |
 | Client cancelled       | `57014`  | `canceling statement due to user request`         |
 | Invalid SET value      | `22023`  | `invalid value for parameter "statement_timeout"` |
-| Negative SET value     | `22023`  | `<value> is outside the valid range ...`          |
+| Out-of-range SET value | `22023`  | `<value> ms is outside the valid range ...`       |
 
 ## File Organization
 
 | File                                  | Role                                                |
 | ------------------------------------- | --------------------------------------------------- |
 | `handler/handler.go`                  | Applies the timeout around statement execution      |
+| `pgprotocol/server/conn.go`           | Maps `DeadlineExceeded` to SQLSTATE `57014`         |
 | `handler/statement_timeout.go`        | Resolves and parses the timeout value/interval      |
 | `handler/connection_state.go`         | Connection-level timeout state                      |
 | `handler/gateway_managed_variable.go` | Generic gateway-managed-variable type and lifecycle |
@@ -151,7 +160,6 @@ display format.
 | File                                                   | Covers                                                                                         |
 | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
 | `handler/statement_timeout_test.go`                    | `ResolveStatementTimeout`, `ParsePostgresInterval`, `GatewayManagedVariable`, connection state |
-| `handler/handler_test.go`                              | `executeWithTimeout` integration with handler                                                  |
 | `test/endtoend/queryserving/statement_timeout_test.go` | Full e2e: SET/SHOW/RESET, timeout enforcement, startup params, error codes                     |
 
 ## Future Work

@@ -158,6 +158,12 @@ type Pool[C Connection] struct {
 	// wait is the list of clients waiting for a connection to be returned to the pool
 	wait waitlist[C]
 
+	// sealErr is set while the pool is sealed (see seal.go): the error it
+	// refuses connections with. A sealed pool lends nothing.
+	sealErr atomic.Pointer[error]
+	// dialed records the connections the pool has dialed (see seal.go).
+	dialed openConns[C]
+
 	// borrowed is the number of connections that the pool has given out to clients
 	// and that haven't been returned yet
 	borrowed atomic.Int64
@@ -541,6 +547,9 @@ func (pool *Pool[C]) Get(ctx context.Context) (*Pooled[C], error) {
 	if pool.capacity.Load() == 0 {
 		return nil, ErrPoolClosed
 	}
+	if err := pool.sealError(); err != nil {
+		return nil, err
+	}
 	return pool.get(ctx)
 }
 
@@ -554,6 +563,9 @@ func (pool *Pool[C]) GetWithSettings(ctx context.Context, settings *connstate.Se
 	}
 	if pool.capacity.Load() == 0 {
 		return nil, ErrPoolClosed
+	}
+	if err := pool.sealError(); err != nil {
+		return nil, err
 	}
 	if settings == nil || settings.IsEmpty() {
 		return pool.get(ctx)
@@ -580,6 +592,16 @@ func (pool *Pool[C]) put(conn *Pooled[C]) {
 	}
 	pool.requested.Add(-1) // Track demand: decrement on return
 	pool.otelConnectionCount.Add(pool.ctx, -1, dbconv.ClientConnectionStateUsed)
+
+	// A sealed pool keeps nothing: the connection is closed, and a discarded
+	// one is not replaced.
+	if pool.sealError() != nil {
+		if conn != nil {
+			conn.Close()
+		}
+		pool.closedConn()
+		return
+	}
 
 	if conn == nil {
 		var err error
@@ -615,6 +637,12 @@ func (pool *Pool[C]) tryReturnConn(conn *Pooled[C]) bool {
 // from, so probing never promotes a cold connection into client traffic —
 // which would refresh its idle clock and keep the pool from shrinking.
 func (pool *Pool[C]) returnConnAt(conn *Pooled[C], depth int) bool {
+	// A sealed pool keeps no connection idle.
+	if pool.sealError() != nil {
+		conn.Close()
+		pool.closedConn()
+		return false
+	}
 	// If we're over capacity, close the connection.
 	// This enables non-blocking SetCapacity - excess connections are closed on recycle.
 	if pool.closeOnOverCapacity(conn) {
@@ -723,6 +751,7 @@ func (pool *Pool[C]) connReopen(ctx context.Context, dbconn *Pooled[C], now time
 		pool.serverConnMetrics.RecordOpenError(ctx, pool.poolType, err)
 		return err
 	}
+	pool.dialed.add(dbconn.Conn)
 	pool.serverConnMetrics.RecordOpen(ctx, pool.poolType, time.Since(connectStart))
 
 	if settings := dbconn.Conn.Settings(); settings != nil && !settings.IsEmpty() {
@@ -752,6 +781,7 @@ func (pool *Pool[C]) connNew(ctx context.Context) (*Pooled[C], error) {
 		pool.serverConnMetrics.RecordOpenError(ctx, pool.poolType, err)
 		return nil, err
 	}
+	pool.dialed.add(conn)
 	pool.serverConnMetrics.RecordOpen(ctx, pool.poolType, time.Since(connectStart))
 	pooled := &Pooled[C]{
 		pool: pool,
@@ -822,6 +852,9 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 
 	// best case: if there's a connection in the clean stack, return it right away
 	if conn := pool.pop(&pool.clean); conn != nil {
+		if err := pool.refuseIfSealed(conn); err != nil {
+			return returnErr(err)
+		}
 		pool.borrowed.Add(1)
 		if pool.config.onBorrow != nil {
 			pool.config.onBorrow()
@@ -850,12 +883,15 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 		start := time.Now()
 		conn, err = pool.wait.waitForConn(ctx, nil, *closeChan)
 		if err != nil {
-			return returnErr(ErrTimeout)
+			return returnErr(pool.waitErr(err))
 		}
 		pool.recordWait(start)
 	}
 	// no connections available and no connections to wait for (pool is closed)
 	if conn == nil {
+		if err := pool.sealError(); err != nil {
+			return returnErr(err)
+		}
 		return returnErr(ErrTimeout)
 	}
 
@@ -874,6 +910,9 @@ func (pool *Pool[C]) get(ctx context.Context) (*Pooled[C], error) {
 		}
 	}
 
+	if err := pool.refuseIfSealed(conn); err != nil {
+		return returnErr(err)
+	}
 	pool.borrowed.Add(1)
 	if pool.config.onBorrow != nil {
 		pool.config.onBorrow()
@@ -932,12 +971,15 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 		start := time.Now()
 		conn, err = pool.wait.waitForConn(ctx, settings, *closeChan)
 		if err != nil {
-			return returnErr(ErrTimeout)
+			return returnErr(pool.waitErr(err))
 		}
 		pool.recordWait(start)
 	}
 	// no connections available and no connections to wait for (pool is closed)
 	if conn == nil {
+		if err := pool.sealError(); err != nil {
+			return returnErr(err)
+		}
 		return returnErr(ErrTimeout)
 	}
 
@@ -972,6 +1014,9 @@ func (pool *Pool[C]) getWithSettings(ctx context.Context, settings *connstate.Se
 		}
 	}
 
+	if err := pool.refuseIfSealed(conn); err != nil {
+		return returnErr(err)
+	}
 	pool.borrowed.Add(1)
 	if pool.config.onBorrow != nil {
 		pool.config.onBorrow()

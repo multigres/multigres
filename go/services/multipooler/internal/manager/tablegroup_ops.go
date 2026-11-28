@@ -191,9 +191,9 @@ func (pm *MultipoolerManager) catalogPrimaryRule(ctx context.Context) (*clusterm
 	}
 	rs := pm.stateManager.RoutingState()
 	if role := rs.GetRole(); role != clustermetadatapb.RoutingRole_ROUTING_ROLE_PRIMARY {
-		return nil, mterrors.Errorf(mtrpcpb.Code_FAILED_PRECONDITION,
+		return nil, &roleMismatchError{message: fmt.Sprintf(
 			"operation not allowed: this pooler is not the elected primary of the catalog shard (routing role %s, service_id: %s)",
-			role, pm.serviceID.String())
+			role, pm.serviceID.String())}
 	}
 	return rs.GetRule(), nil
 }

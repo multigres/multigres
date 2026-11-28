@@ -56,10 +56,10 @@ stop logic doesn't need to know the difference.
 
 Things to know:
 
-- **Ports:** the example mirrors the local Multigres cluster's defaults, shifted
-  by 20000 (gateway `15xxx` to `35xxx`, PostgreSQL `25432` to `45432`), so a
-  Minigres and a local Multigres cluster can run side by side.
-
+- **Ports:** the generated config gives `minigres` its own ports (HTTP `15500`,
+  gRPC `15570`, client-facing PostgreSQL `15532`; see
+  `go/provisioner/local/ports/ports.go`). Its pgctld, PostgreSQL (`25432`) and
+  etcd use the same default ports as a local Multigres cluster's first pooler.
 - **Don't prepare the data directory with `pgctld init`.** The pooler bootstraps
   it itself, including the Multigres schema and the first backup. A directory
   from `pgctld init` has no Multigres schema.
@@ -361,6 +361,7 @@ in the skip message (`clustersetup.RequireMultigresTopology`):
 | `TestMultigateway_LogicalReplicationSlotFailoverAdmission`                                                | `replication_slot_test.go`        | Slot-based replication to replicas                               |
 | `TestBufferPlannedFailover`, `TestBufferMultipleFailovers`, `TestBufferTransactionsAndPreparedStatements` | `buffer_test.go`                  | Multiorch fails over to a standby while the gateway buffers      |
 | `TestTransactionAbortedOnFailoverGraceExpiry`                                                             | `transaction_failover_test.go`    | Multiorch fails over to a standby                                |
+| `TestListenNotifyFailover`                                                                                | `listen_notify_failover_test.go`  | LISTEN/NOTIFY across a planned failover                          |
 | `TestUnloggedTablesAfterFailover`                                                                         | `unlogged_test.go`                | Multiorch fails over to a standby                                |
 | `TestMultigateway_PostgresCrashRecovery`                                                                  | `postgres_crash_recovery_test.go` | Multiorch elects a new primary after PostgreSQL stops            |
 | `TestGateway_EvictsStrandedPrimaryOnStaleHealthStream`                                                    | `stale_primary_eviction_test.go`  | Another pooler takes over a stranded primary                     |
@@ -387,8 +388,14 @@ topologies, as a client would. The shared helpers (`QueryStringValue`,
 
 In CI, `queryserving` and `queryserving/pgparity` run on both topologies on
 every pull request. The pgproto, sqllogictest and PostgREST suites run on both
-topologies when their pull request label is set; pgproto and sqllogictest also
-run daily.
+topologies when their pull request label is set; pgproto also runs daily and
+sqllogictest weekly.
+
+The PostgreSQL regression suites (`pgregresstest`) also run on either topology
+with the same switch, for example
+`MULTIGRES_E2E_TOPOLOGY=minigres RUN_PGREGRESS=1 go test ./go/test/endtoend/pgregresstest/`.
+In CI they run on both topologies when the pull request label is set, and three
+times a week; each topology keeps its own regression baseline.
 
 ## Known limitations
 

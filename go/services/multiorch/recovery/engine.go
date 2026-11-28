@@ -26,10 +26,10 @@ import (
 	"github.com/multigres/multigres/go/common/rpcclient"
 	"github.com/multigres/multigres/go/common/timeouts"
 	"github.com/multigres/multigres/go/common/topoclient"
+	commontypes "github.com/multigres/multigres/go/common/types"
 	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	"github.com/multigres/multigres/go/services/multiorch/config"
 	"github.com/multigres/multigres/go/services/multiorch/consensus"
-	"github.com/multigres/multigres/go/services/multiorch/recovery/analysis"
 	"github.com/multigres/multigres/go/services/multiorch/recovery/types"
 	"github.com/multigres/multigres/go/services/multiorch/store"
 	"github.com/multigres/multigres/go/tools/timer"
@@ -205,15 +205,17 @@ type Engine struct {
 	recoveryRunner    *timer.PeriodicRunner
 	leaderInfoRunner  *timer.PeriodicRunner
 
-	// Detected problems tracking (replaced each cycle)
-	detectedProblemsMu sync.Mutex
-	detectedProblems   []types.Problem // For metrics and gRPC diagnostics
+	// Problems currently detected, and since when. Reconciled once per cycle.
+	problems *problemTracker
+	// lastProblemReminder is when persisting problems were last logged. Only the
+	// recovery loop reads or writes it.
+	lastProblemReminder time.Time
 
 	// Metrics
 	metrics *Metrics
 
 	// Action factory for creating recovery actions
-	actionFactory *analysis.RecoveryActionFactory
+	actionFactory *actionFactory
 
 	coordinator *consensus.Coordinator
 
@@ -221,6 +223,10 @@ type Engine struct {
 	// time for failover recruitment, so independent orchs collectively back off
 	// against a shard's observed TermRevocation without coordinating.
 	recruitmentBackoff ha.BackoffSchedule
+
+	// recoveryRetryBackoffTracker throttles re-execution of non-failover actions
+	// that keep failing against the same problem and entity.
+	recoveryRetryBackoffTracker *RecoveryRetryBackoffTracker
 
 	// Context for shutting down loops
 	shutdownCtx context.Context
@@ -287,7 +293,7 @@ func NewEngine(
 		logger.Error("failed to register stream health callback", "error", err)
 	}
 
-	engine.actionFactory = analysis.NewRecoveryActionFactory(
+	engine.actionFactory = newActionFactory(
 		config,
 		engine.poolerCache,
 		rpcClient,
@@ -295,6 +301,9 @@ func NewEngine(
 		coordinator,
 		logger,
 	)
+
+	engine.problems = newProblemTracker()
+	engine.recoveryRetryBackoffTracker = NewRecoveryRetryBackoffTracker(logger)
 
 	return engine
 }
@@ -418,11 +427,9 @@ func shardWatchTargetsToStrings(targets []config.WatchTarget) []string {
 // This is called by the observable gauge callback. Converts types.Problem to
 // DetectedProblemData on-demand.
 func (re *Engine) collectDetectedProblemsData() []DetectedProblemData {
-	re.detectedProblemsMu.Lock()
-	defer re.detectedProblemsMu.Unlock()
-
-	data := make([]DetectedProblemData, 0, len(re.detectedProblems))
-	for _, p := range re.detectedProblems {
+	active := re.problems.activeProblems()
+	data := make([]DetectedProblemData, 0, len(active))
+	for _, p := range active {
 		data = append(data, DetectedProblemData{
 			AnalysisType: string(p.CheckName),
 			ProblemCode:  string(p.Code),
@@ -455,25 +462,74 @@ func (re *Engine) collectStreamHealthData() []StreamHealthData {
 	return data
 }
 
-// updateDetectedProblems replaces the detected problems slice with current problems.
-// Called each recovery cycle - the slice is replaced entirely rather than incrementally updated
-// for simplicity.
-func (re *Engine) updateDetectedProblems(problems []types.Problem) {
-	re.detectedProblemsMu.Lock()
-	re.detectedProblems = problems
-	re.detectedProblemsMu.Unlock()
+// observeProblems reconciles the problem tracker with the problems detected this
+// cycle, then applies and logs the transitions. Call it once per cycle, after
+// every analyzer has run, with the full detected set.
+func (re *Engine) observeProblems(ctx context.Context, problems []types.Problem, now time.Time) {
+	transitions := re.problems.reconcile(problems, now)
+	re.logProblemTransitions(ctx, transitions, re.problems.activeCount())
+	re.remindPersistingProblems(ctx, now)
 }
 
-// GetDetectedProblems returns a snapshot of currently detected problems.
+// problemReminderInterval is how often problems that persist are logged again.
+const problemReminderInterval = 10 * time.Minute
+
+// remindPersistingProblems logs, at most once per problemReminderInterval, each
+// problem that has been detected for at least that long, so a long-lived problem
+// doesn't go quiet in the logs after its first line. The interval runs from the last
+// reminder that logged something, so a lone problem is first reminded about exactly
+// one interval after it appeared.
+func (re *Engine) remindPersistingProblems(ctx context.Context, now time.Time) {
+	if now.Sub(re.lastProblemReminder) < problemReminderInterval {
+		return
+	}
+	active := re.problems.activeSpans(now)
+	var due []problemSpan
+	for _, s := range active {
+		if s.duration >= problemReminderInterval {
+			due = append(due, s)
+		}
+	}
+	if len(due) == 0 {
+		return
+	}
+	re.lastProblemReminder = now
+	for _, s := range due {
+		re.logger.InfoContext(ctx, "problem still detected",
+			"problem_code", s.problem.Code,
+			"entity_id", s.problem.EntityID(),
+			"shard_key", commontypes.FormatShardRef(s.problem.ShardRef),
+			"description", s.problem.Description,
+			"duration", s.duration,
+			"active_problems", len(active))
+	}
+}
+
+// logProblemTransitions logs each problem once when it appears and once when it
+// clears, not on every cycle it persists.
+func (re *Engine) logProblemTransitions(ctx context.Context, transitions problemTransitions, activeProblems int) {
+	for _, p := range transitions.appeared {
+		re.logger.InfoContext(ctx, "problem detected",
+			"problem_code", p.Code,
+			"entity_id", p.EntityID(),
+			"shard_key", commontypes.FormatShardRef(p.ShardRef),
+			"description", p.Description,
+			"active_problems", activeProblems)
+	}
+	for _, c := range transitions.cleared {
+		re.logger.InfoContext(ctx, "problem cleared",
+			"problem_code", c.problem.Code,
+			"entity_id", c.problem.EntityID(),
+			"shard_key", commontypes.FormatShardRef(c.problem.ShardRef),
+			"duration", c.duration,
+			"active_problems", activeProblems)
+	}
+}
+
+// GetDetectedProblems returns the currently detected problems.
 // Thread-safe for concurrent access from gRPC handlers.
 func (re *Engine) GetDetectedProblems() []types.Problem {
-	re.detectedProblemsMu.Lock()
-	defer re.detectedProblemsMu.Unlock()
-
-	// Return a copy to prevent external mutation
-	problems := make([]types.Problem, len(re.detectedProblems))
-	copy(problems, re.detectedProblems)
-	return problems
+	return re.problems.activeProblems()
 }
 
 // IsWatchingShard returns true if the engine is configured to watch the specified shard.
@@ -556,6 +612,10 @@ func (re *Engine) TriggerRecoveryNow(ctx context.Context, maxCycles uint32) ([]D
 	// Engine.readyToExecute) and are not forced here — MaxCycles=0's retry loop
 	// below still resolves them within the RPC's own timeout, just via a few
 	// extra cycles rather than instantly.
+	//
+	// Failure backoff, by contrast, is bypassed for every cycle of this call and
+	// cleared again on return, so the call is not slowed by backoff it builds up.
+	defer re.recoveryRetryBackoffTracker.Bypass()()
 
 	// Create channel to wait for first cycle completion
 	cycleDone := make(chan error, 1)

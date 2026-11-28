@@ -37,7 +37,7 @@ func TestNewQueryPoolerServer_NilPoolManager(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	// Creating with nil pool manager should work but executor will be nil
-	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false)
+	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false, true)
 
 	assert.NotNil(t, pooler)
 	assert.Equal(t, logger, pooler.logger)
@@ -50,7 +50,7 @@ func TestNewQueryPoolerServer_NilPoolManager(t *testing.T) {
 
 func TestQueryPoolerServer_ReplicationMetrics(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false)
+	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false, true)
 
 	// The shared replication instruments are built at construction and exposed
 	// for the StreamReplication handler to derive per-stream recorders.
@@ -59,7 +59,7 @@ func TestQueryPoolerServer_ReplicationMetrics(t *testing.T) {
 
 func TestIsHealthy_NotInitialized(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false)
+	pooler := NewQueryPoolerServer(logger, nil, nil, "", "", nil, 0, false, true)
 
 	// IsHealthy should fail since the pool manager is not initialized
 	err := pooler.IsHealthy()
@@ -76,7 +76,7 @@ func TestNewQueryPoolerServer_WithPoolManager(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	mockMgr := &mockPoolManager{}
-	pooler := NewQueryPoolerServer(logger, mockMgr, nil, "", "", nil, 0, false)
+	pooler := NewQueryPoolerServer(logger, mockMgr, nil, "", "", nil, 0, false, true)
 
 	require.NotNil(t, pooler)
 	assert.Equal(t, logger, pooler.logger)
@@ -95,6 +95,8 @@ func newStartRequestTestServer() *QueryPoolerServer {
 		gracePeriod:   3 * time.Second,
 		stateChanged:  make(chan struct{}),
 		drainStats:    newDrainStats(),
+
+		killOnDrainTimeout: true,
 	}
 }
 
@@ -110,9 +112,9 @@ func TestStartRequest_Serving(t *testing.T) {
 	s.servingStatus = clustermetadatapb.PoolerServingStatus_SERVING
 
 	// All request kinds are admitted while serving normally.
-	require.NoError(t, s.StartRequest(nil, RequestExistingReserved))
-	require.NoError(t, s.StartRequest(nil, RequestSingleQuery))
-	require.NoError(t, s.StartRequest(nil, RequestNewReservation))
+	require.NoError(t, admit(s.StartRequest(nil, RequestExistingReserved)))
+	require.NoError(t, admit(s.StartRequest(nil, RequestSingleQuery)))
+	require.NoError(t, admit(s.StartRequest(nil, RequestNewReservation)))
 }
 
 func TestStartRequest_NotServing(t *testing.T) {
@@ -121,10 +123,10 @@ func TestStartRequest_NotServing(t *testing.T) {
 
 	// Existing reserved ops are still admitted (the connection's existence is the
 	// gate; a force-closed connection surfaces an honest 40001 from the executor).
-	require.NoError(t, s.StartRequest(nil, RequestExistingReserved))
+	require.NoError(t, admit(s.StartRequest(nil, RequestExistingReserved)))
 	// Single queries and new reservations are rejected with MTF01 (gateway buffers).
-	requireMTF01(t, s.StartRequest(nil, RequestSingleQuery))
-	requireMTF01(t, s.StartRequest(nil, RequestNewReservation))
+	requireMTF01(t, admit(s.StartRequest(nil, RequestSingleQuery)))
+	requireMTF01(t, admit(s.StartRequest(nil, RequestNewReservation)))
 }
 
 func TestStartRequest_DrainReserved_ServesSingleQueries(t *testing.T) {
@@ -134,9 +136,9 @@ func TestStartRequest_DrainReserved_ServesSingleQueries(t *testing.T) {
 
 	// Stage 1: single queries keep flowing and existing reserved ops finish, but
 	// new reservations are rejected so no new transactions accumulate.
-	require.NoError(t, s.StartRequest(nil, RequestSingleQuery))
-	require.NoError(t, s.StartRequest(nil, RequestExistingReserved))
-	requireMTF01(t, s.StartRequest(nil, RequestNewReservation))
+	require.NoError(t, admit(s.StartRequest(nil, RequestSingleQuery)))
+	require.NoError(t, admit(s.StartRequest(nil, RequestExistingReserved)))
+	requireMTF01(t, admit(s.StartRequest(nil, RequestNewReservation)))
 }
 
 func TestStartRequest_DrainRegular_RejectsSingleQueries(t *testing.T) {
@@ -146,9 +148,9 @@ func TestStartRequest_DrainRegular_RejectsSingleQueries(t *testing.T) {
 
 	// Stage 2: single queries are now rejected too; only existing reserved ops
 	// (concluding in-flight transactions) are still admitted.
-	requireMTF01(t, s.StartRequest(nil, RequestSingleQuery))
-	requireMTF01(t, s.StartRequest(nil, RequestNewReservation))
-	require.NoError(t, s.StartRequest(nil, RequestExistingReserved))
+	requireMTF01(t, admit(s.StartRequest(nil, RequestSingleQuery)))
+	requireMTF01(t, admit(s.StartRequest(nil, RequestNewReservation)))
+	require.NoError(t, admit(s.StartRequest(nil, RequestExistingReserved)))
 }
 
 func TestStartRequest_PrimaryOpOnReplica_ReservedConnAllowed(t *testing.T) {
@@ -159,12 +161,12 @@ func TestStartRequest_PrimaryOpOnReplica_ReservedConnAllowed(t *testing.T) {
 	target := &query.Target{Mode: query.Mode_MODE_WRITABLE}
 	// A fresh PRIMARY-targeted request on a demoted (REPLICA) pooler is rejected
 	// with MTF01...
-	requireMTF01(t, s.StartRequest(target, RequestSingleQuery))
+	requireMTF01(t, admit(s.StartRequest(target, RequestSingleQuery)))
 	// ...but an in-flight op on an existing reserved connection (e.g. a COMMIT
 	// after a planned demotion) is admitted, so the executor can conclude the
 	// transaction on the live backend or return an honest 40001 if it was
 	// force-closed during the drain.
-	require.NoError(t, s.StartRequest(target, RequestExistingReserved))
+	require.NoError(t, admit(s.StartRequest(target, RequestExistingReserved)))
 }
 
 func TestStartRequest_PrimaryQueryOnReplica_Rejected(t *testing.T) {
@@ -174,7 +176,7 @@ func TestStartRequest_PrimaryQueryOnReplica_Rejected(t *testing.T) {
 
 	// PRIMARY query hitting a REPLICA pooler should be rejected with MTF01.
 	target := &query.Target{Mode: query.Mode_MODE_WRITABLE}
-	requireMTF01(t, s.StartRequest(target, RequestSingleQuery))
+	requireMTF01(t, admit(s.StartRequest(target, RequestSingleQuery)))
 }
 
 func TestStartRequest_PrimaryQueryOnPrimary_Allowed(t *testing.T) {
@@ -183,7 +185,7 @@ func TestStartRequest_PrimaryQueryOnPrimary_Allowed(t *testing.T) {
 	s.routingRole = servingstate.RoutingRolePrimary // writable leader
 
 	target := &query.Target{Mode: query.Mode_MODE_WRITABLE}
-	require.NoError(t, s.StartRequest(target, RequestSingleQuery))
+	require.NoError(t, admit(s.StartRequest(target, RequestSingleQuery)))
 }
 
 // TestStartRequest_WritableGatesOnRoutingRole is the write-safety regression:
@@ -199,13 +201,13 @@ func TestStartRequest_WritableGatesOnRoutingRole(t *testing.T) {
 
 	// Not writable: both leader-bound modes are rejected. Leadership alone no
 	// longer admits either — routing role (write-safety) is the single gate.
-	requireMTF01(t, s.StartRequest(&query.Target{Mode: query.Mode_MODE_WRITABLE}, RequestSingleQuery))
-	requireMTF01(t, s.StartRequest(&query.Target{Mode: query.Mode_MODE_CONSISTENT}, RequestSingleQuery))
+	requireMTF01(t, admit(s.StartRequest(&query.Target{Mode: query.Mode_MODE_WRITABLE}, RequestSingleQuery)))
+	requireMTF01(t, admit(s.StartRequest(&query.Target{Mode: query.Mode_MODE_CONSISTENT}, RequestSingleQuery)))
 
 	// Once the writable leader, both modes are admitted.
 	s.routingRole = servingstate.RoutingRolePrimary
-	require.NoError(t, s.StartRequest(&query.Target{Mode: query.Mode_MODE_WRITABLE}, RequestSingleQuery))
-	require.NoError(t, s.StartRequest(&query.Target{Mode: query.Mode_MODE_CONSISTENT}, RequestSingleQuery))
+	require.NoError(t, admit(s.StartRequest(&query.Target{Mode: query.Mode_MODE_WRITABLE}, RequestSingleQuery)))
+	require.NoError(t, admit(s.StartRequest(&query.Target{Mode: query.Mode_MODE_CONSISTENT}, RequestSingleQuery)))
 }
 
 func TestStartRequest_ReplicaQueryOnPrimary_Allowed(t *testing.T) {
@@ -215,7 +217,7 @@ func TestStartRequest_ReplicaQueryOnPrimary_Allowed(t *testing.T) {
 
 	// PRIMARY pooler can serve REPLICA traffic.
 	target := &query.Target{Mode: query.Mode_MODE_INCONSISTENT}
-	require.NoError(t, s.StartRequest(target, RequestSingleQuery))
+	require.NoError(t, admit(s.StartRequest(target, RequestSingleQuery)))
 }
 
 func TestStartRequest_NilTarget_Skipped(t *testing.T) {
@@ -224,7 +226,7 @@ func TestStartRequest_NilTarget_Skipped(t *testing.T) {
 	s.routingRole = servingstate.RoutingRoleReplica
 
 	// Nil target should skip target validation (e.g., GetAuthCredentials).
-	require.NoError(t, s.StartRequest(nil, RequestSingleQuery))
+	require.NoError(t, admit(s.StartRequest(nil, RequestSingleQuery)))
 }
 
 func TestStartRequest_TableGroupMismatch_Bug(t *testing.T) {
@@ -236,7 +238,7 @@ func TestStartRequest_TableGroupMismatch_Bug(t *testing.T) {
 
 	// Tablegroup mismatch is a routing bug (MTD01), rejected for every kind.
 	target := protoutil.NewTarget("", "tg2", "0", query.Mode_MODE_WRITABLE)
-	err := s.StartRequest(target, RequestExistingReserved)
+	err := admit(s.StartRequest(target, RequestExistingReserved))
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTD01.ID), "expected MTD01 error, got: %v", err)
 	assert.Contains(t, err.Error(), "tg2")
@@ -252,7 +254,7 @@ func TestStartRequest_ShardMismatch_Bug(t *testing.T) {
 
 	// Shard mismatch is a routing bug (MTD01).
 	target := protoutil.NewTarget("", "tg1", "1", query.Mode_MODE_WRITABLE)
-	err := s.StartRequest(target, RequestSingleQuery)
+	err := admit(s.StartRequest(target, RequestSingleQuery))
 	require.Error(t, err)
 	assert.True(t, mterrors.IsErrorCode(err, mterrors.MTD01.ID), "expected MTD01 error, got: %v", err)
 	assert.Contains(t, err.Error(), "shard")
@@ -266,7 +268,7 @@ func TestStartRequest_FullTargetMatch_Allowed(t *testing.T) {
 	s.shard = "0"
 
 	target := protoutil.NewTarget("", "tg1", "0", query.Mode_MODE_WRITABLE)
-	require.NoError(t, s.StartRequest(target, RequestSingleQuery))
+	require.NoError(t, admit(s.StartRequest(target, RequestSingleQuery)))
 }
 
 // drainMockPoolManager is a mock pool manager that supports two-stage drain
@@ -283,8 +285,17 @@ type drainMockPoolManager struct {
 	zeroCh         chan struct{}
 	reservedZeroCh chan struct{}
 
-	closeReservedCount int
-	closeReservedCalls int
+	// killedCount is what KillLent reports as killed, killErr what it
+	// returns, and onKill, when set, what a kill does to the counts.
+	killedCount int
+	killErr     error
+	onKill      func(m *drainMockPoolManager)
+	killCalls   int
+
+	sealCalls   int
+	unsealCalls int
+	sealed      bool
+	sealErr     error // the error the pools were last sealed with
 }
 
 func newDrainMockPoolManager() *drainMockPoolManager {
@@ -354,17 +365,52 @@ func (m *drainMockPoolManager) WaitForReservedDrain(ctx context.Context) error {
 	}
 }
 
-func (m *drainMockPoolManager) CloseReservedConnections(ctx context.Context) int {
+func (m *drainMockPoolManager) KillLent(ctx context.Context, timeout time.Duration) (int, error) {
 	m.mu.Lock()
-	m.closeReservedCalls++
+	m.killCalls++
+	onKill := m.onKill
 	m.mu.Unlock()
-	return m.closeReservedCount
+	if onKill != nil {
+		onKill(m)
+	}
+	return m.killedCount, m.killErr
 }
 
-func (m *drainMockPoolManager) closeReservedCallCount() int {
+func (m *drainMockPoolManager) SealPools(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.closeReservedCalls
+	m.sealCalls++
+	m.sealed = true
+	m.sealErr = err
+}
+
+func (m *drainMockPoolManager) UnsealPools() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.unsealCalls++
+	m.sealed = false
+}
+
+func (m *drainMockPoolManager) killCallCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.killCalls
+}
+
+func (m *drainMockPoolManager) isSealed() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sealed
+}
+
+// endLent is an onKill that ends everything lent: the kill worked, and the
+// borrowers returned their connections.
+func endLent(m *drainMockPoolManager) {
+	m.mu.Lock()
+	reserved, regular := m.reservedCount, m.regularCount
+	m.mu.Unlock()
+	m.reservedAdd(-reserved)
+	m.regularAdd(-regular)
 }
 
 func newTestPoolerWithDrain(mock *drainMockPoolManager) *QueryPoolerServer {
@@ -376,6 +422,8 @@ func newTestPoolerWithDrain(mock *drainMockPoolManager) *QueryPoolerServer {
 		gracePeriod:   3 * time.Second,
 		stateChanged:  make(chan struct{}),
 		drainStats:    newDrainStats(),
+
+		killOnDrainTimeout: true,
 	}
 }
 
@@ -415,17 +463,17 @@ func TestOnStateChange_TwoStageDrain(t *testing.T) {
 	// Stage 1: blocked on the in-flight transaction. Single queries are served,
 	// existing reserved ops are admitted, new reservations are rejected.
 	waitForDrainPhase(t, pooler, drainReserved)
-	require.NoError(t, pooler.StartRequest(nil, RequestSingleQuery))
-	require.NoError(t, pooler.StartRequest(nil, RequestExistingReserved))
-	requireMTF01(t, pooler.StartRequest(nil, RequestNewReservation))
+	require.NoError(t, admit(pooler.StartRequest(nil, RequestSingleQuery)))
+	require.NoError(t, admit(pooler.StartRequest(nil, RequestExistingReserved)))
+	requireMTF01(t, admit(pooler.StartRequest(nil, RequestNewReservation)))
 
 	// Finish the transaction → advances to stage 2.
 	mock.reservedAdd(-1)
 	waitForDrainPhase(t, pooler, drainRegular)
 
 	// Stage 2: single queries are now rejected too; existing reserved ops still admitted.
-	requireMTF01(t, pooler.StartRequest(nil, RequestSingleQuery))
-	require.NoError(t, pooler.StartRequest(nil, RequestExistingReserved))
+	requireMTF01(t, admit(pooler.StartRequest(nil, RequestSingleQuery)))
+	require.NoError(t, admit(pooler.StartRequest(nil, RequestExistingReserved)))
 
 	// Finish the in-flight single query → drain completes.
 	mock.regularAdd(-1)
@@ -451,6 +499,7 @@ func TestOnStateChange_GracePeriodExpiresInStage1(t *testing.T) {
 
 	// A transaction that never commits — stage 1 (WaitForReservedDrain) blocks.
 	mock.reservedAdd(1)
+	mock.onKill = endLent
 
 	start := time.Now()
 	require.NoError(t, pooler.OnStateChange(ctx, servingstate.State{Routing: servingstate.RoutingState{Role: servingstate.RoutingRolePrimary}, ServingStatus: clustermetadatapb.PoolerServingStatus_DISABLED}))
@@ -458,10 +507,8 @@ func TestOnStateChange_GracePeriodExpiresInStage1(t *testing.T) {
 
 	assert.GreaterOrEqual(t, elapsed, 80*time.Millisecond, "should block ~grace period waiting on the held transaction")
 	assert.Less(t, elapsed, 2*time.Second, "should not block much past the grace period")
-	assert.Positive(t, mock.closeReservedCallCount(), "reserved connections should be force-closed on grace expiry")
+	assert.Positive(t, mock.killCallCount(), "the connections still lent are killed on grace expiry")
 	assert.False(t, pooler.IsServing(), "transition completes despite the held transaction")
-
-	mock.reservedAdd(-1) // clean up
 }
 
 // TestOnStateChange_WaitsForInflightRequests verifies that OnStateChange blocks
@@ -561,7 +608,7 @@ func TestOnStateChange_BackToServing(t *testing.T) {
 	assert.True(t, pooler.IsServing())
 
 	// Requests should work again
-	err := pooler.StartRequest(nil, RequestSingleQuery)
+	err := admit(pooler.StartRequest(nil, RequestSingleQuery))
 	require.NoError(t, err)
 }
 
@@ -583,7 +630,7 @@ func TestOnStateChange_ConcurrentRequests(t *testing.T) {
 	for range numRequests {
 		go func() {
 			defer wg.Done()
-			if err := pooler.StartRequest(nil, RequestSingleQuery); err != nil {
+			if err := admit(pooler.StartRequest(nil, RequestSingleQuery)); err != nil {
 				return
 			}
 			mock.regularAdd(1)

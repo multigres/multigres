@@ -43,9 +43,11 @@ DataRow, CommandComplete, ReadyForQuery.
    and any pool buffer via `defer`.
 5. Successive packets land byte-adjacent in the same 16 KB buffer.
    `flush()` issues a single `write()` syscall for all of them.
-6. After the handler returns, `endWriterBuffering` returns the
-   `*bufio.Writer` to a `sync.Pool`; the idle connection holds zero
-   buffer memory.
+6. At a batch boundary (after `Query`, `Sync`, or `FunctionCall` is
+   handled; pipelined extended-protocol messages keep the writer
+   attached), the serve loop calls `endWriterBuffering`, which flushes
+   and returns the `*bufio.Writer` to a `sync.Pool`; the idle
+   connection holds no write buffer.
 
 ### Why encode into `AvailableBuffer()`
 
@@ -104,15 +106,22 @@ keeps packets within `connBufferSize` avoids this.
 
 ### Per-connection memory
 
-| state                     | pinned buffer memory                 |
+Write-side buffer memory on a server connection:
+
+| state                     | pinned write buffer memory           |
 | ------------------------- | ------------------------------------ |
 | connected, before query   | 0                                    |
 | executing a query         | 16 KB (bufio, checked out from pool) |
 | idle between queries      | 0                                    |
 | oversize packet in flight | 16 KB + one bufpool bucket           |
 
-At 10k connections with 200 in flight, total bufio memory ≈ 3.2 MB.
-The other 9,800 idle connections cost nothing.
+At 10k connections with 200 in flight, total write-side bufio memory
+≈ 3.2 MB. The other 9,800 idle connections hold no write buffer.
+
+The read side is different: a server `Conn` takes its 16 KB
+`bufio.Reader` from `listener.readersPool` when it is created and
+returns it only on `Close` / `DetachConn` (`returnReader`), so every
+open connection pins one read buffer for its lifetime.
 
 ### Client-side differences
 
@@ -120,7 +129,7 @@ Two intentional asymmetries with the server:
 
 - **`startPacket` does not lock.** Each client `*Conn` is checked out
   to one goroutine at a time, and the high-level operation (`Query`,
-  `BindAndExecute`, …) holds `bufmu` across the entire request. Adding
+  `BindAndExecute`, …) holds `bufMu` across the entire request. Adding
   a lock acquisition inside `startPacket` would deadlock on the second
   call within one operation.
 - **`writePacket` does not flush.** Extended-protocol operations
@@ -133,8 +142,8 @@ Two intentional asymmetries with the server:
 Same `bufio.Reader` fronting the socket, same listener `bufpool` on
 the server. Three fixes mirror the write side:
 
-1. **`Peek` + `Discard` instead of `io.ReadFull`** for the type byte
-   and 4-byte length. `io.ReadFull` takes an `io.Reader` interface, so
+1. **`ReadByte` for the type byte and `Peek` + `Discard` for the
+   4-byte length, instead of `io.ReadFull`.** `io.ReadFull` takes an `io.Reader` interface, so
    the compiler can't prove the slice doesn't escape — every call
    heap-allocates the slice header. `bufio.Reader`'s concrete-typed
    methods devirtualize and don't escape. Drops 2 allocs/op.
@@ -215,8 +224,8 @@ on both sides; run them before and after touching this code.
 - **Server `bufMu` spans encoding.** Don't do I/O or block in a body
   encoder; you'll serialize the connection. Pre-compute everything
   before `startPacket`.
-- **Client `bufmu` is held by the caller, not by `startPacket`.** New
+- **Client `bufMu` is held by the caller, not by `startPacket`.** New
   client write helpers must be called from a context that already
-  holds `bufmu`.
+  holds `bufMu`.
 - **`writeRawByte` (server) is the SSL/GSSENC escape hatch only.** A
   1-byte pgwire packet is still a packet — use `startPacket(t, 0)`.

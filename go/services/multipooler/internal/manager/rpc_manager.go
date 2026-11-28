@@ -139,17 +139,8 @@ func (pm *MultipoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 			"replication manually stopped via StopReplication; call StartReplication first")
 	}
 
-	// Guardrail: Check if the PostgreSQL instance is in recovery (standby mode)
-	pgMode, err := pm.postgresMode(ctx)
-	if err != nil {
-		pm.logger.ErrorContext(ctx, "failed to check if instance is in recovery", "error", err)
-		return mterrors.Wrap(err, "failed to check recovery status")
-	}
-
-	if pgMode.OutOfRecovery() {
-		pm.logger.ErrorContext(ctx, "setPrimaryConnInfo called on non-standby instance", "service_id", pm.serviceID.String())
-		return mterrors.New(mtrpcpb.Code_FAILED_PRECONDITION,
-			fmt.Sprintf("operation not allowed: the PostgreSQL instance is not in standby mode (service_id: %s)", pm.serviceID.String()))
+	if err := pm.checkReplicaGuardrails(ctx); err != nil {
+		return err
 	}
 
 	// Optionally stop replication before making changes
@@ -179,12 +170,12 @@ func (pm *MultipoolerManager) setPrimaryConnInfoLocked(ctx context.Context, host
 	connInfo := buildPrimaryConnInfo(expected)
 
 	// Set primary_conninfo using ALTER SYSTEM
-	if err = pm.setPrimaryConnInfo(ctx, connInfo); err != nil {
+	if err := pm.setPrimaryConnInfo(ctx, connInfo); err != nil {
 		return err
 	}
 
 	// Reload PostgreSQL configuration to apply changes
-	if err = pm.reloadPostgresConfig(ctx); err != nil {
+	if err := pm.reloadPostgresConfig(ctx); err != nil {
 		return err
 	}
 

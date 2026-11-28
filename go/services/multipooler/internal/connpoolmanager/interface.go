@@ -106,20 +106,45 @@ type PoolManager interface {
 
 	// --- Drain ---
 
-	// WaitForDrain blocks until all lent connections have been returned or ctx is cancelled.
+	// AddAdmitted counts a request the query server admitted, which may not
+	// hold a connection yet, until RemoveAdmitted: a request that will reserve
+	// a connection (reservation) as a reserved connection, any other as a
+	// single-query borrow. The drains then wait for it as for a connection
+	// already lent, so a request admitted just before a drain began, still
+	// waiting for its connection, cannot escape the drain.
+	AddAdmitted(reservation bool)
+
+	// RemoveAdmitted uncounts a request AddAdmitted counted.
+	RemoveAdmitted(reservation bool)
+
+	// WaitForDrain blocks until all lent connections have been returned, and
+	// every admitted request removed, or ctx is cancelled.
 	// Used during graceful shutdown to wait for in-flight queries to complete.
 	WaitForDrain(ctx context.Context) error
 
 	// WaitForReservedDrain blocks until all RESERVED connections (transactions,
-	// temp tables, portals, COPY) have been released or ctx is cancelled. It
+	// temp tables, portals, COPY), and every admitted request that will
+	// reserve one, have been released or ctx is cancelled. It
 	// ignores transient single-query borrows, so the first stage of a graceful
 	// drain can wait for transactions while still serving single queries.
 	WaitForReservedDrain(ctx context.Context) error
 
-	// CloseReservedConnections kills all active reserved connections across all user pools.
-	// Used after drain grace period expires to prevent reserved connections from being
-	// used in a non-serving state.
-	CloseReservedConnections(ctx context.Context) int
+	// SealPools seals every user pool, and every one created until
+	// UnsealPools: a sealed pool lends nothing, refuses requests (and wakes
+	// the waiting ones) with err, closes its idle connections, and closes a
+	// connection returned to it. A drain that runs out of time seals the
+	// pools (see poolerserver drain.go).
+	SealPools(err error)
+
+	// UnsealPools lets the user pools lend connections again.
+	UnsealPools()
+
+	// KillLent terminates the backends of the connections the user pools
+	// still lend, reserved and regular, except logical-replication tunnels,
+	// and waits up to timeout for each to exit. It returns how many it
+	// terminated, and an error if any backend may still be running or ctx
+	// ended first. The admin pool is not touched.
+	KillLent(ctx context.Context, timeout time.Duration) (int, error)
 
 	// --- Stats ---
 

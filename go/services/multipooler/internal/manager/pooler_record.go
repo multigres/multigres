@@ -121,6 +121,11 @@ type poolerRecord struct {
 
 	registerOnce sync.Once
 	tr           *toporeg.TopoReg
+
+	// registered is closed once the initial registration has written the
+	// record to the topology (see Registered).
+	registered     chan struct{}
+	registeredOnce sync.Once
 }
 
 // unmanaged reports whether the pooler fronts an external PostgreSQL, by the
@@ -142,6 +147,7 @@ func newPoolerRecord(logger *slog.Logger, topoClient poolerTopoStore, initial *c
 		logger:     logger,
 		topoClient: topoClient,
 		wakeup:     make(chan struct{}, 1),
+		registered: make(chan struct{}),
 	}
 	r.desired.Store(proto.Clone(initial).(*clustermetadatapb.Multipooler))
 	return r, nil
@@ -338,11 +344,22 @@ func (r *poolerRecord) Register(parent context.Context, alarm func(string)) {
 		// (via Mutate + final publish) so toporeg only needs to manage the
 		// retry goroutine's lifetime.
 		registerFunc := func(ctx context.Context) error {
-			return r.topoClient.RegisterMultipooler(ctx, routingStateForPublish(r.Snapshot()), true /* allowUpdate */)
+			if err := r.topoClient.RegisterMultipooler(ctx, routingStateForPublish(r.Snapshot()), true /* allowUpdate */); err != nil {
+				return err
+			}
+			r.registeredOnce.Do(func() { close(r.registered) })
+			return nil
 		}
 		r.tr = toporeg.Register(registerFunc, func(context.Context) error { return nil }, alarm)
 	})
 }
+
+// Registered returns a channel that is closed once the initial registration
+// has written the record to the topology. A pooler reads the sharding catalog
+// only after it, so that a coordinator that records a fence and then lists the
+// poolers of its scope either lists this one or this one reads the fence (see
+// runFenceReads).
+func (r *poolerRecord) Registered() <-chan struct{} { return r.registered }
 
 // Unregister stops the publisher, applies an optional final mutation,
 // performs one synchronous publish if the result diverges from the last

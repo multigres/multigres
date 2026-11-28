@@ -2,7 +2,7 @@
 # checked by TestCatalogSchema_Golden. Appending entries is fine; editing or
 # removing one needs a new numbered migration in catalogMigrations. Rewrite with
 # CATALOG_SCHEMA_REWRITE=1.
-format 1
+format 2
 == table
 CREATE TABLE IF NOT EXISTS multigres.catalog_state (
 	singleton       boolean PRIMARY KEY DEFAULT true CHECK (singleton),
@@ -98,6 +98,33 @@ CREATE TABLE IF NOT EXISTS multigres.routing_rule (
 	CHECK ((scope = 'table') = (from_table_id IS NOT NULL)),
 	CHECK ((scope = 'tablegroup') = (to_shard_id IS NOT NULL))
 )
+== table
+ALTER TABLE multigres.connections ADD COLUMN IF NOT EXISTS conninfo jsonb
+	CONSTRAINT connections_conninfo_servers CHECK (
+		conninfo IS NULL OR CASE
+			WHEN coalesce(jsonb_typeof(conninfo) = 'object', false)
+			 AND coalesce(jsonb_typeof(conninfo->'host') = 'array', false)
+			 AND coalesce(jsonb_typeof(conninfo->'port') = 'array', false)
+			THEN jsonb_array_length(conninfo->'host') >= 1
+			 AND jsonb_array_length(conninfo->'port') >= 1
+			 AND NOT jsonb_path_exists(conninfo, 'strict $.host[*] ? (@.type() != "string" || @ == "")')
+			 AND NOT jsonb_path_exists(conninfo, 'strict $.port[*] ? (@.type() != "number" || @ < 1 || @ > 65535 || @ != @.floor())')
+			 AND (jsonb_array_length(conninfo->'port') = 1
+			      OR jsonb_array_length(conninfo->'port') = jsonb_array_length(conninfo->'host'))
+			ELSE false
+		END
+	)
+== table
+CREATE TABLE IF NOT EXISTS multigres.admission_fence (
+	fence_id      bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	operation_id  uuid   NOT NULL REFERENCES multigres.operation (operation_id),
+	tablegroup_id bigint NOT NULL REFERENCES multigres.tablegroup (tablegroup_id),
+	shard_id      bigint REFERENCES multigres.shard (shard_id),
+	state         text   NOT NULL CHECK (state IN ('FENCING', 'FENCED')),
+	version       bigint NOT NULL
+)
+== table
+ALTER TABLE multigres.catalog_state ADD COLUMN IF NOT EXISTS definition_hash text
 == table
 DO $do$ BEGIN
 	IF to_regclass('multigres.operations') IS NULL THEN

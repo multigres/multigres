@@ -35,7 +35,8 @@ const catalogSchemaLockKey int64 = 0x6d756c7469677273
 // catalogFormat1Columns are the catalog tables format 1 creates, each with its
 // columns in declaration order.
 var catalogFormat1Columns = map[string][]string{
-	"catalog_state":    {"singleton", "format_version", "routing_version", "plan_epoch"},
+	// definition_hash is an additive column, not part of format 1.
+	"catalog_state":    {"singleton", "format_version", "routing_version", "plan_epoch", "definition_hash"},
 	"tablegroup":       {"tablegroup_id", "name", "state", "created_at"},
 	"shard":            {"shard_id", "tablegroup_id", "shard_name", "range_start", "range_end", "state"},
 	"tablegroup_table": {"table_id", "schema_name", "table_name", "tablegroup_id"},
@@ -46,11 +47,12 @@ var catalogFormat1Columns = map[string][]string{
 		"operation_id", "kind", "state", "request", "initiating_role", "cancel_requested",
 		"last_error", "created_at", "updated_at",
 	},
-	"connections": {"connection_id", "name", "dsn", "owner_role", "created_at"},
 	"routing_rule": {
 		"rule_id", "operation_id", "scope", "from_tablegroup_id", "from_table_id", "to_tablegroup_id",
 		"to_shard_id", "to_shard_key_id", "created_at", "created_version",
 	},
+	"connections":     {"connection_id", "name", "dsn", "owner_role", "created_at", "conninfo"},
+	"admission_fence": {"fence_id", "operation_id", "tablegroup_id", "shard_id", "state", "version"},
 }
 
 // legacyCatalogSQL replaces the format 1 catalog with the pre-versioning
@@ -59,7 +61,7 @@ const legacyCatalogSQL = `BEGIN;
 DROP VIEW IF EXISTS multigres.stat_migration, multigres.operations;
 DROP FUNCTION IF EXISTS multigres.cancel_operation(uuid);
 ALTER TABLE multigres.migration DROP CONSTRAINT IF EXISTS migration_connections_fkey;
-DROP TABLE multigres.routing_rule, multigres.shard_key_column, multigres.shard_key, multigres.shard_index,
+DROP TABLE multigres.admission_fence, multigres.routing_rule, multigres.shard_key_column, multigres.shard_key, multigres.shard_index,
 	multigres.tablegroup_table, multigres.shard, multigres.tablegroup, multigres.operation,
 	multigres.connections, multigres.catalog_state;
 CREATE TABLE multigres.tablegroup (
@@ -113,9 +115,14 @@ func catalogFormatVersion(t *testing.T, db *sql.DB) int {
 	return version
 }
 
-// requireCatalogFormat1 asserts db holds exactly the format 1 catalog with its
-// initial rows, and none of the legacy column layout.
-func requireCatalogFormat1(t *testing.T, db *sql.DB) {
+// currentCatalogFormat is the format this binary writes. Format 2 deleted
+// rows only, so its tables keep the format 1 columns.
+const currentCatalogFormat = 2
+
+// requireCurrentCatalog asserts db holds exactly the current catalog, with
+// the format 1 tables and their initial rows, and none of the legacy column
+// layout.
+func requireCurrentCatalog(t *testing.T, db *sql.DB) {
 	t.Helper()
 
 	// Each table has exactly its format 1 columns: this also rules out the
@@ -137,7 +144,7 @@ func requireCatalogFormat1(t *testing.T, db *sql.DB) {
 	var routingVersion, planEpoch int64
 	require.NoError(t, db.QueryRow(`SELECT format_version, routing_version, plan_epoch FROM multigres.catalog_state`).
 		Scan(&formatVersion, &routingVersion, &planEpoch))
-	assert.Equal(t, 1, formatVersion)
+	assert.Equal(t, currentCatalogFormat, formatVersion)
 	assert.Zero(t, routingVersion)
 	assert.Zero(t, planEpoch)
 
@@ -165,7 +172,7 @@ func requireCatalogFormat1(t *testing.T, db *sql.DB) {
 		  AND pg_get_constraintdef(oid) LIKE '%type%'`).Scan(&typeChecks))
 	assert.Zero(t, typeChecks, "shard_index.type must not be limited to a fixed list")
 
-	for _, table := range []string{"tablegroup_table", "shard_index", "shard_key", "shard_key_column", "operation", "connections", "routing_rule"} {
+	for _, table := range []string{"tablegroup_table", "shard_index", "shard_key", "shard_key_column", "operation", "connections", "routing_rule", "admission_fence"} {
 		var n int
 		require.NoError(t, db.QueryRow(`SELECT count(*) FROM multigres.`+table).Scan(&n))
 		assert.Zero(t, n, "multigres.%s should start empty", table)
@@ -174,7 +181,7 @@ func requireCatalogFormat1(t *testing.T, db *sql.DB) {
 
 // requireMigrationForeignKey waits until multigres.migration has exactly one foreign key,
 // to multigres.connections(connection_id). The migrator's schema ensure adds it right after
-// the catalog ensure: at bootstrap, before the first backup, and on every pooler open. It
+// the catalog ensure: at bootstrap, before the first backup, and on every full ensure. It
 // waits because a standby gets it by replication, and after a restart the pooler adds it
 // when it opens.
 func requireMigrationForeignKey(t *testing.T, db *sql.DB) {
@@ -205,6 +212,29 @@ func waitForCatalogFormat(t *testing.T, db *sql.DB, want int, msg string) {
 		}
 		return version == want
 	}, 30*time.Second, 200*time.Millisecond, msg)
+}
+
+// waitForCatalogDefinition waits until db's catalog_state records a
+// definition hash, which the pooler writes once a full catalog ensure, the
+// migrator's schema included, has finished.
+func waitForCatalogDefinition(t *testing.T, db *sql.DB, msg string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		var recorded bool
+		err := db.QueryRow(`SELECT definition_hash IS NOT NULL FROM multigres.catalog_state`).Scan(&recorded)
+		return err == nil && recorded
+	}, 30*time.Second, 200*time.Millisecond, msg)
+}
+
+// forgetCatalogDefinition clears the definition hash catalog_state records,
+// as on a catalog an older binary last ensured. Without it, a pooler that
+// becomes the serving primary finds its own hash and skips the full ensure, so
+// a test that changes the catalog by hand must clear it for the pooler to
+// repair the change.
+func forgetCatalogDefinition(t *testing.T, db *sql.DB) {
+	t.Helper()
+	_, err := db.Exec(`UPDATE multigres.catalog_state SET definition_hash = NULL`)
+	require.NoError(t, err)
 }
 
 // killMultipooler SIGKILLs inst's multipooler process. Unlike a graceful
@@ -242,7 +272,7 @@ func restartMultipooler(t *testing.T, inst *shardsetup.MultipoolerInstance) {
 }
 
 // TestCatalogSchema_FreshBootstrap verifies that a freshly bootstrapped catalog
-// shard has the format 1 catalog, and that its standby received it through
+// shard has the current catalog, and that its standby received it through
 // replication.
 func TestCatalogSchema_FreshBootstrap(t *testing.T) {
 	if testing.Short() {
@@ -258,18 +288,18 @@ func TestCatalogSchema_FreshBootstrap(t *testing.T) {
 	primaryDB := connectToPostgresViaSocket(t,
 		getPostgresSocketPath(setup.PrimaryPgctld.PoolerDir), setup.PrimaryPgctld.PgPort)
 	defer primaryDB.Close()
-	requireCatalogFormat1(t, primaryDB)
+	requireCurrentCatalog(t, primaryDB)
 
 	standbyDB := connectToPostgresViaSocket(t,
 		getPostgresSocketPath(setup.StandbyPgctld.PoolerDir), setup.StandbyPgctld.PgPort)
 	defer standbyDB.Close()
-	requireCatalogFormat1(t, standbyDB)
+	requireCurrentCatalog(t, standbyDB)
 	assert.Equal(t, catalogSnapshot(t, primaryDB), catalogSnapshot(t, standbyDB),
 		"standby catalog should match the primary's")
 }
 
 // TestCatalogSchema_UpgradeFromLegacy verifies that a catalog shard holding
-// the legacy (pre-versioning) catalog tables is upgraded to format 1 when the
+// the legacy (pre-versioning) catalog tables is upgraded to the current format when the
 // primary pooler opens, that a second open leaves it unchanged, that the
 // upgrade replicates to the standby, and that a later open recreates a missing
 // catalog table without a format change (the additive path an existing
@@ -300,7 +330,7 @@ func TestCatalogSchema_UpgradeFromLegacy(t *testing.T) {
 		getPostgresSocketPath(standby.Pgctld.PoolerDir), standby.Pgctld.PgPort)
 	defer standbyDB.Close()
 
-	requireCatalogFormat1(t, primaryDB)
+	requireCurrentCatalog(t, primaryDB)
 
 	// Recreate the legacy layout, as an older binary would have left it.
 	_, err := primaryDB.Exec(legacyCatalogSQL)
@@ -310,16 +340,20 @@ func TestCatalogSchema_UpgradeFromLegacy(t *testing.T) {
 	require.NoError(t, primaryDB.QueryRow(`SELECT type FROM multigres.tablegroup WHERE name = 'default'`).Scan(&legacyType))
 	require.Equal(t, "unsharded", legacyType)
 
-	// Reopening the primary pooler runs openLocked, which upgrades the catalog.
+	// The reopened primary pooler upgrades the catalog before it serves as the
+	// primary.
 	restartMultipooler(t, primary)
-	waitForCatalogFormat(t, primaryDB, 1, "primary catalog should be upgraded to format 1 on open")
-	requireCatalogFormat1(t, primaryDB)
+	waitForCatalogFormat(t, primaryDB, currentCatalogFormat, "primary catalog should be upgraded to the current format on open")
+	waitForCatalogDefinition(t, primaryDB, "the full ensure should record its definition hash")
+	requireCurrentCatalog(t, primaryDB)
 	upgraded := catalogSnapshot(t, primaryDB)
 	identityValues := catalogIdentityValues(t, primaryDB)
 
-	// Running the ensure again leaves the catalog unchanged. Hold the catalog
-	// lock across the restart so the test observes the reopened pooler's
-	// ensure actually run (it blocks on the lock) before comparing.
+	// Running the full ensure again leaves the catalog unchanged. Forget the
+	// hash so the reopened pooler runs it, and hold the catalog lock across the
+	// restart so the test observes it actually run (it blocks on the lock)
+	// before comparing.
+	forgetCatalogDefinition(t, primaryDB)
 	lockConn, err := primaryDB.Conn(t.Context())
 	require.NoError(t, err)
 	defer lockConn.Close()
@@ -347,35 +381,95 @@ func TestCatalogSchema_UpgradeFromLegacy(t *testing.T) {
 			  AND ((classid::bigint << 32) | objid::bigint) = $1`, catalogSchemaLockKey).Scan(&held)
 		return err == nil && held == 0
 	}, 30*time.Second, 100*time.Millisecond, "catalog ensure should finish")
+	waitForCatalogDefinition(t, primaryDB, "the second full ensure should record its definition hash")
 	assert.Equal(t, upgraded, catalogSnapshot(t, primaryDB), "a second ensure must not change the catalog")
-	// The seed re-runs on every open; its existing rows must not consume ids.
+	// The seed re-runs on every full ensure; its existing rows must not consume ids.
 	assert.Equal(t, identityValues, catalogIdentityValues(t, primaryDB), "a second ensure must not consume identity values")
-	requireCatalogFormat1(t, primaryDB)
+	requireCurrentCatalog(t, primaryDB)
 
 	// The upgrade replicates to the standby.
-	waitForCatalogFormat(t, standbyDB, 1, "standby catalog should reach format 1 through replication")
+	waitForCatalogFormat(t, standbyDB, currentCatalogFormat, "standby catalog should reach the current format through replication")
 	require.Eventually(t, func() bool {
 		return catalogSnapshot(t, standbyDB) == upgraded
 	}, 30*time.Second, 200*time.Millisecond, "standby catalog should match the upgraded primary's")
-	requireCatalogFormat1(t, standbyDB)
+	requireCurrentCatalog(t, standbyDB)
 
-	// A catalog table missing from an existing catalog is recreated on the next
-	// open, with no format change. routing_rule has no dependents.
+	// A catalog table missing from an existing catalog, last ensured by an
+	// older binary (no hash), is recreated on the next open, with no format
+	// change. routing_rule has no dependents.
 	_, err = primaryDB.Exec(`DROP TABLE multigres.routing_rule`)
 	require.NoError(t, err)
+	forgetCatalogDefinition(t, primaryDB)
 	restartMultipooler(t, primary)
 	require.Eventually(t, func() bool {
 		var exists bool
 		err := primaryDB.QueryRow(`SELECT to_regclass('multigres.routing_rule') IS NOT NULL`).Scan(&exists)
 		return err == nil && exists
 	}, 30*time.Second, 200*time.Millisecond, "open should recreate the missing routing_rule table")
-	assert.Equal(t, 1, catalogFormatVersion(t, primaryDB), "recreating a table must not change the format")
+	waitForCatalogDefinition(t, primaryDB, "the ensure should record its definition hash again")
+	assert.Equal(t, currentCatalogFormat, catalogFormatVersion(t, primaryDB), "recreating a table must not change the format")
 	assert.Equal(t, upgraded, catalogSnapshot(t, primaryDB), "recreating a table must not touch the seeded rows")
-	requireCatalogFormat1(t, primaryDB)
+	requireCurrentCatalog(t, primaryDB)
 	require.Eventually(t, func() bool {
 		var exists bool
 		err := standbyDB.QueryRow(`SELECT to_regclass('multigres.routing_rule') IS NOT NULL`).Scan(&exists)
 		return err == nil && exists
 	}, 30*time.Second, 200*time.Millisecond, "the recreated table should replicate to the standby")
-	requireCatalogFormat1(t, standbyDB)
+	requireCurrentCatalog(t, standbyDB)
+}
+
+// TestCatalogSchema_Format2DeletesFencesOfFinishedOperations verifies the
+// format 2 data migration against real postgres: a catalog at format 1 with a
+// fence its finished operation never lifted loses that fence on the next open,
+// keeps a fence of an unfinished operation, and advances routing_version.
+func TestCatalogSchema_Format2DeletesFencesOfFinishedOperations(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping end-to-end tests in short mode")
+	}
+	if utils.ShouldSkipRealPostgres() {
+		t.Skip("skipping: PostgreSQL binaries not found")
+	}
+
+	setup, cleanup := shardsetup.NewIsolated(t, shardsetup.WithMultipoolerCount(2))
+	defer cleanup()
+	primary := setup.GetPrimary(t)
+	db := connectToPostgresViaSocket(t, getPostgresSocketPath(primary.Pgctld.PoolerDir), primary.Pgctld.PgPort)
+	defer db.Close()
+	ctx := t.Context()
+
+	const doneOp, liveOp = "aaaaaaaa-0000-0000-0000-00000000c2d0", "aaaaaaaa-0000-0000-0000-00000000c2d1"
+	// A fence on default's shard left by a finished operation, as an older
+	// pooler could leave it, and one on the whole tablegroup of an
+	// unfinished operation.
+	for _, stmt := range []string{
+		`INSERT INTO multigres.operation (operation_id, kind, state) VALUES ('` + doneOp + `', 'reshard', 'done'), ('` + liveOp + `', 'reshard', 'preparing')`,
+		`INSERT INTO multigres.admission_fence (operation_id, tablegroup_id, shard_id, state, version)
+SELECT '` + doneOp + `', tablegroup_id, shard_id, 'FENCED', 1 FROM multigres.shard`,
+		`INSERT INTO multigres.admission_fence (operation_id, tablegroup_id, shard_id, state, version)
+SELECT '` + liveOp + `', tablegroup_id, NULL, 'FENCED', 1 FROM multigres.tablegroup`,
+		`UPDATE multigres.catalog_state SET format_version = 1`,
+	} {
+		_, err := db.ExecContext(ctx, stmt)
+		require.NoError(t, err, stmt)
+	}
+	var before int64
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT routing_version FROM multigres.catalog_state`).Scan(&before))
+
+	restartMultipooler(t, primary)
+	waitForCatalogFormat(t, db, currentCatalogFormat, "the open should upgrade the catalog to the current format")
+
+	var ops []string
+	rows, err := db.QueryContext(ctx, `SELECT operation_id::text FROM multigres.admission_fence ORDER BY fence_id`)
+	require.NoError(t, err)
+	defer rows.Close()
+	for rows.Next() {
+		var op string
+		require.NoError(t, rows.Scan(&op))
+		ops = append(ops, op)
+	}
+	require.NoError(t, rows.Err())
+	assert.Equal(t, []string{liveOp}, ops, "only the unfinished operation's fence is left")
+	var after int64
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT routing_version FROM multigres.catalog_state`).Scan(&after))
+	assert.Equal(t, before+1, after, "the deletion is a routing change")
 }

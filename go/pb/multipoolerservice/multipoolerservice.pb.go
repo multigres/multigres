@@ -2816,8 +2816,15 @@ type StreamPoolerHealthResponse struct {
 	// GetRoutingSnapshot.
 	RoutingVersion int64 `protobuf:"varint,7,opt,name=routing_version,json=routingVersion,proto3" json:"routing_version,omitempty"`
 	PlanEpoch      int64 `protobuf:"varint,8,opt,name=plan_epoch,json=planEpoch,proto3" json:"plan_epoch,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// schema_token changes when this pooler detects a change to the user schema
+	// of its database. It is opaque: compare it only with earlier tokens from the
+	// same pooler_id, never with another pooler's, since how it is computed can
+	// differ between releases. Empty when the pooler is not tracking (it is not
+	// the writable leader) or the last computation failed; an empty token never
+	// equals another token, empty or not.
+	SchemaToken   string `protobuf:"bytes,9,opt,name=schema_token,json=schemaToken,proto3" json:"schema_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StreamPoolerHealthResponse) Reset() {
@@ -2899,16 +2906,21 @@ func (x *StreamPoolerHealthResponse) GetPlanEpoch() int64 {
 	return 0
 }
 
+func (x *StreamPoolerHealthResponse) GetSchemaToken() string {
+	if x != nil {
+		return x.SchemaToken
+	}
+	return ""
+}
+
 // BackingConnection is the configuration of an external PostgreSQL. It names one
 // server: the pooler's admin and application connections must reach the same one.
 //
-// The catalog stores a connection as a libpq connection string, in either form: a
-// postgres:// URI or space-separated keyword=value pairs. The default primary decodes
-// both the same way. The string must give host, port, dbname and user explicitly, and
-// carries only those, the password and the TLS settings below: it is refused, not
-// trimmed, if it sets any other parameter (for example sslcert, sslkey,
-// channel_binding or options), names more than one server, or leaves one of the four
-// out. Nothing is read from the environment or a password file.
+// The default primary serves a stored connection as it is (ForPooler has accepted
+// it). A connection must give host, port, dbname and user, and carries only those,
+// the password and the TLS settings below: any other parameter, or more than one
+// server, is refused, not trimmed. Nothing is read from the environment or a
+// password file.
 type BackingConnection struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// name identifies the connection within a database.
@@ -2923,7 +2935,9 @@ type BackingConnection struct {
 	Database string `protobuf:"bytes,4,opt,name=database,proto3" json:"database,omitempty"`
 	// user is the role the pooler connects as.
 	User string `protobuf:"bytes,5,opt,name=user,proto3" json:"user,omitempty"`
-	// password is the credential of user. It is never logged.
+	// password is the credential of user. The generated String() of this message
+	// includes it, so a caller must not log the message: log a backingconn.Conn,
+	// which redacts it.
 	Password string `protobuf:"bytes,6,opt,name=password,proto3" json:"password,omitempty"`
 	// ssl_mode, ssl_root_cert and ssl_negotiation are the TLS settings of the
 	// connection; empty keeps the pooler's configured default.
@@ -3518,7 +3532,7 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x18keep_sticky_reservations\x18\x04 \x01(\bR\x16keepStickyReservations\"`\n" +
 	"!ReleaseReservedConnectionResponse\x12;\n" +
 	"\x0ereserved_state\x18\x01 \x01(\v2\x14.query.ReservedStateR\rreservedState\"\x1b\n" +
-	"\x19StreamPoolerHealthRequest\"\xb4\x03\n" +
+	"\x19StreamPoolerHealthRequest\"\xd7\x03\n" +
 	"\x1aStreamPoolerHealthResponse\x120\n" +
 	"\tpooler_id\x18\x02 \x01(\v2\x13.clustermetadata.IDR\bpoolerId\x12K\n" +
 	"\x0eserving_status\x18\x03 \x01(\x0e2$.clustermetadata.PoolerServingStatusR\rservingStatus\x12B\n" +
@@ -3527,7 +3541,8 @@ const file_multipoolerservice_proto_rawDesc = "" +
 	"\x12replication_lag_ns\x18\x06 \x01(\x03R\x10replicationLagNs\x12'\n" +
 	"\x0frouting_version\x18\a \x01(\x03R\x0eroutingVersion\x12\x1d\n" +
 	"\n" +
-	"plan_epoch\x18\b \x01(\x03R\tplanEpoch\"\x87\x02\n" +
+	"plan_epoch\x18\b \x01(\x03R\tplanEpoch\x12!\n" +
+	"\fschema_token\x18\t \x01(\tR\vschemaToken\"\x87\x02\n" +
 	"\x11BackingConnection\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05hosts\x18\x02 \x03(\tR\x05hosts\x12\x14\n" +

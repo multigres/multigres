@@ -52,7 +52,7 @@ pooler itself — no topology propagation delay.
 │  │ 2. GetConnection → Execute query                   │  │
 │  │                                                    │  │
 │  │ 3. Reactive: classifyError()                       │  │
-│  │    no-primary, MTF01/02, safe 25006/0A000          │  │
+│  │    no-primary, MTF01, safe 25006/0A000             │  │
 │  │    → WaitForFailoverEnd()                          │  │
 │  │    (buffer and wait for new primary)               │  │
 │  └────────────────────────────────────────────────────┘  │
@@ -69,7 +69,7 @@ pooler itself — no topology propagation delay.
 │  LoadBalancer                                            │
 │  ┌────────────────────────────────────────────────────┐  │
 │  │ onPoolerHealthUpdate()                             │  │
-│  │   new primary detected → onPrimaryServing()        │  │
+│  │   new primary detected → OnLeaderServing()         │  │
 │  │   → buffer.StopBuffering(shard)                    │  │
 │  └────────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────┘
@@ -81,10 +81,12 @@ pooler itself — no topology propagation delay.
               │ StartRequest()        │
               │ → MTF01 if NOT_SERVING│
               │ → MTF01 if draining   │
+              │ → MTF01 if not the    │
+              │   routing primary     │
               │                       │
               │ StreamPoolerHealth()  │
               │ → ServingStatus       │
-              │ → PrimaryObservation  │
+              │ → RoutingState        │
               └───────────────────────┘
 ```
 
@@ -98,10 +100,13 @@ trigger buffering. Only leader-routed queries are buffered:
 | Error                              | Source                             | Meaning                                                                        |
 | ---------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------ |
 | no writable primary                | gateway routing                    | No leader is currently available                                               |
-| `MTF01`                            | multipooler `StartRequest()`       | Pooler is not serving or is draining during failover                           |
+| `MTF01`                            | multipooler `StartRequest()`       | Pooler is not serving, is draining, or is not the writable routing primary     |
 | internal pre-execution unavailable | multipooler connection acquisition | PostgreSQL was unavailable before query execution or reservation state changed |
 | `25006`                            | PostgreSQL                         | Replay-safe request hit a primary that has already been demoted                |
 | exact recovery `0A000`             | PostgreSQL                         | A deferred `BEGIN READ WRITE` reached a standby before its first statement     |
+
+`MTF02` (a fenced target, below) is deliberately absent: it is never
+buffered.
 
 `25006` and recovery `0A000` are replay-safe only for a single autocommit
 query or for the first statement of a deferred explicit transaction that was
@@ -118,8 +123,12 @@ retry loop (capped at `MaxBufferingRetries`):
 
 1. **Proactive check**: call `WaitIfAlreadyBuffering()` — if the
    shard is already known to be failing over, wait before sending
-   any query (avoids a wasted round-trip)
-2. **Get connection**: `LoadBalancer.GetConnection(target)`
+   any query (avoids a wasted round-trip). Single autocommit queries
+   skip this step: a pooler draining for a planned failover still
+   serves them in its first drain stage (see
+   [Graceful Drain](./graceful_drain_design.md)), so they are sent
+   and buffered only reactively if they bounce
+2. **Get connection**: `loadBalancer.getConnection(target)`
 3. **Execute**: run the query on the connection
 4. **Classify error**: for a buffer-worthy availability error, call
    `WaitForFailoverEnd()` and retry
@@ -158,9 +167,9 @@ requests doesn't starve other shards of buffer capacity.
 
 Each `PoolerConnection` in the gateway maintains a streaming health
 check (`StreamPoolerHealth` RPC) to the multipooler it connects to.
-When a health stream self-reports `PRIMARY` and `SERVING`, the
-`LoadBalancer` updates its cached primary and invokes the drain callback, which
-calls `buffer.StopBuffering()` for that shard. Topology-only updates do not
+When the shard's elected routing primary self-reports `PRIMARY` and
+`SERVING` on its health stream, the load balancer invokes the drain callback
+(`OnLeaderServing`), which calls `buffer.StopBuffering()` for that shard. Topology-only updates do not
 trigger drains because their corresponding health snapshot may still be stale.
 
 This approach has several advantages:
@@ -169,7 +178,8 @@ This approach has several advantages:
   not via etcd propagation
 - **Lower latency**: no topology watch delay
 - **Consistent**: the same mechanism that determines query routing
-  (health-based primary cache) also stops buffering
+  (the health-fed routing-primary set, see
+  [Load Balancing](./load_balancing.md)) also stops buffering
 
 ### Eviction and Safety Rails
 
@@ -183,16 +193,73 @@ Several mechanisms prevent unbounded buffering:
 | Gateway shutdown      | `MTB03`      | Gateway is shutting down — all entries evicted            |
 | Timing guard          | (no buffer)  | `MinTimeBetweenFailovers` not elapsed since last failover |
 
+### Fenced Targets (`MTF02`)
+
+While an operation moves a target's data, its poolers can be fenced: they
+refuse new application work so that two placements of the same data never take
+writes at once. A primary pooler refuses fenced work with `MTF02` before
+running any of it, once it has read the fence from the catalog (see
+[how poolers enforce fences](../sharding/routing_rules.md#how-poolers-enforce-fences)).
+It stays `SERVING` while fenced, so nothing in the health stream changes and
+the failover buffer is not involved. A pooler also refuses with `MTF02` until
+it has read its fences, after it starts and each time it becomes primary, so a
+failover's buffered statements can meet a new primary that has not read them
+yet; they are retried like any other fenced statement, below.
+
+A fenced shard never gets a new leader, so `MTF02` does not go through the
+failover buffer. Lifting a fence (a routing switch, a revert, an unfence) can
+change the statement's plan, not only its targets: table rules apply when a
+statement is planned. So the executor retries a fenced statement in every
+mode:
+
+1. Wait until the sharding catalog cache's snapshot no longer has an admission
+   fence on the target that refused it, on its shard or its whole tablegroup
+   (`shardingcatalogcache.Cache.WaitForUnfenced`). It always triggers a
+   fetch but doesn't wait for it: a gateway whose snapshot predates the fence
+   retries against the refusing pooler, with the backoff, until the fetch
+   installs a snapshot that shows the fence, and then waits.
+2. Plan the statement again.
+3. Run it again: the first retry at once, each later one after a backoff that
+   starts at 10ms and doubles up to 250ms.
+
+The snapshot can show a fence lifted while the pooler still refuses: the
+pooler has not read its fences since it started, or has not been refreshed
+since the unfence. The backoff waits for it to catch up rather than for a
+catalog change, which may never come.
+
+Inside an explicit transaction, the gateway sends a Parse to the backend at
+once, as PostgreSQL does. A Parse refused as fenced is retried under the same
+rule as an Execute: only while the session holds no reserved connection, so
+the Parse is what opens the transaction on a pooler and, refused at admission,
+ran nowhere.
+
+A statement is not run again when the session is in a transaction, explicit or
+implicit (a multi-statement query), that has already reached a pooler (it holds
+a reserved connection), when it is in an extended-protocol pipeline before its
+Sync, when an earlier step of its plan already ran on a pooler (for example
+the resolve query of a dynamic `set_config`), or when output has already
+reached the client. The client then gets the `MTF02`, which tells
+it to retry.
+
+The waits of one statement share one `--buffer-window`, whether or not
+`--buffer-enabled` is set, and that is the only bound. When the window runs
+out, the statement fails with the last `MTF02`. A single
+pooler (minigres) has nothing to fence, so its gateway never retries. Work on
+an existing reserved connection is never fenced, since the pooler always admits
+it.
+`mg.executor.fence.wait.duration` records each fenced statement's wait and its
+outcome.
+
 ## Configuration
 
-| Flag                                  | Default | Description                                            |
-| ------------------------------------- | ------- | ------------------------------------------------------ |
-| `--buffer-enabled`                    | `false` | Enable failover buffering                              |
-| `--buffer-window`                     | `10s`   | Max time a single request stays buffered               |
-| `--buffer-size`                       | `1000`  | Max total buffered requests (global across all shards) |
-| `--buffer-max-failover-duration`      | `20s`   | Force-stop buffering if failover exceeds this          |
-| `--buffer-min-time-between-failovers` | `1m`    | Min gap between failovers per shard                    |
-| `--buffer-drain-concurrency`          | `1`     | Parallel retries during drain phase                    |
+| Flag                                  | Default | Description                                                                                                         |
+| ------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------- |
+| `--buffer-enabled`                    | `false` | Enable failover buffering                                                                                           |
+| `--buffer-window`                     | `10s`   | Max time a single request stays buffered, or waits for routing past a fence (`MTF02`, even with buffering disabled) |
+| `--buffer-size`                       | `1000`  | Max total buffered requests (global across all shards)                                                              |
+| `--buffer-max-failover-duration`      | `20s`   | Force-stop buffering if failover exceeds this                                                                       |
+| `--buffer-min-time-between-failovers` | `1m`    | Min gap between failovers per shard                                                                                 |
+| `--buffer-drain-concurrency`          | `1`     | Parallel retries during drain phase                                                                                 |
 
 ## Testing
 
