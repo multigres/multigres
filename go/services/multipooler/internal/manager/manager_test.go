@@ -280,9 +280,7 @@ func TestManagerState_RetryUntilSuccess(t *testing.T) {
 	go manager.loadShardConfigFromGlobalTopo()
 
 	// Wait for the state to become Ready after retries
-	require.Eventually(t, func() bool {
-		return manager.GetState() == ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state after retries")
+	requireManagerReady(t, manager)
 
 	// Verify the loaded multipooler
 	state, err := manager.GetStateAndError()
@@ -537,9 +535,7 @@ func TestManagerState_BackupCipherValidation(t *testing.T) {
 				return
 			}
 
-			require.Eventually(t, func() bool {
-				return manager.GetState() == ManagerStateReady
-			}, 10*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+			requireManagerReady(t, manager)
 
 			configPath := filepath.Join(poolerDir, "pgbackrest", "pgbackrest.conf")
 			content, err := os.ReadFile(configPath)

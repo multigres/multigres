@@ -97,7 +97,6 @@ func (f *fakeTopoStore) CreateMultipooler(ctx context.Context, mp *clustermetada
 		return err
 	}
 	f.recordMu.Lock()
-	f.createAttempts++
 	hook := f.beforeCreate
 	f.recordMu.Unlock()
 	if hook != nil {
@@ -105,6 +104,8 @@ func (f *fakeTopoStore) CreateMultipooler(ctx context.Context, mp *clustermetada
 	}
 	f.recordMu.Lock()
 	defer f.recordMu.Unlock()
+	// Counted after the hook, so a test that sees the attempt also sees its effect.
+	f.createAttempts++
 	if f.createErr != nil {
 		return f.createErr
 	}

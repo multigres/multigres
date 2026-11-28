@@ -1438,9 +1438,7 @@ func setupManagerWithMockDBAndPgctld(t *testing.T, mockQueryService *mock.QueryS
 	senv := servenv.NewServEnv(viperutil.NewRegistry())
 	pm.Start(senv)
 
-	require.Eventually(t, func() bool {
-		return pm.GetState() == ManagerStateReady
-	}, 5*time.Second, 100*time.Millisecond, "Manager should reach Ready state")
+	requireManagerReady(t, pm)
 
 	return pm, mockPgctld
 }
