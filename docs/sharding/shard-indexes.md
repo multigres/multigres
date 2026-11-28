@@ -289,7 +289,9 @@ FROM accounts
 WHERE int8send(hashtextextended(email, 8816678312871386365)) >= '\x80';
 ```
 
-The migrator will use this form to filter rows by key range during a reshard.
+Routing and row placement use only the Go implementation: nothing evaluates
+the SQL form or compares the two while a query runs. The SQL form is a property
+a reshard can use to filter rows by key range; whether it does is not decided.
 
 ## Writing an implementation
 

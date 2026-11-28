@@ -71,9 +71,9 @@ const hashIDLen = 8
 // bytea: pghash.BytesExtended of its bytes, which is what bytea's own extended
 // hash function, hashvarlenaextended, returns. That function takes an
 // "internal" argument and so cannot be called from SQL, and every routing
-// identifier must be computable in SQL: the migrator filters rows by key range
-// with it. The SQL form therefore hashes the one-column row holding the
-// value. hash_record_extended (rowtypes.c) starts from 0 and folds each column
+// identifier must be computable in SQL, so that a reshard can filter rows by
+// key range with it. The SQL form therefore hashes the one-column row holding
+// the value. hash_record_extended (rowtypes.c) starts from 0 and folds each column
 // in as result*31 + the column's extended hash, and mixes in nothing else, so
 // for one column it is that column's hash unchanged. The same bytes therefore
 // have one identifier as text and as bytea.

@@ -75,8 +75,8 @@ func compareShardIndexHash(t *testing.T, ctx context.Context, conn *pgx.Conn) {
 				` int8send(hashint8extended($1::`+typ+`::int8, $2::int8)) >= '\x80'::bytea`,
 			value, int64(shardindex.HashSeed)).Scan(&narrow, &wide, &upperHalf))
 		require.Equal(t, wide, narrow, "%s %d", typ, value)
-		// A key range is a bytea comparison on the server, as the migrator
-		// will filter rows: 80-inf owns exactly the identifiers from 0x80 up.
+		// A key range is a bytea comparison on the server, as a reshard
+		// could filter rows: 80-inf owns exactly the identifiers from 0x80 up.
 		require.Equal(t, wide[0] >= 0x80, upperHalf, "%s %d", typ, value)
 		return wide
 	}
@@ -237,8 +237,8 @@ func compareShardIndexHashBytes(t *testing.T, ctx context.Context, conn *pgx.Con
 			value, int64(shardindex.HashSeed)).Scan(&got, &upperHalf, &pgType), "%s %x", typ, value)
 		require.Equal(t, spec.pgName, pgType)
 		require.Len(t, got, 8)
-		// A key range is a bytea comparison on the server, as the migrator
-		// will filter rows: 80-inf owns exactly the identifiers from 0x80 up.
+		// A key range is a bytea comparison on the server, as a reshard
+		// could filter rows: 80-inf owns exactly the identifiers from 0x80 up.
 		require.Equal(t, got[0] >= 0x80, upperHalf, "%s %x", typ, value)
 		return got
 	}
