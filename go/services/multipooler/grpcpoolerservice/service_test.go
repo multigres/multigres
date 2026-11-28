@@ -267,18 +267,28 @@ func TestCopyBidiExecuteToStdout_Success(t *testing.T) {
 	require.Equal(t, "final-notice", stream.sent[3].GetNotices()[0].GetMessage())
 }
 
-func TestCopyBidiExecuteToStdout_ReadySendFailureCallsCopyAbort(t *testing.T) {
+// TestCopyBidiExecuteToStdout_ReadySendFailureAbandonsCopyOut checks that a
+// failed READY send abandons the copy-out stream through CopyOutStream with an
+// already-cancelled context (which destroys the conn without reading), and
+// never calls CopyAbort: its CopyFail only ends a COPY FROM STDIN, and PG in
+// copy-out mode does not read it.
+func TestCopyBidiExecuteToStdout_ReadySendFailureAbandonsCopyOut(t *testing.T) {
 	stream := &mockCopyBidiStream{sendErrAtCall: 1}
 	svc := &poolerService{}
-	abortCalled := false
+	abandonCalled := false
 
 	exec := &mockCopyQueryService{
 		copyOutReadyFn: func(context.Context, *query.Target, string, *query.ExecuteOptions, *query.ReservationOptions) (int16, []int16, []*mterrors.PgDiagnostic, *query.ReservedState, error) {
 			return 0, []int16{0}, nil, &query.ReservedState{ReservedConnectionId: 55}, nil
 		},
-		copyAbortFn: func(_ context.Context, _ *query.Target, _ string, options *query.ExecuteOptions) (*query.ReservedState, error) {
-			abortCalled = true
+		copyOutStreamFn: func(ctx context.Context, _ *query.Target, options *query.ExecuteOptions, _ func(client.CopyOutMessage) error) (*sqltypes.Result, *query.ReservedState, error) {
+			abandonCalled = true
 			require.Equal(t, uint64(55), options.GetReservedConnectionId())
+			require.ErrorIs(t, ctx.Err(), context.Canceled, "the stream must be abandoned, not read")
+			return nil, nil, ctx.Err()
+		},
+		copyAbortFn: func(context.Context, *query.Target, string, *query.ExecuteOptions) (*query.ReservedState, error) {
+			t.Fatal("CopyAbort sends CopyFail, which does not end a COPY TO STDOUT")
 			return nil, nil
 		},
 	}
@@ -294,7 +304,7 @@ func TestCopyBidiExecuteToStdout_ReadySendFailureCallsCopyAbort(t *testing.T) {
 	st, ok := status.FromError(err)
 	require.True(t, ok)
 	require.Equal(t, codes.Internal, st.Code())
-	require.True(t, abortCalled, "CopyAbort should run when sending READY fails")
+	require.True(t, abandonCalled, "the copy-out stream should be abandoned when sending READY fails")
 }
 
 func TestCopyBidiExecuteToStdout_StreamErrorSendsErrorPhase(t *testing.T) {

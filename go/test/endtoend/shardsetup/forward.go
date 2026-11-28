@@ -74,7 +74,6 @@ var (
 	NewPgctldClient              = clustersetup.NewPgctldClient
 	NewMultiorchClient           = clustersetup.NewMultiorchClient
 	GenerateMultigatewayTLSCerts = clustersetup.GenerateMultigatewayTLSCerts
-	WithoutReplication           = clustersetup.WithoutReplication
 	WithPausedReplication        = clustersetup.WithPausedReplication
 	WithResetGuc                 = clustersetup.WithResetGuc
 	ParseEvents                  = clustersetup.ParseEvents

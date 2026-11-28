@@ -121,17 +121,9 @@ type cleanupOption func(*cleanupConfig)
 
 // cleanupConfig holds the configuration for test cleanup.
 type cleanupConfig struct {
-	noReplication    bool
 	pauseReplication bool
 	tablesToDrop     []string
 	gucsToReset      []string
-}
-
-// WithoutReplication returns a cleanup option that explicitly disables replication setup.
-func WithoutReplication() cleanupOption {
-	return func(c *cleanupConfig) {
-		c.noReplication = true
-	}
 }
 
 // WithPausedReplication returns a cleanup option that starts replication but pauses WAL replay.
@@ -170,9 +162,6 @@ func setupPoolerTest(t *testing.T, setup *MultipoolerTestSetup, opts ...cleanupO
 
 	// Map to shardsetup options
 	var shardOpts []shardsetup.SetupTestOption
-	if config.noReplication {
-		shardOpts = append(shardOpts, shardsetup.WithoutReplication())
-	}
 	if config.pauseReplication {
 		shardOpts = append(shardOpts, shardsetup.WithPausedReplication())
 	}

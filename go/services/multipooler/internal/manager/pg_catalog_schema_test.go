@@ -62,12 +62,23 @@ func addCatalogEnsureTail(m *mock.QueryService) {
 	m.AddQueryPatternOnce(catalogFormatWritePattern, mock.MakeQueryResult(nil, nil))
 }
 
+// catalogLockTimeoutSQL is the lock timeout ensureCatalogSchema sets after
+// taking the advisory lock.
+const catalogLockTimeoutSQL = "SET LOCAL lock_timeout = '" + catalogSchemaLockTimeout + "'"
+
+// addCatalogLock registers ensureCatalogSchema's advisory lock and the lock
+// timeout it sets right after.
+func addCatalogLock(m *mock.QueryService) {
+	m.AddQueryPatternOnce("pg_advisory_xact_lock", mock.MakeQueryResult(nil, nil))
+	m.AddQueryPatternOnce(exactPattern(catalogLockTimeoutSQL), mock.MakeQueryResult(nil, nil))
+}
+
 // addFreshCatalogEnsure registers the queries ensureCatalogSchema runs against
 // a catalog shard with no catalog_state (fresh or legacy): the lock, the
 // existence probe, every migration statement, catalogTables, catalogSeed and
 // the format_version write.
 func addFreshCatalogEnsure(m *mock.QueryService) {
-	m.AddQueryPatternOnce("pg_advisory_xact_lock", mock.MakeQueryResult(nil, nil))
+	addCatalogLock(m)
 	m.AddQueryPatternOnce(catalogStatePresentPattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{false}}))
 	for _, mig := range catalogMigrations {
 		for _, stmt := range slices.Concat(mig.statements, mig.postStatements) {
@@ -80,7 +91,7 @@ func addFreshCatalogEnsure(m *mock.QueryService) {
 // addExistingCatalogState registers the lock, the probe and the format_version
 // read for a catalog that already has catalog_state at the given format.
 func addExistingCatalogState(m *mock.QueryService, format int) {
-	m.AddQueryPatternOnce("pg_advisory_xact_lock", mock.MakeQueryResult(nil, nil))
+	addCatalogLock(m)
 	m.AddQueryPatternOnce(catalogStatePresentPattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{true}}))
 	m.AddQueryPatternOnce("SELECT format_version FROM multigres.catalog_state",
 		mock.MakeQueryResult([]string{"format_version"}, [][]any{{format}}))
@@ -103,7 +114,7 @@ func recordCatalogEnsure(t *testing.T, exists bool, format int) []string {
 		mock.MakeQueryResult([]string{"routing_version", "plan_epoch"}, [][]any{{int64(1), int64(0)}}), record)
 	m.AddQueryPatternWithCallback(".*", mock.MakeQueryResult(nil, nil), record)
 
-	require.NoError(t, pm.ensureCatalogSchema(context.Background()))
+	require.NoError(t, pm.ensureCatalogSchema(context.Background(), nil))
 	return queries
 }
 
@@ -134,7 +145,7 @@ func TestCatalogMigrations_OrderedAndContiguous(t *testing.T) {
 func TestEnsureCatalogSchema_FreshAppliesMigrationsThenTablesAndSeed(t *testing.T) {
 	queries := recordCatalogEnsure(t, false, 0)
 
-	want := []string{"BEGIN", "SELECT pg_advisory_xact_lock($1)", "SELECT to_regclass('multigres.catalog_state') IS NOT NULL"}
+	want := []string{"BEGIN", "SELECT pg_advisory_xact_lock($1)", catalogLockTimeoutSQL, "SELECT to_regclass('multigres.catalog_state') IS NOT NULL"}
 	for _, mig := range catalogMigrations {
 		want = append(want, mig.statements...)
 	}
@@ -197,7 +208,7 @@ func TestEnsureCatalogSchema_AtLatestRunsTablesAndSeed(t *testing.T) {
 	// No migration runs, but catalogTables and catalogSeed do, so an existing
 	// catalog picks up tables added since it was created.
 	want := []string{
-		"BEGIN", "SELECT pg_advisory_xact_lock($1)",
+		"BEGIN", "SELECT pg_advisory_xact_lock($1)", catalogLockTimeoutSQL,
 		"SELECT to_regclass('multigres.catalog_state') IS NOT NULL",
 		"SELECT format_version FROM multigres.catalog_state FOR UPDATE",
 	}
@@ -285,7 +296,7 @@ func TestEnsureCatalogSchema_NewerFormatLeftAlone(t *testing.T) {
 
 	// Any query beyond the lock and the format read (migrations, catalogTables,
 	// catalogSeed, the format write) has no pattern and would fail.
-	require.NoError(t, pm.ensureCatalogSchema(context.Background()))
+	require.NoError(t, pm.ensureCatalogSchema(context.Background(), nil))
 	assert.NoError(t, m.ExpectationsWereMet())
 }
 
@@ -492,9 +503,17 @@ func TestEnsureCatalogSchema_Errors(t *testing.T) {
 			errorContains: "failed to lock catalog schema",
 		},
 		{
-			name: "format read fails",
+			name: "lock timeout fails",
 			setupMock: func(m *mock.QueryService) {
 				m.AddQueryPatternOnce("pg_advisory_xact_lock", mock.MakeQueryResult(nil, nil))
+				m.AddQueryPatternOnceWithError(exactPattern(catalogLockTimeoutSQL), errors.New("connection reset"))
+			},
+			errorContains: "failed to set the catalog schema lock timeout",
+		},
+		{
+			name: "format read fails",
+			setupMock: func(m *mock.QueryService) {
+				addCatalogLock(m)
 				m.AddQueryPatternOnce(catalogStatePresentPattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{true}}))
 				m.AddQueryPatternOnce("SELECT format_version FROM multigres.catalog_state", mock.MakeQueryResult([]string{"format_version"}, nil))
 			},
@@ -503,7 +522,7 @@ func TestEnsureCatalogSchema_Errors(t *testing.T) {
 		{
 			name: "migration statement fails",
 			setupMock: func(m *mock.QueryService) {
-				m.AddQueryPatternOnce("pg_advisory_xact_lock", mock.MakeQueryResult(nil, nil))
+				addCatalogLock(m)
 				m.AddQueryPatternOnce(catalogStatePresentPattern, mock.MakeQueryResult([]string{"exists"}, [][]any{{false}}))
 				m.AddQueryPatternOnceWithError("^DROP TABLE IF EXISTS", errors.New("permission denied"))
 			},
@@ -586,7 +605,7 @@ func TestEnsureCatalogSchema_Errors(t *testing.T) {
 			committed := false
 			m.AddQueryPatternWithCallback("^COMMIT$", mock.MakeQueryResult(nil, nil), func(string) { committed = true })
 
-			err := pm.ensureCatalogSchema(context.Background())
+			err := pm.ensureCatalogSchema(context.Background(), nil)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.errorContains)
 			assert.False(t, committed, "a failed ensure must not commit")
@@ -615,7 +634,7 @@ func fillConnInfoRun(t *testing.T, rows [][]any) (log string, stored int) {
 	m.AddQueryPatternWithCallback(exactPattern(fillConnInfoSQL), mock.MakeQueryResult(nil, nil), func(string) { stored++ })
 	m.AddQueryPatternOnce(catalogFormatWritePattern, mock.MakeQueryResult(nil, nil))
 
-	require.NoError(t, pm.ensureCatalogSchema(context.Background()))
+	require.NoError(t, pm.ensureCatalogSchema(context.Background(), nil))
 	require.NoError(t, m.ExpectationsWereMet())
 	return buf.String(), stored
 }

@@ -34,7 +34,7 @@ import (
 // (MTD01) and must be rejected before it reaches the executor, including the
 // calls that act on an existing reserved connection.
 func TestUnaryHandlers_RejectMismatchedTarget(t *testing.T) {
-	p := poolerserver.NewQueryPoolerServer(slog.New(slog.DiscardHandler), nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", nil, 0, false)
+	p := poolerserver.NewQueryPoolerServer(slog.New(slog.DiscardHandler), nil, &clustermetadatapb.ID{Name: "p"}, "tg", "0", nil, 0, false, true)
 	srv := &poolerService{pooler: p}
 	target := protoutil.NewTarget("", "tg", "1", query.Mode_MODE_WRITABLE)
 	reserved := &query.ExecuteOptions{ReservedConnectionId: 7}

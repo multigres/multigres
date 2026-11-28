@@ -181,7 +181,8 @@ func TestDrainMetricForceCloseOutcome(t *testing.T) {
 	reader := setupPoolerTelemetry(t)
 
 	mock := newDrainMockPoolManager()
-	mock.closeReservedCount = 4 // CloseReservedConnections will report killing 4 connections.
+	mock.killedCount = 4 // KillLent will report killing 4 connections.
+	mock.onKill = endLent
 	pooler := newTestPoolerWithDrain(mock)
 	pooler.gracePeriod = 50 * time.Millisecond
 	ctx := t.Context()
@@ -208,7 +209,8 @@ func TestDrainMetricUsesPreDrainRoutingRole(t *testing.T) {
 	reader := setupPoolerTelemetry(t)
 
 	mock := newDrainMockPoolManager()
-	mock.closeReservedCount = 2
+	mock.killedCount = 2
+	mock.onKill = endLent
 	pooler := newTestPoolerWithDrain(mock)
 	pooler.gracePeriod = 50 * time.Millisecond
 	ctx := t.Context()

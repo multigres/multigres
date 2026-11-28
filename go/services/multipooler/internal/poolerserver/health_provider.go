@@ -55,6 +55,11 @@ type HealthState struct {
 	// reported only by the catalog shard's primary; zero elsewhere.
 	RoutingVersion int64
 	PlanEpoch      int64
+
+	// SchemaToken changes when the pooler detects a change to the user schema.
+	// Opaque, comparable only with earlier tokens from the same pooler, and
+	// empty when not tracking. See StreamPoolerHealthResponse.schema_token.
+	SchemaToken string
 }
 
 // HealthProvider provides health information for the pooler.
@@ -89,6 +94,7 @@ func (h *HealthState) ToProto() *multipoolerpb.StreamPoolerHealthResponse {
 		ReplicationLagNs: h.ReplicationLagNs,
 		RoutingVersion:   h.RoutingVersion,
 		PlanEpoch:        h.PlanEpoch,
+		SchemaToken:      h.SchemaToken,
 	}
 	if h.RecommendedStalenessTimeout > 0 {
 		resp.RecommendedStalenessTimeout = durationpb.New(h.RecommendedStalenessTimeout)

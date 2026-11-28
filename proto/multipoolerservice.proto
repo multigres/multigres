@@ -718,6 +718,14 @@ message StreamPoolerHealthResponse {
   // GetRoutingSnapshot.
   int64 routing_version = 7;
   int64 plan_epoch = 8;
+
+  // schema_token changes when this pooler detects a change to the user schema
+  // of its database. It is opaque: compare it only with earlier tokens from the
+  // same pooler_id, never with another pooler's, since how it is computed can
+  // differ between releases. Empty when the pooler is not tracking (it is not
+  // the writable leader) or the last computation failed; an empty token never
+  // equals another token, empty or not.
+  string schema_token = 9;
 }
 
 // BackingConnection is the configuration of an external PostgreSQL. It names one

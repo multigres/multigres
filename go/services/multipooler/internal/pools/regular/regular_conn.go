@@ -435,6 +435,24 @@ func (c *Conn) Kill(ctx context.Context) error {
 	return err
 }
 
+// KillAndWait terminates this connection's backend process and waits up to
+// timeout for it to exit. It returns nil only once the backend is gone; an
+// error means it may still be running.
+func (c *Conn) KillAndWait(ctx context.Context, timeout time.Duration) error {
+	if c.adminPool == nil {
+		return errors.New("cannot kill connection: admin pool not configured")
+	}
+	pid := c.ProcessID()
+	gone, err := c.adminPool.TerminateBackendAndWait(ctx, pid, timeout)
+	if err != nil {
+		return err
+	}
+	if !gone {
+		return fmt.Errorf("backend %d did not exit within %v", pid, timeout)
+	}
+	return nil
+}
+
 // --- Underlying connection access ---
 
 // RawConn returns the underlying client.Conn.
@@ -864,6 +882,42 @@ func execWithContextCancel[T any](c *Conn, ctx context.Context, op func() (T, er
 			c.conn.Close()
 		}
 		return res.val, res.err
+	}
+}
+
+// WatchContextCancel cancels the backend's running statement if ctx is
+// cancelled before stop is called, as execOnce does for a single call. It is
+// for operations made of many blocking reads that must all be cancellable,
+// such as a COPY ... TO STDOUT stream: one watcher covers every read, instead
+// of a goroutine per read. The reads in flight then fail with PostgreSQL's
+// cancel error, or, if the cancel does not take effect within
+// postCancelDrainGrace, on the force-closed socket.
+//
+// stop must be called once the operation has finished reading, and before the
+// connection is released. If the watcher has started, stop waits for it to
+// return, so that neither its cancel nor its force-close can reach the
+// connection once stop has returned. The wait is bounded by the cancel RPC:
+// stop ends the grace period.
+func (c *Conn) WatchContextCancel(ctx context.Context) (stop func()) {
+	finished := make(chan struct{}) // closed by stop
+	done := make(chan struct{})     // closed when the watcher returns
+	stopWatch := context.AfterFunc(ctx, func() {
+		defer close(done)
+		c.handleContextCancellation()
+		timer := time.NewTimer(postCancelDrainGrace)
+		defer timer.Stop()
+		select {
+		case <-finished:
+		case <-timer.C:
+			c.conn.ForceClose()
+		}
+	})
+	return func() {
+		if stopWatch() {
+			return // ctx was not cancelled in time; nothing ran
+		}
+		close(finished)
+		<-done
 	}
 }
 

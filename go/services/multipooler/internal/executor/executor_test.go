@@ -279,12 +279,16 @@ func (m *stubPoolManager) GetReservedConn(int64, string) (*reserved.Conn, bool) 
 	return m.reservedConn, m.reservedConnOK
 }
 
-func (m *stubPoolManager) AddAdmitted(bool)                             {}
-func (m *stubPoolManager) RemoveAdmitted(bool)                          {}
-func (m *stubPoolManager) WaitForDrain(context.Context) error           { return nil }
-func (m *stubPoolManager) WaitForReservedDrain(context.Context) error   { return nil }
-func (m *stubPoolManager) CloseReservedConnections(context.Context) int { return 0 }
-func (m *stubPoolManager) Stats() connpoolmanager.ManagerStats          { return connpoolmanager.ManagerStats{} }
+func (m *stubPoolManager) AddAdmitted(bool)                           {}
+func (m *stubPoolManager) RemoveAdmitted(bool)                        {}
+func (m *stubPoolManager) WaitForDrain(context.Context) error         { return nil }
+func (m *stubPoolManager) WaitForReservedDrain(context.Context) error { return nil }
+func (m *stubPoolManager) SealPools(error)                            {}
+func (m *stubPoolManager) UnsealPools()                               {}
+func (m *stubPoolManager) KillLent(context.Context, time.Duration) (int, error) {
+	return 0, nil
+}
+func (m *stubPoolManager) Stats() connpoolmanager.ManagerStats { return connpoolmanager.ManagerStats{} }
 func (m *stubPoolManager) CredentialQueryRecorder() connpoolmanager.CredentialQueryRecorder {
 	return nil
 }

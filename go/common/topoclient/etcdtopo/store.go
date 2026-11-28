@@ -253,6 +253,15 @@ func validateTLSEndpoints(serverAddrs []string, tlsConfig *tls.Config) error {
 	return nil
 }
 
+func newEtcdtopo(cli *clientv3.Client, root string) *etcdtopo {
+	return &etcdtopo{
+		cli:      cli,
+		root:     root,
+		running:  make(chan struct{}),
+		recovery: recoveryState{conn: cli.ActiveConnection()},
+	}
+}
+
 // NewServerWithOpts creates a new server with TLS material loaded from file paths.
 func NewServerWithOpts(serverAddrs []string, root, certPath, keyPath, caPath string) (*etcdtopo, error) {
 	tlscfg, err := newTLSConfig(certPath, keyPath, caPath)
@@ -266,11 +275,7 @@ func NewServerWithOpts(serverAddrs []string, root, certPath, keyPath, caPath str
 		return nil, err
 	}
 
-	return &etcdtopo{
-		cli:     cli,
-		root:    root,
-		running: make(chan struct{}),
-	}, nil
+	return newEtcdtopo(cli, root), nil
 }
 
 // NewServerWithTLS creates a new server with in-memory TLS options.
@@ -297,11 +302,7 @@ func connect(serverAddrs []string, root string, tlscfg *tls.Config, dial topocli
 		return nil, err
 	}
 
-	return &etcdtopo{
-		cli:     cli,
-		root:    root,
-		running: make(chan struct{}),
-	}, nil
+	return newEtcdtopo(cli, root), nil
 }
 
 // NewEtcdTopo creates a new server using the TLS paths configured by command-line flags.

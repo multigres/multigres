@@ -643,7 +643,7 @@ func TestReplicationStatus(t *testing.T) {
 	standbyManagerClient := multipoolermanagerpb.NewMultipoolerManagerClient(standbyConn)
 
 	t.Run("ReplicationStatus_PRIMARY_returns_primary_status", func(t *testing.T) {
-		setupPoolerTest(t, setup, WithoutReplication())
+		setupPoolerTest(t, setup)
 
 		t.Log("Testing ReplicationStatus on PRIMARY pooler...")
 

@@ -24,9 +24,14 @@ import (
 
 // recoveryState holds the channel behind Recoveries. The watcher goroutine
 // starts on first use, so connections nobody asks about pay nothing.
+//
+// conn is captured at construction because Close sets cli to nil, and
+// Recoveries can run after Close (topoclient.WrapperConn calls it from a
+// goroutine).
 type recoveryState struct {
 	once sync.Once
 	ch   chan struct{}
+	conn *grpc.ClientConn
 }
 
 // Recoveries is part of the topoclient.ConnRecovery interface.
@@ -40,7 +45,7 @@ type recoveryState struct {
 func (s *etcdtopo) Recoveries() <-chan struct{} {
 	s.recovery.once.Do(func() {
 		s.recovery.ch = make(chan struct{}, 1)
-		go s.watchConnState(s.cli.ActiveConnection(), s.recovery.ch)
+		go s.watchConnState(s.recovery.conn, s.recovery.ch)
 	})
 	return s.recovery.ch
 }

@@ -261,6 +261,7 @@ func TestConnectionsStoredBeforeTheConnInfoColumnAreConvertedWhenTheCatalogIsSet
 		_, err := primaryDB.Exec(`INSERT INTO multigres.connections (name, dsn, owner_role) VALUES ($1, $2, 'legacy_owner')`, name, dsn)
 		require.NoError(t, err, name)
 	}
+	forgetCatalogDefinition(t, primaryDB)
 
 	restartMultipooler(t, primary)
 

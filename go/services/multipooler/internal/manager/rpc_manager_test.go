@@ -467,6 +467,8 @@ func TestReplicationStatus(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
 
+		// Becoming the serving primary ensures the sidecar schemas first.
+		addSidecarsInPlace(mockQueryService)
 		// Status() calls postgresMode() to determine role
 		// pg_is_in_recovery returns false (not in recovery = primary)
 		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
@@ -558,6 +560,8 @@ func TestReplicationStatus(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { pm.ShutdownForTest(context.Background()) })
 
+		// Becoming the serving primary ensures the sidecar schemas first.
+		addSidecarsInPlace(mockQueryService)
 		mockQueryService.AddQueryPattern("SELECT pg_is_in_recovery",
 			mock.MakeQueryResult([]string{"pg_is_in_recovery"}, [][]any{{"f"}}))
 		mockQueryService.AddQueryPattern("SELECT pg_current_wal_lsn",

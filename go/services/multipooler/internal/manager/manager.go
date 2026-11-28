@@ -46,6 +46,7 @@ import (
 	"github.com/multigres/multigres/go/services/multipooler/internal/poolerserver"
 	"github.com/multigres/multigres/go/services/multipooler/internal/pubsub"
 	"github.com/multigres/multigres/go/services/multipooler/internal/replicationstats"
+	"github.com/multigres/multigres/go/services/multipooler/internal/schematracker"
 	"github.com/multigres/multigres/go/tools/ctxutil"
 	"github.com/multigres/multigres/go/tools/grpccommon"
 	"github.com/multigres/multigres/go/tools/retry"
@@ -85,6 +86,7 @@ type MultipoolerManager struct {
 	replTracker     *heartbeat.ReplTracker
 	pubsubListener  *pubsub.Listener
 	replStats       *replicationstats.Tracker
+	schemaTracker   *schematracker.Tracker
 	pgctldClient    pgctldpb.PgCtldClient
 
 	// connPoolMgr manages all connection pools (admin, regular, reserved)
@@ -474,7 +476,11 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 	if ov.qsc != nil {
 		pm.qsc = ov.qsc
 	} else {
-		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multipooler.Id, multipooler.GetShardRef().GetTableGroup(), multipooler.GetShardRef().GetShard(), pm, drainGracePeriod, config.BackendVpidTrackingEnabled)
+		pm.qsc = poolerserver.NewQueryPoolerServer(logger, connPoolMgr, multipooler.Id, multipooler.GetShardRef().GetTableGroup(), multipooler.GetShardRef().GetShard(), pm, drainGracePeriod, config.BackendVpidTrackingEnabled,
+			// An unmanaged pooler's database is not Multigres's: its drains
+			// end the work left without killing backends (see poolerserver
+			// drain.go).
+			!unmanaged)
 	}
 	// Armed before anything is served, so a primary admits no application
 	// work until it has read its fences (see fence_refresh.go).
@@ -522,6 +528,7 @@ func newMultipoolerManager(logger *slog.Logger, multipooler *clustermetadatapb.M
 		consensusStatus = pm.consensusMgr.CachedConsensusStatus
 	}
 	pm.stateManager = NewStateManager(logger, pm.record, consensusStatus, pm.qsc, pm.healthStreamer)
+	pm.stateManager.SetBeforeServingPrimary(pm.beforeServingPrimary)
 	if stateAwareConnPoolMgr, ok := connPoolMgr.(StateAware); ok {
 		if err := registerAndSyncStateAware(ctx, pm.stateManager, stateAwareConnPoolMgr); err != nil {
 			cancel()
@@ -654,26 +661,12 @@ func (pm *MultipoolerManager) openLocked(ctx context.Context, targetServingStatu
 	pm.openConnectionsLocked()
 	pm.logger.InfoContext(pm.ctx, "MultipoolerManager opened database connection") //nolint:sloglint // message intentionally starts with an operation name or proper noun
 
-	// The sidecar tables and the postgres monitor belong to a managed postgres: the monitor
-	// repairs, restarts and rewinds it, and the sidecar schemas are ours to keep in it. An
-	// external endpoint is neither repaired nor given sidecar tables by us.
+	// The postgres monitor belongs to a managed postgres: it repairs, restarts and rewinds
+	// it. An external endpoint is not repaired by us. The sidecar schemas are not ensured
+	// here: the StateManager ensures them before this pooler serves as the primary (see
+	// beforeServingPrimary), which the transition below or the monitor's next drift fix
+	// reaches once postgres is known to be out of recovery.
 	if !pm.IsUnmanaged() {
-		// Ensure sidecar tables that a shard bootstrapped by an older pooler
-		// version may be missing (see ensureSidecarSchemas) exist on every
-		// open/resume, not just on promotion. On the catalog shard this also
-		// upgrades the sharding catalog to this binary's catalog format.
-		//
-		// The function createSidecarSchema only ever runs once, at genuine shard
-		// bootstrap, and promoteStandbyToPrimary's equivalent call only fires on an
-		// actual pg_promote() transition. Without this, a plain process restart of
-		// an already-primary pooler would never re-ensure them, even after
-		// upgrading to a pooler version that knows about them.
-		if mode, err := pm.postgresMode(ctx); err == nil && mode.OutOfRecovery() {
-			if err := pm.ensureSidecarSchemas(ctx); err != nil {
-				pm.logger.WarnContext(ctx, "failed to ensure sidecar schemas on open", "error", err)
-			}
-		}
-
 		pm.startPostgresMonitorPollerLocked()
 	}
 
@@ -880,6 +873,19 @@ func (pm *MultipoolerManager) startReplicationStats(ctx context.Context) error {
 	return pm.stateManager.RegisterAndSync(ctx, pm.replStats)
 }
 
+// startSchemaTracker starts computing the schema token and syncs it to the
+// current serving state. The token is computed only while this pooler is the
+// writable leader, since only the primary accepts DDL, and is published on the
+// health stream so the gateway can tell when to reload its catalog cache.
+func (pm *MultipoolerManager) startSchemaTracker(ctx context.Context) error {
+	pm.schemaTracker = schematracker.NewTracker(pm.qsc.InternalQueryService(), pm.logger, pm.config.SchemaTokenInterval, func(token string) {
+		if pm.healthStreamer != nil {
+			pm.healthStreamer.SetSchemaToken(token)
+		}
+	})
+	return pm.stateManager.RegisterAndSync(ctx, pm.schemaTracker)
+}
+
 // startPubSubListener creates the shared LISTEN/NOTIFY listener and registers
 // it with the state manager. The listener runs only when PRIMARY+SERVING.
 func (pm *MultipoolerManager) startPubSubListener(ctx context.Context) error {
@@ -1010,6 +1016,12 @@ func (pm *MultipoolerManager) openConnectionsLocked() {
 			pm.logger.Error("failed to start replication stats poller", "error", err)
 		}
 	}
+
+	if pm.schemaTracker == nil {
+		if err := pm.startSchemaTracker(context.TODO()); err != nil {
+			pm.logger.Error("failed to start schema tracker", "error", err)
+		}
+	}
 }
 
 // closeConnectionsLocked closes the connection pool manager and query service controller
@@ -1043,6 +1055,12 @@ func (pm *MultipoolerManager) closeConnectionsLocked(forReopen bool) {
 		pm.stateManager.Unregister(pm.replStats)
 		pm.replStats.Close()
 		pm.replStats = nil
+	}
+
+	if pm.schemaTracker != nil {
+		pm.stateManager.Unregister(pm.schemaTracker)
+		pm.schemaTracker.Close()
+		pm.schemaTracker = nil
 	}
 
 	// Close connection pool manager
@@ -1763,12 +1781,9 @@ func (pm *MultipoolerManager) promoteStandbyToPrimary(ctx context.Context, state
 		pm.dropUnloggedTablesAfterPromotion(sweepCtx)
 	}()
 
-	// Ensure the unlogged backend_vpid sidecar table exists before the pooler is
-	// marked serving. The asynchronous sweep preserves it because VPID tracking
-	// and lock-wait probes require the relation to remain present.
-	if err := pm.createBackendVpidTable(ctx); err != nil {
-		pm.logger.WarnContext(ctx, "failed to recreate backend_vpid table after promotion", "error", err)
-	}
+	// The sidecar schemas, including the unlogged backend_vpid table and the
+	// probe's grant, are ensured by the transition to serving primary that
+	// follows (see beforeServingPrimary), not here.
 
 	return nil
 }
@@ -1813,7 +1828,10 @@ func (pm *MultipoolerManager) dropUnloggedTablesAfterPromotion(ctx context.Conte
 			continue
 		}
 		// PostgreSQL already resets this unlogged table on promotion; keep it for
-		// VPID tracking and isolation lock-wait probes.
+		// VPID tracking and isolation lock-wait probes. The sweep can list the
+		// tables before the serving transition has created it (see
+		// beforeServingPrimary); then it is not listed, and there is nothing
+		// to keep.
 		if name == "multigres.backend_vpid" {
 			continue
 		}

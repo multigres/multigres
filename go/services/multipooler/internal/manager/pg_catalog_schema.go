@@ -16,6 +16,8 @@ package manager
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -23,8 +25,10 @@ import (
 
 	"github.com/multigres/multigres/go/common/backingconn"
 	"github.com/multigres/multigres/go/common/mterrors"
+	clustermetadatapb "github.com/multigres/multigres/go/pb/clustermetadata"
 	mtrpcpb "github.com/multigres/multigres/go/pb/mtrpc"
 	"github.com/multigres/multigres/go/services/multipooler/internal/executor"
+	"github.com/multigres/multigres/go/services/multipooler/internal/migration"
 )
 
 // ============================================================================
@@ -33,7 +37,8 @@ import (
 // The sharding catalog (tablegroups, shards, tables, shard indexes and keys,
 // operations, named connections, routing rules, admission fences) lives in the
 // multigres schema on the catalog shard (see constants.IsCatalogShard).
-// ensureCatalogSchema keeps it current on every primary open from three lists:
+// ensureCatalogShard keeps it current each time a pooler becomes the serving
+// primary (see ensureSidecarSchemas), from three lists:
 //
 //   - catalogMigrations: breaking changes (drop or rename a table or column,
 //     change a type or constraint, backfill or delete data), numbered and
@@ -41,23 +46,35 @@ import (
 //     catalogTables and its data changes after it (see catalogMigration).
 //     multigres.catalog_state.format_version counts how many have been
 //     applied.
-//   - catalogTables: every catalog table, declared idempotently and re-run on
-//     every open. Additive changes (a new table, a new nullable or defaulted
-//     column) are appended here and need no format bump.
-//   - catalogSeed: the initial rows, inserted idempotently on every open.
+//   - catalogTables: every catalog table, declared idempotently and re-run by
+//     every full ensure. Additive changes (a new table, a new nullable or
+//     defaulted column) are appended here and need no format bump.
+//   - catalogSeed: the initial rows, inserted idempotently by every full
+//     ensure.
 //
 // After them, fillConnInfo gives a connection stored before multigres.connections had a conninfo
 // column its conninfo, converted from its dsn.
+//
+// A full ensure writes, so ensureCatalogShard skips it when catalog_state
+// already records this binary's format and catalogDefinitionHash.
 // ============================================================================
 
 // catalogSchemaLockKey is the pg_advisory_xact_lock key that serializes
-// concurrent ensureCatalogSchema runs (e.g. bootstrap and an open). The value
+// concurrent ensureCatalogSchema runs (e.g. bootstrap and a serving transition). The value
 // is the ASCII bytes of "multigrs", to keep it distinctive.
 const catalogSchemaLockKey int64 = 0x6d756c7469677273
 
 // catalogSchemaTimeout bounds a whole ensureCatalogSchema transaction,
 // including the wait for the advisory lock.
 const catalogSchemaTimeout = 10 * time.Second
+
+// catalogSchemaLockTimeout bounds each table lock ensureCatalogSchema waits
+// for once it holds the advisory lock. Its DDL takes table locks (CREATE INDEX
+// IF NOT EXISTS a ShareLock, ALTER TABLE ... ADD COLUMN IF NOT EXISTS an
+// AccessExclusiveLock) even when it changes nothing, and a lock request
+// waiting behind a long-running reader of the table also queues every new
+// reader behind it. A timeout fails the ensure, and the monitor retries it.
+const catalogSchemaLockTimeout = "1s"
 
 // catalogMigration upgrades the catalog from format version-1 to version, in
 // two phases inside ensureCatalogSchema's transaction:
@@ -158,7 +175,7 @@ const (
 // Its postStatements run after catalogTables, as plain SQL against the
 // current tables, and must find nothing to do on a fresh shard. A migration that
 // changes the shape of something catalogTables declares must also edit or
-// remove that catalogTables statement in the same change, or the next open
+// remove that catalogTables statement in the same change, or the next full ensure
 // recreates the old shape; the golden test in pg_catalog_schema_test.go allows
 // such an edit only together with a new migration.
 var catalogMigrations = []catalogMigration{
@@ -193,8 +210,8 @@ WHERE f.operation_id = o.operation_id AND o.state IN ('` + opStateDone + `', '` 
 }
 
 // catalogTables declares every catalog table, in foreign-key dependency
-// order. Every statement is idempotent and runs on every open, which is how an
-// existing catalog picks up tables added by a later release.
+// order. Every statement is idempotent and runs on every full ensure, which is
+// how an existing catalog picks up tables added by a later release.
 //
 // Additive changes are appended: a new table as CREATE TABLE IF NOT EXISTS, a
 // new nullable or defaulted column as ALTER TABLE ... ADD COLUMN IF NOT EXISTS
@@ -204,8 +221,8 @@ WHERE f.operation_id = o.operation_id AND o.state IN ('` + opStateDone + `', '` 
 // migration in catalogMigrations (see its comment).
 //
 // CREATE INDEX IF NOT EXISTS takes a ShareLock on its table before finding
-// the index already exists, so every open briefly blocks writes to shard_key
-// until ensureCatalogSchema commits.
+// the index already exists, so every full ensure briefly blocks writes to
+// shard_key until ensureCatalogSchema commits.
 var catalogTables = []string{
 	`CREATE TABLE IF NOT EXISTS multigres.catalog_state (
 	singleton       boolean PRIMARY KEY DEFAULT true CHECK (singleton),
@@ -319,20 +336,23 @@ var catalogTables = []string{
 	state         text   NOT NULL CHECK (state IN ('FENCING', 'FENCED')),
 	version       bigint NOT NULL
 )`,
+	// definition_hash is the catalogDefinitionHash of the binary that last
+	// completed a full ensure of this catalog, NULL until one has.
+	`ALTER TABLE multigres.catalog_state ADD COLUMN IF NOT EXISTS definition_hash text`,
 }
 
 // catalogSeed inserts the catalog's initial rows. Every insert is idempotent
-// and runs on every open after catalogTables, so a row that already exists is
-// never changed. The same append-only rule as catalogTables applies.
+// and runs on every full ensure after catalogTables, so a row that already
+// exists is never changed. The same append-only rule as catalogTables applies.
 //
 // Rows in a table with an identity key are guarded by WHERE NOT EXISTS, not
 // just ON CONFLICT DO NOTHING: INSERT evaluates the identity default before it
 // detects the conflict, so an unguarded insert would consume an id on every
-// open. ON CONFLICT stays as a backstop.
+// full ensure. ON CONFLICT stays as a backstop.
 //
 // The seed does not advance routing_version (see routing_snapshot.go): its
 // rows are only ever inserted in the transaction that creates catalog_state,
-// so no snapshot can be read without them, and every later open changes
+// so no snapshot can be read without them, and every later ensure changes
 // nothing.
 var catalogSeed = []string{
 	// format_version starts at 0; ensureCatalogSchema sets the real format
@@ -352,6 +372,132 @@ var catalogSeed = []string{
 // latestCatalogFormat returns the newest catalog format this binary knows.
 func latestCatalogFormat() int {
 	return catalogMigrations[len(catalogMigrations)-1].version
+}
+
+// catalogEnsureRevision versions what the full catalog ensure does beyond the
+// SQL lists catalogDefinitionHash covers: its Go steps, such as fillConnInfo
+// and legacyConnInfo, and their order. Bump it on any change to them, or
+// catalogs that recorded the previous hash never run the changed steps.
+const catalogEnsureRevision = 1
+
+// catalogDefinitionHash identifies everything a full ensure of the catalog
+// shard (ensureCatalogShard) applies: catalogEnsureRevision,
+// latestCatalogFormat, every migration's statements, catalogTables,
+// catalogSeed and the migration store's schema. Two binaries with the same
+// hash apply the same catalog, so one whose hash catalog_state already records
+// has nothing to apply. A change to the full ensure must change this hash: SQL
+// through the lists, anything else through catalogEnsureRevision.
+var catalogDefinitionHash = computeCatalogDefinitionHash()
+
+// computeCatalogDefinitionHash computes catalogDefinitionHash from the lists
+// it covers.
+func computeCatalogDefinitionHash() string {
+	h := sha256.New()
+	add := func(stmts ...string) {
+		for _, stmt := range stmts {
+			// The length prefix keeps the boundaries between statements in the hash.
+			fmt.Fprintf(h, "%d:%s\n", len(stmt), stmt)
+		}
+	}
+	add(fmt.Sprintf("ensure revision %d", catalogEnsureRevision))
+	add(fmt.Sprintf("format %d", latestCatalogFormat()))
+	for _, m := range catalogMigrations {
+		add(fmt.Sprintf("migration %d", m.version))
+		add(m.statements...)
+		add(m.postStatements...)
+	}
+	add("tables")
+	add(catalogTables...)
+	add("seed")
+	add(catalogSeed...)
+	add("migration schema")
+	add(migration.SchemaSQL()...)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// catalogDefinitionSQL reads the format and definition hash catalog_state
+// records. to_jsonb reads the hash without failing on a catalog_state from
+// before the column existed, so one plain SELECT answers for every catalog
+// that has catalog_state.
+const catalogDefinitionSQL = `SELECT format_version, to_jsonb(s)->>'definition_hash' FROM multigres.catalog_state s`
+
+// recordCatalogDefinitionSQL records the definition hash of the binary that
+// completed a full ensure. It writes only at this binary's format, so it never
+// marks a newer format as ensured, and only when the hash changes.
+const recordCatalogDefinitionSQL = `UPDATE multigres.catalog_state SET definition_hash = $1
+WHERE format_version = $2 AND definition_hash IS DISTINCT FROM $1`
+
+// ensureCatalogShard brings the catalog shard's catalog and the migrator's
+// schema that depends on it up to date, and records catalogDefinitionHash
+// once both are. When catalog_state already records this binary's format and
+// hash, it returns after one read, without a lock or a write: a full ensure
+// takes the catalog_state row lock and runs DDL, so it assigns a transaction
+// id, and under synchronous replication its commit would wait for a standby
+// on every serving transition.
+//
+// A catalog at a format newer than this binary knows is left untouched,
+// including the migrator's schema, as ensureCatalogSchema leaves it: a newer
+// binary already ensured both. An older binary can still serve on it.
+//
+// Mixed versions during a roll cannot downgrade the catalog. A newer format
+// is never touched (above). At the same format, a binary whose hash differs
+// runs the full ensure, which only re-runs its own catalogTables and
+// catalogSeed: they are append-only and idempotent, so on a catalog a newer
+// binary ensured they find everything already there and change nothing. It
+// then records its own hash, so the other binary runs its full ensure again
+// on its next serving transition, which is idempotent too. The exception is
+// the migrator's stat_migration view, which CREATE OR REPLACE VIEW rewrites
+// to the running binary's definition on every full ensure; the hash makes it
+// change hands only when the binary that becomes the primary changes.
+func (pm *MultipoolerManager) ensureCatalogShard(ctx context.Context, rule *clustermetadatapb.RuleNumber) error {
+	current, err := pm.catalogDefinitionCurrent(ctx)
+	if err != nil {
+		return err
+	}
+	if current {
+		return nil
+	}
+	if err := pm.ensureCatalogSchema(ctx, rule); err != nil {
+		return err
+	}
+	// The migrator's schema needs multigres.connections, so it goes after the
+	// catalog.
+	if err := pm.ensureCatalogMigrationSchema(ctx); err != nil {
+		return err
+	}
+	execCtx, cancel := context.WithTimeout(ctx, catalogSchemaTimeout)
+	defer cancel()
+	if err := pm.adminExecArgs(execCtx, recordCatalogDefinitionSQL, catalogDefinitionHash, latestCatalogFormat()); err != nil {
+		return mterrors.Wrap(err, "failed to record the catalog definition hash")
+	}
+	return nil
+}
+
+// catalogDefinitionCurrent reports whether the catalog needs no full ensure:
+// catalog_state records this binary's format and catalogDefinitionHash, or a
+// newer format. A missing catalog_state needs one.
+func (pm *MultipoolerManager) catalogDefinitionCurrent(ctx context.Context) (bool, error) {
+	execCtx, cancel := context.WithTimeout(ctx, catalogSchemaTimeout)
+	defer cancel()
+	res, err := pm.adminQuery(execCtx, catalogDefinitionSQL)
+	if mterrors.ExtractSQLSTATE(err) == mterrors.PgSSUndefinedTable {
+		return false, nil
+	}
+	if err != nil {
+		return false, mterrors.Wrap(err, "failed to read the catalog definition")
+	}
+	var format int
+	var hash *string
+	if err := executor.ScanSingleRow(res, &format, &hash); err != nil {
+		return false, mterrors.Wrap(err, "failed to read the catalog definition")
+	}
+	latest := latestCatalogFormat()
+	if format > latest {
+		pm.logger.WarnContext(ctx, "catalog format is newer than this binary knows; leaving it unchanged",
+			"format_version", format, "latest_known_format_version", latest)
+		return true, nil
+	}
+	return format == latest && hash != nil && *hash == catalogDefinitionHash, nil
 }
 
 // ensureCatalogSchema brings the catalog shard's catalog up to date in one
@@ -374,7 +520,12 @@ func latestCatalogFormat() int {
 // catalog tables; CREATE INDEX IF NOT EXISTS takes a ShareLock on shard_key),
 // and advances the versions as the applied migrations declare. A fresh or
 // legacy catalog has no snapshot to invalidate, so it advances nothing.
-func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
+//
+// rule is the consensus rule this pooler is the primary under, which labels
+// the versions it publishes. It is passed in rather than read from the
+// StateManager because the serving transition that runs this has not yet made
+// this pooler the primary there.
+func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context, rule *clustermetadatapb.RuleNumber) error {
 	queryService := pm.internalQueryService()
 	if queryService == nil {
 		return mterrors.Errorf(mtrpcpb.Code_UNAVAILABLE, "internal query service unavailable for catalog schema")
@@ -382,7 +533,6 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 
 	execCtx, cancel := context.WithTimeout(ctx, catalogSchemaTimeout)
 	defer cancel()
-	rule := pm.routingRule()
 
 	tx, err := queryService.BeginAdmin(execCtx)
 	if err != nil {
@@ -392,6 +542,11 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 
 	if _, err := tx.QueryArgs(execCtx, "SELECT pg_advisory_xact_lock($1)", catalogSchemaLockKey); err != nil {
 		return mterrors.Wrap(err, "failed to lock catalog schema")
+	}
+	// Set after the advisory lock, whose wait (for another ensure) blocks no
+	// reader and is bounded by catalogSchemaTimeout instead.
+	if _, err := tx.Query(execCtx, "SET LOCAL lock_timeout = '"+catalogSchemaLockTimeout+"'"); err != nil {
+		return mterrors.Wrap(err, "failed to set the catalog schema lock timeout")
 	}
 
 	current, existed, err := readCatalogFormat(execCtx, tx)
@@ -445,8 +600,8 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 		return err
 	}
 
-	// Skip the write when the format is already current, so a routine open
-	// does not rewrite the catalog_state row.
+	// Skip the write when the format is already current, so an ensure at the
+	// current format does not rewrite the catalog_state row.
 	if _, err := tx.QueryArgs(execCtx,
 		"UPDATE multigres.catalog_state SET format_version = $1 WHERE format_version IS DISTINCT FROM $1", latest); err != nil {
 		return mterrors.Wrap(err, "failed to record catalog format version")
@@ -462,6 +617,10 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 	if err := tx.Commit(execCtx); err != nil {
 		return mterrors.Wrap(err, "failed to commit catalog schema")
 	}
+	// During a serving transition the health streamer does not yet advertise
+	// this pooler as the primary under rule, so it drops this; the gateways
+	// refetch the snapshot of a new primary anyway, and the catalog version
+	// refresh rereads catalog_state.
 	if versions != (catalogVersions{}) {
 		pm.publishCatalogWrite(rule, versions)
 	}
@@ -474,11 +633,14 @@ func (pm *MultipoolerManager) ensureCatalogSchema(ctx context.Context) error {
 
 // fillConnInfo gives every connection that has no conninfo the conninfo and the dsn
 // CreateConnection stores for its dsn (legacyConnInfo), so that a converted connection is the one
-// that would be created now. It runs on every setup and finds nothing to do once the connections
-// are filled. A dsn that does not parse or does not validate (no password, a socket host) leaves
+// that would be created now. It runs on every full ensure and finds nothing to do, and writes
+// nothing, once the connections are filled. A dsn that does not parse or does not validate (no password, a socket host) leaves
 // its connection as it is, without a conninfo, which every reader reports as a connection to drop
 // and create again; the log names the connection and never the dsn or anything parsed from it,
 // which holds the password.
+//
+// A change to what fillConnInfo or legacyConnInfo does is a change to the full
+// ensure: bump catalogEnsureRevision with it.
 func fillConnInfo(ctx context.Context, tx executor.InternalTx, logger *slog.Logger) error {
 	res, err := tx.Query(ctx, selectUnfilledConnectionsSQL)
 	if err != nil {

@@ -377,6 +377,23 @@ func (c *Conn) TerminateBackend(ctx context.Context, processID uint32) (bool, er
 	return c.execBackendFunc(ctx, sql, "terminate", processID)
 }
 
+// TerminateBackendAndWait terminates a backend process with
+// pg_terminate_backend(pid, timeout), which waits up to timeout for the backend
+// to exit, and reports whether it is gone. pg_terminate_backend returns false
+// when the backend did not exit in time, when it does not exist, and when the
+// caller lacks permission; so on false the backend counts as gone only if
+// pg_stat_activity no longer lists it.
+//
+// Both run in one statement: CASE evaluates its branches in order, so the
+// pg_stat_activity check runs only after pg_terminate_backend returned false.
+func (c *Conn) TerminateBackendAndWait(ctx context.Context, processID uint32, timeout time.Duration) (bool, error) {
+	ms := max(timeout.Milliseconds(), 1)
+	sql := fmt.Sprintf(
+		"SELECT CASE WHEN pg_terminate_backend(%d, %d) THEN true ELSE NOT EXISTS (SELECT 1 FROM pg_stat_activity WHERE pid = %d) END",
+		processID, ms, processID)
+	return c.execBackendFunc(ctx, sql, "terminate", processID)
+}
+
 // CancelBackend cancels the current query on a backend process using pg_cancel_backend().
 // This sends SIGINT to the backend, canceling the current query but keeping the connection.
 // Returns true if the signal was sent, false if the backend was not found or
